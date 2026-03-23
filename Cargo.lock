@@ -3852,6 +3852,7 @@ dependencies = [
 name = "rt-remote-access"
 version = "0.1.0"
 dependencies = [
+ "duckdb",
  "glob",
  "notatin",
  "quick-xml",
