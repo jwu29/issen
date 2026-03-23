@@ -1,0 +1,170 @@
+# Strategic Recommendation Outputs
+# Generated: 2026-03-20
+# Source: STRATEGIC_RECOMMENDATION.md
+
+recommended_path: "B"
+recommended_path_name: "Report Engine First"
+recommendation_confidence: "high-conviction-what, medium-conviction-when"
+
+paths_evaluated:
+  - id: "A"
+    name: "Parser Foundation First"
+    thesis: "Build comprehensive open-source parser library first (12+ artifact types), maximize community adoption, delay proprietary report engine to v0.3+"
+    weighted_score: 2.15
+    tarr_at_6_months: "~14 hours"
+    tarr_at_12_months: "~6 hours"
+    revenue_timeline: "Q1 2027"
+    rejected_reason: "Zero TARR improvement for 9+ months; violates 'Report is the Product' axiom"
+
+  - id: "B"
+    name: "Report Engine First"
+    thesis: "Build minimal parser set (USN + MFT + EventLog) with full report pipeline; demonstrate differentiator immediately"
+    weighted_score: 4.50
+    tarr_at_6_months: "< 4 hours (within coverage)"
+    tarr_at_12_months: "< 4 hours (expanded coverage)"
+    revenue_timeline: "Q3 2026"
+    selected: true
+
+  - id: "C"
+    name: "Balanced Incremental"
+    thesis: "Alternate sprints between parsers and report features"
+    weighted_score: 2.30
+    tarr_at_6_months: "~10 hours"
+    tarr_at_12_months: "~5 hours"
+    revenue_timeline: "Q4 2026"
+    rejected_reason: "Neither dimension reaches compelling threshold; 'jack of all trades' risk"
+
+path_b_reasoning:
+  - "TARR is the North Star — the report IS the product. Parsers without reports = zero TARR improvement."
+  - "No competitor has attorney-ready output. Only genuine gap in the market."
+  - "3 parsers (USN + MFT + EventLog) cover 60-70% of typical IR triage cases."
+  - "Community parser contributions easier to attract once integration framework exists."
+  - "Revenue comes from report engine (proprietary), not parsers (open-source)."
+  - "12-18 month first-mover window for AI-assisted reporting."
+
+minimum_parser_set:
+  - artifact: "USN Journal"
+    crate: "usnjrnl-forensic"
+    version: "v0.6"
+    status: "existing"
+    coverage: "File creation, deletion, rename activity"
+  - artifact: "MFT"
+    crate: "tbd"
+    version: "v0.1"
+    status: "planned"
+    coverage: "File metadata, timestamps, directory structure"
+  - artifact: "EventLog (EVTX)"
+    crate: "tbd"
+    version: "v0.1"
+    status: "planned"
+    coverage: "Authentication, service installations, PowerShell execution"
+
+focus_areas:
+  - area: "Report template engine"
+    tarr_stage: "Report writing (manual -> automated)"
+    tarr_reduction: "6-8 hours"
+  - area: "Dual-format output (HTML + Word/PDF)"
+    tarr_stage: "Formatting and delivery"
+    tarr_reduction: "1-2 hours"
+  - area: "Exhibit numbering and citations"
+    tarr_stage: "Legal formatting"
+    tarr_reduction: "0.5-1 hour"
+  - area: "AI-assisted narrative generation"
+    tarr_stage: "Finding-to-prose translation"
+    tarr_reduction: "2-3 hours"
+  - area: "MFT parser"
+    tarr_stage: "Analysis (new artifact)"
+    tarr_reduction: "0.5 hours"
+  - area: "EventLog parser"
+    tarr_stage: "Analysis (new artifact)"
+    tarr_reduction: "0.5 hours"
+  - area: "Cross-artifact correlation"
+    tarr_stage: "Manual cross-referencing"
+    tarr_reduction: "1-2 hours"
+  - area: "Daubert methodology sections"
+    tarr_stage: "Methodology documentation"
+    tarr_reduction: "0.5-1 hour"
+
+avoid_list:
+  features:
+    - "Mobile forensics"
+    - "Memory forensics"
+    - "Malware analysis / sandboxing"
+    - "Cloud forensics"
+    - "Real-time collection"
+    - "eDiscovery workflows"
+    - "SIEM / detection engineering"
+  approaches:
+    - "Enterprise-first features"
+    - "GUI-first architecture"
+    - "Subscription-only pricing"
+    - "Feature-count marketing"
+    - "Parser coverage breadth over depth"
+
+milestones:
+  - id: "M1"
+    name: "First attorney-ready report"
+    target: "End of Q2 2026"
+    success: "One complete report from evidence-to-deliverable pipeline, used on real engagement"
+    kill: "Cannot produce a report that an attorney accepts without manual rework"
+  - id: "M2"
+    name: "TARR < 4 hours validated"
+    target: "End of Q3 2026"
+    success: "3 real engagements completed with TARR < 4 hours"
+    kill: "Average TARR > 6 hours across 3 engagements"
+  - id: "M3"
+    name: "First paying user (non-consulting)"
+    target: "End of Q4 2026"
+    success: "Revenue from a practitioner who is not the founder's consulting client"
+    kill: "Zero external revenue by end of Q4 2026"
+  - id: "M4"
+    name: "Community parser contribution"
+    target: "End of Q1 2027"
+    success: "At least 1 community-contributed parser merged and integrated"
+    kill: "Zero community contributions after 6 months of open-source availability"
+
+confidence_assessment:
+  problem_understanding: "High"
+  solution_fit: "High"
+  execution_feasibility: "Medium"
+  market_timing: "High"
+  team_capability: "Medium"
+
+falsification_scenarios:
+  - scenario: "Magnet ships native attorney-ready reports within 12 months"
+    probability: "Low-Medium"
+    response: "Accelerate differentiation on open-source parsers and Rust performance"
+  - scenario: "Practitioners don't pay for reports"
+    probability: "Low"
+    response: "Investigate alternative monetization (training, templates, consulting integration)"
+  - scenario: "Local LLM narrative quality insufficient"
+    probability: "Medium"
+    response: "Fall back to structured template-based reports without AI narrative"
+  - scenario: "3-parser coverage too narrow"
+    probability: "Medium"
+    response: "Accelerate Registry and Prefetch parsers"
+  - scenario: "Solo founder burnout / bandwidth collapse"
+    probability: "Medium"
+    response: "Reduce scope; seek community contributor; consider part-time contractor"
+
+review_triggers:
+  - trigger: "TARR > 8 hours after 8 weeks of development"
+    action: "Stop and diagnose bottleneck stage"
+  - trigger: "Any major competitor announces attorney-ready reports"
+    action: "Emergency strategy session"
+  - trigger: "< 10 practitioners express interest after public announcement"
+    action: "Re-evaluate messaging and positioning"
+  - trigger: "AI narrative fails after 4 weeks of prompt engineering"
+    action: "Descope AI narrative to Phase 2; adjust TARR target to < 6 hours"
+  - trigger: "Zero paying users after 6 months"
+    action: "Fundamental business model review"
+  - trigger: "Consulting > 30 hrs/week for 3+ consecutive weeks"
+    action: "Reduce consulting load or recalculate milestones"
+
+decision_matrix_weights:
+  tarr_impact_speed: 0.30
+  competitive_differentiation: 0.25
+  revenue_timeline: 0.15
+  community_ecosystem: 0.10
+  solo_founder_feasibility: 0.10
+  risk_profile: 0.10

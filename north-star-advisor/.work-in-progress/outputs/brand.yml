@@ -1,0 +1,67 @@
+# Brand Guidelines - Structured Outputs
+# Generated: 2026-03-20
+# Source: north-star-advisor/docs/BRAND_GUIDELINES.md
+
+brand:
+  name: "RapidTriage"
+  trademark: "RapidTriage™"
+
+  positioning: "RapidTriage is a forensic triage platform that transforms digital forensic artifacts into attorney-ready reports and interactive explorations for IR practitioners, forensic examiners, and litigation support teams."
+
+  tagline: "Evidence tells a story."
+
+  beliefs:
+    - name: "Evidence Tells a Story"
+      implication: "Every feature decision filtered through: does this help the examiner tell the story of what happened?"
+    - name: "The Last 80% Is the Real Problem"
+      implication: "Treat the report as the product, not an afterthought. Analysis is means; deliverable is end."
+    - name: "By Practitioners, For Practitioners"
+      implication: "Tool reflects real workflow — ingest what collectors produce, output what attorneys need."
+    - name: "Open Parsers, Integrated Platform"
+      implication: "Open-source building blocks, proprietary integration. Parsers commoditize; integration differentiates."
+    - name: "Correctness Over Speed (But Aim for Both)"
+      implication: "Never sacrifice correctness for performance. Rust chosen to avoid that tradeoff."
+
+  kill_list:
+    - item: "Not a collection tool"
+      rationale: "Ingests KAPE/Velociraptor/ACQUIRE output. Collection is solved."
+    - item: "Not an eDiscovery platform"
+      rationale: "Produces evidence for Relativity/Nuix. Different problem, different users."
+    - item: "Not a SIEM/SOC tool"
+      rationale: "Post-incident forensic analysis, not real-time detection."
+    - item: "Not enterprise-first"
+      rationale: "Solo examiner and small IR team first. Enterprise features come later."
+    - item: "Not a competitor to the examiner"
+      rationale: "Eliminates translation work so examiner focuses on analysis and expert opinion."
+
+  voice:
+    traits:
+      - "Practitioner-first"
+      - "Direct"
+      - "Technically honest"
+      - "Quietly confident"
+      - "Outcome-oriented"
+    tone: "SANS DFIR Summit peer conversation, not SaaS product launch"
+    avoid:
+      - "Marketing superlatives"
+      - "AI-powered claims"
+      - "Startup jargon"
+      - "Feature-count marketing"
+
+  license:
+    model: "Dual: Open Source + Proprietary"
+    open_source: "Apache 2.0 (parsers) / MIT (utilities)"
+    proprietary: "Closed source (integration, reports, UI, enterprise)"
+    ethical_commitments:
+      - "Never build features to fabricate or alter forensic evidence"
+      - "Maintain chain-of-custody integrity in all output"
+      - "Open-source parsers remain open permanently"
+
+  visual:
+    primary_color: "Slate Blue (#475569)"
+    accent_color: "Amber (#D97706)"
+    aesthetic: "Dense but organized, print-ready, courtroom-credible"
+    typography:
+      headlines: "Inter or system sans-serif"
+      body: "Inter or system sans-serif"
+      code: "JetBrains Mono or system monospace"

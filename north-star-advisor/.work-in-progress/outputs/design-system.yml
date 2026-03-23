@@ -1,0 +1,181 @@
+# UI Design System - Structured Outputs
+# Generated: 2026-03-20
+# Source: north-star-advisor/docs/design/UI_DESIGN_SYSTEM.md
+
+design_system:
+  surfaces:
+    - name: "TUI"
+      technology: "ratatui 0.29 + crossterm 0.28"
+      token_format: "Rust Color::Rgb constants"
+      dark_mode: "always"
+      print: false
+
+    - name: "HTML Reports"
+      technology: "Standalone self-contained HTML"
+      token_format: "CSS custom properties (inlined)"
+      dark_mode: "user toggle"
+      print: true
+
+    - name: "Desktop GUI"
+      technology: "Tauri v2 webview"
+      token_format: "CSS custom properties / Tailwind v4"
+      dark_mode: "system + toggle"
+      print: "via HTML"
+
+    - name: "Web UI"
+      technology: "axum + React/Leptos (future)"
+      token_format: "CSS custom properties / Tailwind v4"
+      dark_mode: "system + toggle"
+      print: "via HTML"
+
+  colors:
+    primary: "#475569"        # Slate Blue (slate-600)
+    primary_hover: "#334155"  # slate-700
+    accent: "#D97706"         # Amber (amber-600)
+    accent_hover: "#B45309"   # amber-700
+
+    semantic:
+      success: "#059669"      # emerald-600
+      warning: "#D97706"      # amber-600
+      error: "#DC2626"        # red-600
+      info: "#2563EB"         # blue-600
+
+    integrity:
+      verified: "#059669"
+      unverified: "#D97706"
+      tampered: "#DC2626"
+      partial: "#7C3AED"
+
+    severity:
+      critical: "#991B1B"
+      high: "#DC2626"
+      medium: "#D97706"
+      low: "#2563EB"
+      info: "#475569"
+
+    artifact_sources:
+      filesystem: "#2563EB"   # MFT, USN Journal, $LogFile
+      registry: "#7C3AED"     # SYSTEM, SOFTWARE, NTUSER, SAM
+      eventlog: "#059669"     # Windows Event Logs
+      prefetch: "#D97706"     # Prefetch, Superfetch
+      browser: "#0891B2"      # Chrome, Firefox, Edge history
+      email: "#DC2626"        # PST, OST, EML
+      network: "#4F46E5"      # PCAP, DNS, firewall logs
+      persistence: "#BE185D"  # Scheduled tasks, services, startup
+      memory: "#9333EA"       # RAM dumps, pagefile
+      cloud: "#0D9488"        # O365, Azure AD, AWS CloudTrail
+      usb: "#EA580C"          # USB device history, SetupAPI
+      user: "#475569"         # LNK, JumpLists, shellbags, RDP
+
+    dark_mode:
+      bg: "#0F172A"
+      surface: "#1E293B"
+      text: "#F1F5F9"
+      accent: "#F59E0B"       # brighter amber for dark backgrounds
+
+  typography:
+    font_display: "'Inter', system-ui, -apple-system, sans-serif"
+    font_body: "'Inter', system-ui, -apple-system, sans-serif"
+    font_mono: "'JetBrains Mono', 'Cascadia Code', ui-monospace, monospace"
+    scale: "1.200 minor third"
+    sizes:
+      xs: "0.694rem"    # 11.1px
+      sm: "0.833rem"    # 13.3px
+      base: "1rem"      # 16px
+      md: "1.2rem"      # 19.2px
+      lg: "1.44rem"     # 23px
+      xl: "1.728rem"    # 27.6px
+      2xl: "2.074rem"   # 33.2px
+
+  spacing:
+    base: "4px"
+    scale: "0, 1px, 2px, 4px, 6px, 8px, 12px, 16px, 20px, 24px, 32px, 40px, 48px, 64px, 80px"
+
+  border_radius:
+    sm: "0.25rem"
+    md: "0.375rem"
+    lg: "0.5rem"
+    full: "9999px"
+
+  components:
+    - name: "Timeline Row"
+      surfaces: ["TUI", "HTML Reports", "Desktop GUI"]
+      description: "Grid layout: timestamp | source-dot | artifact-type | description | actions"
+      columns: "180px 32px 120px 1fr 80px"
+
+    - name: "Evidence Card"
+      surfaces: ["HTML Reports", "Desktop GUI"]
+      description: "Evidence item with integrity badge, metadata grid, hash display"
+
+    - name: "Finding Summary"
+      surfaces: ["HTML Reports", "Desktop GUI"]
+      description: "Severity-bordered card with title, description, and exhibit references"
+
+    - name: "Exhibit Reference"
+      surfaces: ["HTML Reports"]
+      description: "Inline parenthetical link to exhibit; prints as bold text"
+
+    - name: "Data Table"
+      surfaces: ["HTML Reports", "Desktop GUI", "Web UI"]
+      description: "Monospace sortable table with sticky header, zebra print stripes"
+
+    - name: "Density Heatmap"
+      surfaces: ["TUI", "Desktop GUI", "Web UI"]
+      description: "Bird's-eye timeline density; opacity maps to event count per time bucket"
+
+    - name: "Artifact Distribution"
+      surfaces: ["HTML Reports", "Desktop GUI"]
+      description: "Horizontal bar chart of artifact counts by source type"
+
+    - name: "Badges"
+      surfaces: ["All"]
+      variants: ["artifact-type (12)", "severity (5)", "integrity (3)"]
+
+    - name: "Buttons"
+      surfaces: ["Desktop GUI", "Web UI"]
+      variants: ["primary", "secondary", "ghost", "danger"]
+
+    - name: "Input Fields"
+      surfaces: ["Desktop GUI", "Web UI"]
+      variants: ["standard", "filter (monospace with search icon)"]
+
+  icons:
+    library: "Lucide Icons (MIT)"
+    sizes: ["16px (inline)", "18px (button)", "20px (header)", "48px (empty state)"]
+    core_set_count: 20
+
+  breakpoints:
+    sm: "640px"
+    md: "768px"
+    lg: "1024px"
+    xl: "1280px"
+    2xl: "1536px"
+
+  accessibility:
+    standard: "WCAG 2.1 AA minimum"
+    contrast: "4.5:1 text, 3:1 UI components"
+    color_independence: "Artifact types always paired with text labels, never color-alone"
+    reduced_motion: "All transitions set to 0ms via prefers-reduced-motion"
+    focus_ring: "2px amber outline on focus-visible"
+    print: "Black-on-white conversion for court exhibits"
+    high_contrast: "forced-colors support via @media query"
+    screen_reader: "Skip links, ARIA sort indicators, semantic HTML"
+
+  print:
+    page_size: "letter (8.5x11in)"
+    margins: "0.75in top/bottom, 1in left/right"
+    font_size: "10pt body"
+    color_mode: "black-on-white (forced)"
+    integrity_colors_preserved: true
+    page_footer: "RapidTriage Report -- Page N of M"
+    self_contained: true
+    no_external_dependencies: true
+
+cross_references:
+  brand_colors: "brand.yml → visual.primary_color, visual.accent_color"
+  brand_typography: "brand.yml → visual.typography"
+  brand_aesthetic: "brand.yml → visual.aesthetic (dense but organized, print-ready, courtroom-credible)"
+  brand_personality: "brand.yml → voice.personality (practitioner-first, direct, technically honest)"
+  journeys_core: "journeys.yml → core_tarr (ingest → parse → timeline → report → deliver)"
+  journeys_friction: "journeys.yml → friction_points (information overload at 50K+ events)"
+  journeys_power_user: "journeys.yml → returning user patterns (keyboard shortcuts, batch operations)"

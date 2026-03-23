@@ -1,0 +1,369 @@
+# North Star Advisor - Progressive Strategic Context
+# This file is updated after each generation phase
+
+_meta:
+  generated_by: "north-star-advisor"
+  version: "1.0.0"
+  created_at: "2026-03-20T00:00:00Z"
+  last_updated: "2026-03-20T20:43:00Z"
+  phases_complete: [1, 2, 3, 4, "5a", "5b", "5c", "5d", 6, 7, 8, "7d", 9, 10, 11, 12, 13]
+
+project:
+  name: "RapidTriage"
+  description: "Integrated forensic triage platform that bridges the forensic-to-legal translation gap with attorney-ready output"
+  version: "0.1.0"
+  target_users: "IR practitioners, forensic examiners, and litigation support teams"
+  core_problem: "Forensic analysis is ~20% of engagement cost; ~80% is manual report writing, evidence reprocessing, and attorney back-and-forth because every forensic tool produces engineer-oriented output"
+  differentiator: "Attorney-ready output — interactive HTML reports for exploration and polished Word/PDF expert witness reports for the record"
+  success_metric: "Community adoption first (GitHub stars, downloads, contributors), then paying customers"
+  tech_stack: "Rust — existing codebase: usnjrnl-forensic v0.6, tl v0.1, ewf v0.1, shrinkpath v0.1"
+
+  licensing:
+    open_source: "Apache 2.0 (parsers) / MIT (utilities) — permissive to maximize community adoption"
+    proprietary: "Closed source — integration layer, pipeline, report engine, UI, enterprise features"
+
+  anti_goals:
+    - "Not a collection tool (ingests KAPE/Velociraptor/ACQUIRE output)"
+    - "Not an eDiscovery platform (produces evidence for Relativity/Nuix)"
+    - "Not a SIEM (post-incident analysis, not real-time detection)"
+
+  constraints:
+    - "Solo founder, bootstrapped"
+    - "Consulting revenue funds development"
+    - "Must maximize solo velocity while enabling community contributions"
+
+# Phase 1: Brand Guidelines
+strategy:
+  beliefs:
+    - "Evidence tells a story — every feature filtered through: does this help the examiner tell the story?"
+    - "The last 80% is the real problem — treat the report as the product, not an afterthought"
+    - "By practitioners, for practitioners — tool reflects real workflow"
+    - "Open parsers, integrated platform — parsers commoditize, integration differentiates"
+    - "Correctness over speed (but aim for both) — never sacrifice correctness for performance"
+  kill_list:
+    - "Not a collection tool — collection is solved"
+    - "Not an eDiscovery platform — different problem, different users"
+    - "Not a SIEM/SOC tool — post-incident, not real-time"
+    - "Not enterprise-first — solo examiner first, enterprise later"
+    - "Not a competitor to the examiner — eliminates translation work"
+
+  # Phase 2: North Star
+  north_star_metric:
+    name: "Time-to-Attorney-Ready Report (TARR)"
+    definition: "Elapsed time from evidence ingestion to completed attorney-ready deliverable"
+    target: "< 4 hours (50%+ reduction from ~16 hour baseline)"
+    input_metrics:
+      - "Parse-to-Timeline Latency: < 10 minutes"
+      - "Findings-to-Narrative Time: < 2 hours"
+      - "Report Acceptance Rate: > 80% (attorney accepts without calling examiner back)"
+  measurement:
+    leading: "TARR predicts engagement profitability and examiner capacity"
+    actionable: "Every pipeline stage contributes measurably"
+    customer_centric: "Measures value delivered to examiner, not features shipped"
+  personas:
+    primary:
+      name: "Sarah Chen — Solo IR Practitioner"
+      context: "Runs own DFIR consultancy, juggles 3-5 cases, needs evidence-to-deliverable fast"
+    secondary:
+      name: "Marcus Webb — Firm Forensic Examiner"
+      context: "Works cases assigned by partners, needs reports partners can review and attorneys can use"
+    tertiary:
+      name: "Diana Reyes — Litigation Support Analyst"
+      context: "Bridges technical forensics and legal proceedings, needs evidence formatted for court filings"
+    future:
+      name: "James Okafor — CISO/IR Manager"
+      context: "Oversees IR team, needs visibility, standardized methodology, team collaboration (Phase 3+)"
+
+brand:
+  voice:
+    traits: ["Practitioner-first", "Direct", "Technically honest", "Quietly confident", "Outcome-oriented"]
+    tone: "SANS DFIR Summit peer conversation, not SaaS product launch"
+  tagline: "Evidence tells a story."
+  positioning: "RapidTriage is a forensic triage platform that transforms digital forensic artifacts into attorney-ready reports for IR practitioners, forensic examiners, and litigation support teams."
+  visual:
+    primary_color: "Slate Blue (#475569)"
+    accent_color: "Amber (#D97706)"
+    typography: ["Inter (headlines/body)", "JetBrains Mono (code)"]
+
+# Phase 3: Competitive Landscape
+market:
+  category: "Digital Forensics and Incident Response (DFIR) triage and reporting"
+  tam: "~$9B global digital forensics market; ~$1.5B triage/reporting segment"
+  growth: "~12% CAGR"
+  market_shifts:
+    - "AI-assisted triage entering mainstream (Magnet.AI, BelkaGPT) — apply AI to reporting bottleneck, not just analysis"
+    - "PE consolidation squeezing practitioners (Thoma Bravo/Magnet $1.8B, OpenText/EnCase) — open-source exploits frustration"
+    - "Collection format standardization (KAPE, Velociraptor) — analysis-to-report is the remaining gap"
+    - "Court pressure on deliverable quality (Daubert challenges +35%) — attorney-ready output becoming table stakes"
+  direct_competitors:
+    - "Magnet AXIOM — all-in-one, $3,500+/yr, AI triage but poor reports (TARR: 8+ hrs)"
+    - "Autopsy/TSK — free/open-source, slow, bare-bones reports (TARR: 12+ hrs)"
+    - "X-Ways — fastest parsing, zero reports (TARR: N/A)"
+    - "Exterro FTK — $5,999-$11,500/yr, eDiscovery-style output (TARR: 10+ hrs)"
+    - "Belkasoft X — BelkaGPT AI, ~$2,500/yr, template-bound reports (TARR: 8+ hrs)"
+    - "EnCase — court-accepted but legacy, rigid templates (TARR: 10+ hrs)"
+  key_differentiators:
+    - "Attorney-ready report generation (no competitor does this)"
+    - "Dual-format output: interactive HTML + polished Word/PDF"
+    - "Rust-native performance (approaches X-Ways speed with modern UX)"
+    - "Open-core model (Apache 2.0 parsers + proprietary integration)"
+    - "KAPE/Velociraptor-native first-class ingestion"
+  novelty_validated: "Core innovation (automated forensic-to-attorney reporting) confirmed as genuine market gap"
+  positioning_shorthand: "X-Ways speed + AXIOM coverage + attorney-ready reports nobody else built"
+  unoccupied_position: "Full Workflow + Practitioner-Friendly quadrant — no competitor occupies it"
+  critical_timing_windows:
+    - "Post-PE pricing frustration — 12-18 month window to capture AXIOM refugees"
+    - "AI reporting feasibility — 12-18 month first-mover window before Magnet adds it"
+    - "KAPE/Velociraptor standardization — be the obvious 'after collection' tool"
+
+# Phase 4: North Star Extract — Axioms
+  axioms:
+    - name: "Correctness > Speed"
+      filter: "When parsing speed conflicts with forensic accuracy, choose accuracy. Rust lets us have both, but when forced to pick, correctness wins."
+    - name: "Report is the Product"
+      filter: "The report is the deliverable, not a byproduct. Every pipeline stage is measured by its contribution to TARR."
+    - name: "Practitioner First, Enterprise Later"
+      filter: "Optimize for Sarah Chen (solo IR). If a feature helps James Okafor (CISO) but slows Sarah, defer it."
+    - name: "Open Parsers, Proprietary Integration"
+      filter: "Parsers are open-source (Apache 2.0/MIT). Integration, reports, correlation, and enterprise features are proprietary."
+    - name: "Evidence Tells a Story"
+      filter: "Does this feature help the examiner construct and present a narrative? If not, it's a distraction."
+  non_goals:
+    features: ["Mobile forensics", "Memory forensics", "Malware analysis", "Cloud forensics", "Real-time collection", "eDiscovery workflows", "SIEM/detection"]
+    approaches: ["Enterprise-first development", "Subscription-only pricing", "Feature-count marketing", "Closed parsers", "GUI-first architecture"]
+
+# Phase 6: Architecture Blueprint
+architecture:
+  pattern: "Hexagonal (Crux-inspired) — side-effect-free rt-core with port/adapter frontends"
+  agents:
+    - "rt-core: Pure analysis engine (timeline schema, event types, plugin traits, analysis logic)"
+    - "rt-pipeline: Multi-layer evidence ingestion (Layer 0-4), parser orchestration via rayon"
+    - "rt-timeline: DuckDB columnar timeline store, query engine, SQLite export"
+    - "rt-report: Dual-format report engine (HTML + DOCX/PDF) — proprietary"
+    - "rt-intel: Intelligence layer (ForensicLLM, RAG, YARA-X, Sigma) — proprietary"
+    - "rt-correlation: Cross-artifact correlation, attack pattern detection — proprietary"
+    - "rt-cli: CLI frontend (clap v4) — open-source"
+    - "rt-tui: TUI frontend (ratatui) — proprietary"
+    - "rt-gui: Desktop GUI (Tauri v2) — proprietary"
+    - "rt-web: Web UI (axum + Leptos) — proprietary"
+  tech_stack:
+    language: "Rust (2021 edition)"
+    primary_db: "DuckDB (columnar, TIMESTAMP_NS, in-process)"
+    exchange_db: "SQLite (portable case export, legal hold)"
+    async: "tokio + rayon"
+    cli: "clap v4"
+    tui: "ratatui 0.29"
+    gui: "Tauri v2"
+    web: "axum 0.8 + Leptos 0.7"
+    templates: "Askama"
+    llm: "Ollama (local-first)"
+    detection: "YARA-X + Sigma"
+    vector_store: "lancedb (embedded)"
+    embedding: "nomic-embed-text"
+  model_strategy: "Multi-model local-first routing — 80% small (7B-13B) for classification/extraction, 20% large (70B+) for narrative drafting. AI-free mode mandatory."
+  rag_assessment: "Yes — Modular RAG with three stores: case-specific (ephemeral), cross-case (persistent), reference (static). lancedb embedded vector store. nomic-embed-text embeddings via Ollama."
+  cost_projection:
+    local_per_case: "$0 (hardware amortized)"
+    cloud_fallback_per_case: "$2-5 (large model tasks only)"
+    monthly_cloud_estimate: "$30-150 (if cloud fallback used)"
+  plugin_system:
+    tier_1: "Compile-time traits (inventory crate) — first-party parsers, v0.1+"
+    tier_2: "WASM (Wasmtime + WIT) — community plugins, v0.3+"
+    tier_3: "gRPC (tonic) — enterprise integrations, v0.5+"
+  open_core:
+    public: "github.com/h4x0r/rapidtriage (Apache 2.0 / MIT)"
+    private: "rapidtriage-pro (Proprietary)"
+    rule: "Open-source crates NEVER depend on proprietary crates"
+
+# Phase 7: Agent Prompts
+  agent_prompts:
+    - "Pipeline Agent: Evidence ingestion orchestration, Layer 0-4 dispatch, parser coordination"
+    - "Timeline Agent: DuckDB query optimization, temporal analysis, event correlation"
+    - "Report Agent: Dual-format generation (HTML + DOCX/PDF), attorney-ready output, Daubert compliance"
+    - "Intelligence Agent: ForensicLLM orchestration, RAG retrieval, YARA-X/Sigma integration"
+    - "Correlation Agent: Cross-artifact pattern detection, attack chain reconstruction"
+    - "Platform Agent: Plugin management, configuration, case lifecycle"
+
+# Deep Templates (7d)
+  pipeline_stages:
+    - "Layer 0 — Storage I/O: Raw evidence access (E01, VMDK, VHD, raw, logical collection)"
+    - "Layer 1 — Image Format: Container parsing and block-level access"
+    - "Layer 2 — Volume/Partition: GPT/MBR detection and volume enumeration"
+    - "Layer 3 — Filesystem: NTFS/ext4/APFS/FAT32 mount and file enumeration"
+    - "Layer 4 — Artifact Parsing: Parallel parser dispatch via rayon (USN, MFT, Registry, EventLog, Prefetch, etc.)"
+  handoff_triggers:
+    - "Layer completion with typed output → next layer starts"
+    - "Buffer utilization > 0.8 → back-pressure signal to previous layer"
+    - "Parser panic → catch_unwind isolation, degrade with audit entry"
+  circuit_breakers:
+    - "Per-pipeline-layer breakers (corrupted NTFS does not block registry parsing)"
+    - "3 consecutive failures → open circuit → skip layer with degradation audit"
+  retry_policies:
+    - "No retry on corrupted evidence (immutable data makes retries pointless)"
+    - "Transient I/O errors: exponential backoff (3 attempts, 100ms base)"
+    - "Resource exhaustion: back-off with memory pressure check"
+  fallback_strategies:
+    - "Every component degrades to safe default preserving evidence hash + location"
+    - "LLM: 6-tier fallback from 70B local through AI-free pass-through"
+    - "Parser crash: catch_unwind → partial results with audit entry"
+  delegation_rules:
+    - "Development: crate ownership boundaries, open-source never imports proprietary"
+    - "Runtime: layer-sequential, parser-parallel, typed handoff contracts"
+    - "Plugin: WIT conformance + fuzz testing + 72-hour review SLA"
+  context_passing:
+    - "PipelineState carries layer-specific typed outputs (StorageHandle → ImageReader → VolumeDescriptor → FilesystemMount → ParseResult)"
+    - "CaseContext propagated via dependency injection, never global state"
+    - "Tracing spans carry case_id + evidence_id for full observability"
+
+# Deep: Implementation Scaffold
+implementation:
+  project_structure:
+    public_repo: "github.com/h4x0r/rapidtriage — Cargo workspace monorepo (Apache 2.0 / MIT)"
+    private_repo: "rapidtriage-pro — Proprietary crates (DOCX/PDF reports, TUI, GUI, Web, correlation, intel)"
+    crates: ["rt-core", "rt-pipeline", "rt-timeline", "rt-cli", "rt-plugin-sdk", "rt-parser-usnjrnl", "rt-parser-mft", "rt-parser-evtx", "rt-parser-prefetch", "rt-parser-registry", "rt-parser-lnk", "rt-parser-srum", "rt-parser-recyclebin"]
+  setup_scripts:
+    - "cargo build --workspace (public repo)"
+    - "cargo test --workspace (CI gate: fmt + clippy + test + coverage + deny)"
+    - "cargo bench --workspace (Criterion regression at 120% threshold)"
+  ci_pipeline: "GitHub Actions: ci.yml (merge gate), audit.yml (nightly cargo-audit + cargo-vet), bench.yml (performance regression)"
+
+# Deep: Observability
+operations:
+  logging_strategy:
+    framework: "tracing crate with layered tracing-subscriber"
+    layers: ["JSON structured logs", "Metrics layer (DuckDB per-case)", "Audit layer (hash-chained JSONL)", "TARR instrumentation layer"]
+    pii_modes: ["strict (redact all)", "moderate (hash PII)", "permissive (retain for analysis)"]
+  tracing:
+    span_hierarchy: "case → evidence → pipeline → layer → parser → artifact"
+    propagation: "case_id + evidence_id on all spans"
+    storage: "DuckDB per-case databases (local, no cloud export)"
+  dashboards:
+    primary: "TUI-based real-time pipeline monitor (ratatui)"
+    panels: ["TARR progress bar (top-center)", "Parser throughput chart", "Error feed", "Memory pressure gauge", "Evidence summary"]
+  alert_channels:
+    - "TUI banner notification"
+    - "OS desktop notification (notify-rust)"
+    - "Log level escalation"
+    - "Audit entry + exit code"
+
+# Deep: Testing Strategy
+testing:
+  unit_coverage: ">= 88% overall, 95% for rt-core"
+  integration_tests:
+    - "Pipeline end-to-end: KAPE collection → timeline → verify event count + ordering"
+    - "Report generation: HTML self-containment, DOCX multilevel numbering"
+    - "Plugin lifecycle: load → parse → emit → cleanup"
+  golden_datasets:
+    - "60+ golden cases per parser (YAML-based, known-good reference outputs)"
+    - "4-tier fixture management: committed, generated, downloaded, private"
+    - "Synthetic-by-default (no real evidence in repo)"
+  fuzz_testing: "cargo-fuzz nightly (10 min/parser), proptest strategies for parser invariants"
+  daubert_validation: "NIST CFTT nightly runs, FP < 1%, FN < 0.5%, error rate tracking"
+
+# Deep: Intelligence Layer
+intelligence:
+  retrieval_architecture:
+    stores:
+      - "Case-specific (ephemeral): lancedb, per-case vector index, deleted on case close"
+      - "Cross-case (persistent): lancedb, patterns and TTPs across cases"
+      - "Reference (static): lancedb, MITRE ATT&CK, NIST guidelines, forensic standards"
+    search: "Hybrid — cosine similarity + BM25 + reciprocal rank fusion + cross-encoder reranking"
+  embedding_design:
+    model: "nomic-embed-text v1.5 via Ollama"
+    dimensions: 768
+    max_tokens: 8192
+    fallback: "ONNX runtime if Ollama unavailable"
+  model_routing:
+    tier_1: "7B (Qwen2.5/Phi-3) — classification, extraction, entity recognition"
+    tier_2: "13B-34B (Mistral/Yi) — narrative drafting, summary generation"
+    tier_3: "70B+ (Llama 3/Mixtral) — cross-case correlation, complex analysis"
+    tier_4: "Cloud API (opt-in) — fallback for tasks exceeding local capacity"
+  evaluation_framework:
+    - "Unit evals: citation accuracy > 98%, prohibited pattern rate 0%"
+    - "LLM-as-judge: coherence, factual grounding, legal appropriateness"
+    - "Domain evals: NIST CFTT forensic accuracy, Daubert admissibility criteria"
+    - "Human review: examiner acceptance rate > 80%"
+  quality_metrics:
+    - "Hallucination rate target: < 2% (vs 17-34% baseline)"
+    - "Citation accuracy: > 98% (every claim links to verifiable TimelineEvent)"
+    - "Confidence scoring: 0.0-1.0, threshold 0.7 for inclusion in reports"
+  ai_free_mode: "Global toggle, zero Ollama dependency, all deterministic features unaffected, per-feature granularity"
+
+# Phase 8: Security Architecture
+security:
+  threat_model:
+    primary_threats:
+      - "Malicious evidence files targeting parser vulnerabilities (crafted MFT, USN, E01)"
+      - "AI hallucination in expert witness reports (Daubert standard violation)"
+      - "CSAM in evidence triggering legal liability (Adam Walsh Act)"
+      - "Supply chain attack via compromised Rust crate dependency"
+      - "Prompt injection via evidence metadata targeting rt-intel LLM"
+      - "Attorney-client privilege violation from unscreened evidence"
+    owasp_critical: ["ASI02 (Tool Misuse)", "ASI04 (Supply Chain)", "ASI05 (Code Execution)", "ASI09 (Human-Agent Trust)"]
+  trust_boundaries:
+    - "TB0 (Untrusted): evidence files, WASM plugins, Ollama models"
+    - "TB1 (Semi-Trusted): rt-pipeline, input validation, format detection"
+    - "TB2 (Trusted): rt-core, rt-timeline, rt-correlation, rt-report, rt-intel"
+    - "TB3 (Privileged): audit logs, license keys, case metadata, hash verification"
+  auth_model:
+    solo: "OS-level user, examiner identity from config file (v0.1-v0.3)"
+    enterprise: "SSO via SAML/OIDC, RBAC roles (Examiner, Reviewer, Supervisor, Legal, Admin) (v0.4+)"
+    crate_level: "Compile-time Rust sealed traits and crate visibility"
+  defense_layers:
+    - "Evidence Integrity (read-only, SHA-256 hash verification, chain of custody)"
+    - "Memory Safety (Rust #![forbid(unsafe_code)], cargo-fuzz)"
+    - "Sandbox Isolation (WASM zero ambient authority)"
+    - "AI Safety (grounded generation, confidence scores, AI-free mode)"
+    - "Sensitive Material (CSAM detection, privilege review, PII redaction)"
+    - "Supply Chain (cargo-audit/deny/vet, signed releases)"
+    - "Monitoring & Audit (integrity-chained logs, kill switches)"
+    - "Authentication & Authorization (SSO, RBAC, compile-time capabilities)"
+  key_principles:
+    - "Evidence Sanctity: never modify evidence"
+    - "Compiler as Security Tool: Rust type system enforces trust boundaries"
+    - "Zero Ambient Authority: WASM plugins have no capabilities by default"
+    - "Grounded AI: every finding must cite a verifiable TimelineEvent"
+    - "Offline-First: all security features work without network"
+    - "Fail Secure: errors block output, never silently proceed"
+
+# Phase 13: Documentation Index
+references:
+  index: "north-star-advisor/docs/INDEX.md"
+  total_documents: 23
+  total_size: "~900KB"
+  tiers:
+    tier_1_strategic:
+      - "NORTHSTAR.md (43KB)"
+      - "COMPETITIVE_LANDSCAPE.md (50KB)"
+      - "NORTHSTAR_EXTRACT.md (14KB)"
+      - "STRATEGIC_RECOMMENDATION.md (33KB)"
+      - "ACTION_ROADMAP.md (37KB)"
+    tier_2_implementation:
+      - "ARCHITECTURE_BLUEPRINT.md (53KB)"
+      - "SECURITY_ARCHITECTURE.md (56KB)"
+      - "ADR.md (45KB)"
+      - "POST_DEPLOYMENT.md (36KB)"
+      - "architecture/AGENT_PROMPTS.md (40KB)"
+      - "architecture/PIPELINE_ORCHESTRATION.md (34KB)"
+      - "architecture/RESILIENCE_PATTERNS.md (57KB)"
+      - "architecture/IMPLEMENTATION_SCAFFOLD.md (44KB)"
+      - "architecture/OBSERVABILITY.md (34KB)"
+      - "architecture/TESTING_STRATEGY.md (52KB)"
+      - "architecture/HANDOFF_PROTOCOL.md (32KB)"
+      - "architecture/INTELLIGENCE_LAYER.md (60KB)"
+      - "design/USER_JOURNEYS.md (41KB)"
+      - "design/UI_DESIGN_SYSTEM.md (44KB)"
+      - "design/ACCESSIBILITY.md (48KB)"
+      - "design/WIREFRAMES.md (70KB)"
+    tier_3_supporting:
+      - "BRAND_GUIDELINES.md (18KB)"
+  decision_authority: "Tier 1 > Tier 2 > Tier 3 — lower tier number wins on conflict"
+
+# Sections populated as phases complete:
+# - strategy: Phase 4 (axioms) *** DONE ***
+# - market: Phase 3 (competitors, differentiation) *** DONE ***
+# - architecture: Phase 6 (pattern, agents, tech_stack) *** DONE ***
+# - security: Phase 8 (auth, threats) *** DONE ***
+# - roadmap: Phase 12 (phases, milestones) *** DONE ***
+# - references: Phase 13 (document index) *** DONE ***
+# ALL 13 PHASES COMPLETE

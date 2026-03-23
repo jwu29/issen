@@ -1,0 +1,169 @@
+# Implementation Scaffold - Structured Outputs
+# Generated: 2026-03-20
+# Source: north-star-advisor/docs/architecture/IMPLEMENTATION_SCAFFOLD.md
+
+scaffold:
+    directory_structure:
+        model: "Hybrid dual-repo (public monorepo + private proprietary repo)"
+        public_repo: "github.com/h4x0r/rapidtriage"
+        private_repo: "github.com/h4x0r/rapidtriage-pro"
+        workspace_resolver: "2"
+        rust_edition: "2021"
+        minimum_rust_version: "1.80"
+
+    public_crates:
+        - name: "rt-core"
+          path: "crates/rt-core"
+          license: "Apache-2.0"
+          purpose: "Core types, timeline schema, plugin traits, analysis logic"
+          side_effects: false
+
+        - name: "rt-pipeline"
+          path: "crates/rt-pipeline"
+          license: "Apache-2.0"
+          purpose: "Multi-layer evidence ingestion, parser orchestration"
+          side_effects: true
+
+        - name: "rt-plugin-sdk"
+          path: "crates/rt-plugin-sdk"
+          license: "Apache-2.0"
+          purpose: "Plugin development kit, trait re-exports, test harness"
+          side_effects: false
+
+        - name: "rt-timeline"
+          path: "crates/rt-timeline"
+          license: "Apache-2.0"
+          purpose: "DuckDB timeline storage, query engine, SQLite export"
+          side_effects: true
+
+        - name: "rt-ewf"
+          path: "crates/rt-ewf"
+          license: "MIT"
+          purpose: "E01/EWF forensic image parser"
+          side_effects: true
+
+        - name: "rt-shrinkpath"
+          path: "crates/rt-shrinkpath"
+          license: "MIT"
+          purpose: "Path display utility"
+          side_effects: false
+
+        - name: "rt-cli"
+          path: "crates/rt-cli"
+          license: "Apache-2.0"
+          purpose: "Command-line interface, batch processing"
+          side_effects: true
+
+    parsers:
+        base_path: "crates/parsers"
+        license: "Apache-2.0"
+        items:
+            - "rt-parser-usnjrnl"
+            - "rt-parser-mft"
+            - "rt-parser-evtx"
+            - "rt-parser-prefetch"
+            - "rt-parser-registry"
+            - "rt-parser-shellbags"
+            - "rt-parser-lnk"
+            - "rt-parser-amcache"
+            - "rt-parser-bam"
+            - "rt-parser-browser"
+            - "rt-parser-jumplists"
+            - "rt-parser-srum"
+
+    proprietary_crates:
+        - name: "rt-report"
+          purpose: "Dual-format report engine (HTML + DOCX/PDF)"
+        - name: "rt-correlation"
+          purpose: "Cross-artifact correlation, attack pattern detection"
+        - name: "rt-intel"
+          purpose: "ForensicLLM, RAG, YARA-X, Sigma integration"
+        - name: "rt-tui"
+          purpose: "Interactive terminal UI (ratatui)"
+        - name: "rt-gui"
+          purpose: "Desktop GUI (Tauri v2)"
+        - name: "rt-web"
+          purpose: "Web UI (axum + Leptos)"
+        - name: "rt-license"
+          purpose: "Edition/license validation"
+
+    base_trait:
+        name: "ForensicParser"
+        location: "crates/rt-core/src/plugin/traits.rs"
+        registration: "inventory crate (compile-time, zero-cost)"
+        key_methods:
+            - "name() -> &str"
+            - "supported_artifacts() -> &[ArtifactType]"
+            - "parse(input, emitter) -> Result<ParseStats>"
+            - "capabilities() -> ParserCapabilities"
+
+    cli_commands:
+        - name: "ingest"
+          purpose: "Ingest evidence sources into timeline"
+        - name: "timeline"
+          purpose: "Query and export timeline data"
+        - name: "parse"
+          purpose: "Parse a single artifact file"
+        - name: "info"
+          purpose: "Display evidence metadata and registered parsers"
+
+    ci_cd:
+        platform: "GitHub Actions"
+        workflows:
+            - name: "ci.yml"
+              trigger: "push/PR to main"
+              jobs: ["fmt", "clippy", "test (linux/mac/win)", "coverage", "cargo-deny"]
+            - name: "audit.yml"
+              trigger: "daily cron + manual"
+              jobs: ["cargo-audit", "cargo-vet"]
+            - name: "bench.yml"
+              trigger: "PR (crate changes)"
+              jobs: ["criterion benchmarks", "regression check (120% threshold)"]
+            - name: "release.yml"
+              trigger: "tag push"
+              jobs: ["cross-compile", "crate publish", "GitHub release"]
+
+    supply_chain:
+        cargo_deny: "deny.toml (license allowlist, advisory DB, ban wildcards)"
+        cargo_vet: "supply-chain/ directory (audit chain, trusted imports)"
+        cargo_audit: "nightly via GitHub Actions"
+        dependabot: "enabled for Cargo dependencies"
+
+    pre_commit_hooks:
+        - "cargo fmt (on commit)"
+        - "cargo clippy (on commit)"
+        - "cargo test --lib (on push)"
+        - "cargo deny check (on push)"
+        - "no-proprietary-imports guard (on commit)"
+
+    build_automation:
+        tool: "xtask (cargo xtask)"
+        commands:
+            - "codegen: generate schema DDL, parser stubs"
+            - "dist: build release packages"
+            - "bench-report: compare benchmark results"
+            - "test-data: download/validate test fixtures"
+            - "ci: run full local CI checks"
+
+    quickstart_steps:
+        - "git clone + cd"
+        - "rustc --version (>= 1.80, auto-installed via rust-toolchain.toml)"
+        - "cargo install cargo-deny cargo-vet"
+        - "pre-commit install (+ --hook-type pre-push)"
+        - "cargo xtask test-data"
+        - "cargo build --workspace (~3-5 min first build, DuckDB compilation)"
+        - "cargo test --workspace --all-features (~30s)"
+        - "cargo xtask ci (full local validation)"
+
+    feature_flags:
+        rt_core:
+            - "report-hooks: extension points for report engine"
+            - "correlation-hooks: extension points for correlation"
+            - "intel-hooks: extension points for intelligence layer"
+            - "simd: SIMD-accelerated parsing"
+        rt_pipeline:
+            - "all-parsers (default): include all first-party parsers"
+            - "parser-{name}: individual parser feature gates"
+        rt_cli:
+            - "color (default): colored terminal output"
+            - "json-output: JSON output format"

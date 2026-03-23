@@ -1,0 +1,118 @@
+# Architecture Decision Records - Structured Outputs
+# Generated: 2026-03-20
+# Source: north-star-advisor/docs/ADR.md
+
+decisions:
+  - id: "ADR-0001"
+    title: "Attorney-Ready Reports as Primary Differentiator"
+    status: "Accepted"
+    date: "2026-03-20"
+    phase: 1
+    key_trade_off: "Requires deep legal workflow understanding; report quality becomes primary attack surface for competitors"
+
+  - id: "ADR-0002"
+    title: "TARR as North Star Metric"
+    status: "Accepted"
+    date: "2026-03-20"
+    phase: 2
+    key_trade_off: "Evidence complexity requires normalization; pressure to sacrifice quality for speed conflicts with Correctness > Speed axiom"
+
+  - id: "ADR-0003"
+    title: "Permissive Open-Source Licensing (Apache 2.0 / MIT)"
+    status: "Accepted"
+    date: "2026-03-20"
+    phase: 1
+    key_trade_off: "Competitors can fork parsers without contributing back; proprietary layer must carry all monetization"
+
+  - id: "ADR-0004"
+    title: "Hexagonal Architecture (Crux-Inspired)"
+    status: "Accepted"
+    date: "2026-03-20"
+    phase: 6
+    key_trade_off: "Steeper learning curve; trait-heavy design increases compile times; requires discipline to keep core side-effect-free"
+
+  - id: "ADR-0005"
+    title: "DuckDB Primary + SQLite Exchange"
+    status: "Accepted"
+    date: "2026-03-20"
+    phase: 6
+    key_trade_off: "Two storage engines with two schema migration paths; DuckDB is younger project with potential breaking changes"
+
+  - id: "ADR-0006"
+    title: "Three-Tier Plugin System"
+    status: "Accepted"
+    date: "2026-03-20"
+    phase: 6
+    key_trade_off: "Three integration surfaces to maintain; Tier 2/3 have higher latency than Tier 1; trait interface must accommodate all tiers from v0.1"
+
+  - id: "ADR-0007"
+    title: "Hybrid Public/Private Repository"
+    status: "Accepted"
+    date: "2026-03-20"
+    phase: 1
+    key_trade_off: "Synchronized releases across two repos; cross-boundary features require coordinated PRs; doubled operational overhead"
+
+  - id: "ADR-0008"
+    title: "Local-First AI via Ollama"
+    status: "Accepted"
+    date: "2026-03-20"
+    phase: 6
+    key_trade_off: "Requires capable hardware (16GB+ RAM); lower capability ceiling than cloud models; Ollama is separate install"
+
+  - id: "ADR-0009"
+    title: "Dual Report Output (HTML + DOCX)"
+    status: "Accepted"
+    date: "2026-03-20"
+    phase: 6
+    key_trade_off: "Two rendering pipelines with feature parity requirement; DOCX/OOXML complexity; headless Chrome dependency for PDF"
+
+  - id: "ADR-0010"
+    title: "Grounded AI Generation Only"
+    status: "Accepted"
+    date: "2026-03-20"
+    phase: 7
+    key_trade_off: "Template+fill may feel formulaic; dual-model verification doubles inference cost; citation requirement limits cross-source insights"
+
+  - id: "ADR-0011"
+    title: "No Retry on Corrupted Evidence"
+    status: "Accepted"
+    date: "2026-03-20"
+    phase: "7d"
+    key_trade_off: "Every parser must implement graceful degradation; must prevent contributors from adding retry logic; partial results need clear UX"
+
+  - id: "ADR-0012"
+    title: "Per-Pipeline-Layer Circuit Breakers"
+    status: "Accepted"
+    date: "2026-03-20"
+    phase: "7d"
+    key_trade_off: "Threshold of 3 is heuristic (may skip recoverable layers or waste time); layer granularity may be too coarse in edge cases"
+
+  - id: "ADR-0013"
+    title: "Rust Sealed Traits as Inter-Component Authentication"
+    status: "Accepted"
+    date: "2026-03-20"
+    phase: 8
+    key_trade_off: "Does not extend to WASM/gRPC plugins (need runtime sandboxing); higher learning bar for new contributors"
+
+  - id: "ADR-0014"
+    title: "Practitioner-First, Enterprise-Later"
+    status: "Accepted"
+    date: "2026-03-20"
+    phase: 2
+    key_trade_off: "Enterprise early adopters may reject and not return; defers enterprise revenue; some solo-first architecture decisions need rework for Phase 3"
+
+summary:
+  total_decisions: 14
+  phases_covered: [1, 2, 6, 7, "7d", 8]
+  axioms_referenced:
+    - "Correctness > Speed"
+    - "Report is the Product"
+    - "Practitioner First, Enterprise Later"
+    - "Open Parsers, Proprietary Integration"
+    - "Evidence Tells a Story"
+  key_themes:
+    - "Forensic-to-legal translation gap as market position"
+    - "Local-first with air-gapped lab support"
+    - "Compile-time safety over runtime checks"
+    - "Progressive capability (solo → enterprise, traits → WASM → gRPC)"
+    - "Grounded AI with mandatory citation and verification"

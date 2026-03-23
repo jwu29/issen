@@ -1,0 +1,291 @@
+# Resilience Patterns - Structured Outputs
+# Generated: 2026-03-20
+# Source: north-star-advisor/docs/architecture/RESILIENCE_PATTERNS.md
+
+resilience:
+  circuit_breakers:
+    - component: "rt-pipeline-layer0-container"
+      failure_threshold: 3
+      reset_timeout_sec: 10
+      rationale: "E01/VHDX container errors usually fatal for that image; fail fast"
+
+    - component: "rt-pipeline-layer1-filesystem"
+      failure_threshold: 5
+      reset_timeout_sec: 30
+      rationale: "NTFS/ext4 corruption may be localized; allow more attempts"
+
+    - component: "rt-pipeline-layer2-artifact"
+      failure_threshold: 5
+      reset_timeout_sec: 30
+      rationale: "Individual artifact files may be corrupted but siblings are fine"
+
+    - component: "rt-pipeline-layer3-parser"
+      failure_threshold: 10
+      reset_timeout_sec: 60
+      rationale: "Parsers process many records; per-record corruption is common"
+
+    - component: "rt-pipeline-layer4-enrichment"
+      failure_threshold: 3
+      reset_timeout_sec: 15
+      rationale: "LLM/enrichment failures degrade gracefully, should not block"
+
+    - component: "rt-timeline"
+      failure_threshold: 3
+      reset_timeout_sec: 10
+      rationale: "Database errors usually systemic; fast circuit break"
+
+    - component: "rt-intel"
+      failure_threshold: 3
+      reset_timeout_sec: 60
+      rationale: "Model inference failures may need cooldown"
+
+    - component: "rt-report"
+      failure_threshold: 3
+      reset_timeout_sec: 15
+      rationale: "Report generation failures should not retry aggressively"
+
+    - component: "rt-correlation"
+      failure_threshold: 5
+      reset_timeout_sec: 30
+      rationale: "Correlation operates on partial data; tolerate some failures"
+
+    - component: "wasm-plugin-tier2"
+      failure_threshold: 3
+      reset_timeout_sec: 30
+      rationale: "Sandboxed plugin failures are isolated"
+
+    - component: "grpc-plugin-tier3"
+      failure_threshold: 3
+      reset_timeout_sec: 45
+      rationale: "External process may need restart time"
+
+  fallback_chains:
+    - component: "rt-pipeline-layer3-parser"
+      levels:
+        - "Full structured parse"
+        - "Lenient parse (skip malformed records)"
+        - "Binary record carving"
+        - "Strings extraction with context"
+        - "Metadata only (hash + path + timestamps)"
+      safe_default: "Metadata only -- never loses evidence location"
+
+    - component: "rt-pipeline-layer4-enrichment"
+      levels:
+        - "Large LLM (70B+)"
+        - "Small LLM (7B)"
+        - "Rule-based (YARA/Sigma only)"
+        - "Pass-through (unenriched)"
+      safe_default: "Pass-through with enrichment-skipped flag"
+
+    - component: "rt-intel"
+      levels:
+        - "Large local model (70B+)"
+        - "Medium local model (13B-30B)"
+        - "Small local model (7B)"
+        - "Cloud fallback (if configured)"
+        - "Rule-based enrichment"
+        - "AI-free pass-through"
+      safe_default: "AI-free pass-through -- raw findings"
+
+    - component: "rt-report"
+      levels:
+        - "Full dual-format (HTML + DOCX)"
+        - "HTML-only report"
+        - "Markdown export"
+        - "Structured JSON dump"
+      safe_default: "JSON dump of all findings"
+
+    - component: "rt-correlation"
+      levels:
+        - "Full cross-artifact correlation"
+        - "Pairwise correlation (reduced scope)"
+        - "Timestamp-only correlation"
+        - "Individual artifact timelines"
+      safe_default: "Individual timelines without cross-reference"
+
+    - component: "rt-timeline"
+      levels:
+        - "DuckDB columnar insert"
+        - "Batch insert with conflict resolution"
+        - "CSV overflow log"
+        - "In-memory buffer with periodic flush"
+      safe_default: "CSV overflow log preserves all data"
+
+  timeout_config:
+    pipeline_total_sec: 10800          # 3 hours (1 hour buffer within 4-hour TARR)
+    report_reserve_sec: 3600           # 1 hour reserved for report generation
+    layer0_container_sec: 1800         # 30 minutes
+    layer1_filesystem_sec: 1200        # 20 minutes
+    layer2_per_artifact_sec: 300       # 5 minutes per artifact
+    layer3_per_parser_sec: 900         # 15 minutes per artifact type
+    layer3_per_record_ms: 100          # 100ms per individual record
+    layer4_llm_per_call_sec: 30        # 30 seconds per LLM call
+    layer4_yara_sigma_total_sec: 300   # 5 minutes total
+    timeline_batch_sec: 60             # 60 seconds per DuckDB batch
+    intel_narrative_sec: 300           # 5 minutes for narrative generation
+    report_full_sec: 1800              # 30 minutes for full report
+    correlation_sec: 1200              # 20 minutes for correlation
+    wasm_plugin_sec: 60                # 60 seconds per WASM plugin
+    grpc_plugin_sec: 30                # 30 seconds per gRPC plugin
+    budget_thresholds:
+      simplify_at: 0.70               # Switch to simplified output at 70% budget consumed
+      skip_enrichment_at: 0.85        # Skip LLM enrichment at 85%
+      emergency_flush_at: 0.95        # Emergency: produce report NOW at 95%
+
+  health_checks:
+    - component: "rt-pipeline"
+      method: "layer_completion_rate"
+      healthy: "All layers processing"
+      degraded: "Any layer using fallbacks"
+
+    - component: "rt-timeline"
+      method: "duckdb_query_latency"
+      healthy: "Query < 100ms"
+      degraded: "Query 100ms-1s"
+
+    - component: "rt-intel"
+      method: "model_inference_test"
+      healthy: "Primary model responds"
+      degraded: "Fallback model in use"
+
+    - component: "rt-report"
+      method: "template_render_test"
+      healthy: "Full render < 5s"
+      degraded: "Render 5-30s"
+
+    - component: "rt-correlation"
+      method: "pattern_match_test"
+      healthy: "All patterns evaluated"
+      degraded: "Subset of patterns"
+
+    - component: "wasm-plugins"
+      method: "instance_creation_test"
+      healthy: "Instance starts < 1s"
+      degraded: "Instance starts 1-5s"
+
+    - component: "grpc-plugins"
+      method: "grpc_health_check"
+      healthy: "Response < 100ms"
+      degraded: "Response 100ms-1s"
+
+    - component: "duckdb"
+      method: "write_throughput"
+      healthy: "> 100K records/s"
+      degraded: "10K-100K records/s"
+
+    - component: "memory"
+      method: "rss_utilization"
+      healthy: "< 70% budget"
+      degraded: "70-85% budget"
+
+  memory_pressure:
+    high_watermark: 0.70
+    critical_watermark: 0.85
+    emergency_watermark: 0.95
+    responses:
+      normal: "Full parallelism, in-memory buffering"
+      high: "50% cores, smaller batches, 2 WASM max"
+      critical: "Single thread, spill to disk, 1 WASM max"
+      emergency: "Halt new work, flush everything, suspend WASM"
+
+  checkpoint_resume:
+    store: "SQLite (case-dir/.rapidtriage/checkpoints.db)"
+    granularity: "Per-artifact, per-parser"
+    data_preserved_on_crash: true
+    idempotency_key_inputs:
+      - "evidence_source_hash (SHA-256)"
+      - "artifact_path"
+      - "parser_id"
+      - "parser_version"
+
+  integrity_verification:
+    algorithm: "SHA-256"
+    chain_of_custody: true
+    verified_at_every_stage: true
+    stages: ["container", "filesystem", "artifact", "parse", "enrichment", "report"]
+
+  plugin_isolation:
+    tier1_native:
+      mechanism: "Rust trait (same process)"
+      crash_impact: "Process crash"
+      memory_isolation: false
+    tier2_wasm:
+      mechanism: "wasmtime sandbox"
+      crash_impact: "WASM instance terminated"
+      memory_isolation: true
+      max_memory_mb: 256
+      fuel_limit: 1000000000
+      network: false
+    tier3_grpc:
+      mechanism: "Subprocess via gRPC"
+      crash_impact: "Process killed"
+      memory_isolation: true
+      max_memory_mb: 512
+
+  llm_fallback_tiers:
+    - tier: 1
+      model: "Large local (70B+)"
+      use_case: "Full narrative generation"
+    - tier: 2
+      model: "Medium local (13B-30B)"
+      use_case: "Structured summarization"
+    - tier: 3
+      model: "Small local (7B)"
+      use_case: "Classification, extraction"
+    - tier: 4
+      model: "Cloud API (if configured)"
+      use_case: "Complex narrative fallback"
+    - tier: 5
+      model: "Rule-based (YARA/Sigma)"
+      use_case: "Deterministic enrichment"
+    - tier: 6
+      model: "None (AI-free)"
+      use_case: "Raw findings pass-through"
+
+  invariants:
+    - "Previously parsed data is NEVER lost due to later failure"
+    - "Evidence hash chain valid from source to output"
+    - "Pipeline can resume from any checkpoint without data duplication"
+    - "Pipeline always produces some output, even if degraded"
+    - "Every failure, fallback, and skip is recorded in audit trail"
+    - "Re-running on same evidence produces identical results"
+    - "RSS never exceeds configured budget (10% tolerance)"
+    - "Total pipeline time never exceeds TARR budget (5% tolerance)"
+
+  retry_strategies:
+    io_operations:
+      max_retries: 3
+      initial_delay_ms: 100
+      max_delay_sec: 5
+      backoff_multiplier: 2.0
+    llm_inference:
+      max_retries: 2
+      initial_delay_sec: 1
+      max_delay_sec: 30
+      backoff_multiplier: 3.0
+    external_services:
+      max_retries: 3
+      initial_delay_ms: 500
+      max_delay_sec: 15
+      backoff_multiplier: 2.0
+    database:
+      max_retries: 5
+      initial_delay_ms: 50
+      max_delay_sec: 2
+      backoff_multiplier: 2.0
+    corrupted_evidence:
+      max_retries: 0
+      rationale: "Corrupted data will fail identically on retry; fall back immediately"
+
+  chaos_testing:
+    scenarios:
+      - "Corrupted E01 segment (random byte flip)"
+      - "Truncated EVTX file mid-record"
+      - "Malformed registry hive cells"
+      - "WASM plugin OOM (fuel exhaustion)"
+      - "DuckDB disk full"
+      - "LLM model unavailable"
+      - "gRPC network drop"
+      - "Memory pressure (90% RAM)"
+      - "Mid-parse SIGKILL + resume"
+      - "Simultaneous multi-parser failures"

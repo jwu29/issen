@@ -1,0 +1,179 @@
+# Handoff Protocol - Structured Outputs
+# Generated: 2026-03-20
+# Source: north-star-advisor/docs/architecture/HANDOFF_PROTOCOL.md
+
+schema_version: "1.0.0"
+
+schemas:
+    - name: "DevHandoffRequest"
+      purpose: "Context-passing between development agents when work crosses crate boundaries"
+      key_fields: ["sourceAgent", "sourceCrate", "handoffTo", "reason", "contextForTarget", "prerequisites"]
+
+    - name: "RuntimeHandoffRequest"
+      purpose: "Data flow between pipeline layers at runtime with back-pressure support"
+      key_fields: ["sourceLayer", "targetLayer", "payload", "errorContext", "backPressure"]
+
+    - name: "HandoffResponse"
+      purpose: "Acknowledgment and result from target agent/layer"
+      key_fields: ["status", "dev", "runtime", "unresolved", "executionTimeMs"]
+
+    - name: "HandoffDecision"
+      purpose: "Quick can-handle determination before full handoff"
+      key_fields: ["canHandle", "confidence", "handoffTo", "missingInputs"]
+
+valid_dev_routes:
+    - source: "pipeline-agent"
+      target: "timeline-agent"
+      trigger: "New event types in rt-core"
+      contract: "DuckDB column mappings and migration SQL"
+
+    - source: "pipeline-agent"
+      target: "analysis-agent"
+      trigger: "New parser events needing correlation"
+      contract: "Correlation patterns in rt-correlation"
+
+    - source: "timeline-agent"
+      target: "report-agent"
+      trigger: "New query/view in timeline"
+      contract: "Report template updates"
+
+    - source: "analysis-agent"
+      target: "intel-agent"
+      trigger: "New finding type needs RAG/LLM"
+      contract: "Prompt template and retrieval strategy"
+
+    - source: "intel-agent"
+      target: "report-agent"
+      trigger: "New narrative section"
+      contract: "Report layout with citations"
+
+    - source: "any-agent"
+      target: "infra-agent"
+      trigger: "CI/CD changes needed"
+      contract: "GitHub Actions, Cargo workspace, Nix flake"
+
+    - source: "any-agent"
+      target: "frontend-agent"
+      trigger: "New CLI command or UI view"
+      contract: "UI implementation for capability"
+
+    - source: "community-contributor"
+      target: "community-reviewer"
+      trigger: "Plugin PR submitted"
+      contract: "WIT conformance, security review, test harness"
+
+valid_runtime_routes:
+    - source_layer: 0
+      target_layer: 1
+      payload: "StorageHandle"
+      error: "Retry alternate provider; fail if unreadable"
+
+    - source_layer: 1
+      target_layer: 2
+      payload: "ImageStream"
+      error: "Skip corrupted partitions; emit warning"
+
+    - source_layer: 2
+      target_layer: 3
+      payload: "FilesystemIterator"
+      error: "Skip unreadable files; log path and error"
+
+    - source_layer: 3
+      target_layer: 4
+      payload: "TimelineEventBatch"
+      error: "Batch with degraded=true for unparseable"
+
+    - source_layer: 4
+      target_layer: "report"
+      payload: "AnalysisResult"
+      error: "Omit uncorroborated findings; flag confidence"
+
+invalid_routes:
+    - path: "report-agent -> pipeline-agent"
+      reason: "Reports never trigger re-ingestion"
+    - path: "intel-agent -> pipeline-agent"
+      reason: "Intelligence never modifies raw processing"
+    - path: "timeline-agent -> pipeline-agent (runtime)"
+      reason: "Timeline is append-only; no re-parsing"
+    - path: "proprietary -> open-source (compile dependency)"
+      reason: "Open-source crates NEVER depend on proprietary"
+    - path: "circular A -> B -> A (same traceId)"
+      reason: "Infinite loop; blocked by HandoffManager"
+    - path: "Layer 3 -> Layer 1 (runtime)"
+      reason: "No backward data flow; layers sequential"
+
+limits:
+    max_handoffs_per_pipeline_run: 20
+    max_dev_chain_depth: 5
+    dev_timeout_default_ms: 1800000
+    runtime_timeout_ms: 10000
+    max_retry_attempts: 3
+    circular_detection: "per-traceId visited set"
+
+boundary_protocol:
+    rule: "Open-source crates NEVER depend on proprietary crates"
+    exchange_type: "TimelineEvent (rt-core)"
+    trait_interfaces: ["AnalysisPort", "ReportPort", "Parser", "Analyzer", "Reporter"]
+    feature_flag: "--features pro"
+    ci_requirement: "Tests BOTH open-source-only and pro configurations"
+    open_source_crates: ["rt-core", "rt-pipeline", "rt-timeline", "rt-cli", "rt-plugin-sdk", "rt-ewf"]
+    proprietary_crates: ["rt-report", "rt-intel", "rt-correlation", "rt-tui", "rt-gui", "rt-web"]
+
+recovery_strategies:
+    - name: "Retry Different Target"
+      when: "Primary handler failed but alternatives exist"
+      tradeoff: "Increased latency (up to 3x)"
+
+    - name: "Proceed Partial"
+      when: "Non-critical data missing"
+      tradeoff: "Lower quality; degraded fields flagged"
+
+    - name: "Escalate to Human"
+      when: "Critical decision or all retries exhausted"
+      tradeoff: "Blocks pipeline until human responds"
+
+    - name: "Skip and Continue"
+      when: "Optional enhancement failed"
+      tradeoff: "Missing enhancement noted in report"
+
+    - name: "Fallback Default"
+      when: "All else fails"
+      tradeoff: "Generic/conservative response"
+
+    - name: "Decompose and Retry"
+      when: "Handoff too large for single agent"
+      tradeoff: "More overhead but higher success rate"
+
+observability:
+    trace_attributes:
+        - "handoff.trace_id"
+        - "handoff.source_crate"
+        - "handoff.target_crate"
+        - "handoff.payload_type"
+        - "handoff.status"
+        - "handoff.execution_time_ms"
+        - "handoff.degraded"
+    counter_metrics:
+        - "handoff_total"
+        - "handoff_failed_total"
+        - "handoff_circular_blocked_total"
+        - "handoff_escalated_total"
+    histogram_metrics:
+        - "handoff_duration_ms"
+        - "handoff_payload_size_bytes"
+        - "handoff_chain_depth"
+    gauge_metrics:
+        - "handoff_active_chains"
+        - "handoff_buffer_utilization"
+
+plugin_handoff:
+    submission: "PR to github.com/h4x0r/rapidtriage with label community-plugin"
+    automated_checks: ["WIT conformance", "WASM size <10MB", "Memory <64MB", "Timeout <30s", "Sandbox enforcement", "Fuzz 1000 iterations"]
+    review_sla: "First review within 72 hours"
+    max_review_rounds: 3
+
+onboarding:
+    entry_point: "README.md -> CONTRIBUTING.md -> north-star-advisor/docs/INDEX.md"
+    self_serve_context: ["ai-context.yml", "ARCHITECTURE_BLUEPRINT.md", "docs/rfcs/"]
+    first_contribution: "good-first-issue tagged, draft PR early, review within 48 hours"
+    graduation: "3+ merged PRs -> CODEOWNERS write access"

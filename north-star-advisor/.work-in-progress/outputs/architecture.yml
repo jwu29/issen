@@ -1,0 +1,290 @@
+# Architecture Blueprint - Structured Outputs
+# Generated: 2026-03-20
+# Source: north-star-advisor/docs/ARCHITECTURE_BLUEPRINT.md
+
+architecture:
+    pattern: "Hexagonal (Crux-inspired) with side-effect-free core"
+    description: "Pure rt-core contains all analysis logic. Multiple frontends (CLI, TUI, GUI, Web) share identical processing through port/adapter interfaces. All I/O lives in adapters."
+
+    components:
+        - name: "rt-core"
+          license: "Apache 2.0"
+          role: "Pure analysis engine -- timeline schema, event types, plugin traits, analysis logic"
+          side_effects: false
+          dependencies: []
+
+        - name: "rt-pipeline"
+          license: "Apache 2.0"
+          role: "Multi-layer evidence ingestion and parser orchestration"
+          side_effects: true
+          dependencies: ["rt-core"]
+
+        - name: "rt-plugin-sdk"
+          license: "Apache 2.0"
+          role: "Plugin development kit, trait re-exports, test harness"
+          side_effects: false
+          dependencies: ["rt-core"]
+
+        - name: "rt-timeline"
+          license: "Apache 2.0"
+          role: "DuckDB timeline storage, query engine, SQLite export"
+          side_effects: true
+          dependencies: ["rt-core", "duckdb-rs"]
+
+        - name: "rt-ewf"
+          license: "MIT"
+          role: "E01/EWF forensic image parser, multi-segment, streaming"
+          side_effects: true
+          dependencies: []
+
+        - name: "rt-cli"
+          license: "Apache 2.0"
+          role: "Command-line interface, batch processing"
+          side_effects: true
+          dependencies: ["rt-core", "rt-pipeline", "rt-timeline"]
+
+        - name: "rt-report"
+          license: "Proprietary"
+          role: "Dual-format report generation -- interactive HTML + polished DOCX/PDF"
+          side_effects: true
+          dependencies: ["rt-core", "rt-timeline"]
+
+        - name: "rt-correlation"
+          license: "Proprietary"
+          role: "Cross-artifact correlation and attack pattern detection"
+          side_effects: true
+          dependencies: ["rt-core", "rt-timeline"]
+
+        - name: "rt-intel"
+          license: "Proprietary"
+          role: "ForensicLLM, RAG, YARA-X, Sigma, threat intelligence"
+          side_effects: true
+          dependencies: ["rt-core", "rt-timeline"]
+
+        - name: "rt-tui"
+          license: "Proprietary"
+          role: "Interactive terminal UI for timeline exploration"
+          side_effects: true
+          dependencies: ["rt-core", "rt-timeline", "ratatui"]
+
+        - name: "rt-gui"
+          license: "Proprietary"
+          role: "Tauri v2 desktop GUI"
+          side_effects: true
+          dependencies: ["rt-core", "rt-timeline", "rt-report"]
+
+        - name: "rt-web"
+          license: "Proprietary"
+          role: "axum server + Leptos frontend"
+          side_effects: true
+          dependencies: ["rt-core", "rt-timeline", "rt-report"]
+
+        - name: "rt-enterprise"
+          license: "Proprietary"
+          role: "SSO, teams, audit, license management"
+          side_effects: true
+          dependencies: ["rt-core"]
+
+    data_pipeline:
+        layers:
+            - layer: 0
+              name: "Storage I/O"
+              scope: "Local filesystem, network share, cloud storage"
+            - layer: 1
+              name: "Image Format"
+              scope: "E01/EWF, raw/dd, VMDK, VHD/VHDX, AFF4"
+            - layer: 2
+              name: "Volume / Partition"
+              scope: "GPT, MBR, LVM, Apple Partition Map"
+            - layer: 3
+              name: "Filesystem"
+              scope: "NTFS, ext4, APFS, FAT32, exFAT"
+            - layer: 4
+              name: "Artifact Parser"
+              scope: "MFT, USN Journal, Event Logs, Prefetch, Registry, etc."
+        virtual_filesystem: "Unified namespace for multi-source evidence fusion"
+
+    timeline:
+        primary_store: "DuckDB (columnar, in-process)"
+        exchange_format: "SQLite (portable export)"
+        precision: "TIMESTAMP_NS (nanosecond)"
+        features:
+            - "Zone maps for fast time-range queries"
+            - "Incremental processing via source fingerprinting"
+            - "Parallel ingestion via rayon"
+            - "100M+ event support"
+        schema_columns:
+            - "timestamp_ns (TIMESTAMP_NS)"
+            - "event_type (VARCHAR)"
+            - "source (VARCHAR)"
+            - "artifact_path (VARCHAR)"
+            - "description (VARCHAR)"
+            - "metadata (JSON)"
+            - "user_account (VARCHAR)"
+            - "hostname (VARCHAR)"
+            - "tags (VARCHAR[])"
+            - "record_hash (VARCHAR)"
+            - "evidence_source (VARCHAR)"
+
+    plugin_system:
+        tiers:
+            - tier: 1
+              name: "Compile-Time Trait Plugins"
+              technology: "Rust traits + inventory crate"
+              scope: "First-party parsers"
+              version: "v0.1+"
+              overhead: "Zero runtime overhead"
+
+            - tier: 2
+              name: "WASM Sandboxed Plugins"
+              technology: "Wasmtime + WIT interfaces"
+              scope: "Community-contributed parsers"
+              version: "v0.3+ (deferred)"
+              overhead: "Memory-isolated, capability-based"
+
+            - tier: 3
+              name: "gRPC/IPC Subprocess Plugins"
+              technology: "tonic gRPC + protobuf"
+              scope: "Enterprise integrations (VirusTotal, MISP, SIEM)"
+              version: "v0.5+ (deferred)"
+              overhead: "Process-level isolation"
+
+    first_party_parsers:
+        - "rt-parser-usnjrnl (USN Journal -- ported from usnjrnl-forensic v0.6)"
+        - "rt-parser-mft (Master File Table)"
+        - "rt-parser-evtx (Windows Event Logs)"
+        - "rt-parser-prefetch (Prefetch files)"
+        - "rt-parser-registry (Windows Registry)"
+        - "rt-parser-lnk (Shortcut files)"
+        - "rt-parser-amcache (Application cache)"
+        - "rt-parser-bam (Background Activity Monitor)"
+        - "rt-parser-browser (Browser history)"
+        - "rt-parser-jumplists (Jump Lists)"
+        - "rt-parser-srum (System Resource Usage)"
+
+    intelligence_layer:
+        llm_runtime: "Ollama (local-first)"
+        model_strategy: "Multi-model with routing -- 80% small (7B-13B), 20% large (70B+)"
+        ai_free_mode: "Mandatory -- all features work without AI"
+        grounded_generation: "Every AI claim must cite specific timeline event IDs"
+        detection_engines:
+            - "YARA-X (file-based detection)"
+            - "Sigma (event-based detection, converted to DuckDB SQL)"
+        rag:
+            pattern: "Modular RAG"
+            stores:
+                - name: "Case-Specific"
+                  scope: "Current case timeline, artifacts, annotations"
+                  lifecycle: "Ephemeral (per case)"
+                - name: "Cross-Case"
+                  scope: "Historical patterns, TTPs, anonymized report narratives"
+                  lifecycle: "Persistent (shared)"
+                - name: "Reference"
+                  scope: "MITRE ATT&CK, artifact docs, Windows internals"
+                  lifecycle: "Static (quarterly update)"
+            vector_store: "lancedb (embedded, Rust-native)"
+            embedding_model: "nomic-embed-text (via Ollama)"
+        threat_intelligence:
+            - "MISP (API + offline feed files)"
+            - "OpenCTI (GraphQL + STIX 2.1)"
+            - "VirusTotal"
+            - "AlienVault OTX"
+
+    report_engine:
+        formats:
+            - name: "Interactive HTML"
+              technology: "Askama templates + vanilla JS"
+              use_case: "Attorney exploration, filterable timeline, expandable evidence"
+              constraint: "Self-contained single file, no external dependencies"
+            - name: "Word (DOCX)"
+              technology: "docx-rs (Rust-native) + python-docx fallback"
+              use_case: "Expert witness reports for court filing"
+              constraint: "Numbered headings via multilevel list system, firm template support"
+            - name: "PDF"
+              technology: "Headless Chromium rendering"
+              use_case: "Print-ready formal report"
+              constraint: "Pagination, headers/footers, page numbers"
+        chain_of_custody: "SHA-256 hashes, processing audit log, examiner identity, report content hash"
+
+    open_core:
+        public_repo: "github.com/h4x0r/rapidtriage (Apache 2.0 / MIT)"
+        private_repo: "rapidtriage-pro (Proprietary)"
+        boundary_rule: "Open-source crates NEVER depend on proprietary crates"
+        gating: "Cargo feature flags (default, pro, enterprise) + runtime license validation"
+        precedents: ["Grafana", "GitLab", "HashiCorp", "Elastic"]
+
+    tech_stack:
+        language: "Rust (2021 edition)"
+        async_runtime: "tokio"
+        parallelism: "rayon"
+        cli: "clap v4"
+        tui: "ratatui 0.29 + crossterm 0.28"
+        gui: "Tauri v2"
+        web_backend: "axum 0.8"
+        web_frontend: "Leptos 0.7"
+        primary_db: "DuckDB (duckdb-rs)"
+        exchange_db: "SQLite (rusqlite)"
+        templates: "Askama"
+        docx: "docx-rs + python-docx"
+        pdf: "headless-chrome"
+        image_parsing: "rt-ewf (custom)"
+        detection_files: "yara-x"
+        detection_events: "Custom Sigma engine"
+        vector_store: "lancedb"
+        embedding: "nomic-embed-text (Ollama)"
+        llm_client: "ollama-rs"
+        hashing: "ring / sha2"
+        logging: "tracing + tracing-subscriber"
+        errors: "thiserror + anyhow"
+        testing: "cargo test + criterion + proptest"
+        serialization: "serde + serde_json"
+        plugin_registration: "inventory"
+        wasm_runtime: "wasmtime (v0.3+)"
+        grpc: "tonic (v0.5+)"
+
+    surfaces:
+        - name: "CLI"
+          crate: "rt-cli"
+          technology: "clap v4"
+          status: "v0.1 (open-source)"
+        - name: "TUI"
+          crate: "rt-tui"
+          technology: "ratatui 0.29"
+          status: "v0.2 (proprietary)"
+        - name: "Desktop GUI"
+          crate: "rt-gui"
+          technology: "Tauri v2"
+          status: "v0.4+ (proprietary)"
+        - name: "Web UI"
+          crate: "rt-web"
+          technology: "axum 0.8 + Leptos 0.7"
+          status: "v0.6+ (proprietary)"
+
+    key_decisions:
+        - decision: "DuckDB as primary timeline store"
+          rationale: "Columnar analytics for 100M+ events. In-process. TIMESTAMP_NS. Zone maps."
+          alternatives: ["SQLite", "PostgreSQL", "Arrow/Parquet"]
+
+        - decision: "SQLite as exchange format"
+          rationale: "Universal tooling, portable, legal hold compliance."
+          alternatives: ["Parquet", "JSON", "proprietary format"]
+
+        - decision: "Hexagonal architecture (Crux-inspired)"
+          rationale: "Side-effect-free core enables multi-surface rendering from same logic."
+          alternatives: ["MVC", "microservices", "monolith"]
+
+        - decision: "Three-tier plugin system"
+          rationale: "Traits for performance, WASM for safety, gRPC for enterprise. Start with Tier 1 only."
+          alternatives: ["WASM-only", "dylib/FFI", "single-tier"]
+
+        - decision: "Hybrid public/private repo"
+          rationale: "Open parsers build trust, private integration captures value."
+          alternatives: ["single private", "single public AGPL", "BSL"]
+
+        - decision: "Local-first AI via Ollama"
+          rationale: "Forensic data sovereignty. Air-gapped lab support."
+          alternatives: ["cloud-only", "hybrid-default", "no AI"]
+
+        - decision: "Dual report output (HTML + DOCX)"
+          rationale: "Attorneys need both interactive exploration and court-ready filing."
+          alternatives: ["HTML-only", "PDF-only", "proprietary format"]

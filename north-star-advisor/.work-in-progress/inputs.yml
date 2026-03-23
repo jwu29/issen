@@ -1,0 +1,70 @@
+# North Star Advisor - Project Inputs
+# Generated: 2026-03-20T00:00:00Z
+
+# Core (from exploration)
+application_name: "RapidTriage"
+one_line_description: "Integrated forensic triage platform that bridges the forensic-to-legal translation gap with attorney-ready output"
+target_users: "IR practitioners, forensic examiners, and litigation support teams who conduct digital forensic investigations and need to produce deliverables for legal teams"
+core_problem: "Forensic analysis is ~20% of engagement cost; the remaining ~80% is manual report writing, evidence reprocessing, and attorney back-and-forth because every forensic tool produces engineer-oriented output that attorneys cannot use"
+differentiator: "Attorney-ready output — interactive HTML reports for exploration and polished Word/PDF reports for the record. No forensic tool on the market produces output that attorneys can use without calling the examiner back."
+
+# Structured (from targeted questions)
+tech_stack: "Rust (existing codebase: usnjrnl-forensic v0.6, tl v0.1, ewf v0.1, shrinkpath v0.1). Plugin-based extensible architecture."
+constraints: "Solo founder, bootstrapped. Consulting revenue funds development. Must maximize solo development velocity while enabling community contributions and eventual team scaling."
+anti_goals:
+  - "Not a collection tool — ingests KAPE, Velociraptor, Magnet ACQUIRE output, does not collect from endpoints"
+  - "Not an eDiscovery platform — produces evidence for Relativity/Nuix, does not replace them"
+  - "Not a SIEM/SOC tool — post-incident forensic analysis, not real-time detection or monitoring"
+success_metric: "Community adoption first (GitHub stars, downloads, active contributors for open-source components), then converting to paying customers for the commercial platform"
+
+# Licensing strategy
+licensing:
+  open_source_components: "Apache 2.0 (parsers like usnjrnl-forensic, new artifact parsers) / MIT (utilities like ewf, shrinkpath)"
+  proprietary_components: "Closed source (integration layer, unified pipeline, report engine, UI, enterprise features)"
+  rationale: "Permissive licenses maximize community adoption. The moat is integration + attorney-ready reports, not individual parsers."
+
+# Business model tiers
+business_tiers:
+  community:
+    license: "Apache 2.0 / MIT"
+    components: "Individual parsers, data source readers, low-level libraries"
+  professional:
+    license: "Proprietary (closed source)"
+    components: "Integration layer, unified pipeline, report engine, UI, correlation"
+  enterprise:
+    license: "Proprietary (paid)"
+    components: "SSO, teams collaboration, admin & audit, priority support, SLA"
+
+# Architecture vision
+architecture:
+  pattern: "Plugin-based extensible architecture"
+  data_sources: "Unified pipeline: E01 (ewf), Velociraptor, KAPE, mobile (.dar, .ufdx, iOS backup), Relativity, cloud exports, live system"
+  parsers: "Abstract interface: USN Journal, MFT, Prefetch, LNK, Amcache, Event Logs, BAM, browsers, jumplists, MRU, network, registry, SRUM"
+  analysis: "Unified timeline, unified logical concepts, correlation engine, OSINT/CTI integration"
+  output: "Interactive HTML reports, polished Word/PDF expert witness reports, configurable per engagement type"
+
+# Existing codebase
+existing_projects:
+  - name: "usnjrnl-forensic"
+    version: "0.6.0"
+    license: "Apache-2.0"
+    description: "NTFS USN Journal parser with path reconstruction, deleted record carving"
+    maturity: "Field-tested"
+  - name: "tl"
+    version: "0.1.0"
+    license: "MIT"
+    description: "Rapid forensic triage timeline tool with 10+ artifact parsers, Sigma rules, TUI"
+    maturity: "Heavy development"
+  - name: "ewf"
+    version: "0.1.1"
+    license: "MIT"
+    description: "Pure Rust E01 forensic image parser with multi-segment support"
+    maturity: "Production-ready"
+  - name: "shrinkpath"
+    version: "0.1.1"
+    license: "MIT OR Apache-2.0"
+    description: "Cross-platform path shortening (Rust + TypeScript)"
+    maturity: "Production-ready"
+
+# Phase decisions (populated during generation)
+phase_decisions: {}

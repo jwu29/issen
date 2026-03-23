@@ -1,0 +1,206 @@
+# User Journey Maps - Structured Outputs
+# Generated: 2026-03-20
+# Source: north-star-advisor/docs/design/USER_JOURNEYS.md
+
+journeys:
+    core_tarr:
+        name: "Evidence Intake to Attorney-Ready Report"
+        persona: "Sarah Chen"
+        trigger: "Receives KAPE collection or E01 image"
+        success: "Attorney reviews report without calling examiner back"
+        tarr_target: "<4 hours"
+        tarr_baseline: "~16 hours"
+        tarr_achieved: "~2.5 hours (84% reduction)"
+        phases:
+            - name: "Ingest"
+              action: "rt ingest ./evidence/"
+              time: "2 minutes"
+              emotion: "Cautious, hopeful"
+            - name: "Parse"
+              action: "Automated parallel parsing"
+              time: "8 minutes"
+              emotion: "Relief, impressed"
+            - name: "Timeline Review"
+              action: "rt timeline (TUI)"
+              time: "90 minutes"
+              emotion: "Focused, analytical"
+            - name: "Report Generation"
+              action: "rt report --format html,docx"
+              time: "30 minutes"
+              emotion: "Anticipation, excited"
+            - name: "Deliver"
+              action: "Send HTML + Word to attorney"
+              time: "5 minutes"
+              emotion: "Confident, done"
+        friction_points:
+            - "Unsupported collection format"
+            - "Parser failure on corrupted artifacts"
+            - "Information overload in timeline (50K+ events)"
+            - "Report narrative phrasing adjustments"
+        critical_moments:
+            - "Ingest acceptance: first trust moment"
+            - "Parse completion: the 'wow' moment"
+            - "Report generation: highest emotional stakes"
+            - "Attorney acceptance: delayed gratification"
+
+    multi_source_fusion:
+        name: "Multi-Source Evidence Fusion"
+        persona: "Sarah Chen / Marcus Webb"
+        trigger: "Case involves disk image + endpoint collection + cloud logs"
+        success: "Single unified timeline with cross-source correlation"
+        tarr_impact: "Eliminates 2-4 hours of manual evidence merging"
+        phases:
+            - name: "Create Case"
+              action: "rt case new"
+            - name: "Ingest Sources (incremental)"
+              action: "rt ingest --source [type] [path]"
+            - name: "Review Fused Timeline"
+              action: "rt timeline --all-sources"
+            - name: "Cross-Source Analysis"
+              action: "Press 'x' for cross-source view"
+            - name: "Generate Fused Report"
+              action: "rt report --all-sources"
+
+    attorney_followup:
+        name: "Attorney Follow-Up (Iterative Reporting)"
+        persona: "Sarah Chen / Diana Reyes"
+        trigger: "Attorney asks targeted question about existing case"
+        success: "Targeted mini-report delivered in 10-15 minutes"
+        tarr_impact: "Reduces follow-up from 2-4 hours to 10-15 minutes"
+        phases:
+            - name: "Open Case"
+              action: "rt case open [name]"
+              time: "1 minute"
+            - name: "Scoped Timeline"
+              action: "rt timeline --range [time window]"
+              time: "5 minutes"
+            - name: "Generate Mini-Report"
+              action: "rt report --range ... --brief"
+              time: "3 minutes"
+            - name: "Deliver"
+              action: "Email mini-report"
+              time: "1 minute"
+
+    plugin_development:
+        name: "Plugin Development (Community)"
+        persona: "Community Developer"
+        trigger: "Wants to add parser for new artifact type"
+        success: "Parser accepted into community registry"
+        tarr_impact: "Indirect - expands artifact coverage"
+        phases:
+            - name: "Discover"
+              action: "Browse registry and docs"
+            - name: "Scaffold"
+              action: "rt plugin new --name [name] --type parser"
+            - name: "Implement"
+              action: "Implement ForensicParser trait (3 methods)"
+            - name: "Test"
+              action: "rt plugin test --sample-data [path]"
+            - name: "Publish"
+              action: "rt plugin publish"
+        target_time: "<2 hours for first plugin"
+
+persona_variations:
+    sarah_chen:
+        name: "Sarah Chen"
+        title: "Solo IR Practitioner"
+        type: "primary"
+        key_behaviors:
+            - "Runs end-to-end alone; needs fastest path"
+            - "Receives evidence piecemeal (incremental ingestion)"
+            - "Attorney follow-up is most frequent journey"
+            - "Consumer of plugins, not contributor"
+        ux_accommodations:
+            - "CLI pipeline composition: rt ingest . && rt report --auto"
+            - "Template library for common case types"
+            - "Attorney FAQ auto-generation in reports"
+            - "Simple rt plugin install from registry"
+
+    marcus_webb:
+        name: "Marcus Webb"
+        title: "Firm Forensic Examiner"
+        type: "secondary"
+        key_behaviors:
+            - "Must conform to firm report templates"
+            - "Evidence pre-collected; always multi-source"
+            - "Partner mediates attorney communication"
+            - "More likely plugin contributor (firm R&D time)"
+        ux_accommodations:
+            - "Firm-level template system"
+            - "Batch ingest via case manifest YAML"
+            - "Internal review report variant"
+            - "Plugin authorship attribution"
+
+    diana_reyes:
+        name: "Diana Reyes"
+        title: "Litigation Support Analyst"
+        type: "tertiary"
+        key_behaviors:
+            - "Receives examiner output; reformats for court"
+            - "Chain of custody tracking critical"
+            - "Frequent single-exhibit generation requests"
+            - "Needs jurisdiction-specific formatting"
+        ux_accommodations:
+            - "Court-ready export with Bates numbering"
+            - "Automated chain of custody documentation"
+            - "Single-event exhibit generation: rt exhibit"
+            - "Legal template marketplace"
+
+metrics:
+    kpis:
+        - name: "Ingest-to-Timeline (ITL)"
+          target: "<10 minutes (50GB evidence)"
+          phase: "Core TARR: Ingest + Parse"
+        - name: "Findings-to-Report (FTR)"
+          target: "<2 hours"
+          phase: "Core TARR: Review + Report"
+        - name: "Follow-Up Turnaround (FUT)"
+          target: "<15 minutes"
+          phase: "Attorney Follow-Up"
+        - name: "Report Acceptance Rate (RAR)"
+          target: ">80% first-pass"
+          phase: "Core TARR: Deliver"
+        - name: "Multi-Source Fusion Time (MFT)"
+          target: "<5 minutes per additional source"
+          phase: "Multi-Source"
+        - name: "Plugin Time-to-First-Parse (PTFP)"
+          target: "<2 hours"
+          phase: "Plugin Development"
+        - name: "Error Recovery Time (ERT)"
+          target: "<30 seconds"
+          phase: "Error Recovery (all)"
+
+error_types:
+    - type: "Unsupported Evidence Format"
+      recovery: "Clear supported format list; --force-type override"
+    - type: "Corrupted Artifact"
+      recovery: "Partial parsing with [PARTIAL] marker; other parsers unaffected"
+    - type: "Parser Failure"
+      recovery: "Skip + continue; --strict to halt; rt parse --retry"
+    - type: "Disk Full"
+      recovery: "Case state saved; --output-dir redirect; rt resume"
+    - type: "Timeout / Long Processing"
+      recovery: "Background processing; partial results available during parse"
+    - type: "Report Template Error"
+      recovery: "Specific field + command to fix; --skip-missing; --interactive"
+    - type: "Plugin Compatibility"
+      recovery: "Update command; --compat-mode; rt plugin test"
+
+implementation_priorities:
+    p0:
+        - "Evidence ingest with format auto-detection"
+        - "Unified timeline with filtering and bookmarking (TUI)"
+        - "Dual-format report generation (HTML + Word/PDF)"
+        - "Case state persistence and resume"
+        - "Error messages with recovery paths"
+    p1:
+        - "Multi-source ingestion and correlation"
+        - "Scoped mini-report generation (attorney follow-up)"
+        - "Firm template system"
+    p2:
+        - "Plugin scaffold and test harness"
+        - "Community plugin registry"
+        - "Court-ready exhibit generation (Bates numbering)"
+    p3:
+        - "Python FFI bridge for plugins"
+        - "Attorney FAQ auto-generation"

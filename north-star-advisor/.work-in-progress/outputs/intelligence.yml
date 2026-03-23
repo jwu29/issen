@@ -1,0 +1,267 @@
+# Intelligence Layer - Structured Outputs
+# Generated: 2026-03-20
+# Source: north-star-advisor/docs/architecture/INTELLIGENCE_LAYER.md
+
+intelligence:
+  component: rt-intel
+  classification: proprietary
+
+  retrieval_architecture:
+    pattern: "Modular dual RAG — three stores with separate pipelines merged at generation time"
+    stores:
+      - name: case_specific_ephemeral
+        purpose: "Current case artifacts, timeline events, examiner annotations"
+        engine: lancedb
+        location: "{case_dir}/.rt/vectors/"
+        lifecycle: "Created on case open, destroyed on archive"
+        indexing_trigger: real_time
+        chunk_strategy: "One chunk per TimelineEvent (atomic, no splitting)"
+        chunk_size: "50-500 tokens (variable)"
+        expected_records: "10K-500K per case"
+      - name: cross_case_persistent
+        purpose: "Historical patterns, anonymized reports, organizational TTP library"
+        engine: lancedb
+        location: "~/.rapidtriage/knowledge/"
+        lifecycle: persistent
+        indexing_trigger: "On case close (batch)"
+        chunk_strategy: "Semantic section (report paragraphs, technique descriptions)"
+        chunk_size: "256-512 tokens, 64-token overlap"
+        expected_records: "50K-2M (growing)"
+      - name: reference_static
+        purpose: "ATT&CK techniques, forensic artifact docs, Windows internals, SANS guides"
+        engine: lancedb
+        location: "~/.rapidtriage/reference/"
+        lifecycle: "Immutable between quarterly updates"
+        indexing_trigger: "Quarterly rebuild"
+        chunk_strategy: "One chunk per technique/artifact type/methodology step"
+        chunk_size: "256-512 tokens, 32-token overlap"
+        expected_records: "~20K (stable)"
+    search_mode: "Hybrid (vector cosine + BM25 keyword + reciprocal rank fusion + cross-encoder reranking)"
+
+  embedding_design:
+    model: nomic-embed-text
+    version: "v1.5"
+    dimensions: 768
+    max_tokens: 8192
+    deployment: "Ollama (local-first), ONNX fallback"
+    matryoshka_support: true
+    truncatable_dims: [256, 512, 768]
+    license: "Apache 2.0"
+    batch_size: 64
+    prefix_index: "search_document: "
+    prefix_query: "search_query: "
+    staleness_detection: "Content hash comparison on query"
+
+  model_routing:
+    strategy: "Multi-model local-first — 80% small / 20% large"
+    runtime: Ollama
+    tiers:
+      - tier: 1
+        params: "7B-8B"
+        model: "Llama 3.1 8B-Q8"
+        vram: "8GB"
+        latency: "<1s"
+        tasks: ["event classification", "entity recognition", "ATT&CK mapping", "IOC extraction"]
+      - tier: 2
+        params: "13B-34B"
+        model: "Llama 3.1 70B-Q4"
+        vram: "32GB"
+        latency: "5-15s"
+        tasks: ["report section drafting", "quality review"]
+      - tier: 3
+        params: "70B+"
+        model: "Llama 3.1 70B-Q4"
+        vram: "40GB"
+        latency: "15-30s"
+        tasks: ["cross-artifact correlation", "complex narrative"]
+      - tier: 4
+        params: cloud
+        model: "GPT-4 / Claude (opt-in only)"
+        latency: "3-10s"
+        tasks: ["fallback for tier 3 when local hardware insufficient"]
+    fallback_behavior: "Each tier falls back gracefully to lower tier or deterministic/rule-based path"
+
+  forensic_llm:
+    phase: 4
+    base_model: "Llama 3.1 (8B or 70B TBD)"
+    method: "QLoRA (4-bit quantized LoRA)"
+    training_target: "5000+ examiner-approved report sections"
+    deployment: "LoRA adapter via Ollama custom Modelfile"
+    validation: "Blind comparison by 3+ certified examiners"
+
+  grounded_generation:
+    principle: "Every AI-generated sentence traces to specific forensic artifacts"
+    citation_format: "[SOURCE: artifact_type, path, identifier, timestamp]"
+    minimum_citation_density: "1 citation per factual claim"
+    dual_model_verification: true
+    confidence_scoring:
+      range: "0.0-1.0"
+      auto_approve_threshold: 0.9
+      review_threshold: 0.7
+      reject_below: 0.7
+    prohibited_patterns:
+      - "Legal conclusions"
+      - "Causal attribution (user X did Y)"
+      - "Opinion statements"
+      - "Temporal causation claims"
+      - "Completeness claims"
+      - "Chain of custody statements"
+    human_review: "ALL AI content requires explicit examiner approval"
+
+  detection_engine:
+    yara:
+      engine: YARA-X
+      language: Rust
+      rule_sources: ["builtin (malware, webshells, stealers, tools)", "community (YARA-Forge)", "custom"]
+      scan_targets: "All files extracted by rt-pipeline"
+      execution: "Parallel via rayon"
+      performance_target: "100K files in <60s on 8-core"
+    sigma:
+      engine: "Custom Sigma-to-DuckDB SQL transpiler (from tl v0.1)"
+      rule_sources: ["SigmaHQ (2000+ rules)", "custom"]
+      target: "TimelineEvent records in DuckDB"
+      execution: "Batch SQL against DuckDB"
+    correlation: "Cross-engine correlation (YARA + Sigma + ATT&CK + TI feeds)"
+
+  threat_intelligence:
+    abstraction_layer: "Pluggable ThreatIntelProvider trait"
+    modes: ["online (API)", "offline (feed files)"]
+    backends:
+      - name: MISP
+        protocol: REST
+        priority: P1
+        format: "STIX 1.x/2.0, JSON, CSV"
+      - name: OpenCTI
+        protocol: GraphQL
+        priority: P2
+        format: "STIX 2.1"
+      - name: AlienVault_OTX
+        protocol: REST
+        priority: P1
+        format: "OTX Pulse JSON"
+      - name: VirusTotal
+        protocol: REST
+        priority: P2
+        format: "VT JSON"
+      - name: AbuseCH
+        protocol: "CSV feeds"
+        priority: P1
+        format: CSV
+    ioc_types: ["file hashes", "IP addresses", "domains", "email addresses", "registry keys", "file paths", "mutex names", "certificate thumbprints"]
+    mitre_attack:
+      artifact_level: "Deterministic rule-based mapping"
+      behavioral_level: "AI-assisted clustering + ATT&CK tactics progression"
+      visualization: "ATT&CK Navigator layer export"
+
+  image_media_analysis:
+    perceptual_hashing:
+      prefilter: "dHash (128-bit, Hamming distance < 5)"
+      verification: "pHash DCT (128-bit, Hamming distance < 3)"
+      future: "DINOHash for adversarial cases"
+      rust_crates: ["image-hasher", "phash"]
+    exif_analysis: "Provenance chain reconstruction (original → edited → shared)"
+    ocr:
+      primary: "Tesseract 5.x (Rust bindings)"
+      fallback: "ocrs (pure Rust, Latin only)"
+      preprocessing: "grayscale → CLAHE → Gaussian blur → Otsu thresholding → upscale 300 DPI"
+
+  anomaly_detection:
+    methods:
+      - "Event frequency analysis (rolling window)"
+      - "Time-of-day profiling (per-user, 2-sigma outliers)"
+      - "Inter-event timing (detect automation)"
+      - "Volumetric anomalies (SRUM network, 3-sigma)"
+      - "First-seen analysis (vs baseline period)"
+    clustering:
+      - "Temporal proximity (30s automated / 5min human)"
+      - "Entity-based (user, file, process, IP, domain)"
+      - "Causal chain inference"
+      - "Session reconstruction (logon/logoff boundaries)"
+      - "Attack chain assembly (detection hits + ATT&CK mapping)"
+
+  evaluation_framework:
+    pyramid: ["unit evals", "LLM-as-judge", "domain evals", "human review (10% sampled)"]
+    methods:
+      - "Citation resolver (every generation)"
+      - "Prohibited pattern detector (every generation)"
+      - "LLM-as-judge faithfulness (every generation)"
+      - "LLM-as-judge coherence (report drafts)"
+      - "Golden dataset (NIST CFReDS, weekly regression)"
+      - "Boundary testing (release cycle)"
+      - "Schema validation (every structured generation)"
+      - "Human expert review (10% sampled, blind, scored)"
+
+  quality_metrics:
+    citation_accuracy:
+      target: ">98%"
+      alert: "<95%"
+    answer_faithfulness:
+      target: ">95%"
+      alert: "<90%"
+    prohibited_pattern_rate:
+      target: "0%"
+      alert: ">0%"
+    attack_mapping_precision:
+      target: ">85%"
+      alert: "<80%"
+    retrieval_precision_at_5:
+      target: ">80%"
+      alert: "<70%"
+    generation_latency_p50:
+      target: "<5s"
+      alert: ">10s"
+    generation_latency_p95:
+      target: "<30s"
+      alert: ">60s"
+    cost_per_case_local:
+      target: "$0"
+    cost_per_case_cloud:
+      target: "<$5"
+      alert: ">$10"
+
+  ai_free_mode:
+    principle: "Global toggle — platform fully functional without AI"
+    no_ollama_required: true
+    no_auto_downloads: true
+    no_cloud_calls: true
+    deterministic_features_unaffected:
+      - "Evidence parsing"
+      - "Timeline construction"
+      - "YARA-X scanning"
+      - "Sigma matching"
+      - "Perceptual hashing"
+      - "OCR (Tesseract)"
+      - "Report templates"
+    per_feature_granularity: true
+    config_path: "~/.rapidtriage/config.toml"
+
+  data_pipeline:
+    freshness:
+      case_artifacts_to_vectors: "<5s"
+      annotations_to_vectors: "<2s"
+      ioc_enrichment_cache_hit: "<30s"
+      detection_results: "<60s post-ingest"
+      cross_case_knowledge: "On case close"
+      reference_data: "Quarterly"
+    context_assembly:
+      steps: ["parallel retrieval", "source deduplication", "cross-encoder reranking", "metadata enrichment", "token budgeting", "chronological ordering", "template injection"]
+      budget_allocation:
+        evidence_chunks: "60%"
+        reference_context: "20%"
+        system_prompt: "10%"
+        generation_headroom: "10%"
+
+  priority_phases:
+    phase_2:
+      - "Grounded narrative drafting (P0)"
+      - "YARA-X file scanning (P0)"
+      - "Sigma event matching (P0)"
+      - "Case-specific RAG (P1)"
+      - "MITRE ATT&CK auto-mapping (P1)"
+      - "IOC extraction + enrichment (P1)"
+    phase_3:
+      - "Cross-case RAG (P2)"
+      - "Image series detection (P2)"
+      - "Anomaly detection (P2)"
+    phase_4:
+      - "ForensicLLM fine-tuning (P3)"

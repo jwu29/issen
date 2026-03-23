@@ -1,0 +1,143 @@
+# North Star Extract - Structured Outputs
+# Generated: 2026-03-20
+# Source: north-star-advisor/docs/NORTHSTAR_EXTRACT.md
+
+axioms:
+    - id: 1
+      name: "Correctness > Speed"
+      implication: "When forensic accuracy and processing speed conflict, choose accuracy. Evidence must withstand Daubert challenges."
+      derived_from: "brand.beliefs[correctness_over_speed]"
+
+    - id: 2
+      name: "Report is the Product"
+      implication: "The deliverable is the unit of value. Every feature must trace to shorter, better TARR. Parsing without reporting is zero value."
+      derived_from: "brand.beliefs[last_80_percent]"
+
+    - id: 3
+      name: "Practitioner First, Enterprise Later"
+      implication: "Design for solo IR practitioner (Sarah Chen) before enterprise CISO (James Okafor). Solo constraints produce better software."
+      derived_from: "brand.beliefs[by_practitioners_for_practitioners], brand.kill_list[not_enterprise_first]"
+
+    - id: 4
+      name: "Open Parsers, Proprietary Integration"
+      implication: "Parsers are Apache 2.0/MIT. Integration layer, pipeline, report engine, and UI are proprietary. Community trust from open parsers, revenue from integration."
+      derived_from: "brand.beliefs[open_parsers_integrated_platform]"
+
+    - id: 5
+      name: "Evidence Tells a Story"
+      implication: "Every feature filtered through: does this help the examiner tell the story to the attorney? If the attorney cannot understand the output, it is not a product feature."
+      derived_from: "brand.beliefs[evidence_tells_a_story]"
+
+non_goals:
+    features:
+        - item: "Evidence collection / acquisition"
+          rationale: "Collection is solved (KAPE, Velociraptor, ACQUIRE). Ingest their output instead."
+        - item: "eDiscovery platform features"
+          rationale: "Different problem, different users. Produce output for Relativity/Nuix."
+        - item: "Real-time SIEM / SOC monitoring"
+          rationale: "Post-incident forensic analysis is our lane. Accept SIEM exports."
+        - item: "Mobile forensics extraction"
+          rationale: "Cellebrite owns this. Ingest Cellebrite exports."
+        - item: "Memory forensics / malware analysis"
+          rationale: "Volatility owns memory forensics. Ingest results as supplementary evidence."
+        - item: "Cloud forensics acquisition (MVP)"
+          rationale: "Requires per-service API integrations. Phase 2+ via plugins."
+        - item: "Competing on artifact parser count"
+          rationale: "Compete on report quality depth. Community plugins close breadth gap."
+
+    approaches:
+        - item: "Enterprise-first sales motion"
+          rationale: "Requires team features, SSO, certs, sales team. Solo founder, bootstrapped."
+        - item: "Freemium SaaS model"
+          rationale: "Chain-of-custody prohibits cloud processing. Desktop-first."
+        - item: "Cloud-first architecture"
+          rationale: "Evidence stays on examiner's machine. Local-first."
+        - item: "Compete on parse speed alone"
+          rationale: "Speed without reporting is X-Ways. Differentiator is post-parse pipeline."
+        - item: "AI-first marketing"
+          rationale: "Practitioners skeptical of AI hype. AI is implementation detail, not headline."
+
+patterns:
+    - name: "TARR Pipeline"
+      description: "Evidence Ingest -> Parse -> Unify Timeline -> Identify Findings -> Generate Narrative -> Render Report"
+      when_to_use: "Every feature proposal. Map it to a pipeline stage. No stage = no ship."
+
+    - name: "Fallback Chain"
+      description: "Full AI Narrative -> Template-Based Narrative -> Structured Findings List -> Raw Timeline Export -> Error with Context"
+      when_to_use: "Every error-handling decision. Never fail to produce output."
+
+    - name: "Conflict Resolution Hierarchy"
+      description: "Correctness > Usability > Performance > Features > Polish"
+      when_to_use: "When design values conflict. Forensic correctness is non-negotiable."
+
+always:
+    - behavior: "Trace every feature to TARR"
+      example: "Before merging any PR: which TARR stage does this improve?"
+    - behavior: "Produce attorney-readable output"
+      example: "Every report section passes the Diana Reyes test."
+    - behavior: "Maintain chain-of-custody integrity"
+      example: "Hash verification at ingest, provenance metadata in every report."
+    - behavior: "Ship open parsers under permissive license"
+      example: "Every new artifact parser is Apache 2.0. No exceptions."
+    - behavior: "Design for Sarah Chen first"
+      example: "If it doesn't work for a one-person firm, it's not ready."
+    - behavior: "Use practitioner voice"
+      example: "SANS DFIR Summit peer conversation tone. No marketing superlatives."
+
+never:
+    - behavior: "Ship a report with unverified forensic claims"
+      rationale: "Wrong report in court is career-ending for examiner, legally dangerous for attorney."
+    - behavior: "Gate core functionality behind enterprise pricing"
+      rationale: "Solo practitioners are primary users. Free tier must be genuinely useful."
+    - behavior: "Send evidence data to cloud services"
+      rationale: "Chain-of-custody requirements are non-negotiable."
+    - behavior: "Claim AI-generated findings as examiner conclusions"
+      rationale: "Examiner reviews, edits, and owns every finding."
+    - behavior: "Break backward compatibility on open parsers"
+      rationale: "Community and downstream tools depend on parser APIs."
+    - behavior: "Optimize for vanity metrics"
+      rationale: "TARR is the metric. Everything else is a distraction."
+
+re_evaluation_triggers:
+    metric:
+        - signal: "TARR plateaus above 4 hours"
+          threshold: "3 consecutive release cycles"
+          action: "Re-examine pipeline architecture"
+        - signal: "Report Acceptance Rate below 60%"
+          threshold: "4+ weeks"
+          action: "Pause features, fix report engine"
+        - signal: "Community parser contributions stall"
+          threshold: "Fewer than 2 PRs per quarter after 6 months post-launch"
+          action: "Evaluate developer experience and documentation"
+        - signal: "Parse-to-Timeline exceeds 10 min target"
+          threshold: "Standard 50GB evidence sets across 3 test cases"
+          action: "Profile and fix before adding features"
+    external:
+        - signal: "Competitor ships attorney-ready reports"
+          action: "Evaluate quality, accelerate report engine innovation"
+        - signal: "Daubert challenge standards shift"
+          action: "Update report templates and citation formats immediately"
+        - signal: "PE firm acquires major open-source DFIR tool"
+          action: "Accelerate community building as trusted alternative"
+    strategic:
+        - signal: "Solo founder capacity ceiling reached"
+          action: "Evaluate hire, raise, or reduce scope"
+        - signal: "Enterprise demand exceeds 20% of inbound"
+          action: "Begin scoping Phase 2 enterprise features"
+
+cross_references:
+    derived_from:
+        - "brand.beliefs"
+        - "brand.kill_list"
+        - "brand.voice"
+        - "northstar.metric"
+        - "northstar.personas"
+        - "northstar.anti_metrics"
+        - "competitive.rejected_moves"
+        - "competitive.positioning"
+        - "competitive.market_shifts"
+    used_by:
+        - "all downstream agents and decisions"
+        - "architecture_blueprint (conflict resolution, patterns)"
+        - "agent_prompts (always/never behaviors)"
+        - "security_architecture (non_goals, evidence handling)"

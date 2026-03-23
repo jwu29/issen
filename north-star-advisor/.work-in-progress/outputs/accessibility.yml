@@ -1,0 +1,237 @@
+# Accessibility Strategy - Structured Outputs
+# Generated: 2026-03-20
+# Source: north-star-advisor/docs/design/ACCESSIBILITY.md
+
+accessibility:
+  wcag_target: "2.1 Level AA"
+  primary_surface: "HTML Reports"
+  compliance_scope:
+    html_reports: "WCAG 2.1 AA (mandatory)"
+    desktop_gui: "WCAG 2.1 AA (mandatory)"
+    web_ui: "WCAG 2.1 AA (mandatory)"
+    tui: "best-effort (terminal limitations)"
+    cli: "output mode flags (--no-color, --plain, --json)"
+    print: "tagged PDF, accessible Word"
+
+  surfaces:
+    - name: "CLI"
+      accessibility_flags:
+        - "--no-color (honors NO_COLOR env var)"
+        - "--plain (no ANSI, no Unicode box drawing)"
+        - "--json (structured programmatic output)"
+        - "--verbose (linear text progress for screen readers)"
+      screen_reader: "terminal-native"
+      keyboard: "full (terminal)"
+
+    - name: "TUI"
+      technology: "ratatui 0.29 + crossterm 0.28"
+      dark_mode: "always"
+      keyboard_scheme: "vim-style (j/k/h/l/g/G) + standard (Tab, Enter, Esc)"
+      color_independence: "prefix icons + text labels alongside color"
+      terminal_compat:
+        - "Windows Terminal"
+        - "macOS Terminal.app"
+        - "iTerm2"
+        - "Linux xterm"
+        - "tmux / screen"
+        - "SSH sessions"
+
+    - name: "HTML Reports"
+      wcag_level: "2.1 AA"
+      screen_reader_support:
+        - "NVDA (Windows)"
+        - "JAWS (Windows)"
+        - "VoiceOver (macOS)"
+        - "Orca (Linux)"
+      features:
+        - "Skip links (6 targets)"
+        - "Landmark regions"
+        - "Semantic heading hierarchy"
+        - "aria-sort on data tables"
+        - "aria-rowcount/aria-colindex on virtualized tables"
+        - "Color independence via icon + text + color"
+        - "Dark/light mode toggle"
+        - "Reduced motion support"
+        - "High contrast mode (forced-colors)"
+
+    - name: "Print (PDF/Word)"
+      features:
+        - "Tagged PDF with heading structure"
+        - "Alt text on charts and heatmaps"
+        - "Table header scope attributes"
+        - "Print-safe colors (high contrast black/white)"
+        - "Word Accessibility Checker pass"
+        - "Document language set (en-US)"
+
+  color_independence:
+    artifact_types:
+      encoding: "color + icon + text label"
+      tui_encoding: "color + prefix bracket code"
+      types:
+        - { name: "Filesystem", tui: "[FS]", color_dark: "#60A5FA" }
+        - { name: "Registry", tui: "[REG]", color_dark: "#A78BFA" }
+        - { name: "Event Log", tui: "[EVT]", color_dark: "#34D399" }
+        - { name: "Prefetch", tui: "[PF]", color_dark: "#FBBF24" }
+        - { name: "Browser", tui: "[BR]", color_dark: "#22D3EE" }
+        - { name: "Email", tui: "[ML]", color_dark: "#F87171" }
+        - { name: "Network", tui: "[NET]", color_dark: "#818CF8" }
+        - { name: "Persistence", tui: "[PERS]", color_dark: "#F472B6" }
+        - { name: "Memory", tui: "[MEM]", color_dark: "#C084FC" }
+        - { name: "Cloud", tui: "[CLD]", color_dark: "#2DD4BF" }
+        - { name: "USB", tui: "[USB]", color_dark: "#FB923C" }
+        - { name: "User Activity", tui: "[USR]", color_dark: "#94A3B8" }
+
+    severity:
+      encoding: "color + icon + text label"
+      levels:
+        - { name: "Critical", icon: "filled_circle", tui: "[!]", color_dark: "#F87171" }
+        - { name: "High", icon: "triangle", tui: "[*]", color_dark: "#FB923C" }
+        - { name: "Medium", icon: "diamond", tui: "[-]", color_dark: "#FBBF24" }
+        - { name: "Low", icon: "square", tui: "[ ]", color_dark: "#60A5FA" }
+        - { name: "Info", icon: "circle_outline", tui: "[i]", color_dark: "#94A3B8" }
+
+    integrity:
+      encoding: "color + icon + text label"
+      statuses:
+        - { name: "Verified", icon: "checkmark", tui: "[V]", color_dark: "#34D399" }
+        - { name: "Unverified", icon: "question", tui: "[?]", color_dark: "#FBBF24" }
+        - { name: "Tampered", icon: "x_mark", tui: "[X]", color_dark: "#F87171" }
+        - { name: "Partial", icon: "half_circle", tui: "[~]", color_dark: "#C084FC" }
+
+  dark_mode_contrast:
+    verified_pairs:
+      - { pair: "body text", fg: "#F1F5F9", bg: "#0F172A", ratio: "15.3:1", passes: "AA+AAA" }
+      - { pair: "secondary text", fg: "#CBD5E1", bg: "#0F172A", ratio: "10.2:1", passes: "AA+AAA" }
+      - { pair: "muted text", fg: "#64748B", bg: "#1E293B", ratio: "4.6:1", passes: "AA" }
+      - { pair: "accent on bg", fg: "#F59E0B", bg: "#0F172A", ratio: "8.9:1", passes: "AA+AAA" }
+      - { pair: "accent on surface", fg: "#F59E0B", bg: "#1E293B", ratio: "7.5:1", passes: "AA+AAA" }
+      - { pair: "success", fg: "#34D399", bg: "#0F172A", ratio: "10.0:1", passes: "AA+AAA" }
+      - { pair: "warning", fg: "#FBBF24", bg: "#0F172A", ratio: "12.1:1", passes: "AA+AAA" }
+      - { pair: "error", fg: "#F87171", bg: "#0F172A", ratio: "6.5:1", passes: "AA" }
+
+  screen_reader_patterns:
+    live_regions:
+      - { id: "parse-status", aria_live: "polite", purpose: "Coalesced parse progress", interval: "10000ms" }
+      - { id: "parse-alerts", aria_live: "assertive", purpose: "Errors and completion" }
+      - { id: "parser-log", aria_live: "polite", purpose: "Individual parser completion" }
+      - { id: "filter-status", aria_live: "polite", purpose: "Filter result counts" }
+    coalescing_interval: "10000ms"
+    announcement_types:
+      - "Parse progress (coalesced)"
+      - "Stage transitions (immediate)"
+      - "Parser completion (immediate)"
+      - "Errors (immediate, assertive)"
+      - "Operation complete (assertive)"
+      - "Filter result count (polite)"
+
+  focus_management:
+    strategies:
+      - { state: "ingest_started", focus: "progress_heading", rationale: "Confirm action" }
+      - { state: "parsing_in_progress", focus: "unchanged", rationale: "Do not disrupt" }
+      - { state: "parser_error_degraded", focus: "unchanged", rationale: "Non-blocking" }
+      - { state: "parser_error_blocking", focus: "error_heading", rationale: "Requires attention" }
+      - { state: "parse_complete", focus: "view_results_button", rationale: "Clear next action" }
+      - { state: "report_complete", focus: "download_link", rationale: "Clear next action" }
+      - { state: "filter_applied", focus: "filter_status", rationale: "Confirm filter" }
+      - { state: "detail_opened", focus: "detail_heading", rationale: "Drill-down" }
+      - { state: "modal_opened", focus: "first_focusable", rationale: "Standard modal" }
+      - { state: "modal_closed", focus: "trigger_element", rationale: "Restore context" }
+
+  keyboard_navigation:
+    html_report:
+      - { key: "j", action: "Next event", context: "Timeline (not in input)" }
+      - { key: "k", action: "Previous event", context: "Timeline (not in input)" }
+      - { key: "/", action: "Focus search", context: "Any view" }
+      - { key: "f", action: "Toggle findings view", context: "Timeline" }
+      - { key: "e", action: "Export current view", context: "Any data view" }
+      - { key: "?", action: "Show shortcuts help", context: "Global" }
+      - { key: "Escape", action: "Close overlay", context: "When overlay active" }
+    tui:
+      scheme: "vim-style"
+      keys:
+        - { key: "j/k", action: "Move down/up" }
+        - { key: "h/l", action: "Collapse/expand or switch pane" }
+        - { key: "g/G", action: "First/last item" }
+        - { key: "/", action: "Search mode" }
+        - { key: "n/N", action: "Next/prev search result" }
+        - { key: "Tab", action: "Cycle panes" }
+        - { key: "Enter", action: "Select/drill-in" }
+        - { key: "Space", action: "Toggle flag" }
+        - { key: "?", action: "Keybinding reference" }
+        - { key: "q", action: "Quit/back" }
+
+  cognitive_load:
+    dark_mode_primary: true
+    progressive_disclosure: true
+    reduced_motion_support: true
+    time_expectation_setting: true
+    forensic_specific:
+      - "Dark mode is default for long IR sessions (12-16 hours)"
+      - "Progressive disclosure: findings first, full timeline collapsed"
+      - "Time estimates before long operations"
+      - "Coalesced progress updates (not per-artifact)"
+
+  testing:
+    automated:
+      - { tool: "axe-core", surface: "HTML Reports", integration: "CI pipeline" }
+      - { tool: "pa11y", surface: "HTML Reports", integration: "CI nightly" }
+      - { tool: "Lighthouse", surface: "HTML Reports", integration: "CI pipeline, target 100" }
+      - { tool: "jest-axe", surface: "React/Leptos components", integration: "Unit tests" }
+      - { tool: "html-validate", surface: "HTML Reports", integration: "Pre-commit hook" }
+      - { tool: "color-contrast-checker", surface: "All tokens", integration: "CI pipeline" }
+    manual:
+      - "Keyboard-only full workflow test"
+      - "Screen reader walkthrough (VoiceOver, NVDA, Orca)"
+      - "200% zoom verification"
+      - "Color blindness simulation (deuteranopia, protanopia, tritanopia)"
+      - "Reduced motion verification"
+      - "High contrast mode"
+      - "Print/PDF accessibility checker"
+      - "Terminal diversity (3+ emulators)"
+      - "SSH session TUI test"
+      - "Plain text and JSON output verification"
+      - "Tagged PDF Acrobat accessibility check"
+      - "Word Accessibility Checker pass"
+
+  component_aria:
+    - { component: "Timeline Table", role: "grid", attributes: "aria-rowcount, aria-colcount, aria-sort" }
+    - { component: "Artifact Tree", role: "tree", attributes: "aria-expanded, aria-level, aria-selected" }
+    - { component: "Detail Pane", role: "complementary", attributes: "aria-label" }
+    - { component: "Filter Panel", role: "search", attributes: "aria-label" }
+    - { component: "Export Dialog", role: "dialog", attributes: "aria-modal, aria-labelledby" }
+    - { component: "Severity Badge", role: "implicit", attributes: "aria-label" }
+    - { component: "Integrity Badge", role: "implicit", attributes: "aria-label" }
+    - { component: "Progress Bar", role: "progressbar", attributes: "aria-valuenow, aria-valuemin, aria-valuemax" }
+    - { component: "Alert/Toast", role: "alert", attributes: "aria-live=assertive" }
+    - { component: "View Switcher", role: "tablist/tab/tabpanel", attributes: "aria-selected, aria-controls" }
+    - { component: "Collapsible Section", role: "native details/summary", attributes: "N/A" }
+    - { component: "Tooltip", role: "tooltip", attributes: "aria-describedby" }
+
+  implementation_phases:
+    phase_1_foundation:
+      - "CLI --no-color, --plain, --json flags"
+      - "Semantic HTML in reports"
+      - "Heading hierarchy and landmarks"
+      - "Color independence (icon + text + color)"
+      - "TUI keyboard navigation"
+      - "Skip links in HTML reports"
+      - "Dark/light mode toggle"
+      - "Focus indicators (:focus-visible)"
+    phase_2_compliance:
+      - "axe-core CI integration"
+      - "Screen reader live regions for parse progress"
+      - "Virtualized table ARIA attributes"
+      - "Tagged PDF output"
+      - "Word accessibility checker pass"
+      - "Reduced motion support"
+      - "High contrast mode"
+    phase_3_excellence:
+      - "Lighthouse 100 accessibility score"
+      - "Complete NVDA/JAWS/VoiceOver test suite"
+      - "Customizable keyboard shortcuts"
+      - "Screen reader optimized TUI mode"
+
+  differentiation:
+    statement: "No forensic tool advertises WCAG compliance. RapidTriage treats accessibility as unoccupied competitive differentiation."
+    attorney_requirement: "HTML reports must meet WCAG 2.1 AA for ADA compliance in legal proceedings."
+    examiner_benefit: "Dark mode, keyboard efficiency, and eye-strain reduction for 12-16 hour IR sessions."

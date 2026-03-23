@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "==> pre-commit: cargo fmt --check"
+cargo fmt --all -- --check
+
+echo "==> pre-commit: cargo clippy"
+cargo clippy --workspace --lib --bins
+
+echo "==> pre-commit: cargo test"
+cargo test --workspace
+
+echo "==> pre-commit: all checks passed"

@@ -1,0 +1,157 @@
+# Testing Strategy - Structured Outputs
+# Generated: 2026-03-20
+# Source: north-star-advisor/docs/architecture/TESTING_STRATEGY.md
+
+testing:
+    coverage_baseline: "88%"
+    coverage_target: ">=88% overall (matching existing tl codebase)"
+
+    coverage_by_component:
+        rt_core: "95%"
+        parsers: "90%"
+        pipeline: "80%"
+        report: "75%"
+        e2e: "critical paths only"
+
+    test_categories:
+        - name: "Core Unit Tests"
+          framework: "cargo test (built-in)"
+          scope: "rt-core pure logic -- event types, schemas, traits, ordering"
+          target_coverage: "95%"
+
+        - name: "Parser Unit Tests"
+          framework: "cargo test + golden datasets (YAML)"
+          scope: "Per-parser correctness against known-good artifacts"
+          target_coverage: "90%"
+
+        - name: "Property-Based Tests"
+          framework: "proptest 1.4"
+          scope: "Parser invariants -- never panic, timestamps in range, event count bounded"
+          ci_cases: 1000
+
+        - name: "Fuzz Tests"
+          framework: "cargo-fuzz (libfuzzer)"
+          scope: "One target per parser -- crash discovery on arbitrary input"
+          ci_duration: "10 minutes per parser (nightly)"
+          targets:
+              - "fuzz_usnjrnl"
+              - "fuzz_mft"
+              - "fuzz_evtx"
+              - "fuzz_ewf"
+              - "fuzz_prefetch"
+              - "fuzz_registry"
+              - "fuzz_lnk"
+              - "fuzz_browser"
+
+        - name: "Golden Dataset Tests"
+          framework: "cargo test + serde_yaml"
+          scope: "Known-correct input/output pairs per parser"
+          minimum_cases: "60+ across all parsers"
+          categories: ["happy_path", "edge_case", "adversarial", "cross_version", "large_scale", "nist_reference", "regression"]
+
+        - name: "Pipeline Integration Tests"
+          framework: "cargo test (integration)"
+          scope: "Layer 0-4 ingestion, DuckDB round-trip, parallel vs sequential"
+          target_coverage: "80%"
+
+        - name: "Report Integration Tests"
+          framework: "cargo test + insta (snapshots)"
+          scope: "HTML self-containment, DOCX numbering, chain-of-custody, determinism"
+          target_coverage: "75%"
+
+        - name: "Performance Benchmarks"
+          framework: "criterion 0.5"
+          scope: "Parser throughput, DuckDB insert/query, report generation"
+          regression_threshold: "25% (blocks PR), 10% (warning)"
+
+        - name: "NIST CFTT Validation"
+          framework: "Custom runner + NIST reference images"
+          scope: "External validation suite compliance for Daubert"
+          schedule: "nightly"
+
+        - name: "Snapshot / Regression Tests"
+          framework: "insta 1.38"
+          scope: "Report structure, query results, schema output"
+
+    test_frameworks:
+        core: "cargo test (Rust built-in)"
+        property: "proptest 1.4"
+        fuzz: "cargo-fuzz / libfuzzer (arbitrary 1.x)"
+        benchmarks: "criterion 0.5"
+        snapshots: "insta 1.38"
+        coverage: "cargo-llvm-cov"
+        mocking: "mockall 0.12"
+        fixtures: "tempfile 3.10, assert_fs 1.1"
+        golden_data: "serde_yaml 0.9"
+
+    golden_dataset:
+        structure: "YAML files in tests/golden/datasets/"
+        fields: ["id", "category", "description", "priority", "input.fixture", "expected.events", "expected.constraints"]
+        minimum_total_cases: 60
+        per_parser_minimum: 5
+        categories_required: ["happy_path", "edge_case", "adversarial"]
+
+    fixture_management:
+        committed:
+            path: "tests/fixtures/minimal/"
+            description: "Hand-crafted minimal valid artifacts (<10KB), no real PII"
+        generated:
+            path: "tests/fixtures/synthetic/"
+            description: "Rust generators committed, output gitignored, rebuilt in CI with --seed 42"
+        downloaded:
+            path: "tests/fixtures/reference/"
+            description: "NIST CFTT and public-domain samples, SHA-256 verified, gitignored"
+        private:
+            path: "tests/fixtures/private/"
+            description: "Real-world samples for manual validation only, never in repo"
+
+    performance_budgets:
+        - operation: "USN Journal parse"
+          target: ">500K records/sec"
+          alert: "<400K records/sec"
+        - operation: "MFT parse"
+          target: ">200K entries/sec"
+          alert: "<150K entries/sec"
+        - operation: "EVTX parse"
+          target: ">100K records/sec"
+          alert: "<80K records/sec"
+        - operation: "DuckDB batch insert"
+          target: ">500K events/sec"
+          alert: "<400K events/sec"
+        - operation: "DuckDB time-range query (1M events)"
+          target: "<200ms"
+          alert: ">500ms"
+        - operation: "HTML report (10K events)"
+          target: "<5s"
+          alert: ">10s"
+        - operation: "DOCX report (10K events)"
+          target: "<10s"
+          alert: ">20s"
+        - operation: "Full pipeline (5GB KAPE)"
+          target: "<3 min"
+          alert: ">5 min"
+
+    daubert_compliance:
+        error_rate_tracking: true
+        false_positive_threshold: "1%"
+        false_negative_threshold: "0.5%"
+        nist_cftt_validation: true
+        audit_trail: "Every test execution produces archivable results in test-results/"
+        standards: ["NIST CFTT", "SWGDE Best Practices", "ASTM E2916"]
+
+    ci_cd:
+        platform: "GitHub Actions"
+        merge_gates:
+            - "unit-tests (2-4 min)"
+            - "property-tests (3-5 min)"
+            - "golden-tests (1-2 min)"
+            - "integration-tests (5-15 min)"
+        pr_only:
+            - "benchmarks (5-10 min, warn at 10%, block at 25%)"
+        nightly:
+            - "fuzz testing (60 min total)"
+            - "NIST CFTT validation (15-30 min)"
+        coverage_enforcement:
+            tool: "cargo-llvm-cov + codecov"
+            project_target: "88%"
+            patch_target: "85%"

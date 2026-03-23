@@ -1,0 +1,170 @@
+# North Star Specification - Structured Outputs
+# Generated: 2026-03-20
+# Source: north-star-advisor/docs/NORTHSTAR.md
+
+metric:
+    name: "Time-to-Attorney-Ready Report (TARR)"
+    definition: "Elapsed time from evidence ingestion to a completed, attorney-ready deliverable (interactive HTML report or polished Word/PDF expert witness report)"
+    target: "<4 hours for standard IR triage case"
+    baseline: "~16 hours manual workflow"
+    measurement: "Clock starts at evidence ingest command; stops when report file is written to disk"
+    reduction_target: "50%+ reduction vs. practitioner's current manual workflow"
+
+anti_metrics:
+    - name: "Artifacts parsed per second"
+      reason: "Implementation detail, not user value. Fast parsing with manual report writing still loses days."
+    - name: "Number of registered users"
+      reason: "Vanity metric. A user who installs but never finishes a report got zero value."
+    - name: "Feature count / artifact type coverage"
+      reason: "Breadth without depth. Adding parsers means nothing if the report is still manual."
+    - name: "Revenue per user"
+      reason: "Premature optimization for extraction. Community adoption and trust come first."
+
+input_metrics:
+    - name: "Parse-to-Timeline Latency"
+      definition: "Time from evidence ingestion to navigable unified timeline view"
+      target: "<10 minutes for 50GB evidence set"
+      owner: "Core Engine"
+    - name: "Findings-to-Narrative Time"
+      definition: "Time from examiner identifying key artifacts to structured written narrative with citations"
+      target: "<2 hours per engagement"
+      owner: "Report Engine"
+    - name: "Report Acceptance Rate"
+      definition: "Percentage of generated reports accepted by attorney/client without substantive rework"
+      target: ">80% first-pass acceptance"
+      owner: "Templates / UX"
+
+personas:
+    - name: "Sarah Chen"
+      title: "Solo IR Practitioner"
+      type: "primary"
+      goal: "Get from evidence to attorney-ready deliverable fast enough to juggle 3-5 concurrent cases"
+      pain: "Spends 60-70% of billable hours on report writing and attorney revisions instead of analysis"
+      quote: "I spend two days analyzing the evidence and five days writing the report."
+
+    - name: "Marcus Webb"
+      title: "Forensic Examiner at a Consulting Firm"
+      type: "secondary"
+      goal: "Produce reports that survive partner review with minimal redlines"
+      pain: "Report revision cycles add 3-5 days per engagement; feels like a junior despite solid technical skills"
+      quote: "The partners assign me cases and expect deliverables on their timeline."
+
+    - name: "Diana Reyes"
+      title: "Litigation Support Analyst"
+      type: "tertiary"
+      goal: "Receive forensic output that maps directly to court exhibit requirements"
+      pain: "Half her job is reformatting technical findings into something a judge would accept"
+      quote: "I'm the translator between the forensic team and the legal team."
+
+    - name: "James Okafor"
+      title: "CISO / IR Manager"
+      type: "future (Phase 3+)"
+      goal: "Visibility into case progress, standardized methodology, team collaboration"
+      pain: "Team uses mix of tools with no standardization; reports vary wildly in quality"
+      quote: "I need to know where every case stands and that our reports can withstand regulatory scrutiny."
+
+phases:
+    - name: "MVP"
+      number: 1
+      theme: "Evidence in, attorney-ready report out"
+      objective: "Working pipeline from forensic artifact ingestion to polished attorney-ready HTML and Word report for core Windows artifact set"
+      key_features:
+        - "KAPE/Velociraptor output ingestion"
+        - "USN Journal parsing (usnjrnl-forensic)"
+        - "Unified timeline generation (tl)"
+        - "Interactive HTML report"
+        - "Word/PDF expert witness report"
+        - "E01/raw disk image support (ewf)"
+        - "Chain-of-custody documentation"
+      success_criteria:
+        - metric: "TARR"
+          target: "<4 hours"
+          kill: ">8 hours"
+        - metric: "Report acceptance rate"
+          target: ">70%"
+          kill: "<40%"
+        - metric: "Parse correctness"
+          target: "100%"
+          kill: "Any regression"
+        - metric: "Beta user adoption"
+          target: "25 active testers"
+          kill: "<10"
+        - metric: "Community engagement"
+          target: "100+ GitHub stars"
+          kill: "<25 after 3 months"
+
+    - name: "Professional Polish"
+      number: 2
+      theme: "From CLI tool to professional platform"
+      objective: "Add GUI, expanded artifact coverage, and template customization for small IR teams"
+      key_features:
+        - "Desktop GUI (Tauri/Rust)"
+        - "Browser artifact parsing"
+        - "Event Log deep parsing (EVTX)"
+        - "Registry hive analysis"
+        - "Custom report templates"
+        - "Multi-case workspace"
+      success_criteria:
+        - metric: "TARR (full artifact set)"
+          target: "<3 hours"
+          kill: ">6 hours"
+        - metric: "Paid conversions"
+          target: "50 paying users"
+          kill: "<15"
+
+    - name: "Enterprise and Ecosystem"
+      number: 3
+      theme: "Team workflows and partner integrations"
+      objective: "Enterprise features and partner integrations for CISO/IR Manager persona and litigation support workflows"
+      key_features:
+        - "Enterprise authentication (SSO/SAML)"
+        - "Role-based access control"
+        - "Audit logging"
+        - "Relativity/Nuix export"
+        - "MITRE ATT&CK report mapping"
+        - "API for integration"
+      success_criteria:
+        - metric: "Enterprise contracts"
+          target: "5 at $500+/mo"
+          kill: "<2"
+
+kill_list:
+    - item: "Evidence collection agent/tool"
+      rationale: "Collection is solved (KAPE, Velociraptor). Ingests their output."
+    - item: "eDiscovery / document review platform"
+      rationale: "Different problem, different users. Produces evidence for Relativity/Nuix."
+    - item: "Real-time detection / SIEM functionality"
+      rationale: "Post-incident forensic analysis, not real-time monitoring."
+    - item: "Enterprise-first feature prioritization"
+      rationale: "Solo examiner first. Enterprise features Phase 3."
+    - item: "AI-generated expert opinions"
+      rationale: "Examiner provides opinion; tool eliminates translation work. LLM conclusions dangerous for court work."
+    - item: "Mobile device forensics"
+      rationale: "Different evidence domain. Cellebrite territory."
+    - item: "Memory forensics"
+      rationale: "Volatility/Rekall are excellent. Separate specialized skill."
+    - item: "Malware analysis / sandboxing"
+      rationale: "Separate discipline with dedicated tools."
+    - item: "Cloud forensics"
+      rationale: "Platform-specific, rapidly evolving. Phase 3+ consideration at earliest."
+
+license:
+    model: "Dual: Apache 2.0 (parsers) / Proprietary (integration, reports, UI, enterprise)"
+    ethical_constraints:
+      - "Never fabricate, alter, or misrepresent forensic evidence"
+      - "Every report includes methodology documentation for Daubert/Frye admissibility"
+      - "Evidence never leaves examiner's machine without explicit action"
+      - "Open-source parsers remain open permanently (irrevocable)"
+
+positioning: "RapidTriage is a forensic triage platform that transforms digital forensic artifacts into attorney-ready reports and interactive explorations for IR practitioners, forensic examiners, and litigation support teams who spend 80% of engagement time on manual report writing. Unlike AXIOM, Autopsy, or X-Ways, we treat the deliverable as the product."
+
+tech_stack:
+    core_language: "Rust"
+    key_crates:
+      - "usnjrnl-forensic v0.6 (USN Journal parsing)"
+      - "tl v0.1 (timeline merge/query)"
+      - "ewf v0.1 (E01 evidence format)"
+      - "shrinkpath v0.1 (path compression)"
+    report_engine: "Tera templates (HTML) + python-docx/rust-docx (Word)"
+    distribution: "Single binary, zero dependencies"
+    architecture: "Local-first CLI pipeline (Phase 1), Desktop GUI via Tauri (Phase 2)"

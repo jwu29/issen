@@ -1,0 +1,30 @@
+# Build artifacts
+/target/
+**/*.rs.bk
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment / secrets
+.env
+.env.*
+credentials.json
+
+# DuckDB artifacts created by tests
+*.duckdb
+*.duckdb.wal
+
+# SQLite exports
+*.sqlite
+
+# Coverage
+lcov.info
+tarpaulin-report.html
+
+# OS
+Thumbs.db

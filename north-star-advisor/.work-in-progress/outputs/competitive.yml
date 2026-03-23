@@ -1,0 +1,284 @@
+# Competitive Landscape - Structured Outputs
+# Generated: 2026-03-20
+# Source: north-star-advisor/docs/COMPETITIVE_LANDSCAPE.md
+
+market:
+  category: "Digital Forensics and Incident Response (DFIR) triage and reporting"
+  tam: "~$9B global digital forensics market"
+  segment_size: "~$1.5B triage/reporting segment"
+  growth: "~12% CAGR"
+  maturity: "Growth — consolidating at top, fragmenting at bottom"
+
+market_shifts:
+  - name: "AI-Assisted Triage and Analysis"
+    description: "Major vendors integrating AI/ML — Magnet.AI, BelkaGPT. LLMs being experimented with for log analysis and timeline summarization."
+    timeline: "Mainstream 2026-2028"
+    implication: "Apply AI to the reporting bottleneck (last 80%), not just analysis. First-mover window for AI narrative generation is 12-18 months."
+
+  - name: "PE Consolidation Squeezing Practitioners"
+    description: "Thoma Bravo acquired Magnet ($1.8B), OpenText owns EnCase. Post-acquisition pricing increases and innovation slowdown."
+    timeline: "Ongoing, accelerating through 2027"
+    implication: "Open-source parsers with permissive licensing exploit practitioner frustration. Dual licensing builds trust PE acquirers destroy."
+
+  - name: "Collection Format Standardization"
+    description: "KAPE, Velociraptor, ACQUIRE commoditized collection. Practitioners work with standardized triage packages."
+    timeline: "Already mainstream for collection"
+    implication: "RapidTriage becomes the natural downstream consumer. Collection is solved — analysis-to-report is the gap."
+
+  - name: "Court Pressure on Deliverable Quality"
+    description: "Daubert challenges increasing ~35%. Courts scrutinizing digital evidence presentation. Attorneys demand defensible, well-documented reports."
+    timeline: "Already happening, accelerating"
+    implication: "Attorney-ready output with chain-of-custody and methodology documentation becomes table stakes. RapidTriage builds for where market is going."
+
+direct_competitors:
+  - name: "Magnet AXIOM"
+    positioning: "All-in-one forensic platform"
+    strengths: "Cross-source correlation, Magnet.AI, 800+ artifacts, training ecosystem"
+    weaknesses: "Slow parsing on large datasets, expensive ($3,500+/yr post-PE), report generator produces artifact dumps not narratives"
+    pricing: "$3,500+/year"
+    tarr: "Poor — 8+ hours. Reports require 6-10 hours manual rewriting."
+
+  - name: "Autopsy / Sleuth Kit"
+    positioning: "Free open-source forensic platform"
+    strengths: "Free (Apache 2.0), extensible Java/Python modules, community plugins"
+    weaknesses: "Slow (Java), limited automation, bare-bones HTML report export, no narrative"
+    pricing: "Free"
+    tarr: "Very Poor — 12+ hours. Report is raw HTML artifact dump."
+
+  - name: "X-Ways Forensics"
+    positioning: "Lightweight expert-oriented forensic analysis"
+    strengths: "Fastest processing (C++), deep filesystem analysis, small footprint"
+    weaknesses: "Steep learning curve, dated UI, no reports at all, Windows-only"
+    pricing: "~$1,100 one-time + ~$530/year"
+    tarr: "None — produces no reports. Zero TARR contribution."
+
+  - name: "Exterro FTK"
+    positioning: "Pre-indexed forensic analysis with eDiscovery integration"
+    strengths: "Fast search, eDiscovery workflow, distributed processing"
+    weaknesses: "Resource-heavy, expensive, eDiscovery focus dilutes DFIR features"
+    pricing: "$5,999-$11,500/year"
+    tarr: "Poor — 10+ hours. eDiscovery-style output, not forensic narratives."
+
+  - name: "Belkasoft X"
+    positioning: "All-in-one with AI assist and cross-tool import"
+    strengths: "BelkaGPT, 1000+ artifacts, cross-tool import, competitive pricing"
+    weaknesses: "Smaller market presence, AI maturing, rigid report templates"
+    pricing: "~$2,500/year"
+    tarr: "Mediocre — 8+ hours. BelkaGPT summarizes but reports are template-bound."
+
+  - name: "EnCase (OpenText)"
+    positioning: "Court-accepted forensic standard"
+    strengths: "Legal precedent, deep Windows analysis, EnScript automation"
+    weaknesses: "Legacy UI, slow innovation post-acquisition, expensive, declining share"
+    pricing: "~$3,000-$4,000/year"
+    tarr: "Poor — 10+ hours. Rigid templates, examiners rewrite in Word."
+
+category_adjacent:
+  - name: "Cellebrite"
+    category: "Mobile forensics"
+    gap: "Mobile-first; computer forensics secondary. Reports extraction-oriented. Expensive ($5K+/yr)."
+
+  - name: "Velociraptor"
+    category: "Endpoint collection and live response"
+    gap: "Collection tool, not analysis/reporting. No reports. RapidTriage ingests its output — complementary."
+
+  - name: "Eric Zimmerman's Tools"
+    category: "Windows artifact parsing (CLI)"
+    gap: "CLI-only, no integration, no timeline unification, no reports. RapidTriage adds integration + reporting."
+
+indirect_competitors:
+  - name: "Manual Excel/Word workflow"
+    approach: "Copy artifacts from tools into Excel, write Word report manually"
+    tarr: "16+ hours"
+
+  - name: "plaso/log2timeline"
+    approach: "Open-source supertimeline generation"
+    tarr: "12+ hours (powerful engine, zero last-mile)"
+
+  - name: "EZ Tools + Timeline Explorer + Word combo"
+    approach: "Most common free Windows forensics stack"
+    tarr: "12+ hours (good parsing, manual everything else)"
+
+  - name: "Custom scripts (Python/PowerShell)"
+    approach: "In-house automation chaining parsers with templates"
+    tarr: "Variable (fragile, undocumented, single-point-of-failure)"
+
+emerging_threats:
+  - name: "CrowdStrike"
+    timeline: "18-36 months"
+    rationale: "EDR dominance, natural IR extension, would likely acquire"
+
+  - name: "Microsoft"
+    timeline: "24-48 months"
+    rationale: "Owns the OS, Copilot for Security, enterprise distribution"
+
+  - name: "AI-native startups"
+    timeline: "12-24 months"
+    rationale: "Fresh architecture, but will struggle with forensic accuracy and court trust"
+
+  - name: "Splunk/Cisco"
+    timeline: "24-36 months"
+    rationale: "SIEM-to-IR pipeline, $28B Cisco acquisition, more likely to partner"
+
+differentiators:
+  - name: "Attorney-ready report generation"
+    description: "Automated pipeline from findings to structured narrative with citations. Interactive HTML + polished Word/PDF."
+    competitor_gap: "Every competitor produces artifact dumps. Examiners spend 6-16 hours rewriting."
+
+  - name: "Dual-format output (HTML + Word/PDF)"
+    description: "Interactive HTML for attorney exploration, polished Word/PDF for court filing. Same findings, two audiences."
+    competitor_gap: "No competitor produces both interactive exploration AND formal court documents."
+
+  - name: "Rust performance"
+    description: "Rust-native parsers with zero-cost abstractions. Target <10 min parse-to-timeline for 50GB."
+    competitor_gap: "Java (Autopsy) and Python (plaso) are slow. Only X-Ways (C++) competes on speed."
+
+  - name: "Open-source parsers + proprietary integration"
+    description: "Apache 2.0 parsers for community trust. Proprietary integration, report engine, UI for revenue."
+    competitor_gap: "No DFIR tool executes the open-core model. All proprietary or all open (no revenue)."
+
+  - name: "Plugin-based extensibility (WASM)"
+    description: "Community-contributed parsers, report templates, analysis modules via WASM plugin API."
+    competitor_gap: "AXIOM modules are vendor-controlled. Autopsy Java modules are cumbersome."
+
+  - name: "KAPE/Velociraptor-native ingestion"
+    description: "First-class support for triage package directory structures. Zero configuration."
+    competitor_gap: "Most tools treat triage packages as second-class, requiring manual file pointing."
+
+novelty_validation:
+  conclusion: "Core innovation (automated forensic-to-attorney report generation) is validated as genuine market gap. No existing tool addresses the 'last 80%' problem."
+  novel_innovations:
+    - "Automated findings-to-narrative pipeline"
+    - "Dual-format deliverables (interactive HTML + court-ready Word/PDF)"
+    - "Open parser / proprietary integration model for DFIR"
+    - "Rust-native forensic engine"
+  positioning_shorthand: "X-Ways speed + AXIOM coverage + the one thing nobody built: a report engine attorneys can actually use"
+
+whitespace:
+  underserved_segments:
+    - name: "Solo IR practitioners and small DFIR consultancies"
+      pain: "Priced out of AXIOM/FTK, 60%+ case time on reporting"
+      opportunity: "Primary target (Sarah Chen persona). Free parsers + affordable integration."
+
+    - name: "Litigation support teams and paralegals"
+      pain: "Cannot understand forensic reports, spend hours on phone with examiners"
+      opportunity: "Interactive HTML reports enable independent evidence exploration."
+
+    - name: "Emerging market DFIR"
+      pain: "$3,500/year exceeds entire annual tech budget"
+      opportunity: "Free open-source parsers. Builds global community."
+
+    - name: "Academic and training programs"
+      pain: "Teaching with Autopsy (limited) or begging for educational licenses"
+      opportunity: "Students learn on RapidTriage, become practitioners who buy it."
+
+  unoccupied_positions:
+    - "The report is the product — tool defined by output quality"
+    - "Open-core DFIR — trusted open-source foundation with commercial integration"
+    - "Practitioner-first, not enterprise-first"
+
+  timing_windows:
+    - name: "Post-PE pricing frustration"
+      closes_in: "12-18 months"
+      action: "Launch open-source parsers now"
+
+    - name: "AI reporting feasibility"
+      closes_in: "12-18 months"
+      action: "Build AI narrative generation in Phase 1-2"
+
+    - name: "KAPE/Velociraptor standardization"
+      closes_in: "When collection tools add analysis/reporting"
+      action: "Day 1 ingestion support"
+
+    - name: "Rust ecosystem maturity"
+      closes_in: "Gradually diminishes"
+      action: "Leverage existing crates (usnjrnl-forensic, tl, ewf)"
+
+forward_opportunities:
+  six_month:
+    - "KAPE output auto-discovery and parsing"
+    - "Interactive HTML report with filterable timeline"
+    - "Word/PDF expert witness report generation"
+    - "Plugin API for community parsers (WASM)"
+    - "Velociraptor hunt package ingestion"
+
+  twelve_to_eighteen_month:
+    - "AI-assisted narrative drafting"
+    - "Team collaboration and case management"
+    - "Cloud artifact parsing plugins"
+    - "Relativity/Nuix load file export"
+
+strategic_moves:
+  offensive:
+    - name: "Open-source parser blitz"
+      target: "DFIR open-source community mindshare"
+      description: "Release 10+ Rust forensic parsers under Apache 2.0 in first 6 months"
+
+    - name: "AXIOM refugee campaign"
+      target: "Practitioners frustrated with post-PE pricing"
+      description: "Convert AXIOM users paying $3,500+/yr who still rewrite reports manually"
+
+    - name: "SANS/conference presence"
+      target: "Practitioner credibility"
+      description: "SANS DFIR Summit, OSDFCon, DFRWS, BSides talks and demos"
+
+    - name: "EZ Tools integration story"
+      target: "Largest free-tool user segment"
+      description: "Position as integration + reporting layer for existing free toolkit"
+
+  defensive:
+    - name: "Ship AI narrative before Magnet"
+      threat: "Magnet adding AI report writing to AXIOM"
+      description: "12-month window for first-mover advantage in AI forensic reporting"
+
+    - name: "Community lock-in through plugin ecosystem"
+      threat: "Competitors copying open-core model"
+      description: "Community-contributed parsers create ecosystem expensive to replicate"
+
+    - name: "IP protection on report engine"
+      threat: "Direct cloning of attorney-ready pipeline"
+      description: "Closed-source report engine with key innovations protected"
+
+    - name: "Collection tool partnerships"
+      threat: "Collection tools adding analysis/reporting"
+      description: "Partner with KAPE/Velociraptor maintainers for cross-promotion"
+
+  rejected:
+    - name: "Build collection/acquisition"
+      reason: "Kill list — collection is solved. Competes with partners."
+
+    - name: "Enterprise-first sales"
+      reason: "Kill list — solo founder, bootstrapped. Practitioner-first."
+
+    - name: "Mobile forensics extraction"
+      reason: "Cellebrite owns this. Years and millions to match."
+
+    - name: "SIEM/real-time monitoring"
+      reason: "Kill list — different market, buyer, architecture."
+
+    - name: "Compete on artifact count"
+      reason: "Breadth without reporting is pointless. Community plugins close gap."
+
+    - name: "Freemium SaaS model"
+      reason: "Evidence cannot leave examiner's machine. Desktop-first."
+
+monitoring:
+  competitor_signals:
+    - "Magnet AXIOM adds AI narrative reports"
+    - "Cellebrite/Magnet acquires report-generation company"
+    - "Velociraptor adds built-in reporting"
+    - "AI-native forensic startup raises >$5M"
+    - "X-Ways adds modern UI and reporting"
+    - "EnCase/OpenText major modernization"
+
+  market_signals:
+    - "Daubert challenge rate for digital evidence increases >50% YoY"
+    - "SANS course curriculum adopts new forensic tool"
+    - "PE acquisition of another DFIR tool"
+    - "Government mandate on forensic reporting standards"
+    - "New open-source DFIR project reaching 1,000+ stars in 6 months"
+
+  review_cadence:
+    monthly: "Competitor feature releases, pricing changes, community sentiment"
+    quarterly: "Market positioning, TARR benchmarks, plugin ecosystem health"
+    annually: "Full competitive landscape refresh"

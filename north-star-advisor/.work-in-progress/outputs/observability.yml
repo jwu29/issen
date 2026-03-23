@@ -1,0 +1,172 @@
+# Observability Architecture - Structured Outputs
+# Generated: 2026-03-20
+# Source: north-star-advisor/docs/architecture/OBSERVABILITY.md
+
+observability:
+    backend: "Local-only (air-gap compliant)"
+    description: "All observability runs locally using tracing crate, DuckDB metric storage, hash-chained audit logs, and TUI dashboards. No cloud telemetry."
+
+    tracing_stack:
+        instrumentation: "tracing crate (0.1)"
+        subscriber: "tracing-subscriber (layered)"
+        log_format: "JSON structured (tracing-subscriber fmt layer)"
+        log_rotation: "Daily (tracing-appender)"
+        log_storage: "Local filesystem (cases/{case_id}/logs/)"
+
+    handlers:
+        - name: "JsonLogLayer"
+          role: "Structured JSON logging to rotating files"
+          storage: "cases/{case_id}/logs/rapidtriage.log"
+
+        - name: "MetricsLayer"
+          role: "Pipeline and parser metrics aggregation"
+          storage: "cases/{case_id}/metrics/metrics.duckdb"
+
+        - name: "AuditLayer"
+          role: "Chain-of-custody tamper-evident audit log"
+          storage: "cases/{case_id}/audit/audit.jsonl"
+
+        - name: "TarrInstrumentationLayer"
+          role: "TARR stage timing and North Star measurement"
+          storage: "cases/{case_id}/metrics/tarr.duckdb"
+
+    trace_hierarchy:
+        root: "Case Trace"
+        children:
+            - "Ingest Span (VFS Mount, Fingerprint, Registration)"
+            - "Parse Span (Parallel Parser Pool, DuckDB Write)"
+            - "Correlate Span (Cross-Artifact, Attack Pattern, YARA-X, Sigma)"
+            - "Intelligence Span (RAG Query, LLM Narrative, Citation Verification)"
+            - "Report Span (HTML Generation, DOCX Generation, Hash + Signing)"
+            - "Audit Finalization Span (Chain-of-Custody, Case Metadata)"
+
+    event_types:
+        - "case.start"
+        - "case.end"
+        - "ingest.start"
+        - "ingest.end"
+        - "vfs.mount"
+        - "parser.start"
+        - "parser.end"
+        - "parser.error"
+        - "timeline.write"
+        - "correlate.start"
+        - "correlate.match"
+        - "yara.scan"
+        - "sigma.evaluate"
+        - "llm.request"
+        - "llm.response"
+        - "rag.query"
+        - "report.generate"
+        - "report.complete"
+        - "audit.record"
+        - "integrity.violation"
+
+    tarr_instrumentation:
+        stages:
+            - stage: "Ingest"
+              budget: "2 min"
+              alert_threshold: "5 min"
+            - stage: "Parse"
+              budget: "8 min"
+              alert_threshold: "15 min"
+            - stage: "Correlate"
+              budget: "5 min"
+              alert_threshold: "10 min"
+            - stage: "Intelligence"
+              budget: "15 min"
+              alert_threshold: "30 min"
+            - stage: "Report Draft"
+              budget: "30 min"
+              alert_threshold: "60 min"
+            - stage: "Examiner Review"
+              budget: "60 min"
+              alert_threshold: "120 min"
+            - stage: "Report Finalize"
+              budget: "10 min"
+              alert_threshold: "20 min"
+        total_target: "< 4 hours"
+        baseline: "~16 hours"
+
+    northstar_metrics:
+        primary:
+            name: "TARR (Time-to-Attorney-Ready Report)"
+            metric: "tarr.total_duration_ms"
+            target: "< 14,400,000 ms (4 hours)"
+        input_metrics:
+            - name: "Parse-to-Timeline Latency"
+              metric: "tarr.parse_to_timeline_ms"
+              target: "< 600,000 ms (10 minutes)"
+            - name: "Findings-to-Narrative Time"
+              metric: "tarr.findings_to_narrative_ms"
+              target: "< 7,200,000 ms (2 hours)"
+            - name: "Report Acceptance Rate"
+              metric: "tarr.report_acceptance_rate"
+              target: "> 0.80 (80%)"
+
+    pii_sanitization:
+        modes: ["strict", "moderate", "permissive"]
+        default_mode: "moderate"
+        categories:
+            - category: "Examiner Identity"
+              fields: ["examiner_id", "examiner_email"]
+            - category: "Evidence Subject"
+              fields: ["user_account", "hostname", "sid"]
+            - category: "File Paths"
+              fields: ["artifact_path", "source_path"]
+            - category: "Network"
+              fields: ["ip_addresses", "urls"]
+            - category: "Credentials"
+              fields: ["registry_credentials", "cached_passwords"]
+              treatment: "Always redacted, never logged"
+
+    audit:
+        format: "JSONL with SHA-256 hash chain"
+        integrity: "Each entry hash depends on previous entry hash"
+        verification: "Replay chain to detect tampering"
+        fields: ["sequence_number", "timestamp_utc", "case_id", "examiner_id", "action", "detail", "previous_hash", "entry_hash"]
+
+    dashboards:
+        - name: "TUI Dashboard (rt-tui)"
+          panels:
+              - "TARR Status (progress bar + sparkline)"
+              - "Pipeline Progress (live stage + counters)"
+              - "Parser Performance (events/sec + bytes/sec)"
+              - "Error Feed (scrolling, color-coded)"
+              - "Resource Usage (disk, memory, CPU)"
+
+    alerts:
+        channels:
+            - "TUI notification banner"
+            - "OS desktop notification (notify-rust)"
+            - "Structured log (WARN/ERROR level)"
+            - "Audit chain entry"
+            - "Non-zero exit code"
+
+    key_metrics:
+        - metric: "tarr.total_duration_ms"
+          alert: "> 14,400,000 ms"
+        - metric: "pipeline.error_rate"
+          alert: "> 1%"
+        - metric: "parser.failure_count"
+          alert: "> 0"
+        - metric: "integrity.violation_count"
+          alert: "> 0 (critical)"
+        - metric: "parser.events_per_sec"
+          alert: "< 1,000 (degraded)"
+        - metric: "llm.latency_p95"
+          alert: "> 30,000 ms"
+
+    storage:
+        metrics_db: "DuckDB (per-case)"
+        logs: "JSON files (daily rotation)"
+        audit: "JSONL with hash chain"
+        profiling: "Flame graphs (optional, via tracing-flame)"
+
+    performance_targets:
+        evtx_parsing: "> 100,000 events/sec"
+        mft_parsing: "> 200,000 records/sec"
+        duckdb_insert: "> 500,000 events/sec (batch)"
+        duckdb_query: "< 100 ms (1M events, 1-hour range)"
+        full_pipeline_50gb: "< 10 minutes"
+        report_html_10k: "< 30 seconds"

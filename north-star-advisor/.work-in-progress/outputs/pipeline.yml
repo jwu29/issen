@@ -1,0 +1,128 @@
+# Pipeline Orchestration - Structured Outputs
+# Generated: 2026-03-20
+# Source: north-star-advisor/docs/architecture/PIPELINE_ORCHESTRATION.md
+
+pipeline:
+    state_schema:
+        core_type: "PipelineState"
+        fields:
+            - "session_id: Uuid"
+            - "case_id: Uuid"
+            - "evidence_sources: Vec<EvidenceSource>"
+            - "storage_handles: Vec<StorageHandle>"
+            - "image_readers: Vec<ImageReader>"
+            - "volume_map: Vec<VolumeDescriptor>"
+            - "filesystem_accessors: Vec<FilesystemMount>"
+            - "parse_results: Vec<ParseResult>"
+            - "timeline_event_count: u64"
+            - "source_fingerprints: HashSet<SourceFingerprint>"
+            - "progress: PipelineProgress"
+            - "started_at: DateTime<Utc>"
+            - "completed_at: Option<DateTime<Utc>>"
+            - "errors: Vec<PipelineError>"
+            - "warnings: Vec<PipelineWarning>"
+
+    layers:
+        - layer: 0
+          name: "Storage I/O"
+          output: "StorageHandle"
+          timeout: "30s"
+          parallelism: "sequential (per-source)"
+          description: "Open storage providers (local, S3, split files) for each evidence source"
+
+        - layer: 1
+          name: "Image Format"
+          output: "ImageReader"
+          timeout: "60s"
+          parallelism: "sequential"
+          description: "Detect and decode forensic image formats (E01, raw, VMDK, VHD)"
+          skip_for: ["KapeCollection", "VelociraptorFlow", "CloudLog"]
+
+        - layer: 2
+          name: "Volume/Partition"
+          output: "VolumeDescriptor"
+          timeout: "15s"
+          parallelism: "sequential"
+          description: "Detect partition schemes (GPT, MBR, LVM) and calculate offsets"
+          skip_for: ["KapeCollection", "VelociraptorFlow", "CloudLog"]
+
+        - layer: 3
+          name: "Filesystem"
+          output: "FilesystemMount"
+          timeout: "120s"
+          parallelism: "sequential"
+          description: "Mount filesystems (NTFS, ext4, APFS) into VirtualFilesystem"
+          skip_for: ["CloudLog"]
+
+        - layer: 4
+          name: "Artifact Parsing"
+          output: "ParseResult"
+          timeout: "360s"
+          parallelism: "rayon parallel (work-stealing thread pool)"
+          description: "Discover and parse forensic artifacts in parallel via registered parsers"
+
+    orchestrator:
+        type: "PipelineOrchestrator"
+        pattern: "Sequential across layers, parallel within Layer 4"
+        progress_channel: "tokio::sync::watch"
+        error_strategy: "continue-on-error with forensic audit trail"
+        incremental: true
+        fingerprint_algorithm: "Blake3 over (canonical_path + file_size + mtime)"
+
+    execution_patterns:
+        parallel:
+            scope: "Layer 4 artifact parsers"
+            mechanism: "rayon::par_iter with dedicated thread pool"
+            thread_count: "num_cpus - 1"
+            stack_size: "4 MiB per thread"
+        sequential:
+            scope: "Layers 0-3 (inter-layer)"
+            reason: "Data dependency: each layer requires previous layer's output"
+        conditional:
+            scope: "Layer skipping per evidence type"
+            rules:
+                - "E01/raw/VMDK/VHD: Layer 0 -> 1 -> 2 -> 3 -> 4"
+                - "KAPE/Velociraptor: Layer 3 -> 4"
+                - "Cloud logs: Layer 4 only"
+
+    self_correction:
+        pattern: "Degradation-with-audit (no retries on immutable forensic data)"
+        quality_gate: "ForensicIntegrityGate"
+        decisions:
+            - "Accept: parser succeeded"
+            - "AcceptWithWarning: >50% record failure rate, partial results kept"
+            - "RecordFailure: total parser failure, artifact excluded from timeline"
+        hash_verification: "E01 segment hash check at Layer 1 (pre-parsing)"
+
+    performance:
+        total_timeout: "600s (10 min TARR budget)"
+        memory_strategy: "Memory-mapped I/O via memmap2, streaming parsers, no full-file buffering"
+        early_exit_triggers:
+            - "StorageOpen failure (cannot read evidence)"
+            - "NoVolumesDetected (not a disk image)"
+            - "TimelineSinkError (DuckDB broken)"
+
+    error_taxonomy:
+        critical: ["StorageOpen", "NoVolumesDetected", "TimelineSinkError", "Timeout"]
+        degraded: ["ParserFailed", "FilesystemMountFailed", "IntegrityFailure"]
+        informational: ["ArtifactNotFound", "ParserSkipped"]
+        propagation: "catch_unwind -> ForensicIntegrityGate -> severity-based routing"
+
+    progress_reporting:
+        channel: "tokio::sync::watch<PipelineProgress>"
+        consumers: ["CLI (indicatif)", "TUI (ratatui)", "GUI (Tauri events)", "Web (SSE)"]
+        update_interval: "500ms"
+        fields: ["current_layer", "current_phase", "parsers_total", "parsers_completed", "bytes_processed", "events_emitted"]
+
+    tier1_parsers:
+        - "MftParser ($MFT)"
+        - "UsnJournalParser ($UsnJrnl:$J)"
+        - "EventLogParser (*.evtx)"
+        - "PrefetchParser (*.pf)"
+        - "RegistryParser (SYSTEM, SOFTWARE, SAM, NTUSER.DAT, etc.)"
+        - "AmcacheParser (Amcache.hve)"
+        - "LnkParser (*.lnk)"
+        - "JumplistParser (*.automaticDestinations-ms)"
+        - "BamParser (BAM/DAM registry)"
+        - "SrumParser (SRUDB.dat)"
+        - "BrowserHistoryParser (History, places.sqlite)"

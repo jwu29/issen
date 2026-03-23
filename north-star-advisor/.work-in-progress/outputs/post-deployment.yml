@@ -1,0 +1,224 @@
+# Post-Deployment Operations Outputs
+# Generated: 2026-03-20
+# Source: north-star-advisor/docs/POST_DEPLOYMENT.md
+
+north_star:
+  metric: "TARR (Time-to-Attorney-Ready Report)"
+  target: "< 4 hours"
+  baseline: "~16 hours (manual workflow)"
+  current: "~8 hours"
+
+tarr_budget_minutes:
+  evidence_ingestion: 2
+  parse_to_timeline: 10
+  timeline_construction: 1
+  correlation: 5
+  findings_to_narrative: 120
+  report_rendering: 1
+  examiner_review_edit: 100
+  buffer: 1
+  total: 240
+
+monitoring:
+  dashboard_type: "TUI-based (ratatui)"
+  storage: "Per-case DuckDB + ~/.rapidtriage/metrics.duckdb"
+  telemetry_policy: "Local-only by default; explicit opt-in for any external submission"
+  weekly_digest: "Auto-generated on Monday first launch"
+  panels:
+    - "TARR progress bar (top-center)"
+    - "Parser throughput sparkline"
+    - "Error feed"
+    - "Memory pressure gauge"
+    - "Evidence summary"
+
+crate_metrics:
+  rt-pipeline:
+    - metric: "pipeline.ingest.duration"
+      type: "timer"
+      unit: "seconds"
+    - metric: "pipeline.layer.{0-4}.duration"
+      type: "timer"
+      unit: "seconds"
+    - metric: "pipeline.parser.{name}.throughput"
+      type: "gauge"
+      unit: "events/sec"
+    - metric: "pipeline.parser.{name}.success_rate"
+      type: "gauge"
+      unit: "percentage"
+    - metric: "pipeline.parser.{name}.error_count"
+      type: "counter"
+      unit: "count"
+  rt-timeline:
+    - metric: "timeline.merge.duration"
+      type: "timer"
+      unit: "seconds"
+    - metric: "timeline.query.latency"
+      type: "histogram"
+      unit: "ms"
+    - metric: "timeline.event_count"
+      type: "gauge"
+      unit: "count"
+    - metric: "timeline.duckdb.memory_usage"
+      type: "gauge"
+      unit: "bytes"
+  rt-report:
+    - metric: "report.render.{format}.duration"
+      type: "timer"
+      unit: "seconds"
+    - metric: "report.render.{format}.success"
+      type: "counter"
+      unit: "count"
+  rt-intel:
+    - metric: "intel.llm.response_time"
+      type: "histogram"
+      unit: "seconds"
+    - metric: "intel.llm.grounding_accuracy"
+      type: "gauge"
+      unit: "percentage"
+    - metric: "intel.llm.hallucination_rate"
+      type: "gauge"
+      unit: "percentage"
+    - metric: "intel.rag.retrieval_quality"
+      type: "gauge"
+      unit: "score_0_1"
+  rt-correlation:
+    - metric: "correlation.pattern_count"
+      type: "counter"
+      unit: "count"
+    - metric: "correlation.cross_artifact_matches"
+      type: "counter"
+      unit: "count"
+    - metric: "correlation.duration"
+      type: "timer"
+      unit: "seconds"
+  rt-cli:
+    - metric: "cli.command.{name}.duration"
+      type: "timer"
+      unit: "seconds"
+  rt-tui:
+    - metric: "tui.session.duration"
+      type: "timer"
+      unit: "seconds"
+    - metric: "tui.render.fps"
+      type: "gauge"
+      unit: "frames_per_sec"
+
+feedback_channels:
+  direct:
+    - channel: "GitHub Issues"
+      frequency: "continuous"
+      signal: "bugs, feature requests, parser accuracy"
+    - channel: "GitHub Discussions"
+      frequency: "weekly"
+      signal: "workflow questions, use-case sharing"
+    - channel: "Community Discord"
+      frequency: "daily"
+      signal: "real-time troubleshooting, beta feedback"
+    - channel: "DFIR Conferences"
+      frequency: "quarterly"
+      signal: "in-person demos, competitive intel"
+    - channel: "User Interviews"
+      frequency: "monthly (3-5)"
+      signal: "qualitative TARR, report quality"
+  implicit:
+    - signal: "crash_reports"
+      collection: "human-panic crate"
+      opt_in: true
+    - signal: "usage_telemetry"
+      collection: "local metrics DB"
+      opt_in: true
+    - signal: "report_format_preferences"
+      collection: "local metrics DB"
+      opt_in: false  # local only
+
+model_maintenance:
+  ollama_models:
+    classification: "mistral:7b"
+    narrative: "mixtral:8x7b / llama3:70b"
+    embedding: "nomic-embed-text"
+  evaluation:
+    golden_cases: 20
+    hallucination_tests: 15
+    grounding_tests: 20
+    pass_criteria:
+      rouge_l: "> 0.6"
+      precision: "> 0.9"
+      recall: "> 0.85"
+      hallucination: "zero"
+  detection_rules:
+    yara_x: "weekly"
+    sigma: "weekly"
+    ncmec_hashes: "monthly"
+  ai_free_mode: "mandatory — all features degrade gracefully"
+
+incident_response:
+  severity_levels:
+    P0: "Evidence integrity compromised or legal liability"
+    P1: "TARR regression > 2x or data loss"
+    P2: "Feature degradation with workaround"
+    P3: "Cosmetic or minor"
+  response_times:
+    P0: "< 4 hours"
+    P1: "< 24 hours"
+    P2: "< 1 week"
+    P3: "next release"
+  csam_workflow: "Flag, halt, no duplication, audit log, examiner reports per jurisdiction"
+
+compliance:
+  daubert_factors:
+    testable_methodology: "open-source parsers, auto-generated methodology section"
+    peer_review: "GitHub community review"
+    error_rate: "FP < 1%, FN < 0.5%"
+    standards: "NIST SP 800-86, NIST CFTT"
+    general_acceptance: "adoption metrics, citations"
+  supply_chain:
+    cargo_audit: "daily CI"
+    cargo_deny: "every PR"
+    cargo_vet: "every PR"
+    cargo_fuzz: "nightly (10 min/parser)"
+  chain_of_custody: "hash-chained JSONL, write-once, verification command"
+
+costs:
+  hardware_minimum:
+    cpu: "4 cores"
+    ram: "8 GB"
+    storage: "256 GB SSD"
+    gpu: "none (optional)"
+  ollama_storage_baseline: "~30 GB"
+  cloud_llm_monthly: "$0-$150 (optional, default $0)"
+  development_time_weekly:
+    core_development: "20 hours (50%)"
+    testing_ci: "6 hours (15%)"
+    community: "4 hours (10%)"
+    documentation: "3 hours (7.5%)"
+    model_evaluation: "3 hours (7.5%)"
+    business: "2 hours (5%)"
+    operations: "2 hours (5%)"
+
+iteration:
+  strategy_review: "quarterly (first Monday)"
+  kill_list_review: "quarterly"
+  roadmap_update: "quarterly"
+  adr_triggers:
+    - "new parser"
+    - "model change"
+    - "dependency added"
+    - "architecture change"
+    - "kill list item reconsidered"
+
+release_channels:
+  nightly:
+    audience: "developer"
+    cadence: "daily"
+  beta:
+    audience: "engaged community (< 50)"
+    cadence: "bi-weekly"
+  stable:
+    audience: "all users"
+    cadence: "monthly"
+
+runbook_cadence:
+  daily: "15 minutes — GitHub, Discord, CI review"
+  weekly: "2 hours — TARR digest, issues, rules, crash reports"
+  monthly: "4 hours — interviews, model check, cost review, stable release"
+  quarterly: "1 day — strategy review, kill list, roadmap, competitive, Daubert"
