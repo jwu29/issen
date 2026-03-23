@@ -109,6 +109,7 @@ frnsc-prefetch = "0.13"
 frnsc-amcache = "0.13"
 lnk_parser = "0.4"
 jumplist_parser = "0.1"
+evtx = { workspace = true }
 quick-xml = "0.37"
 serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
@@ -163,7 +164,7 @@ pub enum RemoteAccessCategory {
 }
 
 pub enum DetectionSource {
-    LolrmmRule(String),
+    LolrmmRule(String),     // Covers both vendored LOLRMM and custom YAML definitions
     SigmaRule(String),
     YaraRule(String),
     CategoryScanner(String),
@@ -189,15 +190,18 @@ CREATE TABLE IF NOT EXISTS findings (
 
 ### Timeline Cross-Reference Events
 
-For each Finding with a timestamp, emit a TimelineEvent into the existing timeline table:
+For each Finding with a timestamp, emit a TimelineEvent into the existing timeline table.
+
+**Prerequisite:** Add an `Assessment` variant to `rt-core::ArtifactType` enum (the existing enum has no variant for derived/assessment data).
 
 ```
-event_type:      "RemoteAccessFinding"
-source:          "rt-remote-access"
-description:     "{tool_name} detected ({category}) — {artifact_count} artifacts found"
-metadata:        {"finding_id": "<uuid>", "tool_name": "...", "category": "..."}
-tags:            "remote-access,{category-slug},{tool-name-slug}"
-timestamp_ns:    first_seen from finding
+event_type:        "RemoteAccessFinding"
+source:            ArtifactType::Assessment
+description:       "{tool_name} detected ({category}) — {artifact_count} artifacts found"
+metadata:          {"finding_id": "<uuid>", "tool_name": "...", "category": "..."}
+tags:              "remote-access,{category-slug},{tool-name-slug}"
+timestamp_ns:      first_seen from finding
+evidence_source:   propagated from the scan context (the evidence image being analyzed)
 ```
 
 ---
