@@ -151,6 +151,28 @@ pub enum Commands {
         auto_feeds: bool,
     },
 
+    /// Scan evidence for remote access infrastructure.
+    RemoteAccess {
+        /// Path to evidence directory or mounted image.
+        #[arg(value_name = "EVIDENCE_PATH")]
+        evidence_path: PathBuf,
+        /// Path to LOLRMM YAML rules directory.
+        #[arg(long)]
+        rules_dir: Option<PathBuf>,
+        /// Path to custom YAML definitions directory.
+        #[arg(long)]
+        custom_rules: Option<PathBuf>,
+        /// Comma-separated categories to scan (default: all).
+        #[arg(long)]
+        categories: Option<String>,
+        /// Output format: table, json.
+        #[arg(long, default_value = "table")]
+        format: String,
+        /// DuckDB database to write findings into.
+        #[arg(long)]
+        db: Option<PathBuf>,
+    },
+
     /// Generate a self-contained HTML report from a timeline database.
     Report {
         /// Path to the DuckDB database.
@@ -272,6 +294,21 @@ fn main() -> ExitCode {
             &min_severity,
             &format,
             auto_feeds,
+        ),
+        Commands::RemoteAccess {
+            evidence_path,
+            rules_dir,
+            custom_rules,
+            categories,
+            format,
+            db,
+        } => commands::remote_access::run(
+            &evidence_path,
+            rules_dir.as_deref(),
+            custom_rules.as_deref(),
+            categories.as_deref(),
+            &format,
+            db.as_deref(),
         ),
         Commands::Report {
             db_path,

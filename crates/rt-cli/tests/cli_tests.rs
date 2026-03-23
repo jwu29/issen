@@ -26,6 +26,7 @@ fn test_help_flag() {
         .stdout(predicate::str::contains("info"))
         .stdout(predicate::str::contains("feed"))
         .stdout(predicate::str::contains("scan"))
+        .stdout(predicate::str::contains("remote-access"))
         .stdout(predicate::str::contains("report"));
 }
 
@@ -1188,4 +1189,50 @@ fn test_report_with_findings() {
         html.contains("severity-high"),
         "report should contain severity styling"
     );
+}
+
+// ── Remote-access subcommand tests ──────────────────────────────────
+
+#[test]
+fn test_remote_access_help() {
+    rt_cmd()
+        .args(["remote-access", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("remote access"));
+}
+
+#[test]
+fn test_remote_access_missing_path() {
+    rt_cmd()
+        .args(["remote-access", "/nonexistent/path"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("does not exist"));
+}
+
+#[test]
+fn test_remote_access_empty_dir() {
+    let dir = TempDir::new().expect("tmpdir");
+    rt_cmd()
+        .args(["remote-access", &dir.path().to_string_lossy()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "No remote access artifacts detected",
+        ));
+}
+
+#[test]
+fn test_remote_access_json_format() {
+    let dir = TempDir::new().expect("tmpdir");
+    rt_cmd()
+        .args([
+            "remote-access",
+            &dir.path().to_string_lossy(),
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success();
 }
