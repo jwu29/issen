@@ -8,6 +8,7 @@ members = [
     "crates/rt-ewf",
     "crates/rt-shrinkpath",
     "crates/rt-signatures",
+    "crates/rt-remote-access",
     "crates/parsers/rt-parser-usnjrnl",
     "crates/parsers/rt-parser-mft",
     "crates/parsers/rt-parser-evtx",
@@ -36,6 +37,7 @@ rt-parser-mft     = { path = "crates/parsers/rt-parser-mft" }
 rt-parser-evtx    = { path = "crates/parsers/rt-parser-evtx" }
 rt-report         = { path = "crates/rt-report" }
 rt-signatures = { path = "crates/rt-signatures" }
+rt-remote-access = { path = "crates/rt-remote-access" }
 
 # External dependencies
 duckdb       = { version = "1", features = ["bundled"] }
@@ -75,6 +77,12 @@ usnjrnl-forensic = { version = "0.6", default-features = false }
 ewf          = "0.1"
 evtx         = { version = "0.11", default-features = false }
 mft          = "0.6"
+notatin      = "1.0"
+
+# XML / filesystem scanning
+uuid         = { version = "1", features = ["v4"] }
+glob         = "0.3"
+quick-xml    = "0.37"
 
 # Dev/test dependencies
 insta        = { version = "1", features = ["yaml"] }

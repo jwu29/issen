@@ -27,6 +27,8 @@ pub enum ArtifactType {
     JumpLists,
     /// System Resource Usage Monitor (SRUM)
     Srum,
+    /// Assessment or derived finding (not a raw artifact).
+    Assessment,
 }
 
 impl std::fmt::Display for ArtifactType {
@@ -44,6 +46,7 @@ impl std::fmt::Display for ArtifactType {
             Self::BrowserHistory => write!(f, "Browser History"),
             Self::JumpLists => write!(f, "Jump Lists"),
             Self::Srum => write!(f, "SRUM"),
+            Self::Assessment => write!(f, "Assessment"),
         }
     }
 }
