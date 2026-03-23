@@ -10,6 +10,8 @@
 //! - **Composition** via [`CompositeArtifactProvider`] that delegates to
 //!   the first sub-provider advertising the required capability.
 
+pub mod filesystem;
+
 use std::collections::HashMap;
 
 // ---------------------------------------------------------------------------
