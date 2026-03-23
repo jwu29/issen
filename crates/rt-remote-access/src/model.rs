@@ -84,7 +84,7 @@ pub enum DetectionSource {
 pub struct Finding {
     /// Unique identifier (UUID v4).
     pub id: String,
-    /// Tool name (e.g., "TeamViewer", "PsExec").
+    /// Tool name (e.g., "`TeamViewer`", "`PsExec`").
     pub tool_name: String,
     /// Detection category.
     pub category: RemoteAccessCategory,
