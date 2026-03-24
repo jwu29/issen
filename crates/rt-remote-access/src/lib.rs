@@ -136,11 +136,8 @@ fn run_rule_engine(
         if dir.exists() {
             match load_lolrmm_directory(dir) {
                 Ok(defs) => {
-                    for def in &defs {
-                        let source = dir
-                            .join(format!("{}.yaml", def.name.to_lowercase()))
-                            .display()
-                            .to_string();
+                    for (source_path, def) in &defs {
+                        let source = source_path.display().to_string();
                         rules.push(compile_lolrmm(def, &source));
                     }
                 }
@@ -158,11 +155,8 @@ fn run_rule_engine(
         if dir.exists() {
             match load_lolrmm_directory(dir) {
                 Ok(defs) => {
-                    for def in &defs {
-                        let source = dir
-                            .join(format!("{}.yaml", def.name.to_lowercase()))
-                            .display()
-                            .to_string();
+                    for (source_path, def) in &defs {
+                        let source = source_path.display().to_string();
                         rules.push(compile_lolrmm(def, &source));
                     }
                 }

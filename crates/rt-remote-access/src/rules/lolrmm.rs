@@ -370,12 +370,17 @@ pub fn load_lolrmm_file(path: &Path) -> Result<LolrmmDefinition, String> {
 
 /// Load all `.yaml` / `.yml` files from a directory.
 ///
+/// Each definition is returned paired with the actual file path it was loaded
+/// from, so callers can reference the original filename without reconstruction.
+///
 /// Files that fail to parse are logged via [`tracing::warn!`] and skipped.
 ///
 /// # Errors
 ///
 /// Returns an error message if the directory cannot be read.
-pub fn load_lolrmm_directory(dir: &Path) -> Result<Vec<LolrmmDefinition>, String> {
+pub fn load_lolrmm_directory(
+    dir: &Path,
+) -> Result<Vec<(std::path::PathBuf, LolrmmDefinition)>, String> {
     let entries = std::fs::read_dir(dir)
         .map_err(|e| format!("failed to read directory {}: {e}", dir.display()))?;
 
@@ -395,7 +400,7 @@ pub fn load_lolrmm_directory(dir: &Path) -> Result<Vec<LolrmmDefinition>, String
         }
 
         match load_lolrmm_file(&path) {
-            Ok(def) => definitions.push(def),
+            Ok(def) => definitions.push((path, def)),
             Err(e) => {
                 tracing::warn!("skipping {}: {e}", path.display());
             }
@@ -512,6 +517,16 @@ mod tests {
             !defs.is_empty(),
             "should have loaded at least one definition"
         );
+
+        // Each entry should carry its actual file path.
+        for (path, def) in &defs {
+            assert!(
+                path.exists(),
+                "returned path should exist: {}",
+                path.display()
+            );
+            assert!(!def.name.is_empty(), "definition name should not be empty");
+        }
     }
 
     #[test]
@@ -540,7 +555,7 @@ mod tests {
         let defs = load_lolrmm_directory(&dir).expect("load");
         assert!(defs.len() > 200, "Expected 200+ tools, got {}", defs.len());
 
-        let names: Vec<&str> = defs.iter().map(|d| d.name.as_str()).collect();
+        let names: Vec<&str> = defs.iter().map(|(_, d)| d.name.as_str()).collect();
         assert!(names.contains(&"AnyDesk"), "AnyDesk should be in catalog");
         assert!(
             names.contains(&"TeamViewer"),
@@ -565,13 +580,13 @@ mod tests {
             defs.len()
         );
 
-        let names: Vec<&str> = defs.iter().map(|d| d.name.as_str()).collect();
+        let names: Vec<&str> = defs.iter().map(|(_, d)| d.name.as_str()).collect();
         assert!(names.contains(&"Tailscale"), "Tailscale should be present");
         assert!(names.contains(&"WireGuard"), "WireGuard should be present");
         assert!(names.contains(&"OpenVPN"), "OpenVPN should be present");
 
         // Verify VPN category
-        for def in &defs {
+        for (_, def) in &defs {
             assert_eq!(def.category, "VPN", "{} should have VPN category", def.name);
         }
     }
