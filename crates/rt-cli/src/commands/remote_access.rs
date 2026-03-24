@@ -28,6 +28,10 @@ pub fn run(
 
     let result = rt_remote_access::scan(&composite, &config);
 
+    for warning in &result.warnings {
+        eprintln!("Warning: {warning}");
+    }
+
     if result.findings.is_empty() {
         println!("No remote access artifacts detected.");
     } else {

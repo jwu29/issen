@@ -46,6 +46,8 @@ pub struct ScanResult {
     pub available_capabilities: Vec<ProviderCapability>,
     /// Categories that were actually scanned.
     pub categories_scanned: Vec<RemoteAccessCategory>,
+    /// Non-fatal warnings collected during the scan (e.g. failed scanners).
+    pub warnings: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -63,12 +65,14 @@ pub struct ScanResult {
 pub fn scan(provider: &dyn ArtifactProvider, config: &ScanConfig) -> ScanResult {
     let mut all_findings: Vec<Finding> = Vec::new();
     let mut categories_scanned: Vec<RemoteAccessCategory> = Vec::new();
+    let mut warnings: Vec<String> = Vec::new();
 
     // ------------------------------------------------------------------
     // Phase 1: Rule engine (LOLRMM + custom YAML)
     // ------------------------------------------------------------------
-    let rule_findings = run_rule_engine(provider, config);
+    let (rule_findings, rule_warnings) = run_rule_engine(provider, config);
     all_findings.extend(rule_findings);
+    warnings.extend(rule_warnings);
 
     // ------------------------------------------------------------------
     // Phase 2: Category scanners
@@ -92,7 +96,9 @@ pub fn scan(provider: &dyn ArtifactProvider, config: &ScanConfig) -> ScanResult 
                 all_findings.extend(findings);
             }
             Err(e) => {
+                let msg = format!("{} scanner failed: {e}", scanner.category());
                 tracing::warn!(error = %e, "category scanner failed");
+                warnings.push(msg);
             }
         }
     }
@@ -107,6 +113,7 @@ pub fn scan(provider: &dyn ArtifactProvider, config: &ScanConfig) -> ScanResult 
         findings,
         available_capabilities,
         categories_scanned,
+        warnings,
     }
 }
 
@@ -115,8 +122,14 @@ pub fn scan(provider: &dyn ArtifactProvider, config: &ScanConfig) -> ScanResult 
 // ---------------------------------------------------------------------------
 
 /// Load LOLRMM and custom YAML directories, compile rules, and evaluate.
-fn run_rule_engine(provider: &dyn ArtifactProvider, config: &ScanConfig) -> Vec<Finding> {
+///
+/// Returns `(findings, warnings)`.
+fn run_rule_engine(
+    provider: &dyn ArtifactProvider,
+    config: &ScanConfig,
+) -> (Vec<Finding>, Vec<String>) {
     let mut rules = Vec::new();
+    let mut warnings: Vec<String> = Vec::new();
 
     // LOLRMM directory
     if let Some(ref dir) = config.lolrmm_dir {
@@ -132,7 +145,9 @@ fn run_rule_engine(provider: &dyn ArtifactProvider, config: &ScanConfig) -> Vec<
                     }
                 }
                 Err(e) => {
+                    let msg = format!("failed to load LOLRMM directory {}: {e}", dir.display());
                     tracing::warn!(error = %e, "failed to load LOLRMM directory");
+                    warnings.push(msg);
                 }
             }
         }
@@ -152,17 +167,22 @@ fn run_rule_engine(provider: &dyn ArtifactProvider, config: &ScanConfig) -> Vec<
                     }
                 }
                 Err(e) => {
+                    let msg = format!(
+                        "failed to load custom rules directory {}: {e}",
+                        dir.display()
+                    );
                     tracing::warn!(error = %e, "failed to load custom rules directory");
+                    warnings.push(msg);
                 }
             }
         }
     }
 
     if rules.is_empty() {
-        return Vec::new();
+        return (Vec::new(), warnings);
     }
 
-    evaluate_all(&rules, provider)
+    (evaluate_all(&rules, provider), warnings)
 }
 
 // ---------------------------------------------------------------------------
@@ -227,6 +247,13 @@ mod tests {
             "BuiltInRemoteAccess should be in categories_scanned; got {:?}",
             result.categories_scanned
         );
+
+        // A normal scan should produce no warnings.
+        assert!(
+            result.warnings.is_empty(),
+            "successful scan should have no warnings; got {:?}",
+            result.warnings
+        );
     }
 
     #[test]
@@ -242,6 +269,10 @@ mod tests {
         assert!(
             result.available_capabilities.is_empty(),
             "empty provider should have no capabilities"
+        );
+        assert!(
+            result.warnings.is_empty(),
+            "empty provider scan should have no warnings"
         );
     }
 }
