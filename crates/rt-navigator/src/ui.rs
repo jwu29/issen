@@ -35,7 +35,7 @@ fn format_size(bytes: u64) -> String {
 // Main draw
 // ---------------------------------------------------------------------------
 
-pub fn draw(frame: &mut Frame, app: &App) {
+pub fn draw(frame: &mut Frame, app: &mut App) {
     let footer_height =
         if app.searching || !app.search_query.is_empty() || !app.search_results.is_empty() {
             4
@@ -136,7 +136,7 @@ fn draw_header(frame: &mut Frame, area: Rect, app: &App) {
 // ---------------------------------------------------------------------------
 
 #[allow(clippy::too_many_lines)]
-fn draw_file_list(frame: &mut Frame, area: Rect, app: &App) {
+fn draw_file_list(frame: &mut Frame, area: Rect, app: &mut App) {
     if app.entries.is_empty() {
         let empty = Paragraph::new("  (empty directory)")
             .style(Style::default().fg(Color::DarkGray))
@@ -149,6 +149,29 @@ fn draw_file_list(frame: &mut Frame, area: Rect, app: &App) {
         frame.render_widget(empty, area);
         return;
     }
+
+    // -- Virtual scrolling: only build Row widgets for visible entries --------
+    // area.height minus 3 = border top (1) + header row (1) + border bottom (1)
+    let visible_height = area.height.saturating_sub(3) as usize;
+    app.visible_height = visible_height;
+    let total = app.entries.len();
+
+    // Adjust scroll_offset so `selected` stays visible.
+    if app.selected < app.scroll_offset {
+        app.scroll_offset = app.selected;
+    } else if visible_height > 0 && app.selected >= app.scroll_offset + visible_height {
+        app.scroll_offset = app
+            .selected
+            .saturating_sub(visible_height.saturating_sub(1));
+    }
+    // Clamp so we don't scroll past the end.
+    if visible_height > 0 && total > visible_height {
+        app.scroll_offset = app.scroll_offset.min(total - visible_height);
+    } else {
+        app.scroll_offset = 0;
+    }
+
+    let end = (app.scroll_offset + visible_height).min(total);
 
     let header = Row::new(vec![
         Cell::from(" Name"),
@@ -164,11 +187,9 @@ fn draw_file_list(frame: &mut Frame, area: Rect, app: &App) {
     )
     .height(1);
 
-    let rows: Vec<Row> = app
-        .entries
-        .iter()
-        .enumerate()
-        .map(|(i, &idx)| {
+    let rows: Vec<Row> = (app.scroll_offset..end)
+        .map(|i| {
+            let idx = app.entries[i];
             let node = app.tree.node(idx);
             let depth = app.depths[i];
 
@@ -240,6 +261,9 @@ fn draw_file_list(frame: &mut Frame, area: Rect, app: &App) {
         Constraint::Length(8),
     ];
 
+    // Selected index is relative to the visible window.
+    let relative_selected = app.selected.saturating_sub(app.scroll_offset);
+
     let table = Table::new(rows, widths)
         .header(header)
         .row_highlight_style(
@@ -256,7 +280,7 @@ fn draw_file_list(frame: &mut Frame, area: Rect, app: &App) {
                 .title(" Files "),
         );
 
-    let mut state = TableState::default().with_selected(Some(app.selected));
+    let mut state = TableState::default().with_selected(Some(relative_selected));
     frame.render_stateful_widget(table, area, &mut state);
 }
 
@@ -264,7 +288,7 @@ fn draw_file_list(frame: &mut Frame, area: Rect, app: &App) {
 // Anomaly detail panel
 // ---------------------------------------------------------------------------
 
-fn draw_detail_panel(frame: &mut Frame, area: Rect, app: &App) {
+fn draw_detail_panel(frame: &mut Frame, area: Rect, app: &mut App) {
     if app.entries.is_empty() {
         return;
     }
@@ -361,7 +385,7 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
     };
 
     let help =
-        " \u{2191}\u{2193}/jk: Nav  Space: Fold  Enter/l: Open  Bksp/h: Back  s: Sort  /: Search  n/N: Next/Prev  f: Flagged  a: Detail  q: Quit";
+        " \u{2191}\u{2193}/jk: Nav  h/\u{2190}: Up  l/\u{2192}: Expand  Space: Fold  ^B/^F: Page  Bksp: Back  s: Sort  /: Search  n/N: Cycle  f: Flagged  q: Quit";
 
     let mut lines = vec![
         Line::from(Span::styled(stats, Style::default().fg(Color::Green))),

@@ -98,6 +98,10 @@ pub struct App {
     last_keystroke: Option<Instant>,
     /// Previous search query (for incremental narrowing).
     prev_search_query: String,
+    /// Scroll offset for virtual scrolling (first visible row index).
+    pub scroll_offset: usize,
+    /// Number of visible rows (set by renderer for page up/down).
+    pub visible_height: usize,
 }
 
 // ---------------------------------------------------------------------------
@@ -112,6 +116,10 @@ impl App {
 
         let search_engine = SearchEngine::new(&tree);
 
+        let collapsed = (0..tree.node_count())
+            .filter(|&i| tree.node(i).is_dir)
+            .collect();
+
         let mut app = Self {
             tree,
             anomaly_index,
@@ -119,7 +127,7 @@ impl App {
             selected: 0,
             entries: Vec::new(),
             depths: Vec::new(),
-            collapsed: HashSet::new(),
+            collapsed,
             path_stack: Vec::new(),
             sort_mode: SortMode::Name,
             search_query: String::new(),
@@ -135,6 +143,8 @@ impl App {
             pending_search: false,
             last_keystroke: None,
             prev_search_query: String::new(),
+            scroll_offset: 0,
+            visible_height: 40,
         };
         app.refresh_entries();
         Ok(app)
@@ -162,18 +172,29 @@ impl App {
     }
 
     fn navigate_back(&mut self) {
+        let came_from = self.current_dir;
         if let Some((prev_dir, ..)) = self.path_stack.pop() {
-            let came_from = self.current_dir;
             self.current_dir = prev_dir;
-            self.search_query.clear();
-            self.refresh_entries();
-            // Place cursor on the folder we just backed out of.
-            self.selected = self
-                .entries
-                .iter()
-                .position(|&e| e == came_from)
-                .unwrap_or(0);
+        } else {
+            // No path_stack (e.g. after search jump) — go to parent of current_dir.
+            let parent_entry = self.tree.node(self.current_dir).parent_entry;
+            if let Some(&parent_idx) = self.tree.entry_to_idx(parent_entry) {
+                if parent_idx == self.current_dir {
+                    return; // Already at root
+                }
+                self.current_dir = parent_idx;
+            } else {
+                return; // No parent found
+            }
         }
+        self.search_query.clear();
+        self.refresh_entries();
+        // Place cursor on the folder we just backed out of.
+        self.selected = self
+            .entries
+            .iter()
+            .position(|&e| e == came_from)
+            .unwrap_or(0);
     }
 
     fn refresh_entries(&mut self) {
@@ -214,6 +235,26 @@ impl App {
             self.selected = 0;
         } else if self.selected >= self.entries.len() {
             self.selected = self.entries.len() - 1;
+        }
+    }
+
+    /// Jump cursor to the parent folder in the tree view.
+    /// At depth 0, falls back to `navigate_back()`.
+    fn jump_to_parent_in_tree(&mut self) {
+        if self.entries.is_empty() {
+            return;
+        }
+        let current_depth = self.depths[self.selected];
+        if current_depth == 0 {
+            self.navigate_back();
+            return;
+        }
+        // Walk backwards to find the nearest entry at a shallower depth.
+        for i in (0..self.selected).rev() {
+            if self.depths[i] < current_depth {
+                self.selected = i;
+                return;
+            }
         }
     }
 
@@ -285,29 +326,44 @@ impl App {
                     self.selected = count - 1;
                 }
             }
-            KeyCode::Char('p') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.selected = self.selected.saturating_sub(30);
+            KeyCode::Char('b') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.selected = self.selected.saturating_sub(self.visible_height);
             }
-            KeyCode::Char('n') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            KeyCode::Char('f') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 if count > 0 {
-                    self.selected = (self.selected + 30).min(count - 1);
+                    self.selected = (self.selected + self.visible_height).min(count - 1);
                 }
             }
             KeyCode::PageUp => {
-                self.selected = self.selected.saturating_sub(30);
+                self.selected = self.selected.saturating_sub(self.visible_height);
             }
             KeyCode::PageDown => {
                 if count > 0 {
-                    self.selected = (self.selected + 30).min(count - 1);
+                    self.selected = (self.selected + self.visible_height).min(count - 1);
                 }
             }
 
             // Navigation
-            KeyCode::Enter | KeyCode::Right | KeyCode::Char('l') => {
+            KeyCode::Enter => {
                 self.navigate_into();
             }
-            KeyCode::Backspace | KeyCode::Left | KeyCode::Char('h') => {
+            KeyCode::Backspace => {
                 self.navigate_back();
+            }
+            // Tree-style h/l/arrows: collapse/expand, fall through to navigate
+            KeyCode::Char('l') | KeyCode::Right => {
+                if !self.entries.is_empty() {
+                    let idx = self.entries[self.selected];
+                    if self.tree.node(idx).is_dir && self.collapsed.contains(&idx) {
+                        self.collapsed.remove(&idx);
+                        self.refresh_entries();
+                    } else {
+                        self.navigate_into();
+                    }
+                }
+            }
+            KeyCode::Char('h') | KeyCode::Left => {
+                self.jump_to_parent_in_tree();
             }
 
             // Sort
@@ -398,7 +454,8 @@ impl App {
         self.refresh_entries();
     }
 
-    /// Rebuild search results and jump to nearest match.
+    /// Rebuild search results and jump to nearest match (synchronous, used in tests).
+    #[cfg(test)]
     fn incremental_search(&mut self) {
         self.search_results.clear();
 
@@ -651,22 +708,18 @@ mod tests {
     #[test]
     fn root_has_correct_entries() {
         let app = test_app();
-        // Tree mode: 2 dirs (docs, src) expanded + their children + 1 file = 6
-        // docs/(0), notes.txt(1), readme.txt(1), src/(0), main.rs(1), config.toml(0)
-        assert_eq!(app.entries.len(), 6);
+        // Folders default collapsed: docs/, src/, config.toml = 3 top-level items
+        assert_eq!(app.entries.len(), 3);
     }
 
     #[test]
     fn depths_parallel_entries() {
         let app = test_app();
         assert_eq!(app.entries.len(), app.depths.len());
-        // Top-level items are at depth 0, children at depth 1
+        // All collapsed: only top-level items at depth 0
         assert_eq!(app.depths[0], 0); // docs/
-        assert_eq!(app.depths[1], 1); // notes.txt (child of docs)
-        assert_eq!(app.depths[2], 1); // readme.txt
-        assert_eq!(app.depths[3], 0); // src/
-        assert_eq!(app.depths[4], 1); // main.rs
-        assert_eq!(app.depths[5], 0); // config.toml
+        assert_eq!(app.depths[1], 0); // src/
+        assert_eq!(app.depths[2], 0); // config.toml
     }
 
     // -- Movement tests ------------------------------------------------------
@@ -735,26 +788,26 @@ mod tests {
     }
 
     #[test]
-    fn page_down_moves_30() {
+    fn page_down_moves_by_visible_height() {
         let mut app = test_app();
         app.handle_key(key(KeyCode::PageDown));
-        // Only 6 entries in tree mode, so clamps to last
+        // Only 6 entries in tree mode, visible_height=40 > 6, so clamps to last
         assert_eq!(app.selected, app.entries.len() - 1);
     }
 
     #[test]
-    fn ctrl_n_pages_down() {
+    fn ctrl_f_pages_down() {
         let mut app = test_app();
-        app.handle_key(key_ctrl('n'));
+        app.handle_key(key_ctrl('f'));
         assert_eq!(app.selected, app.entries.len() - 1);
     }
 
     #[test]
-    fn ctrl_p_pages_up() {
+    fn ctrl_b_pages_up() {
         let mut app = test_app();
         app.handle_key(key(KeyCode::Char('G'))); // go to bottom
-        app.handle_key(key_ctrl('p'));
-        assert_eq!(app.selected, 0); // 6 items - 30 = clamps to 0
+        app.handle_key(key_ctrl('b'));
+        assert_eq!(app.selected, 0); // 6 items, visible_height=40 > 6, clamps to 0
     }
 
     // -- Navigation tests ----------------------------------------------------
@@ -771,13 +824,6 @@ mod tests {
     }
 
     #[test]
-    fn l_navigates_into_dir() {
-        let mut app = test_app();
-        app.handle_key(key(KeyCode::Char('l')));
-        assert_ne!(app.current_path(), "/");
-    }
-
-    #[test]
     fn backspace_navigates_back() {
         let mut app = test_app();
         app.handle_key(key(KeyCode::Enter)); // go into first dir
@@ -789,11 +835,58 @@ mod tests {
     }
 
     #[test]
-    fn h_navigates_back() {
+    fn h_on_nested_file_jumps_to_parent_folder() {
         let mut app = test_app();
-        app.handle_key(key(KeyCode::Char('l'))); // go in
-        app.handle_key(key(KeyCode::Char('h'))); // go back
+        // Expand docs/ so we can see its children
+        app.collapsed.remove(&app.entries[0]);
+        app.refresh_entries();
+        // Now: docs/(0), notes.txt(1), readme.txt(1), src/(0), ...
+        app.selected = 1;
+        assert!(!app.tree.node(app.entries[1]).is_dir);
+        assert_eq!(app.depths[1], 1);
+        app.handle_key(key(KeyCode::Char('h'))); // jump to parent (docs/ at index 0)
+        assert_eq!(app.selected, 0);
+        assert!(app.tree.node(app.entries[0]).is_dir);
+        assert_eq!(app.current_path(), "/"); // didn't change root
+    }
+
+    #[test]
+    fn h_at_depth0_navigates_back() {
+        let mut app = test_app();
+        app.handle_key(key(KeyCode::Enter)); // go into first dir
+        assert_ne!(app.current_path(), "/");
+        // At depth 0 in inner dir, h falls back to navigate_back
+        assert_eq!(app.depths[app.selected], 0);
+        app.handle_key(key(KeyCode::Char('h')));
         assert_eq!(app.current_path(), "/");
+    }
+
+    #[test]
+    fn l_expands_collapsed_folder() {
+        let mut app = test_app();
+        // Collapse docs/ first
+        let idx = app.entries[0];
+        app.collapsed.insert(idx);
+        app.refresh_entries();
+        let entries_collapsed = app.entries.len();
+
+        // l on collapsed folder expands it (doesn't navigate into)
+        app.handle_key(key(KeyCode::Char('l')));
+        assert!(!app.collapsed.contains(&idx));
+        assert!(app.entries.len() > entries_collapsed);
+        // Still at root
+        assert_eq!(app.current_path(), "/");
+    }
+
+    #[test]
+    fn l_on_expanded_folder_navigates_into() {
+        let mut app = test_app();
+        // Expand docs/ first (folders default collapsed)
+        app.collapsed.remove(&app.entries[0]);
+        app.refresh_entries();
+        // docs/ is now expanded, l should navigate into it
+        app.handle_key(key(KeyCode::Char('l')));
+        assert_ne!(app.current_path(), "/");
     }
 
     #[test]
@@ -806,13 +899,13 @@ mod tests {
     #[test]
     fn navigate_back_restores_cursor_to_folder() {
         let mut app = test_app();
-        // In tree mode: 0=docs/, 1=notes.txt, 2=readme.txt, 3=src/, 4=main.rs, 5=config.toml
-        // Navigate to src/ (index 3) and enter it
-        app.selected = 3;
-        assert_eq!(app.tree.node(app.entries[3]).name, "src");
-        app.handle_key(key(KeyCode::Char('l'))); // go into src/
+        // All collapsed: 0=docs/, 1=src/, 2=config.toml
+        // Navigate to src/ (index 1) and enter it
+        app.selected = 1;
+        assert_eq!(app.tree.node(app.entries[1]).name, "src");
+        app.handle_key(key(KeyCode::Enter)); // go into src/
         assert_eq!(app.current_path(), "/src");
-        app.handle_key(key(KeyCode::Char('h'))); // go back
+        app.handle_key(key(KeyCode::Backspace)); // go back
         assert_eq!(app.current_path(), "/");
         // Cursor should land on src/ in the tree
         assert_eq!(app.tree.node(app.entries[app.selected]).name, "src");
@@ -1083,30 +1176,33 @@ mod tests {
     #[test]
     fn space_collapses_folder() {
         let mut app = test_app();
-        // entries[0] = docs/ (expanded by default)
-        assert_eq!(app.entries.len(), 6);
-        assert_eq!(app.tree.node(app.entries[0]).name, "docs");
-        app.handle_key(key(KeyCode::Char(' '))); // collapse docs/
-                                                 // docs/ collapsed: docs/, src/, main.rs, config.toml = 4 entries
-        assert_eq!(app.entries.len(), 4);
+        // Folders default collapsed: docs/, src/, config.toml = 3
+        assert_eq!(app.entries.len(), 3);
+        // Expand docs/ first
+        app.handle_key(key(KeyCode::Char(' '))); // toggle docs/ → expanded
+        assert_eq!(app.entries.len(), 5); // docs/, notes.txt, readme.txt, src/, config.toml
+        assert!(!app.collapsed.contains(&app.entries[0]));
+        // Collapse it again
+        app.handle_key(key(KeyCode::Char(' '))); // toggle docs/ → collapsed
+        assert_eq!(app.entries.len(), 3);
         assert!(app.collapsed.contains(&app.entries[0]));
     }
 
     #[test]
     fn space_expands_collapsed_folder() {
         let mut app = test_app();
-        app.handle_key(key(KeyCode::Char(' '))); // collapse docs/
-        assert_eq!(app.entries.len(), 4);
+        // Folders default collapsed: 3 entries
+        assert_eq!(app.entries.len(), 3);
         app.handle_key(key(KeyCode::Char(' '))); // expand docs/
-        assert_eq!(app.entries.len(), 6);
+        assert_eq!(app.entries.len(), 5); // docs/ + 2 children + src/ + config.toml
     }
 
     #[test]
     fn space_on_file_is_noop() {
         let mut app = test_app();
-        // Move to a file (config.toml at index 5)
-        app.selected = 5;
-        assert!(!app.tree.node(app.entries[5]).is_dir);
+        // Move to config.toml (index 2 when collapsed)
+        app.selected = 2;
+        assert!(!app.tree.node(app.entries[2]).is_dir);
         let before = app.entries.len();
         app.handle_key(key(KeyCode::Char(' ')));
         assert_eq!(app.entries.len(), before); // no change
@@ -1115,27 +1211,27 @@ mod tests {
     #[test]
     fn collapse_state_preserved_after_navigate_back() {
         let mut app = test_app();
-        // Collapse docs/
+        // All collapsed: docs/, src/, config.toml = 3
+        assert_eq!(app.entries.len(), 3);
+        // Expand docs/
         app.handle_key(key(KeyCode::Char(' ')));
-        assert_eq!(app.entries.len(), 4);
-        // Navigate into src/ (now at index 1 after collapse)
-        app.selected = 1;
-        assert_eq!(app.tree.node(app.entries[1]).name, "src");
+        assert_eq!(app.entries.len(), 5);
+        // Navigate into src/ (now at index 3 after expanding docs/)
+        app.selected = 3;
+        assert_eq!(app.tree.node(app.entries[3]).name, "src");
         app.handle_key(key(KeyCode::Enter));
         assert_eq!(app.current_path(), "/src");
         // Navigate back
         app.handle_key(key(KeyCode::Backspace));
-        // docs/ should still be collapsed
-        assert_eq!(app.entries.len(), 4);
+        // docs/ should still be expanded, src/ still collapsed = 5 entries
+        assert_eq!(app.entries.len(), 5);
     }
 
     #[test]
     fn search_jumps_to_parent_dir() {
         let mut app = test_app();
-        // Collapse docs/
-        app.collapsed.insert(app.entries[0]); // docs/
-        app.refresh_entries();
-        assert_eq!(app.entries.len(), 4); // docs collapsed
+        // Folders default collapsed: docs/, src/, config.toml = 3
+        assert_eq!(app.entries.len(), 3); // docs collapsed
                                           // Search for readme.txt (inside docs/)
         app.handle_key(key(KeyCode::Char('/')));
         for c in "readme".chars() {

@@ -4,6 +4,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use indicatif::{ProgressBar, ProgressStyle};
+use mft::attribute::header::ResidentialHeader;
 use mft::attribute::{MftAttributeContent, MftAttributeType};
 use mft::MftParser;
 
@@ -89,7 +90,22 @@ impl FileTree {
             // Only store fn_timestamps if they differ from si_timestamps.
             let fn_timestamps = if fn_ts == si_ts { None } else { Some(fn_ts) };
 
-            let size = if is_dir { 0 } else { fname.logical_size };
+            // Read file size from $DATA attribute (accurate), falling back to
+            // $FILENAME logical_size (often stale/zero in NTFS).
+            let size = if is_dir {
+                0
+            } else {
+                entry
+                    .iter_attributes_matching(Some(vec![MftAttributeType::DATA]))
+                    .filter_map(std::result::Result::ok)
+                    .find(|a| a.header.name.is_empty()) // default $DATA stream only
+                    .map_or(fname.logical_size, |attr| {
+                        match &attr.header.residential_header {
+                            ResidentialHeader::Resident(r) => u64::from(r.data_size),
+                            ResidentialHeader::NonResident(nr) => nr.file_size,
+                        }
+                    })
+            };
 
             // Extract file attribute flags from $STANDARD_INFORMATION.
             let file_attributes = entry

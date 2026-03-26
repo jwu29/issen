@@ -4381,6 +4381,8 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 [[package]]
 name = "shrinkpath"
 version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "307b247952f8504ac63e32eb91b455f793391ca12614701d88595050b7134d8d"
 dependencies = [
  "clap",
 ]

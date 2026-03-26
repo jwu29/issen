@@ -7,9 +7,16 @@ use rt_mft_tree::tree::FileTree;
 use rt_mft_tree::trigram::TrigramIndex;
 
 /// Search-relevant data owned by the background thread.
+///
+/// Searches match against **filenames only** (last path segment),
+/// not full paths — so searching "pamela" won't match a parent directory name.
 struct SearchData {
-    paths_lower: Vec<String>,
-    trigram_index: TrigramIndex,
+    /// Lowercase filename (last path segment) for each node.
+    names_lower: Vec<String>,
+    /// Path depth for each node (number of `/` separators).
+    depths: Vec<usize>,
+    /// Trigram index built from filenames only.
+    name_trigram_index: TrigramIndex,
     is_root: Vec<bool>,
     max_results: usize,
 }
@@ -18,42 +25,84 @@ impl SearchData {
     fn extract(tree: &FileTree) -> Self {
         let node_count = tree.node_count();
         let is_root: Vec<bool> = (0..node_count).map(|i| tree.is_root(i)).collect();
+
+        let paths = tree.paths_lower();
+
+        // Extract lowercase filenames (last path segment) for search matching.
+        let names_lower: Vec<String> = paths
+            .iter()
+            .map(|path| path.rsplit('/').next().unwrap_or(path.as_str()).to_string())
+            .collect();
+
+        // Path depth = number of '/' separators (shallower = more relevant).
+        let depths: Vec<usize> = paths.iter().map(|p| p.matches('/').count()).collect();
+
+        let name_trigram_index = TrigramIndex::build(&names_lower);
+
         Self {
-            paths_lower: tree.paths_lower().to_vec(),
-            trigram_index: tree.trigram_index().clone(),
+            names_lower,
+            depths,
+            name_trigram_index,
             is_root,
             max_results: 10_000,
         }
     }
 
     /// Full search using trigram index + linear fallback.
+    ///
+    /// Results are sorted by name length (shortest first = most relevant).
     fn search(&self, query: &str) -> Vec<usize> {
         let query_lower = query.to_lowercase();
 
-        if let Some(candidates) = self.trigram_index.candidates(&query_lower) {
-            return candidates
+        let mut results: Vec<usize> = if let Some(candidates) =
+            self.name_trigram_index.candidates(&query_lower)
+        {
+            candidates
                 .into_iter()
-                .filter(|&idx| !self.is_root[idx] && self.paths_lower[idx].contains(&query_lower))
+                .filter(|&idx| !self.is_root[idx] && self.names_lower[idx].contains(&query_lower))
                 .take(self.max_results)
-                .collect();
-        }
+                .collect()
+        } else {
+            // Fallback for short queries
+            (0..self.names_lower.len())
+                .filter(|&idx| !self.is_root[idx] && self.names_lower[idx].contains(&query_lower))
+                .take(self.max_results)
+                .collect()
+        };
 
-        // Fallback for short queries
-        (0..self.paths_lower.len())
-            .filter(|&idx| !self.is_root[idx] && self.paths_lower[idx].contains(&query_lower))
-            .take(self.max_results)
-            .collect()
+        // Sort: exact name match first, then shallowest path depth first.
+        results.sort_by(|&a, &b| {
+            let a_exact = self.names_lower[a] == query_lower;
+            let b_exact = self.names_lower[b] == query_lower;
+            b_exact
+                .cmp(&a_exact)
+                .then_with(|| self.depths[a].cmp(&self.depths[b]))
+        });
+
+        results
     }
 
     /// Narrow from previous results (incremental).
+    ///
+    /// Results are sorted: exact match first, then shallowest depth first.
     fn narrow(&self, query: &str, prev_results: &[usize]) -> Vec<usize> {
         let query_lower = query.to_lowercase();
-        prev_results
+        let mut results: Vec<usize> = prev_results
             .iter()
             .copied()
-            .filter(|&idx| self.paths_lower[idx].contains(&query_lower))
+            .filter(|&idx| self.names_lower[idx].contains(&query_lower))
             .take(self.max_results)
-            .collect()
+            .collect();
+
+        results.sort_by(|&a, &b| {
+            let a_exact = self.names_lower[a] == query_lower;
+            let b_exact = self.names_lower[b] == query_lower;
+            b_exact
+                .cmp(&a_exact)
+                .then_with(|| self.depths[a].cmp(&self.depths[b]))
+        });
+
+        results
     }
 }
 
@@ -213,10 +262,25 @@ mod tests {
     fn search_data_search_excludes_root() {
         let tree = test_tree();
         let data = SearchData::extract(&tree);
-        let results = data.search("/");
+        // "report" matches filename "report.docx", should not include root
+        let results = data.search("report");
         for &idx in &results {
             assert!(!data.is_root[idx]);
         }
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn search_matches_filename_not_path() {
+        let tree = test_tree();
+        let data = SearchData::extract(&tree);
+        // "windows" is a directory name in the path, not a filename
+        // cmd.exe lives at /Windows/cmd.exe — searching "windows" should NOT match it
+        let results = data.search("windows");
+        // Only the "Windows" directory itself should match (its name is "windows")
+        assert!(results
+            .iter()
+            .all(|&idx| data.names_lower[idx].contains("windows")));
     }
 
     #[test]
