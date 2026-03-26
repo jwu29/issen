@@ -69,8 +69,22 @@ fn main() -> Result<()> {
     };
 
     // -- Report what we found -----------------------------------------------
-    if sources.mft_mirror.is_some() {
-        eprintln!("  Found $MFTMirr (validation not yet implemented)");
+    if let Some(ref mirror_path) = sources.mft_mirror {
+        match rt_mft_tree::mirror::validate_mirror(&sources.mft, mirror_path) {
+            Ok(result) => {
+                if result.is_valid() {
+                    eprintln!("  $MFTMirr: all 4 entries match (valid)");
+                } else {
+                    eprintln!(
+                        "  $MFTMirr: {} of 4 entries differ!",
+                        result.mismatch_count()
+                    );
+                }
+            }
+            Err(e) => {
+                eprintln!("  Warning: failed to validate $MFTMirr: {e}");
+            }
+        }
     }
     if sources.logfile.is_some() {
         eprintln!("  Found $LogFile (parsing not yet implemented)");
