@@ -3,6 +3,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use rt_mft_tree::tree::FileTree;
+use rt_signatures::heuristics::AnomalyIndex;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -50,6 +51,7 @@ impl SortMode {
 
 pub struct App {
     pub tree: FileTree,
+    pub anomaly_index: AnomalyIndex,
     /// Arena index of the directory currently displayed.
     pub current_dir: usize,
     /// Cursor position within `entries`.
@@ -63,6 +65,8 @@ pub struct App {
     pub search_query: String,
     /// Whether the search input bar is active.
     pub searching: bool,
+    /// Whether to show only flagged entries.
+    pub flagged_filter: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -70,13 +74,14 @@ pub struct App {
 // ---------------------------------------------------------------------------
 
 impl App {
-    pub fn new(tree: FileTree) -> anyhow::Result<Self> {
+    pub fn new(tree: FileTree, anomaly_index: AnomalyIndex) -> anyhow::Result<Self> {
         let root = tree
             .root_idx()
             .ok_or_else(|| anyhow::anyhow!("MFT contains no root directory (entry 5)"))?;
 
         let mut app = Self {
             tree,
+            anomaly_index,
             current_dir: root,
             selected: 0,
             entries: Vec::new(),
@@ -84,6 +89,7 @@ impl App {
             sort_mode: SortMode::Name,
             search_query: String::new(),
             searching: false,
+            flagged_filter: false,
         };
         app.refresh_entries();
         Ok(app)
@@ -137,6 +143,10 @@ impl App {
     fn refresh_entries(&mut self) {
         if self.search_query.is_empty() {
             self.entries = self.tree.children(self.current_dir).to_vec();
+            if self.flagged_filter {
+                self.entries
+                    .retain(|&idx| !self.anomaly_index.for_node(idx).is_empty());
+            }
             self.sort_entries();
         } else {
             self.entries = self.tree.search(&self.search_query);
@@ -240,6 +250,12 @@ impl App {
             KeyCode::Char('/') => {
                 self.searching = true;
                 self.search_query.clear();
+            }
+
+            // Flagged filter
+            KeyCode::Char('f') => {
+                self.flagged_filter = !self.flagged_filter;
+                self.refresh_entries();
             }
 
             _ => {}
@@ -350,7 +366,7 @@ mod tests {
             file_node("config.toml", 12, 5, 300),
         ];
         let tree = FileTree::from_nodes(nodes);
-        App::new(tree).unwrap()
+        App::new(tree, AnomalyIndex::new()).unwrap()
     }
 
     fn key(code: KeyCode) -> KeyEvent {
@@ -706,5 +722,45 @@ mod tests {
     fn esc_outside_search_quits() {
         let mut app = test_app();
         assert_eq!(app.handle_key(key(KeyCode::Esc)), Action::Quit);
+    }
+
+    #[test]
+    fn f_key_toggles_flagged_filter() {
+        let mut app = test_app();
+        assert!(!app.flagged_filter);
+        app.handle_key(key(KeyCode::Char('f')));
+        assert!(app.flagged_filter);
+        app.handle_key(key(KeyCode::Char('f')));
+        assert!(!app.flagged_filter);
+    }
+
+    #[test]
+    fn flagged_filter_shows_only_flagged_entries() {
+        use rt_signatures::heuristics::anomaly::{Anomaly, AnomalyCategory};
+        use rt_signatures::matching::results::Severity;
+
+        let nodes = vec![
+            dir_node(".", 5, 5),
+            file_node("clean.txt", 100, 5, 1000),
+            file_node("flagged.exe", 200, 5, 5000),
+        ];
+        let tree = FileTree::from_nodes(nodes);
+        let mut anomaly_index = AnomalyIndex::new();
+        // Flag the second file (arena idx 2)
+        anomaly_index.add(
+            2,
+            Anomaly {
+                severity: Severity::High,
+                category: AnomalyCategory::Timestomping,
+                rule_id: "HEUR-TS-001",
+                description: "test".to_string(),
+                evidence: "test".to_string(),
+            },
+        );
+        let mut app = App::new(tree, anomaly_index).unwrap();
+        assert_eq!(app.entries.len(), 2); // both files visible
+        app.handle_key(key(KeyCode::Char('f')));
+        assert_eq!(app.entries.len(), 1); // only flagged
+        assert_eq!(app.tree.node(app.entries[0]).name, "flagged.exe");
     }
 }

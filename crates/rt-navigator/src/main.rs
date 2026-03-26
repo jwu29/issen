@@ -22,6 +22,7 @@ mod ui;
 
 use app::{Action, App};
 use rt_mft_tree::tree::FileTree;
+use rt_signatures::heuristics::{self, HeuristicsConfig};
 use sources::ArtifactSources;
 
 #[derive(Parser)]
@@ -76,7 +77,14 @@ fn main() -> Result<()> {
         eprintln!("  Found $UsnJrnl");
     }
 
-    let mut app = App::new(tree)?;
+    // -- Run heuristic analysis -----------------------------------------------
+    let config = HeuristicsConfig::default();
+    let anomaly_index = heuristics::run_tier1(&tree, &config);
+    if anomaly_index.flagged_count() > 0 {
+        eprintln!("  {} anomalies detected.", anomaly_index.flagged_count());
+    }
+
+    let mut app = App::new(tree, anomaly_index)?;
 
     // -- TUI event loop -----------------------------------------------------
     let mut terminal = ratatui::init();

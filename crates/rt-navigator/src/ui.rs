@@ -6,6 +6,8 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Table, TableState};
 use ratatui::Frame;
 
+use rt_signatures::matching::results::Severity;
+
 use crate::app::App;
 
 // ---------------------------------------------------------------------------
@@ -140,11 +142,18 @@ fn draw_file_list(frame: &mut Frame, area: Rect, app: &App) {
         .map(|&idx| {
             let node = app.tree.node(idx);
 
+            let marker = match app.anomaly_index.max_severity(idx) {
+                Some(Severity::Critical | Severity::High) => "!! ",
+                Some(Severity::Medium) => "!  ",
+                Some(Severity::Low | Severity::Informational) => "\u{00b7}  ",
+                None => "   ",
+            };
+
             let (name_text, name_style) = if node.is_dir {
                 let label = if in_search {
-                    format!(" {}/", app.tree.cached_path(idx))
+                    format!("{marker}{}/", app.tree.cached_path(idx))
                 } else {
-                    format!(" {}/", node.name)
+                    format!("{marker}{}/", node.name)
                 };
                 (
                     label,
@@ -154,9 +163,9 @@ fn draw_file_list(frame: &mut Frame, area: Rect, app: &App) {
                 )
             } else {
                 let label = if in_search {
-                    format!(" {}", app.tree.cached_path(idx))
+                    format!("{marker}{}", app.tree.cached_path(idx))
                 } else {
-                    format!(" {}", node.name)
+                    format!("{marker}{}", node.name)
                 };
                 (label, Style::default().fg(Color::White))
             };
@@ -224,15 +233,26 @@ fn draw_file_list(frame: &mut Frame, area: Rect, app: &App) {
 fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
     let (dirs, files, total_size) = app.tree.dir_stats(app.current_dir);
 
-    let stats = format!(
-        " {dirs} dirs, {files} files ({})  |  MFT: {} records ({} allocated)",
-        format_size(total_size),
-        app.tree.total_mft_entries,
-        app.tree.allocated_entries,
-    );
+    let flagged = app.anomaly_index.flagged_count();
+    let stats = if flagged > 0 {
+        format!(
+            " {dirs} dirs, {files} files ({})  |  MFT: {} records ({} allocated)  |  {} flagged",
+            format_size(total_size),
+            app.tree.total_mft_entries,
+            app.tree.allocated_entries,
+            flagged,
+        )
+    } else {
+        format!(
+            " {dirs} dirs, {files} files ({})  |  MFT: {} records ({} allocated)",
+            format_size(total_size),
+            app.tree.total_mft_entries,
+            app.tree.allocated_entries,
+        )
+    };
 
     let help =
-        " \u{2191}\u{2193}/jk: Nav  Enter/l: Open  Bksp/h: Back  s: Sort  /: Search  ^N/^P: Pg  g/G: Top/End  q: Quit";
+        " \u{2191}\u{2193}/jk: Nav  Enter/l: Open  Bksp/h: Back  s: Sort  /: Search  f: Flagged  ^N/^P: Pg  g/G: Top/End  q: Quit";
 
     let mut lines = vec![
         Line::from(Span::styled(stats, Style::default().fg(Color::Green))),

@@ -20,6 +20,7 @@ ratatui = { workspace = true }
 crossterm = { workspace = true }
 indicatif = { workspace = true }
 rt-parser-usnjrnl = { workspace = true }
+rt-signatures = { workspace = true, features = ["heuristics"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }
