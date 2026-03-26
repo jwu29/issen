@@ -479,46 +479,23 @@ impl App {
     }
 
     /// Jump the view to the current search result.
+    ///
+    /// Navigates to the result's parent directory so the header shows
+    /// path context (explaining *why* the search matched).
     fn jump_to_search_result(&mut self) {
         if self.search_results.is_empty() {
             return;
         }
         let target = self.search_results[self.search_cursor];
+        let parent_entry = self.tree.node(target).parent_entry;
 
-        // If the target is not visible under the current display root,
-        // reset to the filesystem root so we can find it.
-        if !self.is_under_current_root(target) {
-            if let Some(root) = self.tree.root_idx() {
-                self.path_stack.clear();
-                self.current_dir = root;
-            }
+        if let Some(&parent_idx) = self.tree.entry_to_idx(parent_entry) {
+            self.path_stack.clear();
+            self.current_dir = parent_idx;
+            self.ensure_expanded_to(target);
+            self.refresh_entries();
+            self.selected = self.entries.iter().position(|&e| e == target).unwrap_or(0);
         }
-
-        // Expand all ancestor folders so the target is visible.
-        self.ensure_expanded_to(target);
-        self.refresh_entries();
-        self.selected = self.entries.iter().position(|&e| e == target).unwrap_or(0);
-    }
-
-    /// Check whether `target` is a descendant of `current_dir`.
-    fn is_under_current_root(&self, target: usize) -> bool {
-        let mut node_idx = target;
-        for _ in 0..1000 {
-            let parent_entry = self.tree.node(node_idx).parent_entry;
-            if let Some(&parent_idx) = self.tree.entry_to_idx(parent_entry) {
-                if parent_idx == self.current_dir {
-                    return true;
-                }
-                if parent_idx == node_idx {
-                    // Reached root without finding current_dir.
-                    return false;
-                }
-                node_idx = parent_idx;
-            } else {
-                return false;
-            }
-        }
-        false
     }
 
     /// Jump to next search match.
@@ -914,9 +891,8 @@ mod tests {
         }
         app.incremental_search(); // Synchronous fallback for tests
         assert!(!app.search_results.is_empty());
-        // In tree mode, stays at root — main.rs is visible in expanded tree
-        assert_eq!(app.current_path(), "/");
-        // main.rs should be selected
+        // Jumps to parent of main.rs — header shows /src for context
+        assert_eq!(app.current_path(), "/src");
         assert_eq!(app.tree.node(app.entries[app.selected]).name, "main.rs");
     }
 
@@ -930,8 +906,8 @@ mod tests {
         }
         app.incremental_search(); // Synchronous fallback for tests
         assert_eq!(app.search_results.len(), 1);
-        // In tree mode, stays at root — readme.txt visible in expanded docs/
-        assert_eq!(app.current_path(), "/");
+        // Jumps to parent of readme.txt — header shows /docs
+        assert_eq!(app.current_path(), "/docs");
         assert_eq!(app.tree.node(app.entries[app.selected]).name, "readme.txt");
     }
 
@@ -962,8 +938,8 @@ mod tests {
         app.incremental_search(); // Synchronous fallback for tests
         app.handle_key(key(KeyCode::Enter));
         assert!(!app.searching);
-        // In tree mode, stays at root with main.rs selected
-        assert_eq!(app.current_path(), "/");
+        // Confirms at /src with main.rs selected
+        assert_eq!(app.current_path(), "/src");
         assert_eq!(app.search_query, "main.rs");
         assert_eq!(app.tree.node(app.entries[app.selected]).name, "main.rs");
     }
@@ -1154,7 +1130,7 @@ mod tests {
     }
 
     #[test]
-    fn search_expands_ancestors_for_result() {
+    fn search_jumps_to_parent_dir() {
         let mut app = test_app();
         // Collapse docs/
         app.collapsed.insert(app.entries[0]); // docs/
@@ -1167,8 +1143,8 @@ mod tests {
         }
         app.incremental_search();
         assert!(!app.search_results.is_empty());
-        // docs/ should have been expanded to show the result
-        assert_eq!(app.entries.len(), 6);
+        // Should navigate to /docs (parent of readme.txt) for context
+        assert_eq!(app.current_path(), "/docs");
         assert_eq!(app.tree.node(app.entries[app.selected]).name, "readme.txt");
     }
 
