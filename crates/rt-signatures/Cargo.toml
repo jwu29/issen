@@ -7,8 +7,16 @@ license = "Apache-2.0"
 description = "Signature scanning and threat intel matching for RapidTriage"
 repository.workspace = true
 
+[features]
+default = ["heuristics"]
+heuristics = ["dep:rt-mft-tree", "dep:rt-parser-usnjrnl"]
+
 [dependencies]
 rt-core = { workspace = true }
+
+# Heuristics (optional)
+rt-mft-tree = { workspace = true, optional = true }
+rt-parser-usnjrnl = { workspace = true, optional = true }
 
 # Scanning engines
 yara-x = { workspace = true }
