@@ -12,7 +12,7 @@ name = "rt-nav"
 path = "src/main.rs"
 
 [dependencies]
-mft = { workspace = true }
+rt-mft-tree = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
 anyhow = { workspace = true }
@@ -20,6 +20,7 @@ ratatui = { workspace = true }
 crossterm = { workspace = true }
 indicatif = { workspace = true }
 rt-parser-usnjrnl = { workspace = true }
+rt-signatures = { workspace = true, features = ["heuristics"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }

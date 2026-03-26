@@ -18,12 +18,12 @@ use crossterm::event::{self, Event};
 
 mod app;
 mod sources;
-mod tree;
 mod ui;
 
 use app::{Action, App};
+use rt_mft_tree::tree::FileTree;
+use rt_signatures::heuristics::{self, HeuristicsConfig};
 use sources::ArtifactSources;
-use tree::FileTree;
 
 #[derive(Parser)]
 #[command(
@@ -62,9 +62,11 @@ fn main() -> Result<()> {
     let mut tree = FileTree::from_mft(&sources.mft)?;
 
     // -- Enrich with USN journal if available --------------------------------
-    if let Some(ref usnj_path) = sources.usn_journal {
-        enrich_with_usnjrnl(&mut tree, usnj_path);
-    }
+    let usn_records = if let Some(ref usnj_path) = sources.usn_journal {
+        enrich_with_usnjrnl(&mut tree, usnj_path)
+    } else {
+        Vec::new()
+    };
 
     // -- Report what we found -----------------------------------------------
     if sources.mft_mirror.is_some() {
@@ -77,7 +79,18 @@ fn main() -> Result<()> {
         eprintln!("  Found $UsnJrnl");
     }
 
-    let mut app = App::new(tree)?;
+    // -- Run heuristic analysis -----------------------------------------------
+    let config = HeuristicsConfig::default();
+    let mut anomaly_index = heuristics::run_tier1(&tree, &config);
+    if !usn_records.is_empty() {
+        let usn_index = heuristics::check_usn_stream(&usn_records, Some(&tree));
+        anomaly_index.merge(usn_index);
+    }
+    if anomaly_index.flagged_count() > 0 {
+        eprintln!("  {} anomalies detected.", anomaly_index.flagged_count());
+    }
+
+    let mut app = App::new(tree, anomaly_index)?;
 
     // -- TUI event loop -----------------------------------------------------
     let mut terminal = ratatui::init();
@@ -117,13 +130,16 @@ fn resolve_sources(cli: &Cli) -> Result<ArtifactSources> {
     );
 }
 
-fn enrich_with_usnjrnl(tree: &mut FileTree, path: &std::path::Path) {
+fn enrich_with_usnjrnl(
+    tree: &mut FileTree,
+    path: &std::path::Path,
+) -> Vec<rt_parser_usnjrnl::UsnRecordV2> {
     eprintln!("  Enriching with USN journal from {} ...", path.display());
     let data = match std::fs::read(path) {
         Ok(d) => d,
         Err(e) => {
             eprintln!("  Warning: failed to read $UsnJrnl: {e}");
-            return;
+            return Vec::new();
         }
     };
 
@@ -132,10 +148,7 @@ fn enrich_with_usnjrnl(tree: &mut FileTree, path: &std::path::Path) {
     while offset < data.len() {
         if let Some(rec) = rt_parser_usnjrnl::UsnRecordV2::parse(&data[offset..]) {
             let len = rec.record_length as usize;
-            records.push((
-                rec.file_reference_number & 0x0000_FFFF_FFFF_FFFF,
-                rec.file_name,
-            ));
+            records.push(rec);
             offset += len;
         } else {
             // Skip forward to find next record (aligned to 8 bytes).
@@ -143,9 +156,23 @@ fn enrich_with_usnjrnl(tree: &mut FileTree, path: &std::path::Path) {
         }
     }
 
+    // Build enrichment tuples from the records — mask the FRN to 48 bits
+    // for MFT entry lookup, but keep unmasked FRNs in the records for USN
+    // stream analysis.
+    let enrich_tuples: Vec<(u64, String)> = records
+        .iter()
+        .map(|r| {
+            (
+                r.file_reference_number & 0x0000_FFFF_FFFF_FFFF,
+                r.file_name.clone(),
+            )
+        })
+        .collect();
+
     let count = records.len();
-    tree.enrich_usn(&records);
+    tree.enrich_usn(&enrich_tuples);
     eprintln!("  Enriched tree with {count} USN journal records.");
+    records
 }
 
 fn run_loop(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {

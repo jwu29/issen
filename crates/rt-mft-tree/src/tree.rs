@@ -1,51 +1,18 @@
 //! MFT → in-memory file tree reconstruction.
-//!
-//! Parses a raw `$MFT` file, extracts every allocated entry with its
-//! `$STANDARD_INFORMATION` and `$FILE_NAME` attributes, resolves
-//! parent-child relationships via MFT entry references, and builds an
-//! arena-style tree that can be traversed interactively.
 
 use std::collections::HashMap;
-use std::path::Path;
 
-use anyhow::{Context, Result};
-use chrono::{DateTime, Utc};
-use indicatif::{ProgressBar, ProgressStyle};
-use mft::attribute::MftAttributeContent;
-use mft::attribute::MftAttributeType;
-use mft::MftParser;
+use crate::node::FileNode;
 
-/// NTFS root directory is always MFT entry 5.
 const ROOT_MFT_ENTRY: u64 = 5;
 
-// ---------------------------------------------------------------------------
-// Data types
-// ---------------------------------------------------------------------------
-
-/// A single file or directory extracted from the MFT.
-#[derive(Debug, Clone)]
-#[allow(dead_code)] // accessed / mft_modified reserved for future columns
-pub struct FileNode {
-    pub name: String,
-    pub mft_entry: u64,
-    pub parent_entry: u64,
-    pub is_dir: bool,
-    pub size: u64,
-    pub modified: DateTime<Utc>,
-    pub accessed: DateTime<Utc>,
-    pub created: DateTime<Utc>,
-    pub mft_modified: DateTime<Utc>,
-    /// Number of USN journal change records referencing this entry.
-    pub usn_change_count: u32,
-}
-
-/// Arena-style file tree built from an MFT.
+/// Arena-style file tree built from MFT nodes.
 pub struct FileTree {
     nodes: Vec<FileNode>,
     children: Vec<Vec<usize>>,
     entry_map: HashMap<u64, usize>,
     root_idx: Option<usize>,
-    /// Pre-computed lowercase full paths for every node (parallel to `nodes`).
+    /// Pre-computed full paths for every node (parallel to `nodes`).
     paths: Vec<String>,
     pub total_mft_entries: u64,
     pub allocated_entries: usize,
@@ -57,6 +24,7 @@ pub struct FileTree {
 
 impl FileTree {
     /// Build a tree from pre-collected nodes (used by `from_mft` and tests).
+    #[must_use]
     pub fn from_nodes(nodes: Vec<FileNode>) -> Self {
         let allocated = nodes.len();
         let mut entry_map: HashMap<u64, usize> = HashMap::with_capacity(allocated);
@@ -64,7 +32,6 @@ impl FileTree {
             entry_map.insert(node.mft_entry, idx);
         }
 
-        // Build parent → children lists.
         let mut children: Vec<Vec<usize>> = vec![Vec::new(); allocated];
         for (idx, node) in nodes.iter().enumerate() {
             if let Some(&parent_idx) = entry_map.get(&node.parent_entry) {
@@ -74,7 +41,6 @@ impl FileTree {
             }
         }
 
-        // Sort children: directories first, then case-insensitive name.
         for child_list in &mut children {
             let n = &nodes;
             child_list.sort_by(|&a, &b| {
@@ -86,7 +52,7 @@ impl FileTree {
 
         let root_idx = entry_map.get(&ROOT_MFT_ENTRY).copied();
 
-        // Pre-compute full paths top-down via BFS from the root.
+        // BFS path building from root
         let mut paths = vec![String::new(); allocated];
         if let Some(root) = root_idx {
             paths[root] = "/".to_string();
@@ -105,10 +71,9 @@ impl FileTree {
             }
         }
 
-        // Orphan nodes (not reachable from root) — fall back to walk-up.
-        // This is only computed once at construction, not per keystroke.
-        for (idx, path) in paths.iter_mut().enumerate() {
-            if path.is_empty() {
+        // Orphan fallback: any node still without a path gets one via parent chain
+        for (idx, path_slot) in paths.iter_mut().enumerate() {
+            if path_slot.is_empty() {
                 let mut parts = Vec::new();
                 let mut current = idx;
                 let mut visited = std::collections::HashSet::new();
@@ -127,7 +92,7 @@ impl FileTree {
                     }
                 }
                 parts.reverse();
-                *path = if parts.is_empty() {
+                *path_slot = if parts.is_empty() {
                     "/".to_string()
                 } else {
                     format!("/{}", parts.join("/"))
@@ -148,137 +113,41 @@ impl FileTree {
 }
 
 // ---------------------------------------------------------------------------
-// MFT parsing
-// ---------------------------------------------------------------------------
-
-impl FileTree {
-    /// Parse an `$MFT` file on disk and build the tree.
-    #[allow(clippy::cast_possible_truncation)]
-    pub fn from_mft(path: &Path) -> Result<Self> {
-        let buffer =
-            std::fs::read(path).with_context(|| format!("Failed to read: {}", path.display()))?;
-
-        let mut parser =
-            MftParser::from_buffer(buffer).context("Failed to initialise MFT parser")?;
-
-        let total = parser.get_entry_count();
-        let capacity = (total as usize) / 2;
-        let mut nodes = Vec::with_capacity(capacity);
-
-        let pb = ProgressBar::new(total);
-        pb.set_style(
-            ProgressStyle::with_template(
-                "  Parsing MFT [{bar:40.cyan/dim}] {pos}/{len} entries ({percent}%)",
-            )
-            .expect("valid template")
-            .progress_chars("##-"),
-        );
-
-        for i in 0..total {
-            pb.set_position(i);
-
-            let Ok(entry) = parser.get_entry(i) else {
-                continue;
-            };
-
-            if !entry.is_allocated() {
-                continue;
-            }
-
-            let Some(fname) = entry.find_best_name_attribute() else {
-                continue;
-            };
-
-            let is_dir = entry.is_dir();
-            let entry_id = entry.header.record_number;
-            let parent_entry = fname.parent.entry;
-
-            let (modified, accessed, created, mft_modified) = entry
-                .iter_attributes_matching(Some(vec![MftAttributeType::StandardInformation]))
-                .filter_map(std::result::Result::ok)
-                .find_map(|attr| {
-                    if let MftAttributeContent::AttrX10(si) = attr.data {
-                        Some((si.modified, si.accessed, si.created, si.mft_modified))
-                    } else {
-                        None
-                    }
-                })
-                .unwrap_or((
-                    fname.modified,
-                    fname.accessed,
-                    fname.created,
-                    fname.mft_modified,
-                ));
-
-            let size = if is_dir { 0 } else { fname.logical_size };
-
-            nodes.push(FileNode {
-                name: fname.name.clone(),
-                mft_entry: entry_id,
-                parent_entry,
-                is_dir,
-                size,
-                modified,
-                accessed,
-                created,
-                mft_modified,
-                usn_change_count: 0,
-            });
-        }
-
-        pb.finish_and_clear();
-        let allocated = nodes.len();
-        eprintln!("  Parsed {allocated} allocated entries from {total} MFT records.");
-
-        let pb2 = ProgressBar::new_spinner();
-        pb2.set_style(
-            ProgressStyle::with_template("  {spinner:.cyan} Building directory tree...")
-                .expect("valid template"),
-        );
-        pb2.enable_steady_tick(std::time::Duration::from_millis(80));
-
-        let mut tree = Self::from_nodes(nodes);
-        tree.total_mft_entries = total;
-
-        pb2.finish_and_clear();
-        Ok(tree)
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Accessors
 // ---------------------------------------------------------------------------
 
 impl FileTree {
-    /// Index of the NTFS root directory, if present.
+    #[must_use]
     pub fn root_idx(&self) -> Option<usize> {
         self.root_idx
     }
 
-    /// Reference to a node by arena index.
+    #[must_use]
     pub fn node(&self, idx: usize) -> &FileNode {
         &self.nodes[idx]
     }
 
-    /// Look up an arena index by MFT entry number.
+    /// Mutable reference to a node by arena index.
+    pub fn node_mut(&mut self, idx: usize) -> &mut FileNode {
+        &mut self.nodes[idx]
+    }
+
+    #[must_use]
     pub fn entry_to_idx(&self, mft_entry: u64) -> Option<&usize> {
         self.entry_map.get(&mft_entry)
     }
 
-    /// Pre-sorted child indices for the given node.
+    #[must_use]
     pub fn children(&self, idx: usize) -> &[usize] {
         &self.children[idx]
     }
 
-    /// Pre-computed full path for a node (O(1) lookup).
+    #[must_use]
     pub fn cached_path(&self, idx: usize) -> &str {
         &self.paths[idx]
     }
 
-    /// Search all nodes whose full path contains `query` (case-insensitive).
-    ///
-    /// Uses the pre-computed path index for O(N) scanning instead of
-    /// O(N×depth) tree walks.
+    #[must_use]
     pub fn search(&self, query: &str) -> Vec<usize> {
         let query_lower = query.to_lowercase();
         (0..self.nodes.len())
@@ -291,7 +160,7 @@ impl FileTree {
             .collect()
     }
 
-    /// (directories, files, `total_file_bytes`) for a directory's immediate children.
+    #[must_use]
     pub fn dir_stats(&self, idx: usize) -> (usize, usize, u64) {
         let children = &self.children[idx];
         let dirs = children.iter().filter(|&&c| self.nodes[c].is_dir).count();
@@ -303,18 +172,6 @@ impl FileTree {
             .sum();
         (dirs, files, total_size)
     }
-
-    /// Enrich nodes with USN journal change counts.
-    ///
-    /// Each tuple is `(mft_entry_number, filename)`. The filename is
-    /// informational — matching is done solely by MFT entry number.
-    pub fn enrich_usn(&mut self, records: &[(u64, String)]) {
-        for &(mft_entry, _) in records {
-            if let Some(&idx) = self.entry_map.get(&mft_entry) {
-                self.nodes[idx].usn_change_count += 1;
-            }
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -324,14 +181,23 @@ impl FileTree {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::TimeZone;
+    use crate::node::{FileNode, NtfsTimestamps};
+    use chrono::{DateTime, TimeZone, Utc};
 
-    /// Helper: build a timestamp for tests.
     fn ts(year: i32, month: u32, day: u32) -> DateTime<Utc> {
         Utc.with_ymd_and_hms(year, month, day, 0, 0, 0).unwrap()
     }
 
-    /// Helper: create a directory FileNode.
+    fn default_timestamps() -> NtfsTimestamps {
+        NtfsTimestamps {
+            modified: ts(2024, 1, 1),
+            accessed: ts(2024, 1, 1),
+            created: ts(2024, 1, 1),
+            entry_modified: ts(2024, 1, 1),
+        }
+    }
+
+    /// Helper: create a directory `FileNode`.
     fn dir_node(name: &str, mft_entry: u64, parent_entry: u64) -> FileNode {
         FileNode {
             name: name.to_string(),
@@ -339,15 +205,14 @@ mod tests {
             parent_entry,
             is_dir: true,
             size: 0,
-            modified: ts(2024, 1, 1),
-            accessed: ts(2024, 1, 1),
-            created: ts(2024, 1, 1),
-            mft_modified: ts(2024, 1, 1),
+            si_timestamps: default_timestamps(),
+            fn_timestamps: None,
+            file_attributes: 0,
             usn_change_count: 0,
         }
     }
 
-    /// Helper: create a file FileNode.
+    /// Helper: create a file `FileNode`.
     fn file_node(name: &str, mft_entry: u64, parent_entry: u64, size: u64) -> FileNode {
         FileNode {
             name: name.to_string(),
@@ -355,10 +220,14 @@ mod tests {
             parent_entry,
             is_dir: false,
             size,
-            modified: ts(2024, 6, 15),
-            accessed: ts(2024, 6, 15),
-            created: ts(2024, 1, 1),
-            mft_modified: ts(2024, 6, 15),
+            si_timestamps: NtfsTimestamps {
+                modified: ts(2024, 6, 15),
+                accessed: ts(2024, 6, 15),
+                created: ts(2024, 1, 1),
+                entry_modified: ts(2024, 6, 15),
+            },
+            fn_timestamps: None,
+            file_attributes: 0,
             usn_change_count: 0,
         }
     }
@@ -572,7 +441,7 @@ mod tests {
 
     #[test]
     fn dir_stats_for_empty_dir() {
-        // admin/Desktop has one file, but let's test a dir with only that
+        // Desktop has one file (report.docx)
         let tree = FileTree::from_nodes(sample_nodes());
         let desktop = *tree.entry_to_idx(42).unwrap();
         let (dirs, files, size) = tree.dir_stats(desktop);
@@ -593,87 +462,6 @@ mod tests {
     fn entry_to_idx_unknown_entry() {
         let tree = FileTree::from_nodes(sample_nodes());
         assert!(tree.entry_to_idx(99999).is_none());
-    }
-
-    // -- from_mft tests (integration with mft crate) -------------------------
-
-    #[test]
-    fn from_mft_rejects_nonexistent_file() {
-        let result = FileTree::from_mft(Path::new("/nonexistent/$MFT"));
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn from_mft_rejects_empty_file() {
-        let tmp = tempfile::NamedTempFile::new().unwrap();
-        let result = FileTree::from_mft(tmp.path());
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn from_mft_rejects_garbage_data() {
-        let tmp = tempfile::NamedTempFile::new().unwrap();
-        std::fs::write(tmp.path(), b"this is not an MFT file at all").unwrap();
-        let result = FileTree::from_mft(tmp.path());
-        assert!(result.is_err());
-    }
-
-    // -- USN journal enrichment tests ----------------------------------------
-
-    #[test]
-    fn enrich_usn_increments_change_count() {
-        let mut tree = FileTree::from_nodes(sample_nodes());
-        // Simulate USN records referencing MFT entry 100 (cmd.exe)
-        let usn_records = vec![
-            (100_u64, "cmd.exe".to_string()),
-            (100, "cmd.exe".to_string()),
-            (100, "cmd.exe".to_string()),
-        ];
-        tree.enrich_usn(&usn_records);
-        let idx = *tree.entry_to_idx(100).unwrap();
-        assert_eq!(tree.node(idx).usn_change_count, 3);
-    }
-
-    #[test]
-    fn enrich_usn_ignores_unknown_entries() {
-        let mut tree = FileTree::from_nodes(sample_nodes());
-        let usn_records = vec![(99999_u64, "phantom.txt".to_string())];
-        tree.enrich_usn(&usn_records); // should not panic
-    }
-
-    #[test]
-    fn enrich_usn_multiple_files() {
-        let mut tree = FileTree::from_nodes(sample_nodes());
-        let usn_records = vec![
-            (100_u64, "cmd.exe".to_string()),
-            (101, "notepad.exe".to_string()),
-            (101, "notepad.exe".to_string()),
-            (200, "report.docx".to_string()),
-        ];
-        tree.enrich_usn(&usn_records);
-
-        assert_eq!(
-            tree.node(*tree.entry_to_idx(100).unwrap()).usn_change_count,
-            1
-        );
-        assert_eq!(
-            tree.node(*tree.entry_to_idx(101).unwrap()).usn_change_count,
-            2
-        );
-        assert_eq!(
-            tree.node(*tree.entry_to_idx(200).unwrap()).usn_change_count,
-            1
-        );
-    }
-
-    #[test]
-    fn enrich_usn_leaves_unenriched_at_zero() {
-        let mut tree = FileTree::from_nodes(sample_nodes());
-        let usn_records = vec![(100_u64, "cmd.exe".to_string())];
-        tree.enrich_usn(&usn_records);
-        // notepad.exe should still be 0
-        let idx = *tree.entry_to_idx(101).unwrap();
-        assert_eq!(tree.node(idx).usn_change_count, 0);
     }
 
     // -- Cached path index tests ---------------------------------------------
