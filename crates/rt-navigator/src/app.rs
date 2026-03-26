@@ -151,11 +151,8 @@ impl App {
         } else {
             self.entries = self.tree.search(&self.search_query);
             let tree = &self.tree;
-            self.entries.sort_by(|&a, &b| {
-                tree.cached_path(a)
-                    .to_lowercase()
-                    .cmp(&tree.cached_path(b).to_lowercase())
-            });
+            self.entries
+                .sort_by(|&a, &b| tree.cached_path_lower(a).cmp(tree.cached_path_lower(b)));
         }
         if self.entries.is_empty() {
             self.selected = 0;

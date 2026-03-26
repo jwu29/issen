@@ -14,6 +14,8 @@ pub struct FileTree {
     root_idx: Option<usize>,
     /// Pre-computed full paths for every node (parallel to `nodes`).
     paths: Vec<String>,
+    /// Pre-computed lowercased paths for O(0-alloc) search.
+    paths_lower: Vec<String>,
     pub total_mft_entries: u64,
     pub allocated_entries: usize,
 }
@@ -100,12 +102,15 @@ impl FileTree {
             }
         }
 
+        let paths_lower: Vec<String> = paths.iter().map(|p| p.to_lowercase()).collect();
+
         Self {
             nodes,
             children,
             entry_map,
             root_idx,
             paths,
+            paths_lower,
             total_mft_entries: allocated as u64,
             allocated_entries: allocated,
         }
@@ -147,6 +152,9 @@ impl FileTree {
         &self.paths[idx]
     }
 
+    /// Maximum search results to return (avoids huge allocations for short queries).
+    const MAX_SEARCH_RESULTS: usize = 10_000;
+
     #[must_use]
     pub fn search(&self, query: &str) -> Vec<usize> {
         let query_lower = query.to_lowercase();
@@ -155,9 +163,16 @@ impl FileTree {
                 if self.nodes[idx].mft_entry == ROOT_MFT_ENTRY {
                     return false;
                 }
-                self.paths[idx].to_lowercase().contains(&query_lower)
+                self.paths_lower[idx].contains(&query_lower)
             })
+            .take(Self::MAX_SEARCH_RESULTS)
             .collect()
+    }
+
+    /// Pre-computed lowercase path for an arena index (useful for sorting).
+    #[must_use]
+    pub fn cached_path_lower(&self, idx: usize) -> &str {
+        &self.paths_lower[idx]
     }
 
     #[must_use]
