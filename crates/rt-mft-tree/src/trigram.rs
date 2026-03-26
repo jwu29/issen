@@ -6,6 +6,7 @@
 use std::collections::{HashMap, HashSet};
 
 /// Trigram index mapping 3-byte sequences to sorted node indices.
+#[derive(Clone)]
 pub struct TrigramIndex {
     postings: HashMap<[u8; 3], Vec<usize>>,
 }

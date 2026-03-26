@@ -11,12 +11,14 @@
 //! ```
 
 use std::path::PathBuf;
+use std::time::Duration;
 
 use anyhow::{bail, Result};
 use clap::Parser;
 use crossterm::event::{self, Event};
 
 mod app;
+mod search;
 mod sources;
 mod ui;
 
@@ -211,10 +213,19 @@ fn run_loop(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()
     loop {
         terminal.draw(|frame| ui::draw(frame, app))?;
 
-        if let Event::Key(key) = event::read()? {
-            if matches!(app.handle_key(key), Action::Quit) {
-                return Ok(());
+        // Non-blocking poll — allows checking async search results + debounce
+        if event::poll(Duration::from_millis(50))? {
+            if let Event::Key(key) = event::read()? {
+                if matches!(app.handle_key(key), Action::Quit) {
+                    return Ok(());
+                }
             }
         }
+
+        // Process results from background search thread
+        app.poll_search_results();
+
+        // Fire debounced search if timer expired
+        app.fire_debounced_search();
     }
 }

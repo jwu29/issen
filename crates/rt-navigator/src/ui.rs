@@ -337,7 +337,9 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
     ];
 
     if app.searching {
-        let match_info = if app.search_results.is_empty() && !app.search_query.is_empty() {
+        let match_info = if app.pending_search {
+            " ...".to_string()
+        } else if app.search_results.is_empty() && !app.search_query.is_empty() {
             " (no matches)".to_string()
         } else if !app.search_results.is_empty() {
             format!("  {}/{}", app.search_cursor + 1, app.search_results.len())

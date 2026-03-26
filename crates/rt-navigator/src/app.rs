@@ -1,9 +1,15 @@
 //! Application state and keyboard-driven navigation.
 
+use std::time::{Duration, Instant};
+
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use rt_mft_tree::tree::FileTree;
 use rt_signatures::heuristics::AnomalyIndex;
+
+use crate::search::SearchEngine;
+
+const DEBOUNCE_MS: u64 = 150;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -79,6 +85,14 @@ pub struct App {
     pre_search_selected: usize,
     /// Saved `path_stack` before entering search mode.
     pre_search_path_stack: Vec<(usize, usize)>,
+    /// Background search engine.
+    search_engine: SearchEngine,
+    /// Whether a search query is pending (waiting for debounce).
+    pub pending_search: bool,
+    /// When the last search keystroke was typed (for debounce).
+    last_keystroke: Option<Instant>,
+    /// Previous search query (for incremental narrowing).
+    prev_search_query: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -90,6 +104,8 @@ impl App {
         let root = tree
             .root_idx()
             .ok_or_else(|| anyhow::anyhow!("MFT contains no root directory (entry 5)"))?;
+
+        let search_engine = SearchEngine::new(&tree);
 
         let mut app = Self {
             tree,
@@ -108,6 +124,10 @@ impl App {
             pre_search_dir: root,
             pre_search_selected: 0,
             pre_search_path_stack: Vec::new(),
+            search_engine,
+            pending_search: false,
+            last_keystroke: None,
+            prev_search_query: String::new(),
         };
         app.refresh_entries();
         Ok(app)
@@ -274,19 +294,20 @@ impl App {
         match key.code {
             KeyCode::Enter => {
                 self.searching = false;
-                // Stay at current position — search confirmed.
+                self.pending_search = false;
             }
             KeyCode::Esc => {
                 self.searching = false;
+                self.pending_search = false;
                 self.cancel_search();
             }
             KeyCode::Backspace => {
                 self.search_query.pop();
-                self.incremental_search();
+                self.schedule_search();
             }
             KeyCode::Char(c) => {
                 self.search_query.push(c);
-                self.incremental_search();
+                self.schedule_search();
             }
             _ => {}
         }
@@ -333,6 +354,65 @@ impl App {
         if !self.search_results.is_empty() {
             self.search_cursor = 0;
             self.jump_to_search_result();
+        }
+    }
+
+    /// Mark a search as pending (will fire after debounce period).
+    fn schedule_search(&mut self) {
+        self.pending_search = true;
+        self.last_keystroke = Some(Instant::now());
+    }
+
+    /// Fire the debounced search if the timer has expired.
+    /// Called from the event loop.
+    pub fn fire_debounced_search(&mut self) {
+        if !self.pending_search {
+            return;
+        }
+        let Some(last) = self.last_keystroke else {
+            return;
+        };
+        if last.elapsed() < Duration::from_millis(DEBOUNCE_MS) {
+            return;
+        }
+
+        self.pending_search = false;
+        let query = self.search_query.clone();
+
+        if query.is_empty() {
+            self.current_dir = self.pre_search_dir;
+            self.selected = self.pre_search_selected;
+            self.path_stack = self.pre_search_path_stack.clone();
+            self.refresh_entries();
+            self.search_results.clear();
+            return;
+        }
+
+        // Incremental narrowing: if new query extends previous and we have results
+        if !self.search_results.is_empty()
+            && !self.prev_search_query.is_empty()
+            && query.starts_with(&self.prev_search_query)
+        {
+            self.search_engine
+                .narrow(query.clone(), self.search_results.clone());
+        } else {
+            self.search_engine.search(query.clone());
+        }
+        self.prev_search_query = query;
+    }
+
+    /// Poll for results from the background search thread.
+    /// Called from the event loop.
+    pub fn poll_search_results(&mut self) {
+        while let Some(result) = self.search_engine.try_recv() {
+            // Only accept results matching the current query
+            if result.query == self.search_query {
+                self.search_results = result.matches;
+                self.search_cursor = 0;
+                if !self.search_results.is_empty() {
+                    self.jump_to_search_result();
+                }
+            }
         }
     }
 
@@ -705,6 +785,7 @@ mod tests {
         for c in "main.rs".chars() {
             app.handle_key(key(KeyCode::Char(c)));
         }
+        app.incremental_search(); // Synchronous fallback for tests
         assert!(!app.search_results.is_empty());
         // Should have navigated to /src (parent of main.rs)
         assert_eq!(app.current_path(), "/src");
@@ -720,6 +801,7 @@ mod tests {
         for c in "docs/readme".chars() {
             app.handle_key(key(KeyCode::Char(c)));
         }
+        app.incremental_search(); // Synchronous fallback for tests
         assert_eq!(app.search_results.len(), 1);
         // Should have navigated to /docs
         assert_eq!(app.current_path(), "/docs");
@@ -735,7 +817,8 @@ mod tests {
         for c in "main.rs".chars() {
             app.handle_key(key(KeyCode::Char(c)));
         }
-        // Now at /src
+        app.incremental_search(); // Synchronous fallback for tests
+                                  // Now at /src
         app.handle_key(key(KeyCode::Esc));
         assert_eq!(app.current_dir, orig_dir);
         assert_eq!(app.selected, orig_selected);
@@ -750,6 +833,7 @@ mod tests {
         for c in "main.rs".chars() {
             app.handle_key(key(KeyCode::Char(c)));
         }
+        app.incremental_search(); // Synchronous fallback for tests
         app.handle_key(key(KeyCode::Enter));
         assert!(!app.searching);
         // Should stay at /src with main.rs selected
@@ -777,6 +861,7 @@ mod tests {
         for c in ".txt".chars() {
             app.handle_key(key(KeyCode::Char(c)));
         }
+        app.incremental_search(); // Synchronous fallback for tests
         app.handle_key(key(KeyCode::Enter)); // confirm
         assert!(app.search_results.len() >= 2);
         let first_cursor = app.search_cursor;
@@ -792,6 +877,7 @@ mod tests {
         for c in ".txt".chars() {
             app.handle_key(key(KeyCode::Char(c)));
         }
+        app.incremental_search(); // Synchronous fallback for tests
         app.handle_key(key(KeyCode::Enter));
         app.handle_key(key(KeyCode::Char('n'))); // go to second match
         assert_eq!(app.search_cursor, 1);
@@ -807,6 +893,7 @@ mod tests {
         for c in "zzzzzzz".chars() {
             app.handle_key(key(KeyCode::Char(c)));
         }
+        app.incremental_search(); // Synchronous fallback for tests
         assert!(app.search_results.is_empty());
         // Should still be in original dir
         assert_eq!(app.current_dir, orig_dir);
@@ -819,6 +906,7 @@ mod tests {
         for c in "docs".chars() {
             app.handle_key(key(KeyCode::Char(c)));
         }
+        app.incremental_search(); // Synchronous fallback for tests
         app.handle_key(key(KeyCode::Enter)); // confirm search
                                              // Search jumped us to root (parent of docs dir) with docs selected
                                              // Enter on docs should navigate into it normally
@@ -887,5 +975,45 @@ mod tests {
         app.handle_key(key(KeyCode::Char('f')));
         assert_eq!(app.entries.len(), 1); // only flagged
         assert_eq!(app.tree.node(app.entries[0]).name, "flagged.exe");
+    }
+
+    // -- Debounce / schedule tests --------------------------------------------
+
+    #[test]
+    fn schedule_search_sets_pending() {
+        let mut app = test_app();
+        app.handle_key(key(KeyCode::Char('/')));
+        app.handle_key(key(KeyCode::Char('a')));
+        assert!(app.pending_search);
+        assert!(app.last_keystroke.is_some());
+    }
+
+    #[test]
+    fn fire_debounced_search_respects_timer() {
+        let mut app = test_app();
+        app.handle_key(key(KeyCode::Char('/')));
+        app.handle_key(key(KeyCode::Char('c')));
+        // Should not fire immediately (debounce not expired)
+        app.fire_debounced_search();
+        assert!(app.pending_search); // still pending
+    }
+
+    #[test]
+    fn enter_clears_pending_search() {
+        let mut app = test_app();
+        app.handle_key(key(KeyCode::Char('/')));
+        app.handle_key(key(KeyCode::Char('c')));
+        assert!(app.pending_search);
+        app.handle_key(key(KeyCode::Enter));
+        assert!(!app.pending_search);
+    }
+
+    #[test]
+    fn esc_clears_pending_search() {
+        let mut app = test_app();
+        app.handle_key(key(KeyCode::Char('/')));
+        app.handle_key(key(KeyCode::Char('c')));
+        app.handle_key(key(KeyCode::Esc));
+        assert!(!app.pending_search);
     }
 }
