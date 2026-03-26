@@ -69,6 +69,16 @@ pub struct App {
     pub flagged_filter: bool,
     /// Whether to show the anomaly detail panel.
     pub show_detail_panel: bool,
+    /// Arena indices of global search matches.
+    pub search_results: Vec<usize>,
+    /// Position within `search_results`.
+    pub search_cursor: usize,
+    /// Saved `current_dir` before entering search mode.
+    pre_search_dir: usize,
+    /// Saved `selected` before entering search mode.
+    pre_search_selected: usize,
+    /// Saved `path_stack` before entering search mode.
+    pre_search_path_stack: Vec<(usize, usize)>,
 }
 
 // ---------------------------------------------------------------------------
@@ -93,6 +103,11 @@ impl App {
             searching: false,
             flagged_filter: false,
             show_detail_panel: false,
+            search_results: Vec::new(),
+            search_cursor: 0,
+            pre_search_dir: root,
+            pre_search_selected: 0,
+            pre_search_path_stack: Vec::new(),
         };
         app.refresh_entries();
         Ok(app)
@@ -111,25 +126,10 @@ impl App {
         }
         let target = self.entries[self.selected];
 
-        // If search is active, jump to the item's parent dir and highlight it.
-        if !self.search_query.is_empty() {
-            let node = self.tree.node(target);
-            let parent_entry = node.parent_entry;
-            if let Some(&parent_idx) = self.tree.entry_to_idx(parent_entry) {
-                self.path_stack.clear();
-                self.current_dir = parent_idx;
-                self.search_query.clear();
-                self.refresh_entries();
-                self.selected = self.entries.iter().position(|&e| e == target).unwrap_or(0);
-            }
-            return;
-        }
-
         if self.tree.node(target).is_dir {
             self.path_stack.push((self.current_dir, self.selected));
             self.current_dir = target;
             self.selected = 0;
-            self.search_query.clear();
             self.refresh_entries();
         }
     }
@@ -144,19 +144,12 @@ impl App {
     }
 
     fn refresh_entries(&mut self) {
-        if self.search_query.is_empty() {
-            self.entries = self.tree.children(self.current_dir).to_vec();
-            if self.flagged_filter {
-                self.entries
-                    .retain(|&idx| !self.anomaly_index.for_node(idx).is_empty());
-            }
-            self.sort_entries();
-        } else {
-            self.entries = self.tree.search(&self.search_query);
-            let tree = &self.tree;
+        self.entries = self.tree.children(self.current_dir).to_vec();
+        if self.flagged_filter {
             self.entries
-                .sort_by(|&a, &b| tree.cached_path_lower(a).cmp(tree.cached_path_lower(b)));
+                .retain(|&idx| !self.anomaly_index.for_node(idx).is_empty());
         }
+        self.sort_entries();
         if self.entries.is_empty() {
             self.selected = 0;
         } else if self.selected >= self.entries.len() {
@@ -248,8 +241,16 @@ impl App {
 
             // Search
             KeyCode::Char('/') => {
+                self.begin_search();
                 self.searching = true;
-                self.search_query.clear();
+            }
+
+            // Cycle search matches
+            KeyCode::Char('n') => {
+                self.next_match();
+            }
+            KeyCode::Char('N') => {
+                self.prev_match();
             }
 
             // Flagged filter
@@ -273,25 +274,104 @@ impl App {
         match key.code {
             KeyCode::Enter => {
                 self.searching = false;
+                // Stay at current position — search confirmed.
             }
             KeyCode::Esc => {
                 self.searching = false;
-                self.search_query.clear();
-                self.refresh_entries();
+                self.cancel_search();
             }
             KeyCode::Backspace => {
                 self.search_query.pop();
-                self.selected = 0;
-                self.refresh_entries();
+                self.incremental_search();
             }
             KeyCode::Char(c) => {
                 self.search_query.push(c);
-                self.selected = 0;
-                self.refresh_entries();
+                self.incremental_search();
             }
             _ => {}
         }
         Action::Continue
+    }
+
+    // -- search (find-and-jump) -----------------------------------------------
+
+    /// Save position before entering search mode.
+    fn begin_search(&mut self) {
+        self.pre_search_dir = self.current_dir;
+        self.pre_search_selected = self.selected;
+        self.pre_search_path_stack = self.path_stack.clone();
+        self.search_query.clear();
+        self.search_results.clear();
+        self.search_cursor = 0;
+    }
+
+    /// Cancel search and restore pre-search position.
+    fn cancel_search(&mut self) {
+        self.current_dir = self.pre_search_dir;
+        self.selected = self.pre_search_selected;
+        self.path_stack = std::mem::take(&mut self.pre_search_path_stack);
+        self.search_query.clear();
+        self.search_results.clear();
+        self.refresh_entries();
+    }
+
+    /// Rebuild search results and jump to nearest match.
+    fn incremental_search(&mut self) {
+        self.search_results.clear();
+
+        if self.search_query.is_empty() {
+            // Restore pre-search view.
+            self.current_dir = self.pre_search_dir;
+            self.selected = self.pre_search_selected;
+            self.path_stack = self.pre_search_path_stack.clone();
+            self.refresh_entries();
+            return;
+        }
+
+        self.search_results = self.tree.search(&self.search_query);
+
+        if !self.search_results.is_empty() {
+            self.search_cursor = 0;
+            self.jump_to_search_result();
+        }
+    }
+
+    /// Jump the view to the current search result.
+    fn jump_to_search_result(&mut self) {
+        if self.search_results.is_empty() {
+            return;
+        }
+        let target = self.search_results[self.search_cursor];
+        let node = self.tree.node(target);
+        let parent_entry = node.parent_entry;
+        if let Some(&parent_idx) = self.tree.entry_to_idx(parent_entry) {
+            self.path_stack.clear();
+            self.current_dir = parent_idx;
+            self.refresh_entries();
+            self.selected = self.entries.iter().position(|&e| e == target).unwrap_or(0);
+        }
+    }
+
+    /// Jump to next search match.
+    pub fn next_match(&mut self) {
+        if self.search_results.is_empty() {
+            return;
+        }
+        self.search_cursor = (self.search_cursor + 1) % self.search_results.len();
+        self.jump_to_search_result();
+    }
+
+    /// Jump to previous search match.
+    pub fn prev_match(&mut self) {
+        if self.search_results.is_empty() {
+            return;
+        }
+        self.search_cursor = if self.search_cursor == 0 {
+            self.search_results.len() - 1
+        } else {
+            self.search_cursor - 1
+        };
+        self.jump_to_search_result();
     }
 }
 
@@ -615,22 +695,21 @@ mod tests {
         app.handle_key(key(KeyCode::Char('/')));
         assert!(app.searching);
         assert!(app.search_query.is_empty());
+        assert!(app.search_results.is_empty());
     }
 
     #[test]
-    fn typing_in_search_filters_globally() {
+    fn search_populates_results_and_jumps() {
         let mut app = test_app();
         app.handle_key(key(KeyCode::Char('/')));
-        // Type "main" — should find src/main.rs
-        for c in "main".chars() {
+        for c in "main.rs".chars() {
             app.handle_key(key(KeyCode::Char(c)));
         }
-        assert!(!app.entries.is_empty());
-        // All results should have "main" in their path
-        for &idx in &app.entries {
-            let path = app.tree.cached_path(idx).to_lowercase();
-            assert!(path.contains("main"), "path {path} should contain 'main'");
-        }
+        assert!(!app.search_results.is_empty());
+        // Should have navigated to /src (parent of main.rs)
+        assert_eq!(app.current_path(), "/src");
+        // main.rs should be selected
+        assert_eq!(app.tree.node(app.entries[app.selected]).name, "main.rs");
     }
 
     #[test]
@@ -641,36 +720,41 @@ mod tests {
         for c in "docs/readme".chars() {
             app.handle_key(key(KeyCode::Char(c)));
         }
-        assert_eq!(app.entries.len(), 1);
-        assert_eq!(app.tree.node(app.entries[0]).name, "readme.txt");
+        assert_eq!(app.search_results.len(), 1);
+        // Should have navigated to /docs
+        assert_eq!(app.current_path(), "/docs");
+        assert_eq!(app.tree.node(app.entries[app.selected]).name, "readme.txt");
     }
 
     #[test]
-    fn esc_in_search_cancels_and_clears() {
+    fn search_esc_restores_position() {
         let mut app = test_app();
-        let original_count = app.entries.len();
+        let orig_dir = app.current_dir;
+        let orig_selected = app.selected;
         app.handle_key(key(KeyCode::Char('/')));
-        for c in "main".chars() {
+        for c in "main.rs".chars() {
             app.handle_key(key(KeyCode::Char(c)));
         }
+        // Now at /src
         app.handle_key(key(KeyCode::Esc));
-        assert!(!app.searching);
+        assert_eq!(app.current_dir, orig_dir);
+        assert_eq!(app.selected, orig_selected);
         assert!(app.search_query.is_empty());
-        assert_eq!(app.entries.len(), original_count);
+        assert!(app.search_results.is_empty());
     }
 
     #[test]
-    fn enter_in_search_accepts_filter() {
+    fn search_enter_confirms_position() {
         let mut app = test_app();
         app.handle_key(key(KeyCode::Char('/')));
-        for c in "main".chars() {
+        for c in "main.rs".chars() {
             app.handle_key(key(KeyCode::Char(c)));
         }
-        let filtered_count = app.entries.len();
         app.handle_key(key(KeyCode::Enter));
         assert!(!app.searching);
-        assert_eq!(app.search_query, "main"); // filter preserved
-        assert_eq!(app.entries.len(), filtered_count);
+        // Should stay at /src with main.rs selected
+        assert_eq!(app.current_path(), "/src");
+        assert_eq!(app.search_query, "main.rs");
     }
 
     #[test]
@@ -686,40 +770,66 @@ mod tests {
     }
 
     #[test]
-    fn enter_on_search_result_jumps_to_parent_dir() {
+    fn n_cycles_to_next_match() {
         let mut app = test_app();
-        // Search for main.rs
         app.handle_key(key(KeyCode::Char('/')));
-        for c in "main.rs".chars() {
+        // Search for ".txt" — matches readme.txt and notes.txt
+        for c in ".txt".chars() {
             app.handle_key(key(KeyCode::Char(c)));
         }
-        app.handle_key(key(KeyCode::Enter)); // accept filter
-                                             // Now Enter on the result should jump to its parent dir
-        app.handle_key(key(KeyCode::Enter));
-        assert_eq!(app.current_path(), "/src");
-        assert!(app.search_query.is_empty()); // search cleared
-                                              // main.rs should be selected
-        let selected_node = app.tree.node(app.entries[app.selected]);
-        assert_eq!(selected_node.name, "main.rs");
+        app.handle_key(key(KeyCode::Enter)); // confirm
+        assert!(app.search_results.len() >= 2);
+        let first_cursor = app.search_cursor;
+        app.handle_key(key(KeyCode::Char('n')));
+        // Should have moved to a different result
+        assert_ne!(app.search_cursor, first_cursor);
     }
 
     #[test]
-    fn navigate_into_dir_clears_search() {
+    fn shift_n_cycles_to_prev_match() {
+        let mut app = test_app();
+        app.handle_key(key(KeyCode::Char('/')));
+        for c in ".txt".chars() {
+            app.handle_key(key(KeyCode::Char(c)));
+        }
+        app.handle_key(key(KeyCode::Enter));
+        app.handle_key(key(KeyCode::Char('n'))); // go to second match
+        assert_eq!(app.search_cursor, 1);
+        app.handle_key(key(KeyCode::Char('N'))); // back to first
+        assert_eq!(app.search_cursor, 0);
+    }
+
+    #[test]
+    fn search_no_matches_stays_put() {
+        let mut app = test_app();
+        let orig_dir = app.current_dir;
+        app.handle_key(key(KeyCode::Char('/')));
+        for c in "zzzzzzz".chars() {
+            app.handle_key(key(KeyCode::Char(c)));
+        }
+        assert!(app.search_results.is_empty());
+        // Should still be in original dir
+        assert_eq!(app.current_dir, orig_dir);
+    }
+
+    #[test]
+    fn navigate_into_dir_after_search() {
         let mut app = test_app();
         app.handle_key(key(KeyCode::Char('/')));
         for c in "docs".chars() {
             app.handle_key(key(KeyCode::Char(c)));
         }
-        app.handle_key(key(KeyCode::Enter)); // accept
-                                             // Find docs dir in results and enter it
-        let docs_idx = app
+        app.handle_key(key(KeyCode::Enter)); // confirm search
+                                             // Search jumped us to root (parent of docs dir) with docs selected
+                                             // Enter on docs should navigate into it normally
+        let docs_pos = app
             .entries
             .iter()
             .position(|&i| app.tree.node(i).is_dir && app.tree.node(i).name == "docs");
-        if let Some(pos) = docs_idx {
+        if let Some(pos) = docs_pos {
             app.selected = pos;
             app.handle_key(key(KeyCode::Enter));
-            assert!(app.search_query.is_empty());
+            assert_eq!(app.current_path(), "/docs");
         }
     }
 

@@ -36,11 +36,12 @@ fn format_size(bytes: u64) -> String {
 // ---------------------------------------------------------------------------
 
 pub fn draw(frame: &mut Frame, app: &App) {
-    let footer_height = if app.searching || !app.search_query.is_empty() {
-        4
-    } else {
-        3
-    };
+    let footer_height =
+        if app.searching || !app.search_query.is_empty() || !app.search_results.is_empty() {
+            4
+        } else {
+            3
+        };
     let chunks = Layout::vertical([
         Constraint::Length(2),             // header
         Constraint::Min(1),                // file list
@@ -118,12 +119,7 @@ fn draw_header(frame: &mut Frame, area: Rect, app: &App) {
 #[allow(clippy::too_many_lines)]
 fn draw_file_list(frame: &mut Frame, area: Rect, app: &App) {
     if app.entries.is_empty() {
-        let msg = if app.search_query.is_empty() {
-            "  (empty directory)"
-        } else {
-            "  (no matches)"
-        };
-        let empty = Paragraph::new(msg)
+        let empty = Paragraph::new("  (empty directory)")
             .style(Style::default().fg(Color::DarkGray))
             .block(
                 Block::default()
@@ -135,13 +131,8 @@ fn draw_file_list(frame: &mut Frame, area: Rect, app: &App) {
         return;
     }
 
-    let name_header = if app.search_query.is_empty() {
-        " Name"
-    } else {
-        " Path"
-    };
     let header = Row::new(vec![
-        Cell::from(name_header),
+        Cell::from(" Name"),
         Cell::from("Size"),
         Cell::from("Modified"),
         Cell::from("Created"),
@@ -153,8 +144,6 @@ fn draw_file_list(frame: &mut Frame, area: Rect, app: &App) {
             .add_modifier(Modifier::BOLD),
     )
     .height(1);
-
-    let in_search = !app.search_query.is_empty();
 
     let rows: Vec<Row> = app
         .entries
@@ -170,24 +159,17 @@ fn draw_file_list(frame: &mut Frame, area: Rect, app: &App) {
             };
 
             let (name_text, name_style) = if node.is_dir {
-                let label = if in_search {
-                    format!("{marker}{}/", app.tree.cached_path(idx))
-                } else {
-                    format!("{marker}{}/", node.name)
-                };
                 (
-                    label,
+                    format!("{marker}{}/", node.name),
                     Style::default()
                         .fg(Color::Blue)
                         .add_modifier(Modifier::BOLD),
                 )
             } else {
-                let label = if in_search {
-                    format!("{marker}{}", app.tree.cached_path(idx))
-                } else {
-                    format!("{marker}{}", node.name)
-                };
-                (label, Style::default().fg(Color::White))
+                (
+                    format!("{marker}{}", node.name),
+                    Style::default().fg(Color::White),
+                )
             };
 
             let size_text = if node.is_dir {
@@ -347,7 +329,7 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
     };
 
     let help =
-        " \u{2191}\u{2193}/jk: Nav  Enter/l: Open  Bksp/h: Back  s: Sort  /: Search  f: Flagged  a: Detail  ^N/^P: Pg  g/G: Top/End  q: Quit";
+        " \u{2191}\u{2193}/jk: Nav  Enter/l: Open  Bksp/h: Back  s: Sort  /: Search  n/N: Next/Prev  f: Flagged  a: Detail  ^N/^P: Pg  g/G: Top/End  q: Quit";
 
     let mut lines = vec![
         Line::from(Span::styled(stats, Style::default().fg(Color::Green))),
@@ -355,6 +337,14 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
     ];
 
     if app.searching {
+        let match_info = if app.search_results.is_empty() && !app.search_query.is_empty() {
+            " (no matches)".to_string()
+        } else if !app.search_results.is_empty() {
+            format!("  {}/{}", app.search_cursor + 1, app.search_results.len())
+        } else {
+            String::new()
+        };
+
         lines.push(Line::from(vec![
             Span::styled(
                 " /",
@@ -367,20 +357,33 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
                 format!(" {}\u{2588}", app.search_query),
                 Style::default().fg(Color::Yellow),
             ),
+            Span::styled(match_info, Style::default().fg(Color::DarkGray)),
             Span::styled(
-                "  (Enter: accept  Esc: cancel)",
+                "  (Enter: accept  Esc: cancel  n/N: cycle)",
+                Style::default().fg(Color::DarkGray),
+            ),
+        ]));
+    } else if !app.search_query.is_empty() && !app.search_results.is_empty() {
+        lines.push(Line::from(vec![
+            Span::styled(
+                format!(
+                    " {}/{} \"{}\"",
+                    app.search_cursor + 1,
+                    app.search_results.len(),
+                    app.search_query
+                ),
+                Style::default().fg(Color::Yellow),
+            ),
+            Span::styled(
+                "  (n/N: cycle  /: new search)",
                 Style::default().fg(Color::DarkGray),
             ),
         ]));
     } else if !app.search_query.is_empty() {
-        lines.push(Line::from(vec![
-            Span::styled(" Filter: ", Style::default().fg(Color::DarkGray)),
-            Span::styled(&app.search_query, Style::default().fg(Color::Yellow)),
-            Span::styled(
-                format!("  ({} matches)", app.entries.len()),
-                Style::default().fg(Color::DarkGray),
-            ),
-        ]));
+        lines.push(Line::from(vec![Span::styled(
+            format!(" No matches for \"{}\"", app.search_query),
+            Style::default().fg(Color::Red),
+        )]));
     }
 
     let footer = Paragraph::new(lines).block(
