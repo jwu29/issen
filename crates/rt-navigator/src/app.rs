@@ -241,10 +241,17 @@ impl App {
         }
     }
 
-    /// Jump cursor to the parent folder in the tree view.
-    /// At depth 0, falls back to `navigate_back()`.
+    /// Collapse the selected folder if expanded, otherwise jump to parent.
+    /// At depth 0 on a file or collapsed folder, falls back to `navigate_back()`.
     fn jump_to_parent_in_tree(&mut self) {
         if self.entries.is_empty() {
+            return;
+        }
+        let idx = self.entries[self.selected];
+        // If on an expanded folder, collapse it.
+        if self.tree.node(idx).is_dir && !self.collapsed.contains(&idx) {
+            self.collapsed.insert(idx);
+            self.refresh_entries();
             return;
         }
         let current_depth = self.depths[self.selected];
@@ -915,6 +922,39 @@ mod tests {
         assert_eq!(app.depths[app.selected], 0);
         app.handle_key(key(KeyCode::Char('h')));
         assert_eq!(app.current_path(), "/");
+    }
+
+    #[test]
+    fn h_on_expanded_folder_collapses_it() {
+        let mut app = test_app();
+        // Expand docs/ first
+        app.collapsed.remove(&app.entries[0]);
+        app.refresh_entries();
+        let expanded_count = app.entries.len(); // docs/ + children + src/ + config.toml
+        assert!(expanded_count > 3);
+        // Cursor on docs/ (expanded folder)
+        app.selected = 0;
+        assert!(app.tree.node(app.entries[0]).is_dir);
+        assert!(!app.collapsed.contains(&app.entries[0]));
+        // h should collapse it, not jump to parent
+        app.handle_key(key(KeyCode::Char('h')));
+        assert!(app.collapsed.contains(&app.entries[0]));
+        assert_eq!(app.entries.len(), 3); // back to all collapsed
+        assert_eq!(app.selected, 0); // cursor stays on docs/
+        assert_eq!(app.current_path(), "/"); // didn't navigate away
+    }
+
+    #[test]
+    fn left_on_expanded_folder_collapses_it() {
+        let mut app = test_app();
+        // Expand src/
+        let src_idx = app.entries[1]; // src/ is index 1 when all collapsed
+        app.collapsed.remove(&src_idx);
+        app.refresh_entries();
+        app.selected = 1; // cursor on src/
+        assert!(!app.collapsed.contains(&app.entries[1]));
+        app.handle_key(key(KeyCode::Left));
+        assert!(app.collapsed.contains(&src_idx));
     }
 
     #[test]
