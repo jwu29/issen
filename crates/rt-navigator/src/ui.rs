@@ -148,26 +148,39 @@ fn draw_file_list(frame: &mut Frame, area: Rect, app: &App) {
     let rows: Vec<Row> = app
         .entries
         .iter()
-        .map(|&idx| {
+        .enumerate()
+        .map(|(i, &idx)| {
             let node = app.tree.node(idx);
+            let depth = app.depths[i];
+
+            let indent = "  ".repeat(depth);
+            let tree_icon = if node.is_dir {
+                if app.collapsed.contains(&idx) {
+                    "\u{25b6} " // ▶ collapsed
+                } else {
+                    "\u{25bc} " // ▼ expanded
+                }
+            } else {
+                "  " // align with folder icon
+            };
 
             let marker = match app.anomaly_index.max_severity(idx) {
                 Some(Severity::Critical | Severity::High) => "!! ",
                 Some(Severity::Medium) => "!  ",
                 Some(Severity::Low | Severity::Informational) => "\u{00b7}  ",
-                None => "   ",
+                None => "",
             };
 
             let (name_text, name_style) = if node.is_dir {
                 (
-                    format!("{marker}{}/", node.name),
+                    format!("{indent}{tree_icon}{marker}{}/", node.name),
                     Style::default()
                         .fg(Color::Blue)
                         .add_modifier(Modifier::BOLD),
                 )
             } else {
                 (
-                    format!("{marker}{}", node.name),
+                    format!("{indent}{tree_icon}{marker}{}", node.name),
                     Style::default().fg(Color::White),
                 )
             };
@@ -329,7 +342,7 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
     };
 
     let help =
-        " \u{2191}\u{2193}/jk: Nav  Enter/l: Open  Bksp/h: Back  s: Sort  /: Search  n/N: Next/Prev  f: Flagged  a: Detail  ^N/^P: Pg  g/G: Top/End  q: Quit";
+        " \u{2191}\u{2193}/jk: Nav  Space: Fold  Enter/l: Open  Bksp/h: Back  s: Sort  /: Search  n/N: Next/Prev  f: Flagged  a: Detail  q: Quit";
 
     let mut lines = vec![
         Line::from(Span::styled(stats, Style::default().fg(Color::Green))),

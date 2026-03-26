@@ -1,5 +1,6 @@
 //! Application state and keyboard-driven navigation.
 
+use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -62,8 +63,12 @@ pub struct App {
     pub current_dir: usize,
     /// Cursor position within `entries`.
     pub selected: usize,
-    /// Cached, sorted child indices for the current directory.
+    /// Flattened, depth-first list of visible node indices.
     pub entries: Vec<usize>,
+    /// Indentation depth for each entry (parallel to `entries`).
+    pub depths: Vec<usize>,
+    /// Set of collapsed folder arena indices (expanded by default).
+    pub collapsed: HashSet<usize>,
     /// Stack of (`dir_idx`, cursor) for `Backspace` navigation.
     path_stack: Vec<(usize, usize)>,
     pub sort_mode: SortMode,
@@ -113,6 +118,8 @@ impl App {
             current_dir: root,
             selected: 0,
             entries: Vec::new(),
+            depths: Vec::new(),
+            collapsed: HashSet::new(),
             path_stack: Vec::new(),
             sort_mode: SortMode::Name,
             search_query: String::new(),
@@ -155,21 +162,54 @@ impl App {
     }
 
     fn navigate_back(&mut self) {
-        if let Some((prev_dir, prev_selected)) = self.path_stack.pop() {
+        if let Some((prev_dir, ..)) = self.path_stack.pop() {
+            let came_from = self.current_dir;
             self.current_dir = prev_dir;
-            self.selected = prev_selected;
             self.search_query.clear();
             self.refresh_entries();
+            // Place cursor on the folder we just backed out of.
+            self.selected = self
+                .entries
+                .iter()
+                .position(|&e| e == came_from)
+                .unwrap_or(0);
         }
     }
 
     fn refresh_entries(&mut self) {
-        self.entries = self.tree.children(self.current_dir).to_vec();
-        if self.flagged_filter {
-            self.entries
-                .retain(|&idx| !self.anomaly_index.for_node(idx).is_empty());
+        self.entries.clear();
+        self.depths.clear();
+
+        // Stack-based DFS: (node_idx, depth). Push in reverse sorted order
+        // so that the first child is popped first.
+        let mut stack: Vec<(usize, usize)> = Vec::new();
+
+        let mut root_children = self.tree.children(self.current_dir).to_vec();
+        sort_children_by(&self.tree, self.sort_mode, &mut root_children);
+        for &child in root_children.iter().rev() {
+            stack.push((child, 0));
         }
-        self.sort_entries();
+
+        while let Some((idx, depth)) = stack.pop() {
+            let node = self.tree.node(idx);
+
+            // In flagged mode, skip non-flagged files (keep dirs for structure).
+            if self.flagged_filter && !node.is_dir && self.anomaly_index.for_node(idx).is_empty() {
+                continue;
+            }
+
+            self.entries.push(idx);
+            self.depths.push(depth);
+
+            if node.is_dir && !self.collapsed.contains(&idx) {
+                let mut children = self.tree.children(idx).to_vec();
+                sort_children_by(&self.tree, self.sort_mode, &mut children);
+                for &child in children.iter().rev() {
+                    stack.push((child, depth + 1));
+                }
+            }
+        }
+
         if self.entries.is_empty() {
             self.selected = 0;
         } else if self.selected >= self.entries.len() {
@@ -177,19 +217,36 @@ impl App {
         }
     }
 
-    fn sort_entries(&mut self) {
-        let tree = &self.tree;
-        let mode = self.sort_mode;
-        self.entries.sort_by(|&a, &b| {
-            let na = tree.node(a);
-            let nb = tree.node(b);
-            nb.is_dir.cmp(&na.is_dir).then_with(|| match mode {
-                SortMode::Name => na.name.to_lowercase().cmp(&nb.name.to_lowercase()),
-                SortMode::Size => na.size.cmp(&nb.size),
-                SortMode::Modified => nb.si_timestamps.modified.cmp(&na.si_timestamps.modified),
-                SortMode::Created => nb.si_timestamps.created.cmp(&na.si_timestamps.created),
-            })
-        });
+    /// Toggle expand/collapse on the selected folder.
+    fn toggle_collapse(&mut self) {
+        if self.entries.is_empty() {
+            return;
+        }
+        let target = self.entries[self.selected];
+        if self.tree.node(target).is_dir {
+            if !self.collapsed.remove(&target) {
+                self.collapsed.insert(target);
+            }
+            self.refresh_entries();
+        }
+    }
+
+    /// Expand all ancestor folders between `current_dir` and `target` so
+    /// `target` becomes visible in the flat tree.
+    fn ensure_expanded_to(&mut self, target: usize) {
+        let mut node_idx = target;
+        for _ in 0..1000 {
+            let parent_entry = self.tree.node(node_idx).parent_entry;
+            if let Some(&parent_idx) = self.tree.entry_to_idx(parent_entry) {
+                if parent_idx == self.current_dir || self.tree.is_root(parent_idx) {
+                    break;
+                }
+                self.collapsed.remove(&parent_idx);
+                node_idx = parent_idx;
+            } else {
+                break;
+            }
+        }
     }
 
     // -- key handling -------------------------------------------------------
@@ -256,7 +313,12 @@ impl App {
             // Sort
             KeyCode::Char('s') => {
                 self.sort_mode = self.sort_mode.next();
-                self.sort_entries();
+                self.refresh_entries();
+            }
+
+            // Expand / collapse folder
+            KeyCode::Char(' ') => {
+                self.toggle_collapse();
             }
 
             // Search
@@ -422,14 +484,41 @@ impl App {
             return;
         }
         let target = self.search_results[self.search_cursor];
-        let node = self.tree.node(target);
-        let parent_entry = node.parent_entry;
-        if let Some(&parent_idx) = self.tree.entry_to_idx(parent_entry) {
-            self.path_stack.clear();
-            self.current_dir = parent_idx;
-            self.refresh_entries();
-            self.selected = self.entries.iter().position(|&e| e == target).unwrap_or(0);
+
+        // If the target is not visible under the current display root,
+        // reset to the filesystem root so we can find it.
+        if !self.is_under_current_root(target) {
+            if let Some(root) = self.tree.root_idx() {
+                self.path_stack.clear();
+                self.current_dir = root;
+            }
         }
+
+        // Expand all ancestor folders so the target is visible.
+        self.ensure_expanded_to(target);
+        self.refresh_entries();
+        self.selected = self.entries.iter().position(|&e| e == target).unwrap_or(0);
+    }
+
+    /// Check whether `target` is a descendant of `current_dir`.
+    fn is_under_current_root(&self, target: usize) -> bool {
+        let mut node_idx = target;
+        for _ in 0..1000 {
+            let parent_entry = self.tree.node(node_idx).parent_entry;
+            if let Some(&parent_idx) = self.tree.entry_to_idx(parent_entry) {
+                if parent_idx == self.current_dir {
+                    return true;
+                }
+                if parent_idx == node_idx {
+                    // Reached root without finding current_dir.
+                    return false;
+                }
+                node_idx = parent_idx;
+            } else {
+                return false;
+            }
+        }
+        false
     }
 
     /// Jump to next search match.
@@ -453,6 +542,24 @@ impl App {
         };
         self.jump_to_search_result();
     }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// Sort a list of sibling node indices: directories first, then by sort mode.
+fn sort_children_by(tree: &FileTree, mode: SortMode, children: &mut [usize]) {
+    children.sort_by(|&a, &b| {
+        let na = tree.node(a);
+        let nb = tree.node(b);
+        nb.is_dir.cmp(&na.is_dir).then_with(|| match mode {
+            SortMode::Name => na.name.to_lowercase().cmp(&nb.name.to_lowercase()),
+            SortMode::Size => na.size.cmp(&nb.size),
+            SortMode::Modified => nb.si_timestamps.modified.cmp(&na.si_timestamps.modified),
+            SortMode::Created => nb.si_timestamps.created.cmp(&na.si_timestamps.created),
+        })
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -567,8 +674,22 @@ mod tests {
     #[test]
     fn root_has_correct_entries() {
         let app = test_app();
-        // 2 dirs (docs, src) + 1 file (config.toml) = 3
-        assert_eq!(app.entries.len(), 3);
+        // Tree mode: 2 dirs (docs, src) expanded + their children + 1 file = 6
+        // docs/(0), notes.txt(1), readme.txt(1), src/(0), main.rs(1), config.toml(0)
+        assert_eq!(app.entries.len(), 6);
+    }
+
+    #[test]
+    fn depths_parallel_entries() {
+        let app = test_app();
+        assert_eq!(app.entries.len(), app.depths.len());
+        // Top-level items are at depth 0, children at depth 1
+        assert_eq!(app.depths[0], 0); // docs/
+        assert_eq!(app.depths[1], 1); // notes.txt (child of docs)
+        assert_eq!(app.depths[2], 1); // readme.txt
+        assert_eq!(app.depths[3], 0); // src/
+        assert_eq!(app.depths[4], 1); // main.rs
+        assert_eq!(app.depths[5], 0); // config.toml
     }
 
     // -- Movement tests ------------------------------------------------------
@@ -640,7 +761,7 @@ mod tests {
     fn page_down_moves_30() {
         let mut app = test_app();
         app.handle_key(key(KeyCode::PageDown));
-        // Only 3 entries, so clamps to last
+        // Only 6 entries in tree mode, so clamps to last
         assert_eq!(app.selected, app.entries.len() - 1);
     }
 
@@ -656,7 +777,7 @@ mod tests {
         let mut app = test_app();
         app.handle_key(key(KeyCode::Char('G'))); // go to bottom
         app.handle_key(key_ctrl('p'));
-        assert_eq!(app.selected, 0); // 3 items - 30 = clamps to 0
+        assert_eq!(app.selected, 0); // 6 items - 30 = clamps to 0
     }
 
     // -- Navigation tests ----------------------------------------------------
@@ -706,20 +827,26 @@ mod tests {
     }
 
     #[test]
-    fn navigate_back_restores_cursor() {
+    fn navigate_back_restores_cursor_to_folder() {
         let mut app = test_app();
-        app.handle_key(key(KeyCode::Char('j'))); // select index 1
-        let saved_pos = app.selected;
-        app.handle_key(key(KeyCode::Char('l'))); // go into dir at pos 1
+        // In tree mode: 0=docs/, 1=notes.txt, 2=readme.txt, 3=src/, 4=main.rs, 5=config.toml
+        // Navigate to src/ (index 3) and enter it
+        app.selected = 3;
+        assert_eq!(app.tree.node(app.entries[3]).name, "src");
+        app.handle_key(key(KeyCode::Char('l'))); // go into src/
+        assert_eq!(app.current_path(), "/src");
         app.handle_key(key(KeyCode::Char('h'))); // go back
-        assert_eq!(app.selected, saved_pos);
+        assert_eq!(app.current_path(), "/");
+        // Cursor should land on src/ in the tree
+        assert_eq!(app.tree.node(app.entries[app.selected]).name, "src");
     }
 
     #[test]
     fn enter_on_file_is_noop() {
         let mut app = test_app();
-        // Navigate to the file entry (last item = config.toml)
-        app.handle_key(key(KeyCode::Char('G'))); // jump to last
+        // Navigate to a file entry (config.toml at index 5 in tree mode)
+        app.handle_key(key(KeyCode::Char('G'))); // jump to last (index 5 = config.toml)
+        assert!(!app.tree.node(app.entries[app.selected]).is_dir);
         let path_before = app.current_path().to_string();
         app.handle_key(key(KeyCode::Enter));
         assert_eq!(app.current_path(), path_before);
@@ -787,8 +914,8 @@ mod tests {
         }
         app.incremental_search(); // Synchronous fallback for tests
         assert!(!app.search_results.is_empty());
-        // Should have navigated to /src (parent of main.rs)
-        assert_eq!(app.current_path(), "/src");
+        // In tree mode, stays at root — main.rs is visible in expanded tree
+        assert_eq!(app.current_path(), "/");
         // main.rs should be selected
         assert_eq!(app.tree.node(app.entries[app.selected]).name, "main.rs");
     }
@@ -803,8 +930,8 @@ mod tests {
         }
         app.incremental_search(); // Synchronous fallback for tests
         assert_eq!(app.search_results.len(), 1);
-        // Should have navigated to /docs
-        assert_eq!(app.current_path(), "/docs");
+        // In tree mode, stays at root — readme.txt visible in expanded docs/
+        assert_eq!(app.current_path(), "/");
         assert_eq!(app.tree.node(app.entries[app.selected]).name, "readme.txt");
     }
 
@@ -818,7 +945,6 @@ mod tests {
             app.handle_key(key(KeyCode::Char(c)));
         }
         app.incremental_search(); // Synchronous fallback for tests
-                                  // Now at /src
         app.handle_key(key(KeyCode::Esc));
         assert_eq!(app.current_dir, orig_dir);
         assert_eq!(app.selected, orig_selected);
@@ -836,9 +962,10 @@ mod tests {
         app.incremental_search(); // Synchronous fallback for tests
         app.handle_key(key(KeyCode::Enter));
         assert!(!app.searching);
-        // Should stay at /src with main.rs selected
-        assert_eq!(app.current_path(), "/src");
+        // In tree mode, stays at root with main.rs selected
+        assert_eq!(app.current_path(), "/");
         assert_eq!(app.search_query, "main.rs");
+        assert_eq!(app.tree.node(app.entries[app.selected]).name, "main.rs");
     }
 
     #[test]
@@ -857,17 +984,17 @@ mod tests {
     fn n_cycles_to_next_match() {
         let mut app = test_app();
         app.handle_key(key(KeyCode::Char('/')));
-        // Search for ".txt" — matches readme.txt and notes.txt
+        // Search for ".txt" — matches notes.txt and readme.txt
         for c in ".txt".chars() {
             app.handle_key(key(KeyCode::Char(c)));
         }
         app.incremental_search(); // Synchronous fallback for tests
         app.handle_key(key(KeyCode::Enter)); // confirm
         assert!(app.search_results.len() >= 2);
-        let first_cursor = app.search_cursor;
+        let first_selected = app.selected;
         app.handle_key(key(KeyCode::Char('n')));
-        // Should have moved to a different result
-        assert_ne!(app.search_cursor, first_cursor);
+        // Cursor should move to a different entry
+        assert_ne!(app.selected, first_selected);
     }
 
     #[test]
@@ -908,17 +1035,15 @@ mod tests {
         }
         app.incremental_search(); // Synchronous fallback for tests
         app.handle_key(key(KeyCode::Enter)); // confirm search
-                                             // Search jumped us to root (parent of docs dir) with docs selected
-                                             // Enter on docs should navigate into it normally
+                                             // docs/ is a search result; find and navigate into it
         let docs_pos = app
             .entries
             .iter()
             .position(|&i| app.tree.node(i).is_dir && app.tree.node(i).name == "docs");
-        if let Some(pos) = docs_pos {
-            app.selected = pos;
-            app.handle_key(key(KeyCode::Enter));
-            assert_eq!(app.current_path(), "/docs");
-        }
+        assert!(docs_pos.is_some());
+        app.selected = docs_pos.unwrap();
+        app.handle_key(key(KeyCode::Enter));
+        assert_eq!(app.current_path(), "/docs");
     }
 
     #[test]
@@ -971,10 +1096,80 @@ mod tests {
             },
         );
         let mut app = App::new(tree, anomaly_index).unwrap();
-        assert_eq!(app.entries.len(), 2); // both files visible
+        assert_eq!(app.entries.len(), 2); // both files visible (flat, no subdirs)
         app.handle_key(key(KeyCode::Char('f')));
         assert_eq!(app.entries.len(), 1); // only flagged
         assert_eq!(app.tree.node(app.entries[0]).name, "flagged.exe");
+    }
+
+    // -- Collapse / expand tests ----------------------------------------------
+
+    #[test]
+    fn space_collapses_folder() {
+        let mut app = test_app();
+        // entries[0] = docs/ (expanded by default)
+        assert_eq!(app.entries.len(), 6);
+        assert_eq!(app.tree.node(app.entries[0]).name, "docs");
+        app.handle_key(key(KeyCode::Char(' '))); // collapse docs/
+                                                 // docs/ collapsed: docs/, src/, main.rs, config.toml = 4 entries
+        assert_eq!(app.entries.len(), 4);
+        assert!(app.collapsed.contains(&app.entries[0]));
+    }
+
+    #[test]
+    fn space_expands_collapsed_folder() {
+        let mut app = test_app();
+        app.handle_key(key(KeyCode::Char(' '))); // collapse docs/
+        assert_eq!(app.entries.len(), 4);
+        app.handle_key(key(KeyCode::Char(' '))); // expand docs/
+        assert_eq!(app.entries.len(), 6);
+    }
+
+    #[test]
+    fn space_on_file_is_noop() {
+        let mut app = test_app();
+        // Move to a file (config.toml at index 5)
+        app.selected = 5;
+        assert!(!app.tree.node(app.entries[5]).is_dir);
+        let before = app.entries.len();
+        app.handle_key(key(KeyCode::Char(' ')));
+        assert_eq!(app.entries.len(), before); // no change
+    }
+
+    #[test]
+    fn collapse_state_preserved_after_navigate_back() {
+        let mut app = test_app();
+        // Collapse docs/
+        app.handle_key(key(KeyCode::Char(' ')));
+        assert_eq!(app.entries.len(), 4);
+        // Navigate into src/ (now at index 1 after collapse)
+        app.selected = 1;
+        assert_eq!(app.tree.node(app.entries[1]).name, "src");
+        app.handle_key(key(KeyCode::Enter));
+        assert_eq!(app.current_path(), "/src");
+        // Navigate back
+        app.handle_key(key(KeyCode::Backspace));
+        // docs/ should still be collapsed
+        assert_eq!(app.entries.len(), 4);
+    }
+
+    #[test]
+    fn search_expands_ancestors_for_result() {
+        let mut app = test_app();
+        // Collapse docs/
+        app.collapsed.insert(app.entries[0]); // docs/
+        app.refresh_entries();
+        assert_eq!(app.entries.len(), 4); // docs collapsed
+                                          // Search for readme.txt (inside docs/)
+        app.handle_key(key(KeyCode::Char('/')));
+        for c in "readme".chars() {
+            app.handle_key(key(KeyCode::Char(c)));
+        }
+        app.incremental_search();
+        assert!(!app.search_results.is_empty());
+        // docs/ should have been expanded to show the result
+        assert_eq!(app.entries.len(), 6);
+        assert_eq!(app.tree.node(app.entries[app.selected]).name, "readme.txt");
     }
 
     // -- Debounce / schedule tests --------------------------------------------
