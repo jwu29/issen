@@ -236,4 +236,49 @@ mod tests {
     fn intersect_partial_overlap() {
         assert_eq!(intersect_sorted(&[1, 3, 5, 7], &[2, 3, 5, 8]), vec![3, 5]);
     }
+
+    // -- Unicode / multi-byte tests -------------------------------------------
+
+    #[test]
+    fn candidates_finds_cjk_filename() {
+        // Chinese characters are 3 bytes each in UTF-8.
+        // "中文" = [0xe4,0xb8,0xad, 0xe6,0x96,0x87] — 6 bytes, 4 byte-trigrams.
+        let index = build_index(&["/users/docs/中文报告.docx", "/users/docs/report.docx"]);
+        let results = index.candidates("中文").unwrap();
+        assert_eq!(results, vec![0]);
+    }
+
+    #[test]
+    fn candidates_finds_mixed_ascii_cjk() {
+        let index = build_index(&["/users/admin/文件backup.zip", "/users/admin/backup.zip"]);
+        // Query spans ASCII-CJK boundary — byte trigrams still align
+        let results = index.candidates("文件backup").unwrap();
+        assert_eq!(results, vec![0]);
+    }
+
+    #[test]
+    fn candidates_single_cjk_char_falls_back() {
+        // Single CJK char = 3 bytes = exactly 1 trigram
+        let index = build_index(&["/users/报告.txt", "/users/report.txt"]);
+        let results = index.candidates("报").unwrap();
+        assert_eq!(results, vec![0]);
+    }
+
+    #[test]
+    fn candidates_two_byte_chars_below_threshold() {
+        // Accented chars like "é" are 2 bytes in UTF-8.
+        // Query "éé" = 4 bytes = 2 byte-trigrams, works fine.
+        let index = build_index(&["/users/café/menu.txt", "/users/office/menu.txt"]);
+        let results = index.candidates("café").unwrap();
+        assert_eq!(results, vec![0]);
+    }
+
+    #[test]
+    fn candidates_emoji_4byte_chars() {
+        // Emoji like "🔍" are 4 bytes in UTF-8.
+        // "🔍🔍" = 8 bytes = 6 byte-trigrams.
+        let index = build_index(&["/notes/🔍search.md", "/notes/search.md"]);
+        let results = index.candidates("🔍search").unwrap();
+        assert_eq!(results, vec![0]);
+    }
 }
