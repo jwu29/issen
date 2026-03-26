@@ -86,8 +86,15 @@ fn main() -> Result<()> {
             }
         }
     }
-    if sources.logfile.is_some() {
-        eprintln!("  Found $LogFile (parsing not yet implemented)");
+    if let Some(ref logfile_path) = sources.logfile {
+        match rt_mft_tree::logfile::validate_logfile(logfile_path) {
+            Ok(validation) => {
+                eprintln!("  $LogFile: {}", validation.summary());
+            }
+            Err(e) => {
+                eprintln!("  Warning: failed to validate $LogFile: {e}");
+            }
+        }
     }
     if sources.usn_journal.is_some() {
         eprintln!("  Found $UsnJrnl");
