@@ -43,7 +43,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
             3
         };
     let chunks = Layout::vertical([
-        Constraint::Length(2),             // header
+        Constraint::Length(3),             // header (title + selected path)
         Constraint::Min(1),                // file list
         Constraint::Length(footer_height), // footer (+ search bar)
     ])
@@ -82,34 +82,53 @@ fn draw_header(frame: &mut Frame, area: Rect, app: &App) {
     let path = app.current_path();
     let depth = app.entries.len();
 
-    let line = Line::from(vec![
-        Span::styled(
-            " rt-nav ",
-            Style::default()
-                .fg(Color::Black)
-                .bg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::raw(" "),
-        Span::styled(
-            path,
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::raw("  "),
-        Span::styled(
-            format!("[{depth} items]"),
-            Style::default().fg(Color::DarkGray),
-        ),
-        Span::raw("  "),
-        Span::styled(
-            format!("[Sort: {}]", app.sort_mode.label()),
-            Style::default().fg(Color::DarkGray),
-        ),
-    ]);
+    // Selected entry's full path (shrunk to fit terminal width).
+    let selected_path = if !app.entries.is_empty() {
+        let full = app.tree.cached_path(app.entries[app.selected]);
+        let max_w = area.width.saturating_sub(2) as usize; // leave margin
+        if full.len() > max_w {
+            shrinkpath::shrink_to(full, max_w)
+        } else {
+            full.to_string()
+        }
+    } else {
+        String::new()
+    };
 
-    frame.render_widget(Paragraph::new(line), area);
+    let lines = vec![
+        Line::from(vec![
+            Span::styled(
+                " rt-nav ",
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" "),
+            Span::styled(
+                path,
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("  "),
+            Span::styled(
+                format!("[{depth} items]"),
+                Style::default().fg(Color::DarkGray),
+            ),
+            Span::raw("  "),
+            Span::styled(
+                format!("[Sort: {}]", app.sort_mode.label()),
+                Style::default().fg(Color::DarkGray),
+            ),
+        ]),
+        Line::from(Span::styled(
+            format!(" {selected_path}"),
+            Style::default().fg(Color::White),
+        )),
+    ];
+
+    frame.render_widget(Paragraph::new(lines), area);
 }
 
 // ---------------------------------------------------------------------------

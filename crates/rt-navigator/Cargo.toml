@@ -21,6 +21,7 @@ crossterm = { workspace = true }
 indicatif = { workspace = true }
 rt-parser-usnjrnl = { workspace = true }
 rt-signatures = { workspace = true, features = ["heuristics"] }
+shrinkpath = { path = "/Users/4n6h4x0r/src/shrinkpath" }
 
 [dev-dependencies]
 tempfile = { workspace = true }
