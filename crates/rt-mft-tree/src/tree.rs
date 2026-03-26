@@ -127,6 +127,11 @@ impl FileTree {
         &self.nodes[idx]
     }
 
+    /// Mutable reference to a node by arena index.
+    pub fn node_mut(&mut self, idx: usize) -> &mut FileNode {
+        &mut self.nodes[idx]
+    }
+
     #[must_use]
     pub fn entry_to_idx(&self, mft_entry: u64) -> Option<&usize> {
         self.entry_map.get(&mft_entry)
