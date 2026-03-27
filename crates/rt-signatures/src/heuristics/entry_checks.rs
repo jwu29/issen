@@ -128,23 +128,70 @@ fn check_sz_001(node: &FileNode, results: &mut Vec<Anomaly>) {
 const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
 const FILE_ATTRIBUTE_SYSTEM: u32 = 0x4;
 
+/// NTFS metafiles and well-known Windows system files that legitimately
+/// carry Hidden+System attributes.
+///
+/// Matched **case-insensitively** because NTFS is a case-insensitive
+/// filesystem — you cannot create `$mft` alongside `$MFT` in the same
+/// directory.  If we add support for case-sensitive filesystems (ext4,
+/// APFS) in the future, this must become filesystem-aware.
+///
+/// All entries are already 8.3-compliant, so short-name aliases are
+/// identical to long names — no truncated `~1` variants to worry about.
+/// The MFT parser's `find_best_name_attribute()` also prefers Win32
+/// long names over DOS short names.
+const KNOWN_HS_FILES: &[&str] = &[
+    // NTFS metafiles (always H+S in volume root, special inodes)
+    "$mft",
+    "$mftmirr",
+    "$logfile",
+    "$volume",
+    "$attrdef",
+    "$bitmap",
+    "$boot",
+    "$badclus",
+    "$secure",
+    "$upcase",
+    "$extend",
+    // Windows boot / power-management files (all 8.3-compliant)
+    "hiberfil.sys",
+    "pagefile.sys",
+    "swapfile.sys",
+    "bootmgr",
+    "bootnxt",
+    "bootsect.bak",
+    "ntldr",
+    "ntdetect.com",
+    "io.sys",
+    "msdos.sys",
+];
+
+fn is_known_hs_file(name: &str) -> bool {
+    let lower = name.to_lowercase();
+    KNOWN_HS_FILES.iter().any(|&known| lower == known)
+}
+
 fn check_at_001(node: &FileNode, results: &mut Vec<Anomaly>) {
     if node.is_dir {
         return;
     }
     let both = FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM;
-    if node.file_attributes & both == both {
-        results.push(Anomaly {
-            severity: Severity::Low,
-            category: AnomalyCategory::SuspiciousLocation,
-            rule_id: "HEUR-AT-001",
-            description: "Hidden and system attributes set on non-system file".to_string(),
-            evidence: format!(
-                "name={}, attributes=0x{:X}",
-                node.name, node.file_attributes
-            ),
-        });
+    if node.file_attributes & both != both {
+        return;
     }
+    if is_known_hs_file(&node.name) {
+        return;
+    }
+    results.push(Anomaly {
+        severity: Severity::Low,
+        category: AnomalyCategory::SuspiciousLocation,
+        rule_id: "HEUR-AT-001",
+        description: "Hidden and system attributes set on non-system file".to_string(),
+        evidence: format!(
+            "name={}, attributes=0x{:X}",
+            node.name, node.file_attributes
+        ),
+    });
 }
 
 fn check_mg_003(node: &FileNode, results: &mut Vec<Anomaly>) {
@@ -213,6 +260,13 @@ mod tests {
             fn_timestamps: None,
             file_attributes: 0,
             usn_change_count: 0,
+            sequence_number: 0,
+            hard_link_count: 1,
+            is_resident: false,
+            ads_names: vec![],
+            owner_id: 0,
+            security_id: 0,
+            usn: 0,
         }
     }
 
@@ -478,6 +532,88 @@ mod tests {
         };
         let anomalies = check_entry(&node, &default_config());
         assert!(!anomalies.iter().any(|a| a.rule_id == "HEUR-MG-003"));
+    }
+
+    #[test]
+    fn at_001_does_not_trigger_on_ntfs_metafiles() {
+        for name in [
+            "$MFT", "$MFTMirr", "$LogFile", "$Volume", "$AttrDef", "$Bitmap", "$Boot", "$BadClus",
+            "$Secure", "$UpCase", "$Extend",
+        ] {
+            let node = FileNode {
+                name: name.to_string(),
+                file_attributes: 0x6,
+                ..default_node()
+            };
+            let anomalies = check_entry(&node, &default_config());
+            assert!(
+                !anomalies.iter().any(|a| a.rule_id == "HEUR-AT-001"),
+                "HEUR-AT-001 should not fire on NTFS metafile {name}"
+            );
+        }
+    }
+
+    #[test]
+    fn at_001_does_not_trigger_on_known_system_files() {
+        for name in [
+            "hiberfil.sys",
+            "pagefile.sys",
+            "swapfile.sys",
+            "bootmgr",
+            "BOOTNXT",
+            "BOOTSECT.BAK",
+            "ntldr",
+            "NTDETECT.COM",
+            "IO.SYS",
+            "MSDOS.SYS",
+        ] {
+            let node = FileNode {
+                name: name.to_string(),
+                file_attributes: 0x6,
+                ..default_node()
+            };
+            let anomalies = check_entry(&node, &default_config());
+            assert!(
+                !anomalies.iter().any(|a| a.rule_id == "HEUR-AT-001"),
+                "HEUR-AT-001 should not fire on known system file {name}"
+            );
+        }
+    }
+
+    #[test]
+    fn at_001_case_insensitive_for_ntfs() {
+        // NTFS is case-insensitive — you cannot create `$mft` alongside `$MFT`.
+        // All casing variants of known system files must be whitelisted.
+        for name in [
+            "$Mft",
+            "$MFT",
+            "$mft",
+            "HIBERFIL.SYS",
+            "PageFile.Sys",
+            "BOOTMGR",
+        ] {
+            let node = FileNode {
+                name: name.to_string(),
+                file_attributes: 0x6,
+                ..default_node()
+            };
+            let anomalies = check_entry(&node, &default_config());
+            assert!(
+                !anomalies.iter().any(|a| a.rule_id == "HEUR-AT-001"),
+                "HEUR-AT-001 should not fire on NTFS casing variant {name}"
+            );
+        }
+    }
+
+    #[test]
+    fn at_001_still_triggers_on_unknown_hidden_system_file() {
+        let node = FileNode {
+            name: "secret.dat".to_string(),
+            file_attributes: 0x6,
+            ..default_node()
+        };
+        let anomalies = check_entry(&node, &default_config());
+        assert!(anomalies.iter().any(|a| a.rule_id == "HEUR-AT-001"));
     }
 
     // --- Combined false-positive test ---
