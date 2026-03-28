@@ -303,7 +303,7 @@ fn try_open_collection(
 
     // For Velociraptor collections: try to find and load $MFT
     let mft_app = if manifest.format_name.contains("elociraptor") {
-        try_load_mft(&manifest.extracted_root, &mut data)?
+        try_load_mft(&manifest.extracted_root, &manifest.artifacts, &mut data)?
     } else {
         None
     };
@@ -319,38 +319,50 @@ fn try_open_collection(
 
 /// Attempt to locate and load an `$MFT` file from a Velociraptor extraction.
 ///
-/// If found, parses the MFT tree, optionally enriches with `$UsnJrnl`,
-/// converts both to timeline events (merged into `data.timeline`), runs
-/// heuristics, and returns a fully constructed `App`.
+/// Uses the manifest's pre-classified artifact entries to find the MFT and
+/// USN journal by type, rather than guessing filesystem paths. This is robust
+/// because `extract_velociraptor` already decoded the URL-encoded zip paths
+/// into normalized relative paths (e.g., `$MFT`, `$Extend/$UsnJrnl:$J`).
 fn try_load_mft(
     extracted_root: &std::path::Path,
+    artifacts: &[rt_unpack::ManifestEntry],
     data: &mut investigation::data::InvestigationData,
 ) -> Result<Option<App>> {
     use investigation::timeline::{mft_to_events, usn_to_events};
+    use rt_core::artifacts::ArtifactType;
 
-    // Look for $MFT in common Velociraptor extraction paths
-    let mft_candidates = [
-        extracted_root.join("uploads/ntfs/%5C%5C.%5CC%3A/$MFT"),
-        extracted_root.join("uploads/ntfs/$MFT"),
-        extracted_root.join("uploads/$MFT"),
-    ];
+    // Find MFT from manifest entries (already classified by path_decoder)
+    let mft_entry = artifacts
+        .iter()
+        .find(|e| e.artifact_type == Some(ArtifactType::Mft));
 
-    let mft_path = mft_candidates.iter().find(|p| p.exists());
-
-    let Some(mft_path) = mft_path else {
+    let Some(mft_entry) = mft_entry else {
         return Ok(None);
     };
 
-    eprintln!("  Loading $MFT from {}", mft_path.display());
-    let mut tree = FileTree::from_mft(mft_path)?;
+    let mft_path = extracted_root.join(&mft_entry.path);
+    if !mft_path.exists() {
+        eprintln!(
+            "  Warning: manifest lists $MFT at {} but file not found",
+            mft_path.display()
+        );
+        return Ok(None);
+    }
 
-    // Look for $UsnJrnl
-    let usn_candidates = [
-        extracted_root.join("uploads/ntfs/%5C%5C.%5CC%3A/$Extend/$UsnJrnl%3A$J"),
-        extracted_root.join("uploads/ntfs/$Extend/$UsnJrnl"),
-    ];
-    let usn_records = if let Some(usn_path) = usn_candidates.iter().find(|p| p.exists()) {
-        enrich_with_usnjrnl(&mut tree, usn_path)
+    eprintln!("  Loading $MFT from {}", mft_path.display());
+    let mut tree = FileTree::from_mft(&mft_path)?;
+
+    // Find $UsnJrnl from manifest entries
+    let usn_entry = artifacts
+        .iter()
+        .find(|e| e.artifact_type == Some(ArtifactType::UsnJournal));
+    let usn_records = if let Some(usn_entry) = usn_entry {
+        let usn_path = extracted_root.join(&usn_entry.path);
+        if usn_path.exists() {
+            enrich_with_usnjrnl(&mut tree, &usn_path)
+        } else {
+            Vec::new()
+        }
     } else {
         Vec::new()
     };

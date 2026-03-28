@@ -86,7 +86,8 @@ fn classify_artifact(path: &str) -> Option<ArtifactType> {
     if lower.ends_with("$mft") {
         return Some(ArtifactType::Mft);
     }
-    if lower.contains("$usnjrnl") || lower.ends_with("$j") {
+    // Only match the $J data stream, not the $Max header or .idx index
+    if lower.ends_with("$j") {
         return Some(ArtifactType::UsnJournal);
     }
 
@@ -225,6 +226,35 @@ mod tests {
             decoded.windows_path.starts_with("C:\\Windows.old"),
             "should normalize to C:\\ prefix, got: {}",
             decoded.windows_path
+        );
+    }
+
+    /// The $UsnJrnl:$Max stream is the metadata header (32 bytes), not the
+    /// journal data. Only $UsnJrnl:$J should be classified as UsnJournal.
+    #[test]
+    fn test_classify_usnjrnl_max_is_not_usn_journal() {
+        assert_eq!(
+            classify_artifact("C:\\$Extend\\$UsnJrnl:$Max"),
+            None,
+            "$Max stream should NOT be classified as UsnJournal"
+        );
+    }
+
+    /// Velociraptor creates a .idx index file alongside $J — don't classify it.
+    #[test]
+    fn test_classify_usnjrnl_idx_is_not_usn_journal() {
+        assert_eq!(
+            classify_artifact("C:\\$Extend\\$UsnJrnl:$J.idx"),
+            None,
+            ".idx index file should NOT be classified as UsnJournal"
+        );
+    }
+
+    #[test]
+    fn test_classify_usnjrnl_j_is_usn_journal() {
+        assert_eq!(
+            classify_artifact("C:\\$Extend\\$UsnJrnl:$J"),
+            Some(ArtifactType::UsnJournal)
         );
     }
 
