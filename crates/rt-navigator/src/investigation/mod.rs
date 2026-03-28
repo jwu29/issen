@@ -1,4 +1,5 @@
 pub mod alerts;
+pub mod dashboard;
 pub mod data;
 pub mod timeline;
 
