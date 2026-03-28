@@ -7,6 +7,10 @@ license = "Apache-2.0"
 description = "MFT-based forensic file navigator for RapidTriage"
 repository.workspace = true
 
+[lib]
+name = "rt_navigator"
+path = "src/lib.rs"
+
 [[bin]]
 name = "rt-nav"
 path = "src/main.rs"
