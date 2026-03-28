@@ -130,6 +130,13 @@ impl FileTree {
                 fn_timestamps,
                 file_attributes,
                 usn_change_count: 0,
+                sequence_number: 0,
+                hard_link_count: 1,
+                is_resident: false,
+                security_id: 0,
+                owner_id: 0,
+                usn: 0,
+                ads_names: Vec::new(),
             });
         }
 

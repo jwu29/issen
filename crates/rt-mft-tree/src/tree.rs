@@ -267,6 +267,13 @@ mod tests {
             fn_timestamps: None,
             file_attributes: 0,
             usn_change_count: 0,
+            sequence_number: 0,
+            hard_link_count: 1,
+            is_resident: true,
+            security_id: 0,
+            owner_id: 0,
+            usn: 0,
+            ads_names: Vec::new(),
         }
     }
 
@@ -287,6 +294,13 @@ mod tests {
             fn_timestamps: None,
             file_attributes: 0,
             usn_change_count: 0,
+            sequence_number: 0,
+            hard_link_count: 1,
+            is_resident: true,
+            security_id: 0,
+            owner_id: 0,
+            usn: 0,
+            ads_names: Vec::new(),
         }
     }
 

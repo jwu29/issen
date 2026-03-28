@@ -3,7 +3,9 @@
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
+use chrono::{DateTime, Utc};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ratatui::layout::Rect;
 
 use rt_mft_tree::tree::FileTree;
 use rt_signatures::heuristics::AnomalyIndex;
@@ -104,6 +106,12 @@ pub struct App {
     pub scroll_offset: usize,
     /// Number of visible rows (set by renderer for page up/down).
     pub visible_height: usize,
+    /// Whether the keyboard-shortcut help modal is visible.
+    pub show_help: bool,
+    /// Screen area occupied by the file list (updated each render frame).
+    pub file_list_area: Rect,
+    /// Reference timestamp used for age-based file colouring (set at startup).
+    pub reference_time: DateTime<Utc>,
 }
 
 // ---------------------------------------------------------------------------
@@ -148,6 +156,9 @@ impl App {
             prev_search_query: String::new(),
             scroll_offset: 0,
             visible_height: 40,
+            show_help: false,
+            file_list_area: Rect::default(),
+            reference_time: Utc::now(),
         };
         app.refresh_entries();
         Ok(app)
@@ -691,6 +702,13 @@ mod tests {
             fn_timestamps: None,
             file_attributes: 0,
             usn_change_count: 0,
+            sequence_number: 0,
+            hard_link_count: 1,
+            is_resident: true,
+            security_id: 0,
+            owner_id: 0,
+            usn: 0,
+            ads_names: Vec::new(),
         }
     }
 
@@ -710,6 +728,13 @@ mod tests {
             fn_timestamps: None,
             file_attributes: 0,
             usn_change_count: 0,
+            sequence_number: 0,
+            hard_link_count: 1,
+            is_resident: true,
+            security_id: 0,
+            owner_id: 0,
+            usn: 0,
+            ads_names: Vec::new(),
         }
     }
 

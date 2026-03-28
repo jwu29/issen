@@ -29,6 +29,20 @@ pub struct FileNode {
     pub file_attributes: u32,
     /// Number of USN journal change records referencing this entry.
     pub usn_change_count: u32,
+    /// MFT sequence number (incremented each time an entry is reused).
+    pub sequence_number: u16,
+    /// Number of hard links pointing to this entry.
+    pub hard_link_count: u16,
+    /// `true` if the default data stream is resident in the MFT entry itself.
+    pub is_resident: bool,
+    /// Security descriptor ID (from `$STANDARD_INFORMATION`).
+    pub security_id: u32,
+    /// Owner ID (from `$STANDARD_INFORMATION`).
+    pub owner_id: u32,
+    /// USN of the last change journal record for this entry.
+    pub usn: u64,
+    /// Names of Alternate Data Streams attached to this file (empty if none).
+    pub ads_names: Vec<String>,
 }
 
 // NTFS file attribute flag constants.
@@ -69,6 +83,21 @@ impl FileNode {
     #[must_use]
     pub fn is_system(&self) -> bool {
         self.file_attributes & ATTR_SYSTEM != 0
+    }
+
+    /// Returns `true` if this file has one or more Alternate Data Streams.
+    #[must_use]
+    pub fn has_ads(&self) -> bool {
+        !self.ads_names.is_empty()
+    }
+
+    /// Returns `true` if the file has a Zone.Identifier ADS, indicating it
+    /// was downloaded from the internet (mark-of-the-web).
+    #[must_use]
+    pub fn is_downloaded(&self) -> bool {
+        self.ads_names
+            .iter()
+            .any(|n| n.eq_ignore_ascii_case("Zone.Identifier"))
     }
 }
 
@@ -121,6 +150,13 @@ mod tests {
             fn_timestamps: Some(fn_ts),
             file_attributes: 0,
             usn_change_count: 0,
+            sequence_number: 0,
+            hard_link_count: 1,
+            is_resident: true,
+            security_id: 0,
+            owner_id: 0,
+            usn: 0,
+            ads_names: Vec::new(),
         };
         assert!(node.fn_timestamps.is_some());
         assert_ne!(
@@ -141,6 +177,13 @@ mod tests {
             fn_timestamps: None,
             file_attributes: 0,
             usn_change_count: 0,
+            sequence_number: 0,
+            hard_link_count: 1,
+            is_resident: true,
+            security_id: 0,
+            owner_id: 0,
+            usn: 0,
+            ads_names: Vec::new(),
         };
         assert!(node.fn_timestamps.is_none());
     }
@@ -157,6 +200,13 @@ mod tests {
             fn_timestamps: None,
             file_attributes: 0,
             usn_change_count: 0,
+            sequence_number: 0,
+            hard_link_count: 1,
+            is_resident: true,
+            security_id: 0,
+            owner_id: 0,
+            usn: 0,
+            ads_names: Vec::new(),
         };
         assert!(node.is_dir);
         assert_eq!(node.size, 0);
@@ -175,6 +225,13 @@ mod tests {
             fn_timestamps: None,
             file_attributes: attrs,
             usn_change_count: 0,
+            sequence_number: 0,
+            hard_link_count: 1,
+            is_resident: true,
+            security_id: 0,
+            owner_id: 0,
+            usn: 0,
+            ads_names: Vec::new(),
         }
     }
 
