@@ -9,7 +9,9 @@ mod scanning;
 // Link parser crates so their inventory::submit! registrations are included.
 extern crate rt_parser_evtx;
 extern crate rt_parser_mft;
+extern crate rt_parser_uac;
 extern crate rt_parser_usnjrnl;
+extern crate rt_parser_velociraptor;
 
 /// RapidTriage — fast forensic triage for incident responders.
 #[derive(Parser, Debug)]

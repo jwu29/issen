@@ -21,6 +21,9 @@ rt-parser-mft = { workspace = true }
 rt-parser-evtx = { workspace = true }
 rt-report = { workspace = true }
 rt-remote-access = { workspace = true }
+rt-parser-velociraptor = { workspace = true }
+rt-parser-uac = { workspace = true }
+rt-unpack = { workspace = true }
 clap = { workspace = true }
 anyhow = { workspace = true }
 duckdb = { workspace = true }

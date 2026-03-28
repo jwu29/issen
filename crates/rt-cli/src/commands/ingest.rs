@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use rt_fswalker::orchestrator::run_pipeline;
+use rt_fswalker::orchestrator::run_auto;
 use rt_fswalker::progress::ProgressReporter;
 use rt_signatures::engines::ioc_hash::HashIocStore;
 use rt_signatures::engines::ioc_network::NetworkIocStore;
@@ -61,7 +61,7 @@ pub fn run(
     // Run the pipeline.
     let progress = ProgressReporter::new();
     let (events, result) =
-        run_pipeline(evidence_path, &progress).context("Pipeline execution failed")?;
+        run_auto(evidence_path, &progress).context("Pipeline execution failed")?;
 
     // Insert events into DuckDB.
     let inserted = store
