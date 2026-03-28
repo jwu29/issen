@@ -2,6 +2,7 @@ pub mod alerts;
 pub mod dashboard;
 pub mod data;
 pub mod timeline;
+pub mod views;
 
 use std::collections::HashSet;
 
