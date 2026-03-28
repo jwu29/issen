@@ -22,6 +22,10 @@ indicatif = { workspace = true }
 rt-parser-usnjrnl = { workspace = true }
 rt-signatures = { workspace = true, features = ["heuristics"] }
 shrinkpath = { workspace = true }
+rt-unpack = { workspace = true }
+rt-parser-uac = { workspace = true }
+rt-parser-velociraptor = { workspace = true }
+inventory = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

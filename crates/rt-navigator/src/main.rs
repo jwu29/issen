@@ -10,6 +10,9 @@
 //! rt-nav --mft /a --usnj /b        # explicit artifact paths
 //! ```
 
+extern crate rt_parser_uac;
+extern crate rt_parser_velociraptor;
+
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -18,6 +21,7 @@ use clap::Parser;
 use crossterm::event::{self, Event};
 
 mod app;
+mod investigation;
 mod search;
 mod sources;
 mod ui;
