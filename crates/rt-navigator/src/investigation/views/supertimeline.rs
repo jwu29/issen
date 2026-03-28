@@ -156,3 +156,64 @@ fn truncate_path(path: &str, max_len: usize) -> String {
         format!("...{}", &path[path.len() - max_len + 3..])
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn format_timestamp_valid() {
+        // 2024-01-01T00:00:00 UTC = 1704067200
+        assert_eq!(format_timestamp(1704067200), "2024-01-01T00:00:00");
+    }
+
+    #[test]
+    fn format_timestamp_zero() {
+        assert_eq!(format_timestamp(0), "1970-01-01T00:00:00");
+    }
+
+    #[test]
+    fn format_timestamp_negative_falls_back() {
+        // Very old timestamps should still produce something
+        let result = format_timestamp(-1);
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn truncate_path_short() {
+        assert_eq!(truncate_path("/short/path", 40), "/short/path");
+    }
+
+    #[test]
+    fn truncate_path_exact_length() {
+        let path = "x".repeat(40);
+        assert_eq!(truncate_path(&path, 40), path);
+    }
+
+    #[test]
+    fn truncate_path_long() {
+        let path = "/very/long/path/that/exceeds/the/maximum/allowed/length/for/display";
+        let result = truncate_path(path, 30);
+        assert!(result.starts_with("..."));
+        assert_eq!(result.len(), 30);
+    }
+
+    #[test]
+    fn source_color_all_variants() {
+        // Just verify no panics and each source gets a color
+        use crate::investigation::timeline::TimelineSource;
+        let sources = [
+            TimelineSource::Bodyfile,
+            TimelineSource::MftSi,
+            TimelineSource::MftFn,
+            TimelineSource::UsnJournal,
+            TimelineSource::LoginHistory,
+            TimelineSource::ProcessList,
+            TimelineSource::Registry,
+            TimelineSource::EventLog,
+        ];
+        for src in sources {
+            let _color = source_color(src);
+        }
+    }
+}

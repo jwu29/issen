@@ -511,4 +511,81 @@ mod tests {
         assert!(data.alerts.is_empty());
         assert!(data.artifact_counts.is_empty());
     }
+
+    #[test]
+    fn load_velociraptor_collection_metadata_defaults() {
+        use rt_unpack::{CollectionMetadata as ManifestMeta, OsType};
+
+        let meta = ManifestMeta {
+            hostname: None,
+            collection_time: None,
+            os_type: OsType::Unknown,
+            tool_version: None,
+        };
+        let data = load_velociraptor_collection(std::path::Path::new("/tmp/fake"), &[], &meta);
+        assert!(data.timeline.is_empty());
+        assert!(data.alerts.is_empty());
+        assert!(data.artifact_counts.is_empty());
+        assert!(data.metadata.hostname.is_empty());
+    }
+
+    #[test]
+    fn timeline_source_counts_with_mixed_sources() {
+        use crate::investigation::timeline::{TimelineEvent, TimelineSource, TimestampType};
+        let data = InvestigationData {
+            metadata: CollectionMetadata::default(),
+            alerts: Vec::new(),
+            timeline: vec![
+                TimelineEvent {
+                    timestamp: 100,
+                    timestamp_type: TimestampType::Modified,
+                    source: TimelineSource::Bodyfile,
+                    path: "/a".into(),
+                    description: String::new(),
+                    extra: String::new(),
+                },
+                TimelineEvent {
+                    timestamp: 200,
+                    timestamp_type: TimestampType::Modified,
+                    source: TimelineSource::Bodyfile,
+                    path: "/b".into(),
+                    description: String::new(),
+                    extra: String::new(),
+                },
+                TimelineEvent {
+                    timestamp: 300,
+                    timestamp_type: TimestampType::Accessed,
+                    source: TimelineSource::MftSi,
+                    path: "/c".into(),
+                    description: String::new(),
+                    extra: String::new(),
+                },
+            ],
+            mft_tree: None,
+            anomaly_index: None,
+            network: Vec::new(),
+            processes: Vec::new(),
+            crontabs: Vec::new(),
+            logins: Vec::new(),
+            packages: Vec::new(),
+            hashes: Vec::new(),
+            chkrootkit: Vec::new(),
+            configs: Vec::new(),
+            artifact_counts: std::collections::HashMap::new(),
+        };
+        let counts = data.timeline_source_counts();
+        // Should have bodyfile=2, MFT-SI=1
+        let bodyfile_count = counts
+            .iter()
+            .find(|(l, _)| l.contains("bodyfile"))
+            .map(|(_, c)| *c);
+        assert_eq!(bodyfile_count, Some(2));
+    }
+
+    #[test]
+    fn collection_metadata_default() {
+        let meta = CollectionMetadata::default();
+        assert!(meta.hostname.is_empty());
+        assert_eq!(meta.acquisition_time, 0);
+    }
 }

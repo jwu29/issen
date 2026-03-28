@@ -204,4 +204,127 @@ mod tests {
         assert_eq!(format_count(47_832), "47.8K");
         assert_eq!(format_count(1_000_000), "1.0M");
     }
+
+    use crate::investigation::data::{CollectionMetadata, InvestigationData};
+    use crate::investigation::timeline::{TimelineEvent, TimelineSource, TimestampType};
+    use crate::investigation::WorkbenchApp;
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
+
+    fn make_dashboard_app() -> WorkbenchApp {
+        let timeline: Vec<TimelineEvent> = (0..100)
+            .map(|i| TimelineEvent {
+                timestamp: i * 3600 + 1704067200,
+                timestamp_type: TimestampType::Modified,
+                source: TimelineSource::Bodyfile,
+                path: format!("/test/{i}.txt"),
+                description: String::new(),
+                extra: String::new(),
+            })
+            .collect();
+
+        let mut artifact_counts = std::collections::HashMap::new();
+        artifact_counts.insert("EventLog".to_string(), 326);
+        artifact_counts.insert("Prefetch".to_string(), 584);
+
+        let data = InvestigationData {
+            metadata: CollectionMetadata {
+                hostname: "WORKSTATION-01".to_string(),
+                os: "Windows 10".to_string(),
+                collection_tool: "Velociraptor".to_string(),
+                acquisition_time: 1704067200,
+            },
+            alerts: vec![
+                crate::investigation::alerts::Alert {
+                    severity: crate::investigation::alerts::AlertSeverity::Critical,
+                    category: "MFT/Timestomping".to_string(),
+                    message: "SI/FN mismatch".to_string(),
+                    detail: "test".to_string(),
+                },
+                crate::investigation::alerts::Alert {
+                    severity: crate::investigation::alerts::AlertSeverity::Warning,
+                    category: "MFT/Location".to_string(),
+                    message: "Suspicious location".to_string(),
+                    detail: "test".to_string(),
+                },
+            ],
+            timeline,
+            mft_tree: None,
+            anomaly_index: None,
+            network: Vec::new(),
+            processes: Vec::new(),
+            crontabs: Vec::new(),
+            logins: Vec::new(),
+            packages: Vec::new(),
+            hashes: Vec::new(),
+            chkrootkit: Vec::new(),
+            configs: Vec::new(),
+            artifact_counts,
+        };
+        WorkbenchApp::new(data, None)
+    }
+
+    #[test]
+    fn render_dashboard_with_metadata_no_panic() {
+        let app = make_dashboard_app();
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| draw_dashboard(frame, &app, frame.area()))
+            .unwrap();
+    }
+
+    #[test]
+    fn render_dashboard_with_alerts_no_panic() {
+        let app = make_dashboard_app();
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| draw_dashboard(frame, &app, frame.area()))
+            .unwrap();
+    }
+
+    #[test]
+    fn render_dashboard_empty_data_no_panic() {
+        let data = InvestigationData {
+            metadata: CollectionMetadata::default(),
+            alerts: Vec::new(),
+            timeline: Vec::new(),
+            mft_tree: None,
+            anomaly_index: None,
+            network: Vec::new(),
+            processes: Vec::new(),
+            crontabs: Vec::new(),
+            logins: Vec::new(),
+            packages: Vec::new(),
+            hashes: Vec::new(),
+            chkrootkit: Vec::new(),
+            configs: Vec::new(),
+            artifact_counts: std::collections::HashMap::new(),
+        };
+        let app = WorkbenchApp::new(data, None);
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| draw_dashboard(frame, &app, frame.area()))
+            .unwrap();
+    }
+
+    #[test]
+    fn render_dashboard_small_terminal_no_panic() {
+        let app = make_dashboard_app();
+        let backend = TestBackend::new(40, 10);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| draw_dashboard(frame, &app, frame.area()))
+            .unwrap();
+    }
+
+    #[test]
+    fn format_count_edge_cases() {
+        assert_eq!(format_count(1), "1");
+        assert_eq!(format_count(999), "999");
+        assert_eq!(format_count(1_500), "1.5K");
+        assert_eq!(format_count(2_500_000), "2.5M");
+    }
 }

@@ -93,3 +93,113 @@ fn detail_line(label: &str, value: &str) -> Line<'static> {
         Span::raw(value.to_string()),
     ])
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::investigation::data::{CollectionMetadata, InvestigationData};
+    use crate::investigation::timeline::{TimelineEvent, TimelineSource, TimestampType};
+    use crate::investigation::WorkbenchApp;
+
+    fn make_workbench(
+        network: Vec<rt_parser_uac::parsers::network::NetworkConnection>,
+        processes: Vec<rt_parser_uac::parsers::process::ProcessInfo>,
+        logins: Vec<rt_parser_uac::parsers::system::LoginRecord>,
+        configs: Vec<rt_parser_uac::parsers::configs::ConfigFile>,
+    ) -> WorkbenchApp {
+        let data = InvestigationData {
+            metadata: CollectionMetadata::default(),
+            alerts: Vec::new(),
+            timeline: Vec::new(),
+            mft_tree: None,
+            anomaly_index: None,
+            network,
+            processes,
+            crontabs: Vec::new(),
+            logins,
+            packages: Vec::new(),
+            hashes: Vec::new(),
+            chkrootkit: Vec::new(),
+            configs,
+            artifact_counts: std::collections::HashMap::new(),
+        };
+        WorkbenchApp::new(data, None)
+    }
+
+    #[test]
+    fn detail_line_formats_label_and_value() {
+        let line = detail_line("Protocol", "tcp");
+        assert_eq!(line.spans.len(), 2);
+    }
+
+    #[test]
+    fn network_detail_with_connection() {
+        let conn = rt_parser_uac::parsers::network::NetworkConnection {
+            protocol: "tcp".to_string(),
+            local_addr: "0.0.0.0:80".to_string(),
+            remote_addr: "1.2.3.4:12345".to_string(),
+            state: "ESTABLISHED".to_string(),
+            pid: Some(1234),
+            program: Some("nginx".to_string()),
+        };
+        let app = make_workbench(vec![conn], Vec::new(), Vec::new(), Vec::new());
+        let lines = network_detail(&app);
+        assert_eq!(lines.len(), 6); // Protocol, Local, Remote, State, PID, Program
+    }
+
+    #[test]
+    fn network_detail_no_selection() {
+        let app = make_workbench(Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        let lines = network_detail(&app);
+        assert_eq!(lines.len(), 1); // "No selection"
+    }
+
+    #[test]
+    fn process_detail_with_process() {
+        let proc = rt_parser_uac::parsers::process::ProcessInfo {
+            pid: 42,
+            ppid: 1,
+            user: "root".to_string(),
+            command: "/usr/sbin/sshd".to_string(),
+            cpu_pct: Some("1.5".to_string()),
+            mem_pct: None,
+            start_time: None,
+        };
+        let mut app = make_workbench(Vec::new(), vec![proc], Vec::new(), Vec::new());
+        // Find the Processes view index and switch to it
+        for (i, v) in app.available_views.iter().enumerate() {
+            if *v == WorkbenchView::Processes {
+                app.current_view_idx = i;
+                break;
+            }
+        }
+        app.selected = 0;
+        let lines = process_detail(&app);
+        assert!(lines.len() >= 7); // User, PID, PPID, CPU%, MEM%, Start, blank, Command
+    }
+
+    #[test]
+    fn config_detail_truncates_long_content() {
+        let cfg = rt_parser_uac::parsers::configs::ConfigFile {
+            path: "/etc/test.conf".to_string(),
+            content: "x".repeat(1000),
+        };
+        let mut app = make_workbench(Vec::new(), Vec::new(), Vec::new(), vec![cfg]);
+        for (i, v) in app.available_views.iter().enumerate() {
+            if *v == WorkbenchView::Configs {
+                app.current_view_idx = i;
+                break;
+            }
+        }
+        app.selected = 0;
+        let lines = config_detail(&app);
+        assert!(lines.len() >= 3); // Path, blank, Content preview header, content
+    }
+
+    #[test]
+    fn login_detail_no_selection() {
+        let app = make_workbench(Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        let lines = login_detail(&app);
+        assert_eq!(lines.len(), 1);
+    }
+}

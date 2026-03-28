@@ -61,3 +61,79 @@ pub fn draw(frame: &mut Frame, app: &WorkbenchApp, area: Rect) {
 
     frame.render_widget(table, area);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::investigation::data::{CollectionMetadata, InvestigationData};
+    use crate::investigation::WorkbenchApp;
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
+    use rt_parser_uac::parsers::network::NetworkConnection;
+    use std::collections::HashMap;
+
+    fn make_data_with_network(conns: Vec<NetworkConnection>) -> InvestigationData {
+        InvestigationData {
+            metadata: CollectionMetadata::default(),
+            alerts: Vec::new(),
+            timeline: Vec::new(),
+            mft_tree: None,
+            anomaly_index: None,
+            network: conns,
+            processes: Vec::new(),
+            crontabs: Vec::new(),
+            logins: Vec::new(),
+            packages: Vec::new(),
+            hashes: Vec::new(),
+            chkrootkit: Vec::new(),
+            configs: Vec::new(),
+            artifact_counts: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn render_with_data_no_panic() {
+        let conns = vec![
+            NetworkConnection {
+                protocol: "tcp".into(),
+                local_addr: "127.0.0.1:8080".into(),
+                remote_addr: "10.0.0.1:443".into(),
+                state: "ESTABLISHED".into(),
+                pid: Some(1234),
+                program: Some("nginx".into()),
+            },
+            NetworkConnection {
+                protocol: "udp".into(),
+                local_addr: "0.0.0.0:53".into(),
+                remote_addr: "*:*".into(),
+                state: "LISTEN".into(),
+                pid: None,
+                program: None,
+            },
+        ];
+        let data = make_data_with_network(conns);
+        let app = WorkbenchApp::new(data, None);
+        let backend = TestBackend::new(120, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                draw(frame, &app, area);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn render_empty_no_panic() {
+        let data = make_data_with_network(Vec::new());
+        let app = WorkbenchApp::new(data, None);
+        let backend = TestBackend::new(120, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                draw(frame, &app, area);
+            })
+            .unwrap();
+    }
+}

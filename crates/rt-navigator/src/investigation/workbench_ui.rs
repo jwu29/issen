@@ -137,3 +137,144 @@ fn draw_footer(frame: &mut Frame, app: &WorkbenchApp, area: Rect) {
     let footer = Paragraph::new(Line::from(spans));
     frame.render_widget(footer, area);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::investigation::data::{CollectionMetadata, InvestigationData};
+    use crate::investigation::timeline::{TimelineEvent, TimelineSource, TimestampType};
+    use crate::investigation::WorkbenchApp;
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
+
+    fn make_test_app() -> WorkbenchApp {
+        let timeline: Vec<TimelineEvent> = (0..5)
+            .map(|i| TimelineEvent {
+                timestamp: i * 100 + 1704067200,
+                timestamp_type: TimestampType::Modified,
+                source: TimelineSource::Bodyfile,
+                path: format!("/test/file{i}.txt"),
+                description: format!("Test event {i}"),
+                extra: String::new(),
+            })
+            .collect();
+
+        let network = vec![rt_parser_uac::parsers::network::NetworkConnection {
+            protocol: "tcp".to_string(),
+            local_addr: "0.0.0.0:80".to_string(),
+            remote_addr: "1.2.3.4:443".to_string(),
+            state: "ESTABLISHED".to_string(),
+            pid: Some(1234),
+            program: Some("nginx".to_string()),
+        }];
+
+        let data = InvestigationData {
+            metadata: CollectionMetadata {
+                hostname: "testhost".to_string(),
+                os: "Linux".to_string(),
+                collection_tool: "UAC".to_string(),
+                acquisition_time: 1704067200,
+            },
+            alerts: Vec::new(),
+            timeline,
+            mft_tree: None,
+            anomaly_index: None,
+            network,
+            processes: Vec::new(),
+            crontabs: Vec::new(),
+            logins: Vec::new(),
+            packages: Vec::new(),
+            hashes: Vec::new(),
+            chkrootkit: Vec::new(),
+            configs: Vec::new(),
+            artifact_counts: std::collections::HashMap::new(),
+        };
+        WorkbenchApp::new(data, None)
+    }
+
+    #[test]
+    fn render_dashboard_no_panic() {
+        let mut app = make_test_app();
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| draw_workbench(frame, &mut app))
+            .unwrap();
+    }
+
+    #[test]
+    fn render_timeline_view_no_panic() {
+        let mut app = make_test_app();
+        app.next_view(); // Switch to Timeline
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| draw_workbench(frame, &mut app))
+            .unwrap();
+    }
+
+    #[test]
+    fn render_network_view_no_panic() {
+        let mut app = make_test_app();
+        // Find and switch to Network view
+        for (i, v) in app.available_views.iter().enumerate() {
+            if *v == WorkbenchView::Network {
+                app.current_view_idx = i;
+                break;
+            }
+        }
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| draw_workbench(frame, &mut app))
+            .unwrap();
+    }
+
+    #[test]
+    fn render_with_search_mode_no_panic() {
+        let mut app = make_test_app();
+        app.search_mode = true;
+        app.search_query = "test".to_string();
+        let backend = TestBackend::new(120, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| draw_workbench(frame, &mut app))
+            .unwrap();
+    }
+
+    #[test]
+    fn render_small_terminal_no_panic() {
+        let mut app = make_test_app();
+        let backend = TestBackend::new(40, 10); // very small
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| draw_workbench(frame, &mut app))
+            .unwrap();
+    }
+
+    #[test]
+    fn render_empty_data_no_panic() {
+        let data = InvestigationData {
+            metadata: CollectionMetadata::default(),
+            alerts: Vec::new(),
+            timeline: Vec::new(),
+            mft_tree: None,
+            anomaly_index: None,
+            network: Vec::new(),
+            processes: Vec::new(),
+            crontabs: Vec::new(),
+            logins: Vec::new(),
+            packages: Vec::new(),
+            hashes: Vec::new(),
+            chkrootkit: Vec::new(),
+            configs: Vec::new(),
+            artifact_counts: std::collections::HashMap::new(),
+        };
+        let mut app = WorkbenchApp::new(data, None);
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| draw_workbench(frame, &mut app))
+            .unwrap();
+    }
+}

@@ -56,3 +56,81 @@ pub fn draw(frame: &mut Frame, app: &WorkbenchApp, area: Rect) {
 
     frame.render_widget(table, area);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::investigation::data::{CollectionMetadata, InvestigationData};
+    use crate::investigation::WorkbenchApp;
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
+    use rt_parser_uac::parsers::process::ProcessInfo;
+    use std::collections::HashMap;
+
+    fn make_data_with_processes(procs: Vec<ProcessInfo>) -> InvestigationData {
+        InvestigationData {
+            metadata: CollectionMetadata::default(),
+            alerts: Vec::new(),
+            timeline: Vec::new(),
+            mft_tree: None,
+            anomaly_index: None,
+            network: Vec::new(),
+            processes: procs,
+            crontabs: Vec::new(),
+            logins: Vec::new(),
+            packages: Vec::new(),
+            hashes: Vec::new(),
+            chkrootkit: Vec::new(),
+            configs: Vec::new(),
+            artifact_counts: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn render_with_data_no_panic() {
+        let procs = vec![
+            ProcessInfo {
+                pid: 1,
+                ppid: 0,
+                user: "root".into(),
+                command: "/sbin/init".into(),
+                cpu_pct: Some("0.1".into()),
+                mem_pct: Some("0.5".into()),
+                start_time: Some("Jan01".into()),
+            },
+            ProcessInfo {
+                pid: 1234,
+                ppid: 1,
+                user: "www-data".into(),
+                command: "nginx: worker process".into(),
+                cpu_pct: None,
+                mem_pct: None,
+                start_time: None,
+            },
+        ];
+        let data = make_data_with_processes(procs);
+        let app = WorkbenchApp::new(data, None);
+        let backend = TestBackend::new(120, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                draw(frame, &app, area);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn render_empty_no_panic() {
+        let data = make_data_with_processes(Vec::new());
+        let app = WorkbenchApp::new(data, None);
+        let backend = TestBackend::new(120, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                draw(frame, &app, area);
+            })
+            .unwrap();
+    }
+}

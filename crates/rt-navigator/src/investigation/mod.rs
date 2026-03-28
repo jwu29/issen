@@ -498,4 +498,118 @@ mod tests {
         app.cycle_timeline_filter();
         assert_eq!(app.timeline_filter_label(), "MFT-SI");
     }
+
+    #[test]
+    fn test_enter_on_dashboard_navigates_to_view() {
+        let mut app = WorkbenchApp::new(make_test_data(10, 5), None);
+        assert_eq!(app.current_view(), WorkbenchView::Dashboard);
+        app.selected = 0; // First dashboard item
+        let key = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+        app.handle_key(key);
+        // Should have moved to first non-dashboard view
+        assert_ne!(app.current_view(), WorkbenchView::Dashboard);
+    }
+
+    #[test]
+    fn test_search_mode_captures_chars() {
+        let mut app = WorkbenchApp::new(make_test_data(10, 5), None);
+        // Enter search mode with '/'
+        let slash = KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE);
+        app.handle_key(slash);
+        assert!(app.search_mode);
+        assert!(app.search_query.is_empty());
+
+        // Type characters to build query
+        let key_a = KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE);
+        let key_b = KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE);
+        let key_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE);
+        app.handle_key(key_a);
+        app.handle_key(key_b);
+        app.handle_key(key_c);
+        assert_eq!(app.search_query, "abc");
+        assert!(app.search_mode);
+
+        // Esc exits search mode and clears query
+        let esc = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
+        app.handle_key(esc);
+        assert!(!app.search_mode);
+        assert!(app.search_query.is_empty());
+    }
+
+    #[test]
+    fn test_number_key_switches_view() {
+        let mut app = WorkbenchApp::new(make_test_data(10, 5), None);
+        // '1' goes to view index 0 (Dashboard)
+        let key_1 = KeyEvent::new(KeyCode::Char('1'), KeyModifiers::NONE);
+        app.handle_key(key_1);
+        assert_eq!(app.current_view_idx, 0);
+
+        // '2' goes to view index 1 (Timeline)
+        let key_2 = KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE);
+        app.handle_key(key_2);
+        assert_eq!(app.current_view_idx, 1);
+        assert_eq!(app.current_view(), WorkbenchView::Timeline);
+
+        // '3' goes to view index 2 (Network)
+        let key_3 = KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE);
+        app.handle_key(key_3);
+        assert_eq!(app.current_view_idx, 2);
+        assert_eq!(app.current_view(), WorkbenchView::Network);
+    }
+
+    #[test]
+    fn test_sort_toggle() {
+        let mut app = WorkbenchApp::new(make_test_data(10, 5), None);
+        assert!(app.sort_ascending); // default
+        let key_s = KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE);
+        app.handle_key(key_s);
+        assert!(!app.sort_ascending);
+        app.handle_key(key_s);
+        assert!(app.sort_ascending);
+    }
+
+    #[test]
+    fn test_cursor_bounds_at_end() {
+        let mut app = WorkbenchApp::new(make_test_data(10, 0), None);
+        app.next_view(); // Timeline with 10 items
+                         // Move to last item
+        for _ in 0..20 {
+            app.move_down();
+        }
+        assert_eq!(app.selected, 9); // last item (0-indexed)
+                                     // Moving down again stays at last
+        app.move_down();
+        assert_eq!(app.selected, 9);
+    }
+
+    #[test]
+    fn test_g_key_goes_to_top() {
+        let mut app = WorkbenchApp::new(make_test_data(10, 0), None);
+        app.next_view(); // Timeline
+        app.selected = 7;
+        let key_g = KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE);
+        app.handle_key(key_g);
+        assert_eq!(app.selected, 0);
+    }
+
+    #[test]
+    fn test_shift_g_goes_to_bottom() {
+        let mut app = WorkbenchApp::new(make_test_data(10, 0), None);
+        app.next_view(); // Timeline with 10 items
+        assert_eq!(app.selected, 0);
+        let key_shift_g = KeyEvent::new(KeyCode::Char('G'), KeyModifiers::NONE);
+        app.handle_key(key_shift_g);
+        assert_eq!(app.selected, 9);
+    }
+
+    #[test]
+    fn test_prev_view_wraps() {
+        let mut app = WorkbenchApp::new(make_test_data(10, 5), None);
+        assert_eq!(app.current_view(), WorkbenchView::Dashboard);
+        assert_eq!(app.current_view_idx, 0);
+        // prev_view from dashboard should wrap to last view
+        app.prev_view();
+        assert_eq!(app.current_view_idx, app.available_views.len() - 1);
+        assert_ne!(app.current_view(), WorkbenchView::Dashboard);
+    }
 }
