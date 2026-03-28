@@ -1,8 +1,10 @@
 pub mod alerts;
 pub mod dashboard;
 pub mod data;
+pub mod detail;
 pub mod timeline;
 pub mod views;
+pub mod workbench_ui;
 
 use std::collections::HashSet;
 
