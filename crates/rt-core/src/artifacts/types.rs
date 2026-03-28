@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-/// Forensic artifact types recognized by RapidTriage parsers.
+/// Forensic artifact types recognized by `RapidTriage` parsers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ArtifactType {
     /// NTFS USN Change Journal ($UsnJrnl:$J)
@@ -29,6 +29,26 @@ pub enum ArtifactType {
     Srum,
     /// Assessment or derived finding (not a raw artifact).
     Assessment,
+    /// Mactime bodyfile (filesystem timeline from UAC)
+    Bodyfile,
+    /// Network state snapshot (netstat, ss, arp)
+    NetworkState,
+    /// Running process list (ps, lsof)
+    ProcessList,
+    /// Installed package inventory (dpkg, rpm, pip)
+    PackageList,
+    /// System information (hostname, uname, uptime)
+    SystemInfo,
+    /// Login/logout history (last, loginctl)
+    LoginHistory,
+    /// Crontab / scheduled task configuration
+    CrontabConfig,
+    /// Hash manifest of executables
+    HashManifest,
+    /// Rootkit scan results (chkrootkit, rkhunter)
+    RootkitScan,
+    /// System configuration files (/etc)
+    SystemConfig,
 }
 
 impl std::fmt::Display for ArtifactType {
@@ -47,6 +67,43 @@ impl std::fmt::Display for ArtifactType {
             Self::JumpLists => write!(f, "Jump Lists"),
             Self::Srum => write!(f, "SRUM"),
             Self::Assessment => write!(f, "Assessment"),
+            Self::Bodyfile => write!(f, "Bodyfile"),
+            Self::NetworkState => write!(f, "Network State"),
+            Self::ProcessList => write!(f, "Process List"),
+            Self::PackageList => write!(f, "Package List"),
+            Self::SystemInfo => write!(f, "System Info"),
+            Self::LoginHistory => write!(f, "Login History"),
+            Self::CrontabConfig => write!(f, "Crontab"),
+            Self::HashManifest => write!(f, "Hash Manifest"),
+            Self::RootkitScan => write!(f, "Rootkit Scan"),
+            Self::SystemConfig => write!(f, "System Config"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_linux_artifact_types_display() {
+        assert_eq!(format!("{}", ArtifactType::Bodyfile), "Bodyfile");
+        assert_eq!(format!("{}", ArtifactType::NetworkState), "Network State");
+        assert_eq!(format!("{}", ArtifactType::ProcessList), "Process List");
+        assert_eq!(format!("{}", ArtifactType::PackageList), "Package List");
+        assert_eq!(format!("{}", ArtifactType::SystemInfo), "System Info");
+        assert_eq!(format!("{}", ArtifactType::LoginHistory), "Login History");
+        assert_eq!(format!("{}", ArtifactType::CrontabConfig), "Crontab");
+        assert_eq!(format!("{}", ArtifactType::HashManifest), "Hash Manifest");
+        assert_eq!(format!("{}", ArtifactType::RootkitScan), "Rootkit Scan");
+        assert_eq!(format!("{}", ArtifactType::SystemConfig), "System Config");
+    }
+
+    #[test]
+    fn test_artifact_type_serde_roundtrip() {
+        let original = ArtifactType::Bodyfile;
+        let json = serde_json::to_string(&original).expect("serialize");
+        let back: ArtifactType = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(original, back);
     }
 }
