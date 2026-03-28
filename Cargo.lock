@@ -4067,6 +4067,7 @@ dependencies = [
  "indicatif",
  "inventory",
  "ratatui",
+ "rt-core",
  "rt-mft-tree",
  "rt-parser-uac",
  "rt-parser-usnjrnl",

@@ -1,13 +1,18 @@
-//! `rt-nav` — MFT-based forensic file navigator.
+//! `rt-nav` — Forensic file navigator and investigation workbench.
 //!
 //! Parses a raw `$MFT` file, reconstructs the NTFS directory tree in memory,
 //! and presents it in an interactive Midnight Commander-style TUI.
+//!
+//! When given a forensic collection archive (UAC `.tar.gz` or Velociraptor
+//! `.zip`), launches the full Investigation Workbench with supertimeline,
+//! artifact drill-in views, and alert detection.
 //!
 //! # Usage
 //! ```text
 //! rt-nav /path/to/$MFT            # direct MFT file
 //! rt-nav /mnt/evidence/C           # folder treated as volume root
 //! rt-nav --mft /a --usnj /b        # explicit artifact paths
+//! rt-nav collection.tar.gz         # UAC/Velociraptor → workbench
 //! ```
 
 extern crate rt_parser_uac;
@@ -19,6 +24,7 @@ use std::time::Duration;
 use anyhow::{bail, Result};
 use clap::Parser;
 use crossterm::event::{self, Event};
+use rt_core::error::RtError;
 
 mod app;
 mod investigation;
@@ -37,8 +43,9 @@ use sources::ArtifactSources;
     about = "Forensic file navigator — browse a reconstructed NTFS tree from $MFT"
 )]
 struct Cli {
-    /// Path to an extracted $MFT file or a folder (volume root) containing
-    /// NTFS metadata files. If omitted on Windows, defaults to C:\.
+    /// Path to an extracted $MFT file, a folder (volume root) containing
+    /// NTFS metadata files, or a forensic collection archive (UAC/Velociraptor).
+    /// If omitted on Windows, defaults to C:\.
     path: Option<PathBuf>,
 
     /// Explicit path to $MFT (overrides positional argument).
@@ -61,6 +68,25 @@ struct Cli {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    // -- Try collection detection first (UAC / Velociraptor) ----------------
+    if cli.mft.is_none() {
+        if let Some(ref path) = cli.path {
+            if path.is_file() {
+                match try_open_collection(path) {
+                    Ok(Some((data, mft_app, manifest))) => {
+                        return run_workbench(data, mft_app, manifest);
+                    }
+                    Ok(None) => {} // Not a collection — fall through to MFT mode
+                    Err(e) => {
+                        eprintln!("  Warning: collection probe failed: {e}");
+                        // Fall through to MFT mode
+                    }
+                }
+            }
+        }
+    }
+
+    // -- Existing MFT tree mode (unchanged) ---------------------------------
     let sources = resolve_sources(&cli)?;
 
     // -- Load MFT -----------------------------------------------------------
@@ -231,5 +257,173 @@ fn run_loop(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()
 
         // Fire debounced search if timer expired
         app.fire_debounced_search();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Investigation Workbench — collection detection + launch
+// ---------------------------------------------------------------------------
+
+/// Try to open the path as a forensic collection (UAC/Velociraptor).
+///
+/// Returns `Ok(None)` if no provider recognizes the format (not a collection).
+/// Returns `Ok(Some(...))` with the parsed investigation data, optional MFT app,
+/// and the collection manifest (which must be kept alive to preserve the temp dir).
+fn try_open_collection(
+    path: &std::path::Path,
+) -> Result<
+    Option<(
+        investigation::data::InvestigationData,
+        Option<App>,
+        rt_unpack::CollectionManifest,
+    )>,
+> {
+    use rt_unpack::registry::open_collection;
+
+    let manifest = match open_collection(path) {
+        Ok(m) => m,
+        Err(e) => {
+            // UnsupportedFormat means "no provider matched" — not an error,
+            // just not a collection archive.
+            if matches!(e, RtError::UnsupportedFormat(_)) {
+                return Ok(None);
+            }
+            return Err(e.into());
+        }
+    };
+
+    eprintln!("  Detected collection: {}", manifest.format_name);
+    eprintln!("  Extracted to {}", manifest.extracted_root.display());
+
+    // Load as UAC collection (works for UAC, partially for Velociraptor)
+    let mut data = investigation::data::load_uac_collection(&manifest.extracted_root);
+
+    // For Velociraptor collections: try to find and load $MFT
+    let mft_app = if manifest.format_name.contains("elociraptor") {
+        try_load_mft(&manifest.extracted_root, &mut data)?
+    } else {
+        None
+    };
+
+    eprintln!(
+        "  {} timeline events, {} alerts",
+        data.timeline.len(),
+        data.alerts.len(),
+    );
+
+    Ok(Some((data, mft_app, manifest)))
+}
+
+/// Attempt to locate and load an `$MFT` file from a Velociraptor extraction.
+///
+/// If found, parses the MFT tree, optionally enriches with `$UsnJrnl`,
+/// converts both to timeline events (merged into `data.timeline`), runs
+/// heuristics, and returns a fully constructed `App`.
+fn try_load_mft(
+    extracted_root: &std::path::Path,
+    data: &mut investigation::data::InvestigationData,
+) -> Result<Option<App>> {
+    use investigation::timeline::{mft_to_events, usn_to_events};
+
+    // Look for $MFT in common Velociraptor extraction paths
+    let mft_candidates = [
+        extracted_root.join("uploads/ntfs/%5C%5C.%5CC%3A/$MFT"),
+        extracted_root.join("uploads/ntfs/$MFT"),
+        extracted_root.join("uploads/$MFT"),
+    ];
+
+    let mft_path = mft_candidates.iter().find(|p| p.exists());
+
+    let Some(mft_path) = mft_path else {
+        return Ok(None);
+    };
+
+    eprintln!("  Loading $MFT from {}", mft_path.display());
+    let mut tree = FileTree::from_mft(mft_path)?;
+
+    // Look for $UsnJrnl
+    let usn_candidates = [
+        extracted_root.join("uploads/ntfs/%5C%5C.%5CC%3A/$Extend/$UsnJrnl%3A$J"),
+        extracted_root.join("uploads/ntfs/$Extend/$UsnJrnl"),
+    ];
+    let usn_records = if let Some(usn_path) = usn_candidates.iter().find(|p| p.exists()) {
+        enrich_with_usnjrnl(&mut tree, usn_path)
+    } else {
+        Vec::new()
+    };
+
+    // Convert MFT + USN to timeline events
+    let mut mft_events = mft_to_events(&tree);
+    if !usn_records.is_empty() {
+        mft_events.extend(usn_to_events(&usn_records));
+    }
+
+    // Merge into existing timeline and re-sort
+    data.timeline.extend(mft_events);
+    data.timeline.sort_by_key(|e| e.timestamp);
+
+    // Run heuristics on MFT
+    let config = HeuristicsConfig::default();
+    let mut anomaly_index = heuristics::run_tier1(&tree, &config);
+    if !usn_records.is_empty() {
+        let usn_index = heuristics::check_usn_stream(&usn_records, Some(&tree));
+        anomaly_index.merge(usn_index);
+    }
+
+    // Build the MFT App (takes ownership of tree and anomaly_index)
+    let app = App::new(tree, anomaly_index)?;
+
+    // Note: we don't set data.mft_tree since FileTree doesn't derive Clone
+    // and we already transferred ownership to App::new(). The MFT view is
+    // handled by delegation to the existing App.
+
+    eprintln!(
+        "  MFT loaded, {} total timeline events",
+        data.timeline.len()
+    );
+    Ok(Some(app))
+}
+
+/// Launch the investigation workbench TUI.
+///
+/// The `_manifest` parameter is kept alive for the duration of the TUI session
+/// to prevent the temp directory from being cleaned up.
+fn run_workbench(
+    data: investigation::data::InvestigationData,
+    mft_app: Option<App>,
+    _manifest: rt_unpack::CollectionManifest,
+) -> Result<()> {
+    let mut workbench = investigation::WorkbenchApp::new(data, mft_app);
+
+    let mut terminal = ratatui::init();
+    let result = run_workbench_loop(&mut terminal, &mut workbench);
+    ratatui::restore();
+
+    result
+}
+
+/// Event loop for the investigation workbench.
+fn run_workbench_loop(
+    terminal: &mut ratatui::DefaultTerminal,
+    app: &mut investigation::WorkbenchApp,
+) -> Result<()> {
+    use investigation::workbench_ui::draw_workbench;
+
+    loop {
+        terminal.draw(|frame| draw_workbench(frame, app))?;
+
+        if event::poll(Duration::from_millis(50))? {
+            if let Event::Key(key) = event::read()? {
+                if matches!(app.handle_key(key), Action::Quit) {
+                    return Ok(());
+                }
+            }
+        }
+
+        // If MFT app is active, poll its search results
+        if let Some(ref mut mft_app) = app.mft_app {
+            mft_app.poll_search_results();
+            mft_app.fire_debounced_search();
+        }
     }
 }
