@@ -39,16 +39,57 @@ pub fn parse_dpkg_output(content: &str) -> Vec<InstalledPackage> {
         .collect()
 }
 
+/// Check whether a filename matches a command prefix using any of the UAC
+/// naming conventions: `cmd.txt`, `cmd-flags.txt`, or `cmd_-flags.txt`
+/// (UAC replaces spaces in the shell command with underscores).
+fn matches_command_prefix(filename: &str, prefix: &str) -> bool {
+    let stem = filename.strip_suffix(".txt").unwrap_or("");
+    if stem.is_empty() {
+        return false;
+    }
+    if stem == prefix {
+        return true;
+    }
+    if stem.starts_with(&format!("{prefix}-")) {
+        return true;
+    }
+    if stem.starts_with(&format!("{prefix}_")) {
+        return true;
+    }
+    false
+}
+
 /// Parse all package files in a UAC packages directory.
+///
+/// Scans for any `.txt` file whose name starts with `dpkg` (using hyphen,
+/// underscore, or dot separators) to handle all UAC command-line flag
+/// variations without hardcoding each one.
 #[must_use]
 pub fn parse_packages_dir(dir: &std::path::Path) -> Vec<InstalledPackage> {
     let mut all = Vec::new();
 
-    for name in &["dpkg-l.txt", "dpkg.txt"] {
-        let path = dir.join(name);
-        if let Ok(content) = std::fs::read_to_string(&path) {
-            all.extend(parse_dpkg_output(&content));
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return all;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        if !std::path::Path::new(name)
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("txt"))
+        {
+            continue;
         }
+
+        if matches_command_prefix(name, "dpkg") {
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                all.extend(parse_dpkg_output(&content));
+            }
+        }
+        // Future: rpm-prefixed files -> parse_rpm_output
     }
 
     all
@@ -73,5 +114,31 @@ mod tests {
         assert_eq!(pkgs[0].name, "bash");
         assert_eq!(pkgs[0].version, "5.1-6ubuntu1");
         assert_eq!(pkgs[1].name, "coreutils");
+    }
+
+    #[test]
+    fn test_parse_packages_dir_uac_dpkg_underscore_filename() {
+        let dir = tempfile::tempdir().unwrap();
+        // UAC names files after the command: `dpkg -l` -> `dpkg_-l.txt`
+        let content = "ii  bash  5.1-6ubuntu1  amd64  GNU Bourne Again SHell\n\
+                        ii  coreutils  8.32-4.1ubun  amd64  GNU core utilities\n";
+        std::fs::write(dir.path().join("dpkg_-l.txt"), content).unwrap();
+
+        let pkgs = parse_packages_dir(dir.path());
+        assert!(
+            !pkgs.is_empty(),
+            "parse_packages_dir should find dpkg_-l.txt (UAC underscore naming)"
+        );
+        assert_eq!(pkgs.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_packages_dir_still_finds_legacy_filenames() {
+        let dir = tempfile::tempdir().unwrap();
+        let content = "ii  bash  5.1-6ubuntu1  amd64  GNU Bourne Again SHell\n";
+        std::fs::write(dir.path().join("dpkg-l.txt"), content).unwrap();
+
+        let pkgs = parse_packages_dir(dir.path());
+        assert_eq!(pkgs.len(), 1, "legacy dpkg-l.txt should still be found");
     }
 }

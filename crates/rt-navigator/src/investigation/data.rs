@@ -94,9 +94,20 @@ impl InvestigationData {
 /// Parses bodyfile, network state, process list, crontabs, login history,
 /// packages, hashed executables, chkrootkit findings, and system configs.
 /// Builds a supertimeline and runs alert heuristics on the raw data.
+///
+/// When `manifest_meta` is `Some`, metadata is populated from the manifest
+/// (which was parsed during extraction). When `None` (e.g. standalone use),
+/// falls back to parsing metadata from the directory name.
 #[must_use]
-pub fn load_uac_collection(extracted_root: &Path) -> InvestigationData {
-    let metadata = parse_uac_metadata(extracted_root);
+pub fn load_uac_collection(
+    extracted_root: &Path,
+    manifest_meta: Option<&rt_unpack::CollectionMetadata>,
+) -> InvestigationData {
+    let metadata = if let Some(m) = manifest_meta {
+        convert_manifest_metadata(m)
+    } else {
+        parse_uac_metadata(extracted_root)
+    };
 
     // ----- Parse all artifact categories -----
 
@@ -149,6 +160,22 @@ pub fn load_uac_collection(extracted_root: &Path) -> InvestigationData {
 // ---------------------------------------------------------------------------
 // Metadata parser
 // ---------------------------------------------------------------------------
+
+/// Convert `rt_unpack::CollectionMetadata` to our local `CollectionMetadata`.
+fn convert_manifest_metadata(m: &rt_unpack::CollectionMetadata) -> CollectionMetadata {
+    let os = match m.os_type {
+        rt_unpack::OsType::Linux => "Linux",
+        rt_unpack::OsType::MacOS => "macOS",
+        rt_unpack::OsType::Windows => "Windows",
+        rt_unpack::OsType::Unknown => "",
+    };
+    CollectionMetadata {
+        hostname: m.hostname.clone().unwrap_or_default(),
+        os: os.to_string(),
+        collection_tool: m.tool_version.clone().unwrap_or_default(),
+        acquisition_time: m.collection_time.map(|dt| dt.timestamp()).unwrap_or(0),
+    }
+}
 
 /// Extract hostname and acquisition timestamp from the UAC directory name.
 ///
@@ -317,7 +344,7 @@ mod tests {
     #[test]
     fn load_uac_collection_empty_dir() {
         let dir = tempfile::tempdir().expect("tmpdir");
-        let data = load_uac_collection(dir.path());
+        let data = load_uac_collection(dir.path(), None);
         assert!(data.timeline.is_empty());
         assert!(data.alerts.is_empty());
         assert!(data.network.is_empty());
@@ -327,7 +354,7 @@ mod tests {
     #[test]
     fn timeline_source_counts_empty_data() {
         let dir = tempfile::tempdir().expect("tmpdir");
-        let data = load_uac_collection(dir.path());
+        let data = load_uac_collection(dir.path(), None);
         let counts = data.timeline_source_counts();
         assert!(counts.is_empty(), "empty data should have no source counts");
     }

@@ -120,22 +120,62 @@ fn parse_pid_program(field: &str) -> (Option<u32>, Option<String>) {
     (None, None)
 }
 
+/// Check whether a filename matches a command prefix using any of the UAC
+/// naming conventions: `cmd.txt`, `cmd-flags.txt`, or `cmd_-flags.txt`
+/// (UAC replaces spaces in the shell command with underscores).
+fn matches_command_prefix(filename: &str, prefix: &str) -> bool {
+    let stem = filename.strip_suffix(".txt").unwrap_or("");
+    if stem.is_empty() {
+        return false;
+    }
+    // Exact match: "ss.txt" -> stem "ss"
+    if stem == prefix {
+        return true;
+    }
+    // Hyphen convention: "ss-anp.txt" -> starts with "ss-"
+    if stem.starts_with(&format!("{prefix}-")) {
+        return true;
+    }
+    // UAC underscore convention: "ss_-anp.txt" -> starts with "ss_"
+    if stem.starts_with(&format!("{prefix}_")) {
+        return true;
+    }
+    false
+}
+
 /// Parse all network-related files in a UAC network directory.
+///
+/// Scans for any `.txt` file whose name starts with `ss` or `netstat`
+/// (using hyphen, underscore, or dot separators) to handle all UAC
+/// command-line flag variations without hardcoding each one.
 #[must_use]
 pub fn parse_network_dir(dir: &std::path::Path) -> Vec<NetworkConnection> {
     let mut all = Vec::new();
 
-    for name in &["ss.txt", "ss-tlnp.txt", "ss-anp.txt"] {
-        let path = dir.join(name);
-        if let Ok(content) = std::fs::read_to_string(&path) {
-            all.extend(parse_ss_output(&content));
-        }
-    }
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return all;
+    };
 
-    for name in &["netstat.txt", "netstat-tlnp.txt", "netstat-anp.txt"] {
-        let path = dir.join(name);
-        if let Ok(content) = std::fs::read_to_string(&path) {
-            all.extend(parse_netstat_output(&content));
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        if !std::path::Path::new(name)
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("txt"))
+        {
+            continue;
+        }
+
+        if matches_command_prefix(name, "ss") {
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                all.extend(parse_ss_output(&content));
+            }
+        } else if matches_command_prefix(name, "netstat") {
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                all.extend(parse_netstat_output(&content));
+            }
         }
     }
 
@@ -193,5 +233,57 @@ mod tests {
         let (pid, prog) = parse_pid_program("-");
         assert!(pid.is_none());
         assert!(prog.is_none());
+    }
+
+    #[test]
+    fn test_parse_network_dir_uac_ss_underscore_filenames() {
+        let dir = tempfile::tempdir().unwrap();
+        // UAC names files after the command with spaces replaced by underscores:
+        // `ss -anp` -> `ss_-anp.txt`
+        let ss_content = "State   Recv-Q  Send-Q  Local Address:Port  Peer Address:Port  Process\n\
+                          LISTEN  0       128     0.0.0.0:22         0.0.0.0:*          users:((\"sshd\",pid=1234,fd=3))\n";
+        std::fs::write(dir.path().join("ss_-anp.txt"), ss_content).unwrap();
+        std::fs::write(dir.path().join("ss_-tlnp.txt"), ss_content).unwrap();
+
+        let conns = parse_network_dir(dir.path());
+        assert!(
+            !conns.is_empty(),
+            "parse_network_dir should find ss_-anp.txt and ss_-tlnp.txt (UAC underscore naming)"
+        );
+        assert_eq!(
+            conns.len(),
+            2,
+            "expected one connection from each of the two ss files"
+        );
+    }
+
+    #[test]
+    fn test_parse_network_dir_uac_netstat_underscore_filenames() {
+        let dir = tempfile::tempdir().unwrap();
+        let netstat_content = "Proto Recv-Q Send-Q Local Address     Foreign Address   State       PID/Program\n\
+                               tcp   0      0      0.0.0.0:22        0.0.0.0:*         LISTEN      1234/sshd\n";
+        std::fs::write(dir.path().join("netstat_-anp.txt"), netstat_content).unwrap();
+
+        let conns = parse_network_dir(dir.path());
+        assert!(
+            !conns.is_empty(),
+            "parse_network_dir should find netstat_-anp.txt (UAC underscore naming)"
+        );
+    }
+
+    #[test]
+    fn test_parse_network_dir_still_finds_legacy_filenames() {
+        let dir = tempfile::tempdir().unwrap();
+        let ss_content = "State   Recv-Q  Send-Q  Local Address:Port  Peer Address:Port  Process\n\
+                          ESTAB   0       0       10.0.0.1:22        10.0.0.2:54321\n";
+        std::fs::write(dir.path().join("ss.txt"), ss_content).unwrap();
+        std::fs::write(dir.path().join("ss-tlnp.txt"), ss_content).unwrap();
+
+        let conns = parse_network_dir(dir.path());
+        assert_eq!(
+            conns.len(),
+            2,
+            "legacy ss.txt and ss-tlnp.txt should still be found"
+        );
     }
 }

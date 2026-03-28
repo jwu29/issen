@@ -29,10 +29,16 @@ pub fn extract_uac(
         let mut entry = entry?;
         let entry_path = entry.path()?.to_string_lossy().to_string();
 
-        // Detect the root prefix (e.g., "uac-vbox-linux-20260324193807/")
+        // Detect a root prefix directory that wraps the collection contents
+        // (e.g., "uac-vbox-linux-20260324193807/"). Only strip directories
+        // that look like UAC output names — never strip real artifact dirs
+        // like "bodyfile/" or "live_response/".
         if root_prefix.is_none() {
             if let Some(idx) = entry_path.find('/') {
-                root_prefix = Some(entry_path[..=idx].to_string());
+                let candidate = &entry_path[..idx];
+                if candidate.starts_with("uac-") {
+                    root_prefix = Some(entry_path[..=idx].to_string());
+                }
             }
         }
 
@@ -213,5 +219,73 @@ mod tests {
         assert_eq!(meta.os_type, OsType::Linux);
         assert!(dest.join("uac.log").exists());
         assert!(dest.join("bodyfile/bodyfile.txt").exists());
+    }
+
+    /// Tar.gz without a root `uac-*` prefix — entries sit at top level.
+    /// This matches real-world UAC output where the archive contains
+    /// `uac.log`, `bodyfile/bodyfile.txt`, etc. directly.
+    #[test]
+    fn test_extract_uac_no_root_prefix() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let tar_gz_path = dir.path().join("uac-noprefix-20260101000000.tar.gz");
+        let dest = dir.path().join("extracted");
+        std::fs::create_dir_all(&dest).expect("mkdir");
+
+        let file = std::fs::File::create(&tar_gz_path).expect("create");
+        let gz = flate2::write::GzEncoder::new(file, flate2::Compression::fast());
+        let mut tar_builder = tar::Builder::new(gz);
+
+        // uac.log at top level (no prefix dir)
+        let log_data = b"[2026-01-01 00:00:00] UAC 2.9.0 started on Linux";
+        let mut header = tar::Header::new_gnu();
+        header.set_size(log_data.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        tar_builder
+            .append_data(&mut header, "uac.log", &log_data[..])
+            .expect("log");
+
+        // bodyfile/bodyfile.txt — "bodyfile/" is a real dir, not a prefix
+        let bf_data = b"0|/bin/ls|1234|100755|0|0|100|1711111111|1711111112|1711111113|0";
+        let mut header = tar::Header::new_gnu();
+        header.set_size(bf_data.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        tar_builder
+            .append_data(&mut header, "bodyfile/bodyfile.txt", &bf_data[..])
+            .expect("bf");
+
+        // live_response/network/ss.txt
+        let net_data = b"Netid State Local Address:Port";
+        let mut header = tar::Header::new_gnu();
+        header.set_size(net_data.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        tar_builder
+            .append_data(&mut header, "live_response/network/ss.txt", &net_data[..])
+            .expect("net");
+
+        let gz = tar_builder.into_inner().expect("tar");
+        gz.finish().expect("gz");
+
+        let (entries, meta) = extract_uac(&tar_gz_path, &dest).expect("extract");
+
+        assert_eq!(entries.len(), 3);
+        assert_eq!(meta.hostname.as_deref(), Some("noprefix"));
+        assert_eq!(meta.os_type, OsType::Linux);
+
+        // Critical: directory structure must be preserved
+        assert!(
+            dest.join("uac.log").exists(),
+            "uac.log should exist at root"
+        );
+        assert!(
+            dest.join("bodyfile/bodyfile.txt").exists(),
+            "bodyfile/bodyfile.txt should keep its directory"
+        );
+        assert!(
+            dest.join("live_response/network/ss.txt").exists(),
+            "nested dirs should be preserved"
+        );
     }
 }

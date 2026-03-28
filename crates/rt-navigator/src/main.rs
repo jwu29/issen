@@ -296,7 +296,10 @@ fn try_open_collection(
     eprintln!("  Extracted to {}", manifest.extracted_root.display());
 
     // Load as UAC collection (works for UAC, partially for Velociraptor)
-    let mut data = investigation::data::load_uac_collection(&manifest.extracted_root);
+    let mut data = investigation::data::load_uac_collection(
+        &manifest.extracted_root,
+        Some(&manifest.metadata),
+    );
 
     // For Velociraptor collections: try to find and load $MFT
     let mft_app = if manifest.format_name.contains("elociraptor") {
