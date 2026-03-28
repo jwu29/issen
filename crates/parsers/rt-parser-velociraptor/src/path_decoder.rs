@@ -51,6 +51,12 @@ pub fn decode_velociraptor_path(zip_path: &str) -> Option<DecodedPath> {
         })
     } else if let Some(rest) = decoded.strip_prefix("uploads/auto/") {
         // Auto accessor: C:/path -> C:\path
+        // Some entries use device-path notation \\.\C:/path (e.g., locked files
+        // accessed via raw device). Strip it the same way the NTFS decoder does.
+        let rest = rest
+            .strip_prefix("\\\\.\\C:\\")
+            .or_else(|| rest.strip_prefix("\\\\.\\C:/"))
+            .unwrap_or(rest);
         let windows_path = if rest.starts_with("C:") || rest.starts_with("c:") {
             rest.replace('/', "\\")
         } else {
@@ -189,6 +195,37 @@ mod tests {
         let path = "uploads/auto/C%3A/Windows/Temp/random.tmp";
         let decoded = decode_velociraptor_path(path).expect("should decode");
         assert!(decoded.artifact_type.is_none());
+    }
+
+    /// Velociraptor sometimes puts device-path notation `\\.\C:` in auto entries
+    /// (e.g., locked files accessed via raw device). The decoder must strip this
+    /// prefix to produce a normal `C:\path`, otherwise the relative path starts
+    /// with `/` on Unix and causes writes to the root filesystem.
+    #[test]
+    fn test_decode_auto_device_path_notation() {
+        // Real entry from Collection-A380: uploads/auto/%5C%5C.%5CC%3A/Windows/System32/LogFiles/...
+        let path =
+            "uploads/auto/%5C%5C.%5CC%3A/Windows/System32/LogFiles/WMI/RtBackup/EtwRTDiagLog.etl";
+        let decoded = decode_velociraptor_path(path).expect("should decode");
+        assert_eq!(decoded.accessor, AccessorType::Auto);
+        assert_eq!(
+            decoded.windows_path,
+            "C:\\Windows\\System32\\LogFiles\\WMI\\RtBackup\\EtwRTDiagLog.etl",
+            "device-path \\\\.\\.\\C: prefix should be stripped, not doubled"
+        );
+    }
+
+    /// Same test but for Windows.old paths behind device notation.
+    #[test]
+    fn test_decode_auto_device_path_windows_old() {
+        let path = "uploads/auto/%5C%5C.%5CC%3A/Windows.old/WINDOWS/System32/LogFiles/WMI/RtBackup/EtwRTDiagLog.etl";
+        let decoded = decode_velociraptor_path(path).expect("should decode");
+        assert_eq!(decoded.accessor, AccessorType::Auto);
+        assert!(
+            decoded.windows_path.starts_with("C:\\Windows.old"),
+            "should normalize to C:\\ prefix, got: {}",
+            decoded.windows_path
+        );
     }
 
     #[test]
