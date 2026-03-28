@@ -118,7 +118,7 @@ impl WorkbenchApp {
         if !data.timeline.is_empty() {
             available_views.push(WorkbenchView::Timeline);
         }
-        if data.mft_tree.is_some() {
+        if mft_app.is_some() {
             available_views.push(WorkbenchView::MftTree);
         }
         if !data.network.is_empty() {
@@ -475,6 +475,17 @@ mod tests {
         let mut app = WorkbenchApp::new(make_test_data(0, 0), None);
         let key = KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE);
         assert_eq!(app.handle_key(key), Action::Quit);
+    }
+
+    #[test]
+    fn test_mft_tree_view_available_when_mft_app_present() {
+        use rt_mft_tree::tree::FileTree;
+        use rt_signatures::heuristics::AnomalyIndex;
+
+        let tree = FileTree::test_single_node("test.exe");
+        let mft_app = crate::app::App::new(tree, AnomalyIndex::new()).unwrap();
+        let app = WorkbenchApp::new(make_test_data(0, 0), Some(mft_app));
+        assert!(app.available_views.contains(&WorkbenchView::MftTree));
     }
 
     #[test]
