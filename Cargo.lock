@@ -4096,6 +4096,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "rt-parser-uac"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "flate2",
+ "inventory",
+ "regex",
+ "rt-core",
+ "rt-unpack",
+ "serde",
+ "serde_json",
+ "tar",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
 name = "rt-parser-usnjrnl"
 version = "0.1.0"
 dependencies = [
