@@ -12,6 +12,7 @@ members = [
     "crates/parsers/rt-parser-usnjrnl",
     "crates/parsers/rt-parser-mft",
     "crates/parsers/rt-parser-evtx",
+    "crates/parsers/rt-parser-velociraptor",
     "crates/rt-report",
     "crates/rt-cli",
     "crates/rt-navigator",
@@ -38,6 +39,7 @@ rt-shrinkpath = { path = "crates/rt-shrinkpath" }
 rt-parser-usnjrnl = { path = "crates/parsers/rt-parser-usnjrnl" }
 rt-parser-mft     = { path = "crates/parsers/rt-parser-mft" }
 rt-parser-evtx    = { path = "crates/parsers/rt-parser-evtx" }
+rt-parser-velociraptor = { path = "crates/parsers/rt-parser-velociraptor" }
 rt-report         = { path = "crates/rt-report" }
 rt-signatures = { path = "crates/rt-signatures" }
 rt-remote-access = { path = "crates/rt-remote-access" }
@@ -76,6 +78,8 @@ csv          = "1"
 ipnet        = "2"
 md-5         = "0.10"
 regex        = "1"
+zip          = "2"
+percent-encoding = "2"
 
 # Forensic artifact parsers
 usnjrnl-forensic = { version = "0.6", default-features = false }
