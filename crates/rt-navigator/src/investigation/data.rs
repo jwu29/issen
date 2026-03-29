@@ -193,6 +193,7 @@ pub fn load_uac_collection(
         configs: &config_files,
         hashes: &hashes,
         packages: &packages,
+        logins: &logins,
     };
     let alerts = detect_alerts(&alert_input);
 
