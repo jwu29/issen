@@ -10,6 +10,7 @@ use rt_parser_uac::parsers::chkrootkit::ChkrootkitFinding;
 use rt_parser_uac::parsers::configs::ConfigFile;
 use rt_parser_uac::parsers::network::NetworkConnection;
 use rt_parser_uac::parsers::process::{CrontabEntry, ProcessInfo};
+use rt_parser_uac::parsers::rootkit::RootkitFinding;
 use rt_signatures::heuristics::AnomalyIndex;
 use rt_signatures::matching::results::Severity;
 
@@ -56,6 +57,7 @@ pub struct AlertInput<'a> {
     pub processes: &'a [ProcessInfo],
     pub crontabs: &'a [CrontabEntry],
     pub chkrootkit: &'a [ChkrootkitFinding],
+    pub rootkit_findings: &'a [RootkitFinding],
     pub configs: &'a [ConfigFile],
 }
 
@@ -73,6 +75,7 @@ pub fn detect_alerts(input: &AlertInput<'_>) -> Vec<Alert> {
     check_network_alerts(input.network, &mut alerts);
     check_process_alerts(input.processes, &mut alerts);
     check_chkrootkit_alerts(input.chkrootkit, &mut alerts);
+    check_rootkit_finding_alerts(input.rootkit_findings, &mut alerts);
     check_config_alerts(input.configs, input.crontabs, &mut alerts);
     check_bodyfile_alerts(input.bodyfile, &mut alerts);
 
@@ -197,6 +200,32 @@ fn check_chkrootkit_alerts(findings: &[ChkrootkitFinding], alerts: &mut Vec<Aler
                 detail: finding.result.clone(),
             });
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Rootkit finding checks
+// ---------------------------------------------------------------------------
+
+/// Convert rootkit indicator findings into alerts with mapped severity.
+///
+/// Maps `RootkitSeverity` to `AlertSeverity`:
+/// - Critical → Critical (known rootkit module, LD_PRELOAD with rootkit lib)
+/// - Warning → Warning (unknown ld.so.preload entry, unsigned kernel module)
+/// - Info → Info (proprietary module, out-of-tree module)
+fn check_rootkit_finding_alerts(findings: &[RootkitFinding], alerts: &mut Vec<Alert>) {
+    for finding in findings {
+        let severity = match finding.severity {
+            rt_parser_uac::parsers::rootkit::RootkitSeverity::Critical => AlertSeverity::Critical,
+            rt_parser_uac::parsers::rootkit::RootkitSeverity::Warning => AlertSeverity::Warning,
+            rt_parser_uac::parsers::rootkit::RootkitSeverity::Info => AlertSeverity::Info,
+        };
+        alerts.push(Alert {
+            severity,
+            category: "rootkit".into(),
+            message: format!("[{}] {}", finding.check, finding.description),
+            detail: finding.evidence.clone(),
+        });
     }
 }
 
@@ -349,6 +378,7 @@ mod tests {
             processes: &[],
             crontabs: &[],
             chkrootkit: &[],
+            rootkit_findings: &[],
             configs: &[],
         }
     }
@@ -595,5 +625,118 @@ mod tests {
         assert!(!is_rfc1918_172("192.168.1.1"));
         assert!(!is_rfc1918_172("8.8.8.8"));
         assert!(!is_rfc1918_172(""));
+    }
+
+    // =====================================================================
+    // Rootkit finding → alert conversion
+    // =====================================================================
+
+    #[test]
+    fn rootkit_critical_finding_maps_to_critical_alert() {
+        use rt_parser_uac::parsers::rootkit::RootkitSeverity;
+        let findings = vec![RootkitFinding {
+            severity: RootkitSeverity::Critical,
+            check: "kernel_module".into(),
+            description: "Known rootkit kernel module 'diamorphine' loaded".into(),
+            evidence: "diamorphine".into(),
+        }];
+        let input = AlertInput {
+            rootkit_findings: &findings,
+            ..empty_input()
+        };
+        let alerts = detect_alerts(&input);
+        assert!(
+            alerts.iter().any(|a| a.severity == AlertSeverity::Critical
+                && a.category == "rootkit"
+                && a.message.contains("diamorphine")),
+            "expected critical rootkit alert, got: {alerts:?}"
+        );
+    }
+
+    #[test]
+    fn rootkit_warning_finding_maps_to_warning_alert() {
+        use rt_parser_uac::parsers::rootkit::RootkitSeverity;
+        let findings = vec![RootkitFinding {
+            severity: RootkitSeverity::Warning,
+            check: "ld_preload".into(),
+            description: "Library found in ld.so.preload".into(),
+            evidence: "/lib/libymv.so.3".into(),
+        }];
+        let input = AlertInput {
+            rootkit_findings: &findings,
+            ..empty_input()
+        };
+        let alerts = detect_alerts(&input);
+        assert!(
+            alerts
+                .iter()
+                .any(|a| a.severity == AlertSeverity::Warning && a.category == "rootkit"),
+            "expected warning rootkit alert, got: {alerts:?}"
+        );
+    }
+
+    #[test]
+    fn rootkit_info_finding_maps_to_info_alert() {
+        use rt_parser_uac::parsers::rootkit::RootkitSeverity;
+        let findings = vec![RootkitFinding {
+            severity: RootkitSeverity::Info,
+            check: "kernel_taint".into(),
+            description: "Proprietary kernel module loaded".into(),
+            evidence: "taint=1, bit 0 set".into(),
+        }];
+        let input = AlertInput {
+            rootkit_findings: &findings,
+            ..empty_input()
+        };
+        let alerts = detect_alerts(&input);
+        assert!(
+            alerts
+                .iter()
+                .any(|a| a.severity == AlertSeverity::Info && a.category == "rootkit"),
+            "expected info rootkit alert, got: {alerts:?}"
+        );
+    }
+
+    #[test]
+    fn rootkit_empty_findings_no_alerts() {
+        let input = AlertInput {
+            rootkit_findings: &[],
+            ..empty_input()
+        };
+        let alerts = detect_alerts(&input);
+        // Only rootkit-related — with empty input everywhere, should be empty
+        assert!(alerts.is_empty());
+    }
+
+    #[test]
+    fn rootkit_multiple_findings_all_converted() {
+        use rt_parser_uac::parsers::rootkit::RootkitSeverity;
+        let findings = vec![
+            RootkitFinding {
+                severity: RootkitSeverity::Critical,
+                check: "kernel_module".into(),
+                description: "diamorphine loaded".into(),
+                evidence: "diamorphine".into(),
+            },
+            RootkitFinding {
+                severity: RootkitSeverity::Warning,
+                check: "kernel_taint".into(),
+                description: "Unsigned module".into(),
+                evidence: "taint=4096".into(),
+            },
+            RootkitFinding {
+                severity: RootkitSeverity::Info,
+                check: "kernel_taint".into(),
+                description: "Proprietary module".into(),
+                evidence: "taint=1".into(),
+            },
+        ];
+        let input = AlertInput {
+            rootkit_findings: &findings,
+            ..empty_input()
+        };
+        let alerts = detect_alerts(&input);
+        let rootkit_alerts: Vec<_> = alerts.iter().filter(|a| a.category == "rootkit").collect();
+        assert_eq!(rootkit_alerts.len(), 3);
     }
 }

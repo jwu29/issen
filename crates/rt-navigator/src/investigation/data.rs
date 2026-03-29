@@ -22,6 +22,8 @@ use rt_parser_uac::parsers::packages;
 use rt_parser_uac::parsers::packages::InstalledPackage;
 use rt_parser_uac::parsers::process;
 use rt_parser_uac::parsers::process::{CrontabEntry, ProcessInfo};
+use rt_parser_uac::parsers::rootkit;
+use rt_parser_uac::parsers::rootkit::RootkitFinding;
 use rt_parser_uac::parsers::system;
 use rt_parser_uac::parsers::system::LoginRecord;
 use rt_signatures::heuristics::AnomalyIndex;
@@ -84,6 +86,7 @@ pub struct InvestigationData {
     pub packages: Vec<InstalledPackage>,
     pub hashes: Vec<HashedExecutable>,
     pub chkrootkit: Vec<ChkrootkitFinding>,
+    pub rootkit_findings: Vec<RootkitFinding>,
     pub configs: Vec<ConfigFile>,
     /// Artifact inventory from collection manifest (label → count).
     /// Populated for Velociraptor collections where the manifest classifies
@@ -103,6 +106,7 @@ impl std::fmt::Debug for InvestigationData {
             .field("packages", &self.packages.len())
             .field("hashes", &self.hashes.len())
             .field("chkrootkit", &self.chkrootkit.len())
+            .field("rootkit_findings", &self.rootkit_findings.len())
             .field("configs", &self.configs.len())
             .field("artifact_types", &self.artifact_counts.len())
             .finish()
@@ -167,6 +171,7 @@ pub fn load_uac_collection(
     let packages = load_packages(extracted_root);
     let hashes = load_hashes(extracted_root);
     let chkrootkit_findings = load_chkrootkit(extracted_root);
+    let rootkit_findings = load_rootkit_indicators(extracted_root);
     let config_files = load_configs(extracted_root);
 
     // ----- Build supertimeline -----
@@ -184,6 +189,7 @@ pub fn load_uac_collection(
         processes: &processes,
         crontabs: &crontabs,
         chkrootkit: &chkrootkit_findings,
+        rootkit_findings: &rootkit_findings,
         configs: &config_files,
     };
     let alerts = detect_alerts(&alert_input);
@@ -201,6 +207,7 @@ pub fn load_uac_collection(
         packages,
         hashes,
         chkrootkit: chkrootkit_findings,
+        rootkit_findings,
         configs: config_files,
         artifact_counts: HashMap::new(),
     }
@@ -249,6 +256,7 @@ pub fn load_velociraptor_collection(
         packages: Vec::new(),
         hashes: Vec::new(),
         chkrootkit: Vec::new(),
+        rootkit_findings: Vec::new(),
         configs: Vec::new(),
         artifact_counts,
     }
@@ -456,10 +464,25 @@ fn load_hashes(root: &Path) -> Vec<HashedExecutable> {
 }
 
 fn load_chkrootkit(root: &Path) -> Vec<ChkrootkitFinding> {
-    let path = root.join("chkrootkit/chkrootkit.log");
-    std::fs::read_to_string(&path)
+    let chk_dir = root.join("chkrootkit");
+    if !chk_dir.is_dir() {
+        return Vec::new();
+    }
+    // Parse the chkrootkit.log if present (standard chkrootkit output)
+    let log_path = chk_dir.join("chkrootkit.log");
+    if let Ok(content) = std::fs::read_to_string(&log_path) {
+        return chkrootkit::parse_chkrootkit_log(&content);
+    }
+    // Some UAC versions store individual check outputs as separate files
+    // (e.g. chkrootkit.txt) — try that too
+    let alt_path = chk_dir.join("chkrootkit.txt");
+    std::fs::read_to_string(&alt_path)
         .map(|content| chkrootkit::parse_chkrootkit_log(&content))
         .unwrap_or_default()
+}
+
+fn load_rootkit_indicators(root: &Path) -> Vec<RootkitFinding> {
+    rootkit::scan_rootkit_indicators(root)
 }
 
 fn load_configs(root: &Path) -> Vec<ConfigFile> {
@@ -679,6 +702,7 @@ mod tests {
             packages: Vec::new(),
             hashes: Vec::new(),
             chkrootkit: Vec::new(),
+            rootkit_findings: Vec::new(),
             configs: Vec::new(),
             artifact_counts: std::collections::HashMap::new(),
         };
@@ -705,5 +729,108 @@ mod tests {
         assert!(debug.contains("InvestigationData"));
         assert!(debug.contains("timeline: 0"));
         assert!(debug.contains("alerts: 0"));
+    }
+
+    // =====================================================================
+    // Rootkit indicator integration tests
+    // =====================================================================
+
+    #[test]
+    fn load_uac_collection_with_ld_preload_produces_rootkit_alert() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let root = dir.path();
+
+        // Create chkrootkit/etc_ld_so_preload.txt with suspicious library
+        std::fs::create_dir_all(root.join("chkrootkit")).expect("mkdir");
+        std::fs::write(
+            root.join("chkrootkit/etc_ld_so_preload.txt"),
+            "/lib/x86_64-linux-gnu/libymv.so.3\n",
+        )
+        .expect("write");
+
+        let data = load_uac_collection(root, None);
+
+        // Should have rootkit findings from scan_rootkit_indicators
+        assert!(
+            !data.rootkit_findings.is_empty(),
+            "expected rootkit findings, got none"
+        );
+
+        // Should have corresponding alert
+        assert!(
+            data.alerts.iter().any(|a| a.category == "rootkit"),
+            "expected rootkit alert, got: {:?}",
+            data.alerts
+        );
+    }
+
+    #[test]
+    fn load_uac_collection_with_diamorphine_produces_critical_alert() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let root = dir.path();
+
+        std::fs::create_dir_all(root.join("live_response/system")).expect("mkdir");
+        std::fs::write(
+            root.join("live_response/system/lsmod.txt"),
+            "Module                  Size  Used by\n\
+             diamorphine            16384  0\n\
+             ext4                 1142784  1\n",
+        )
+        .expect("write");
+
+        let data = load_uac_collection(root, None);
+
+        assert!(
+            data.rootkit_findings
+                .iter()
+                .any(|f| f.evidence.contains("diamorphine")),
+            "expected diamorphine finding"
+        );
+
+        use crate::investigation::alerts::AlertSeverity;
+        assert!(
+            data.alerts.iter().any(|a| a.category == "rootkit"
+                && a.severity == AlertSeverity::Critical
+                && a.message.contains("diamorphine")),
+            "expected critical rootkit alert for diamorphine, got: {:?}",
+            data.alerts
+        );
+    }
+
+    #[test]
+    fn load_uac_collection_clean_system_no_rootkit_alerts() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let root = dir.path();
+
+        std::fs::create_dir_all(root.join("live_response/system")).expect("mkdir");
+        std::fs::write(
+            root.join("live_response/system/lsmod.txt"),
+            "Module                  Size  Used by\n\
+             ext4                 1142784  1\n",
+        )
+        .expect("write");
+        std::fs::write(
+            root.join("live_response/system/cat_proc_sys_kernel_tainted.txt"),
+            "0\n",
+        )
+        .expect("write");
+        std::fs::write(
+            root.join("live_response/system/env.txt"),
+            "HOME=/root\nPATH=/usr/bin\n",
+        )
+        .expect("write");
+
+        let data = load_uac_collection(root, None);
+
+        assert!(data.rootkit_findings.is_empty());
+        let rootkit_alerts: Vec<_> = data
+            .alerts
+            .iter()
+            .filter(|a| a.category == "rootkit")
+            .collect();
+        assert!(
+            rootkit_alerts.is_empty(),
+            "expected no rootkit alerts on clean system, got: {rootkit_alerts:?}"
+        );
     }
 }
