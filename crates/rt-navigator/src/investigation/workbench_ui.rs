@@ -174,6 +174,7 @@ mod tests {
                 os: "Linux".to_string(),
                 collection_tool: "UAC".to_string(),
                 acquisition_time: 1704067200,
+                ..Default::default()
             },
             timeline,
             network,

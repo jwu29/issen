@@ -35,13 +35,31 @@ use super::timeline::{
 // Metadata
 // ---------------------------------------------------------------------------
 
-/// Basic metadata extracted from the UAC collection directory name.
+/// System profile metadata extracted from a forensic collection.
+///
+/// Populated from UAC `SystemProfile` parsing or Velociraptor manifest metadata.
+/// Fields are `String` (empty = unknown) for simple UI rendering.
 #[derive(Debug, Clone, Default)]
 pub struct CollectionMetadata {
     pub hostname: String,
+    pub fqdn: String,
     pub os: String,
     pub collection_tool: String,
     pub acquisition_time: i64,
+    pub kernel_version: String,
+    pub platform: String,
+    pub architecture: String,
+    pub timezone: String,
+    pub ip_address: String,
+    pub uptime: String,
+    pub locale: String,
+    /// Per-user locale overrides (`username` → `locale value`).
+    pub user_locales: Vec<(String, String)>,
+    pub atime_policy: String,
+    /// Total physical RAM in kibibytes (0 = unknown).
+    pub ram_total_kb: u64,
+    /// Storage devices discovered from lsblk/fdisk/devdisk.
+    pub storage_devices: Vec<rt_parser_uac::parsers::system::StorageDevice>,
 }
 
 // ---------------------------------------------------------------------------
@@ -130,11 +148,14 @@ pub fn load_uac_collection(
     extracted_root: &Path,
     manifest_meta: Option<&rt_unpack::CollectionMetadata>,
 ) -> InvestigationData {
-    let metadata = if let Some(m) = manifest_meta {
+    let mut metadata = if let Some(m) = manifest_meta {
         convert_manifest_metadata(m)
     } else {
         parse_uac_metadata(extracted_root)
     };
+
+    // Enrich metadata with full system profile from collected artifacts
+    enrich_uac_metadata(extracted_root, &mut metadata);
 
     // ----- Parse all artifact categories -----
 
@@ -250,6 +271,7 @@ fn convert_manifest_metadata(m: &rt_unpack::CollectionMetadata) -> CollectionMet
         os: os.to_string(),
         collection_tool: m.tool_version.clone().unwrap_or_default(),
         acquisition_time: m.collection_time.map(|dt| dt.timestamp()).unwrap_or(0),
+        ..CollectionMetadata::default()
     }
 }
 
@@ -263,8 +285,8 @@ pub fn parse_uac_metadata(path: &Path) -> CollectionMetadata {
     let dirname = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
     let mut meta = CollectionMetadata {
-        collection_tool: "UAC".into(),
-        ..CollectionMetadata::default()
+        collection_tool: "UAC".to_string(),
+        ..Default::default()
     };
 
     let Some(after_uac) = dirname.strip_prefix("uac-") else {
@@ -294,6 +316,71 @@ fn parse_uac_timestamp(ts: &str) -> i64 {
     chrono::NaiveDateTime::parse_from_str(ts, "%Y%m%d%H%M%S")
         .map(|dt| dt.and_utc().timestamp())
         .unwrap_or(0)
+}
+
+// ---------------------------------------------------------------------------
+// System profile enrichment
+// ---------------------------------------------------------------------------
+
+/// Enrich `CollectionMetadata` with fields parsed from UAC system artifacts.
+///
+/// Uses `parse_system_profile` which scans across multiple directories
+/// within the UAC extraction (network, system, storage, [root]/etc).
+fn enrich_uac_metadata(root: &Path, meta: &mut CollectionMetadata) {
+    let profile = system::parse_system_profile(root);
+
+    // Fill in fields that weren't already set by the directory-name parser
+    if meta.hostname.is_empty() {
+        if let Some(ref fqdn) = profile.fqdn {
+            meta.hostname = fqdn.clone();
+        } else if let Some(ref h) = profile.hostname {
+            meta.hostname = h.clone();
+        }
+    }
+
+    if let Some(ref fqdn) = profile.fqdn {
+        meta.fqdn = fqdn.clone();
+    }
+
+    if meta.os.is_empty() {
+        if let Some(ref os) = profile.os_name {
+            meta.os = os.clone();
+        }
+    }
+
+    if let Some(ref k) = profile.kernel {
+        meta.kernel_version = k.clone();
+    }
+    if let Some(ref p) = profile.platform {
+        meta.platform = p.clone();
+    }
+    if let Some(ref a) = profile.architecture {
+        meta.architecture = a.clone();
+    }
+    if let Some(ref tz) = profile.timezone {
+        meta.timezone = tz.clone();
+    }
+    if !profile.ip_addresses.is_empty() {
+        meta.ip_address = profile.ip_addresses.join(", ");
+    }
+    if let Some(ref u) = profile.uptime {
+        meta.uptime = u.clone();
+    }
+    if let Some(ref l) = profile.locale {
+        meta.locale = l.clone();
+    }
+    if !profile.user_locales.is_empty() {
+        meta.user_locales = profile.user_locales;
+    }
+    if let Some(ref a) = profile.atime_policy {
+        meta.atime_policy = a.clone();
+    }
+    if let Some(ram) = profile.ram_total_kb {
+        meta.ram_total_kb = ram;
+    }
+    if !profile.storage_devices.is_empty() {
+        meta.storage_devices = profile.storage_devices;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -437,7 +524,7 @@ mod tests {
 
     #[test]
     fn load_velociraptor_collection_with_manifest_metadata() {
-        use rt_unpack::{CollectionMetadata as ManifestMeta, ManifestEntry, OsType};
+        use rt_unpack::{CollectionMetadata as ManifestMeta, OsType};
 
         let dir = tempfile::tempdir().expect("tmpdir");
         let meta = ManifestMeta {
