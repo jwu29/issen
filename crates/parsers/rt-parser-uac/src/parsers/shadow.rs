@@ -22,27 +22,150 @@ pub struct ShadowEntry {
 }
 
 /// Parse /etc/passwd content into structured entries.
+///
+/// Format: `username:x:uid:gid:gecos:home:shell`
+/// Lines starting with `#` are ignored.
 #[must_use]
-pub fn parse_passwd(_content: &str) -> Vec<PasswdEntry> {
-    todo!("implement parse_passwd")
+pub fn parse_passwd(content: &str) -> Vec<PasswdEntry> {
+    let mut results = Vec::new();
+
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        let fields: Vec<&str> = line.split(':').collect();
+        if fields.len() < 7 {
+            continue;
+        }
+
+        let username = fields[0].to_string();
+        let uid = fields[2].parse::<u32>().unwrap_or(u32::MAX);
+        let gid = fields[3].parse::<u32>().unwrap_or(u32::MAX);
+        let home_dir = fields[5].to_string();
+        let shell = fields[6].to_string();
+        // password field: 'x' means shadow, '*' or '!' means locked/no-login
+        let has_password = fields[1] != "*" && fields[1] != "!" && !fields[1].is_empty();
+
+        let mut entry = PasswdEntry {
+            username,
+            uid,
+            gid,
+            home_dir,
+            shell,
+            has_password,
+            is_suspicious: false,
+        };
+        entry.is_suspicious = classify_passwd_entry(&entry);
+        results.push(entry);
+    }
+
+    results
 }
 
 /// Classify a passwd entry as suspicious or not.
+///
+/// Suspicious if:
+/// - uid == 0 and username != "root" (hidden root account)
+/// - shell is `/bin/bash` or `/bin/sh`, uid < 100, and username not in the
+///   standard privileged-service allow-list
 #[must_use]
-pub fn classify_passwd_entry(_entry: &PasswdEntry) -> bool {
-    todo!("implement classify_passwd_entry")
+pub fn classify_passwd_entry(entry: &PasswdEntry) -> bool {
+    // Hidden root account
+    if entry.uid == 0 && entry.username != "root" {
+        return true;
+    }
+
+    // Service account with interactive shell
+    let interactive_shells = ["/bin/bash", "/bin/sh"];
+    let safe_service_accounts = ["root", "sync", "shutdown", "halt"];
+    if interactive_shells.iter().any(|&s| entry.shell == s)
+        && entry.uid < 100
+        && !safe_service_accounts.contains(&entry.username.as_str())
+    {
+        return true;
+    }
+
+    false
 }
 
 /// Parse /etc/shadow content into structured entries.
+///
+/// Format: `username:hash:last_changed:min:max:warn:inactive:expire:`
+/// The hash algorithm is determined from the `$id$` prefix.
 #[must_use]
-pub fn parse_shadow(_content: &str) -> Vec<ShadowEntry> {
-    todo!("implement parse_shadow")
+pub fn parse_shadow(content: &str) -> Vec<ShadowEntry> {
+    let mut results = Vec::new();
+
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        let fields: Vec<&str> = line.split(':').collect();
+        if fields.len() < 3 {
+            continue;
+        }
+
+        let username = fields[0].to_string();
+        let hash_field = fields[1];
+
+        let hash_algorithm = detect_hash_algorithm(hash_field);
+
+        let last_changed_days = fields[2].parse::<i64>().ok();
+
+        let mut entry = ShadowEntry {
+            username,
+            hash_algorithm,
+            last_changed_days,
+            is_suspicious: false,
+        };
+        entry.is_suspicious = classify_shadow_entry(&entry);
+        results.push(entry);
+    }
+
+    results
+}
+
+fn detect_hash_algorithm(hash_field: &str) -> String {
+    // Locked or no-login markers
+    if hash_field == "!" || hash_field == "*" || hash_field.is_empty() {
+        return hash_field.to_string();
+    }
+    // Extract $id$ prefix: e.g. "$6$rounds=..." → "$6$"
+    if hash_field.starts_with('$') {
+        let without_dollar = &hash_field[1..];
+        if let Some(end) = without_dollar.find('$') {
+            return format!("${}$", &without_dollar[..end]);
+        }
+    }
+    // Unknown format
+    hash_field.to_string()
 }
 
 /// Classify a shadow entry as suspicious or not.
+///
+/// Suspicious if:
+/// - `hash_algorithm` is `$1$` (MD5 — weak)
+/// - `hash_algorithm` is an unrecognised `$X$` prefix
 #[must_use]
-pub fn classify_shadow_entry(_entry: &ShadowEntry) -> bool {
-    todo!("implement classify_shadow_entry")
+pub fn classify_shadow_entry(entry: &ShadowEntry) -> bool {
+    let known_strong = ["$5$", "$6$", "$7$", "$y$", "$2b$", "!", "*", ""];
+    let alg = entry.hash_algorithm.as_str();
+
+    // MD5 is explicitly weak
+    if alg == "$1$" {
+        return true;
+    }
+
+    // Unknown $X$ prefix
+    if alg.starts_with('$') && !known_strong.contains(&alg) {
+        return true;
+    }
+
+    false
 }
 
 #[cfg(test)]

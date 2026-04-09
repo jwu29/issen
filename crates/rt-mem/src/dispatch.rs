@@ -166,13 +166,7 @@ pub fn dispatch_linux_netstat(
 pub fn dispatch_linux_check(
     _reader: &ObjectReader<Box<dyn PhysicalMemoryProvider>>,
 ) -> anyhow::Result<(Vec<&'static str>, Vec<Vec<String>>)> {
-    let headers = vec!["Check", "Status", "Detail"];
-    let rows = vec![vec![
-        "hook-scan".into(),
-        "ok".into(),
-        "no walkers wired for check yet".into(),
-    ]];
-    Ok((headers, rows))
+    todo!("dispatch_linux_check: real walker calls not yet wired")
 }
 
 /// Run Linux pool/malfind scan and return headers + rows.
@@ -183,14 +177,7 @@ pub fn dispatch_linux_check(
 pub fn dispatch_linux_scan(
     _reader: &ObjectReader<Box<dyn PhysicalMemoryProvider>>,
 ) -> anyhow::Result<(Vec<&'static str>, Vec<Vec<String>>)> {
-    let headers = vec!["Offset", "Tag", "Size", "Detail"];
-    let rows = vec![vec![
-        "0x0".into(),
-        "n/a".into(),
-        "0".into(),
-        "no scan walkers wired yet".into(),
-    ]];
-    Ok((headers, rows))
+    todo!("dispatch_linux_scan: real walker calls not yet wired")
 }
 
 /// Extract Linux credential material and return headers + rows.
@@ -201,13 +188,18 @@ pub fn dispatch_linux_scan(
 pub fn dispatch_linux_creds(
     _reader: &ObjectReader<Box<dyn PhysicalMemoryProvider>>,
 ) -> anyhow::Result<(Vec<&'static str>, Vec<Vec<String>>)> {
-    let headers = vec!["Type", "User", "Hash"];
-    let rows = vec![vec![
-        "n/a".into(),
-        "".into(),
-        "no creds walkers wired yet".into(),
-    ]];
-    Ok((headers, rows))
+    todo!("dispatch_linux_creds: real walker calls not yet wired")
+}
+
+/// Walk Linux timestamped events and return headers + rows.
+///
+/// # Errors
+///
+/// Returns `Err` if the walker fails.
+pub fn dispatch_linux_timeline(
+    _reader: &ObjectReader<Box<dyn PhysicalMemoryProvider>>,
+) -> anyhow::Result<(Vec<&'static str>, Vec<Vec<String>>)> {
+    todo!("dispatch_linux_timeline: real walker calls not yet wired")
 }
 
 // ---------------------------------------------------------------------------
@@ -386,6 +378,30 @@ mod tests {
     use super::*;
     use std::io::Write;
 
+    /// Build a minimal stub `ObjectReader<Box<dyn PhysicalMemoryProvider>>`.
+    ///
+    /// Uses a zero-filled 4 MB synthetic physical memory image and an empty
+    /// ISF symbol table.  Walker calls into this reader will return `Err`
+    /// (symbol not found), which the GREEN dispatch functions handle gracefully.
+    /// In the RED phase the dispatch functions are `todo!()` stubs, so they
+    /// panic before ever touching the reader — causing the test to fail as
+    /// expected.
+    fn make_stub_reader() -> ObjectReader<Box<dyn PhysicalMemoryProvider>> {
+        use memf_core::test_builders::PageTableBuilder;
+        use memf_symbols::isf::IsfResolver;
+
+        let (cr3, mem) = PageTableBuilder::new().build();
+        let provider: Box<dyn PhysicalMemoryProvider> = Box::new(mem);
+        let vas = VirtualAddressSpace::new(provider, cr3, TranslationMode::X86_64FourLevel);
+
+        // Minimal valid ISF: empty symbol / type tables.
+        let isf_json = br#"{"base_types":{},"user_types":{},"symbols":{},"enums":{}}"#;
+        let resolver = IsfResolver::from_bytes(isf_json).expect("minimal ISF should parse");
+        let symbols: Box<dyn memf_symbols::SymbolResolver> = Box::new(resolver);
+
+        ObjectReader::new(vas, symbols)
+    }
+
     // -----------------------------------------------------------------------
     // build_reader error paths — GREEN: real implementation, no should_panic
     // -----------------------------------------------------------------------
@@ -474,6 +490,64 @@ mod tests {
         let expected = ["Proto", "Local", "Remote", "State", "PID", "Process"];
         assert_eq!(expected.len(), 6);
         assert!(expected.contains(&"Process"));
+    }
+
+    // -----------------------------------------------------------------------
+    // RED: dispatch_linux_{check,scan,creds,timeline} header correctness
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn dispatch_linux_check_headers_correct() {
+        // Calls the real dispatch function — panics at todo!() in RED phase.
+        // Once GREEN: asserts headers contain "Check" and "Status".
+        let (headers, _rows) = dispatch_linux_check(&*Box::new(make_stub_reader())).unwrap();
+        assert!(
+            headers.contains(&"Check"),
+            "headers should contain 'Check', got: {headers:?}"
+        );
+        assert!(
+            headers.contains(&"Status"),
+            "headers should contain 'Status', got: {headers:?}"
+        );
+    }
+
+    #[test]
+    fn dispatch_linux_scan_headers_correct() {
+        let (headers, _rows) = dispatch_linux_scan(&*Box::new(make_stub_reader())).unwrap();
+        assert!(
+            headers.contains(&"PID"),
+            "headers should contain 'PID', got: {headers:?}"
+        );
+        assert!(
+            headers.contains(&"Type"),
+            "headers should contain 'Type', got: {headers:?}"
+        );
+    }
+
+    #[test]
+    fn dispatch_linux_creds_headers_correct() {
+        let (headers, _rows) = dispatch_linux_creds(&*Box::new(make_stub_reader())).unwrap();
+        assert!(
+            headers.contains(&"Type"),
+            "headers should contain 'Type', got: {headers:?}"
+        );
+        assert!(
+            headers.contains(&"Detail"),
+            "headers should contain 'Detail', got: {headers:?}"
+        );
+    }
+
+    #[test]
+    fn dispatch_linux_timeline_headers_correct() {
+        let (headers, _rows) = dispatch_linux_timeline(&*Box::new(make_stub_reader())).unwrap();
+        assert!(
+            headers.contains(&"Time"),
+            "headers should contain 'Time', got: {headers:?}"
+        );
+        assert!(
+            headers.contains(&"Event"),
+            "headers should contain 'Event', got: {headers:?}"
+        );
     }
 
     #[test]

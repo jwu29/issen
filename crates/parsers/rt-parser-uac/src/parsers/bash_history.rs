@@ -12,16 +12,72 @@ pub struct BashHistoryEntry {
 /// Parse .bash_history file content into structured entries.
 ///
 /// Lines starting with `#` followed by a Unix timestamp set the timestamp for
-/// the next command. Other non-empty lines are commands.
+/// the next command. Other non-empty lines are commands. Blank lines are
+/// skipped.
 #[must_use]
-pub fn parse_bash_history(_content: &str, _username: &str) -> Vec<BashHistoryEntry> {
-    todo!("implement parse_bash_history")
+pub fn parse_bash_history(content: &str, username: &str) -> Vec<BashHistoryEntry> {
+    let mut results = Vec::new();
+    let mut pending_timestamp: Option<u64> = None;
+
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+
+        // Timestamp line: # followed immediately by digits
+        if let Some(rest) = line.strip_prefix('#') {
+            if let Ok(ts) = rest.trim().parse::<u64>() {
+                pending_timestamp = Some(ts);
+                continue;
+            }
+            // Other comment-like lines starting with # — skip
+            continue;
+        }
+
+        // Command line
+        let cmd = line.to_string();
+        let is_suspicious = classify_bash_command(&cmd);
+        results.push(BashHistoryEntry {
+            username: username.to_string(),
+            command: cmd,
+            timestamp: pending_timestamp.take(),
+            is_suspicious,
+        });
+    }
+
+    results
 }
 
 /// Classify a bash command as suspicious or not.
+///
+/// Suspicious indicators include download tools, network utilities, payload
+/// decoding, shell one-liners, anti-forensics, and `LD_PRELOAD` injection.
 #[must_use]
-pub fn classify_bash_command(_cmd: &str) -> bool {
-    todo!("implement classify_bash_command")
+pub fn classify_bash_command(cmd: &str) -> bool {
+    let indicators = [
+        "wget ",
+        "curl ",
+        "chmod +x",
+        "chmod 777",
+        "nc ",
+        "ncat ",
+        "nmap ",
+        "/dev/tcp/",
+        "/dev/udp/",
+        "base64 -d",
+        "base64 --decode",
+        "python -c",
+        "perl -e",
+        "ruby -e",
+        ">/dev/null 2>&1 &",
+        "rm -rf /",
+        "history -c",
+        "unset HISTFILE",
+        "LD_PRELOAD=",
+    ];
+
+    indicators.iter().any(|&indicator| cmd.contains(indicator))
 }
 
 #[cfg(test)]

@@ -4,9 +4,9 @@ use anyhow::Context;
 
 use crate::dispatch::{
     build_reader, dispatch_linux_check, dispatch_linux_creds, dispatch_linux_modules,
-    dispatch_linux_netstat, dispatch_linux_ps, dispatch_linux_scan, dispatch_windows_check,
-    dispatch_windows_creds, dispatch_windows_modules, dispatch_windows_netstat,
-    dispatch_windows_ps, dispatch_windows_scan,
+    dispatch_linux_netstat, dispatch_linux_ps, dispatch_linux_scan, dispatch_linux_timeline,
+    dispatch_windows_check, dispatch_windows_creds, dispatch_windows_modules,
+    dispatch_windows_netstat, dispatch_windows_ps, dispatch_windows_scan,
 };
 use crate::open::{detect_format, DumpFormat};
 use crate::output::{print_table, OutputFormat};
@@ -137,13 +137,16 @@ fn dispatch_command(
         (TargetOs::Windows, MemfCommand::Creds) => dispatch_windows_creds(reader),
         // Unknown OS: fall back to Linux walkers as a best-effort attempt.
         (TargetOs::Unknown, cmd) => dispatch_command(TargetOs::Linux, cmd, reader),
-        // Timeline and All are handled by the caller.
+        // Timeline dispatches to Linux walkers (boot_time, kmsg, oom_events).
+        (TargetOs::Linux, MemfCommand::Timeline) | (TargetOs::Unknown, MemfCommand::Timeline) => {
+            dispatch_linux_timeline(reader)
+        }
         (_, MemfCommand::Timeline) => Ok((
             vec!["Time", "Event", "Detail"],
             vec![vec![
                 "n/a".into(),
                 "timeline".into(),
-                "not yet wired".into(),
+                "not yet wired for this OS".into(),
             ]],
         )),
         (_, MemfCommand::All) => anyhow::bail!("All is handled by the caller"),
