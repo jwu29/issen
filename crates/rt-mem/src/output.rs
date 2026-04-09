@@ -89,6 +89,86 @@ pub fn rows_to_json(headers: &[&str], rows: &[Vec<String>]) -> serde_json::Resul
     Ok(out)
 }
 
+/// Convert a table into mactime bodyfile format.
+///
+/// Column names are matched case-insensitively to the 11-field bodyfile layout:
+/// `md5(0)`, `path`, `inode`, `mode(0)`, `uid(0)`, `gid(0)`,
+/// `size`, `atime`, `mtime`, `ctime`, `btime`.
+///
+/// Missing columns default to `"0"`. Returns one line per row, terminated by
+/// `\n`. Returns an empty string when `rows` is empty.
+#[must_use]
+pub fn rows_to_bodyfile(headers: &[&str], rows: &[Vec<String>]) -> String {
+    // Build a column-name → index map for fast lookup.
+    let col: std::collections::HashMap<&str, usize> =
+        headers.iter().enumerate().map(|(i, h)| (*h, i)).collect();
+
+    let get = |row: &Vec<String>, name: &str| -> String {
+        col.get(name)
+            .and_then(|&i| row.get(i))
+            .cloned()
+            .unwrap_or_else(|| "0".to_string())
+    };
+
+    let mut out = String::new();
+    for row in rows {
+        // Bodyfile: md5|name|inode|mode_as_string|uid|gid|size|atime|mtime|ctime|crtime
+        let line = format!(
+            "0|{path}|{inode}|0|0|0|{size}|{atime}|{mtime}|{ctime}|{btime}\n",
+            path = get(row, "path"),
+            inode = get(row, "inode"),
+            size = get(row, "size"),
+            atime = get(row, "atime"),
+            mtime = get(row, "mtime"),
+            ctime = get(row, "ctime"),
+            btime = get(row, "btime"),
+        );
+        out.push_str(&line);
+    }
+    out
+}
+
+/// Convert a table into a STIX 2.1 bundle JSON string.
+///
+/// Each row becomes an `observed-data` object whose `custom_properties` map
+/// is keyed by the header names. The bundle `id` uses a deterministic
+/// `bundle--<index>` placeholder (real UUID generation would require the
+/// `uuid` crate which is not yet a workspace dependency).
+///
+/// Returns a JSON string; never returns an error.
+#[must_use]
+pub fn rows_to_stix(object_type: &str, headers: &[&str], rows: &[Vec<String>]) -> String {
+    let objects: Vec<Value> = rows
+        .iter()
+        .enumerate()
+        .map(|(idx, row)| {
+            let props: serde_json::Map<String, Value> = headers
+                .iter()
+                .enumerate()
+                .map(|(i, h)| {
+                    let val = row.get(i).cloned().unwrap_or_default();
+                    ((*h).to_string(), Value::String(val))
+                })
+                .collect();
+            serde_json::json!({
+                "type": "observed-data",
+                "id": format!("observed-data--{idx:016x}-0000-0000-0000-000000000000"),
+                "object_type": object_type,
+                "custom_properties": Value::Object(props),
+            })
+        })
+        .collect();
+
+    let bundle = serde_json::json!({
+        "type": "bundle",
+        "id": "bundle--00000000-0000-0000-0000-000000000000",
+        "spec_version": "2.1",
+        "objects": objects,
+    });
+
+    bundle.to_string()
+}
+
 /// Print output according to the selected format.
 ///
 /// For [`OutputFormat::Json`] the caller receives valid newline-delimited JSON.
@@ -168,5 +248,115 @@ mod tests {
     #[test]
     fn print_text_table_does_not_panic_with_data() {
         print_text_table(&["pid", "name"], &[vec!["1".into(), "init".into()]]);
+    }
+
+    // -----------------------------------------------------------------------
+    // Task 2 — bodyfile tests (RED: rows_to_bodyfile not yet defined)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn bodyfile_with_path_and_timestamps_formats_correctly() {
+        let headers = &["path", "inode", "size", "atime", "mtime", "ctime", "btime"];
+        let rows = vec![vec![
+            "/bin/bash".into(),
+            "42".into(),
+            "1024".into(),
+            "1700000000".into(),
+            "1700000001".into(),
+            "1700000002".into(),
+            "1700000003".into(),
+        ]];
+        let out = rows_to_bodyfile(headers, &rows);
+        // Expected: 0|/bin/bash|42|0|0|0|1024|1700000000|1700000001|1700000002|1700000003
+        assert!(
+            out.contains("/bin/bash"),
+            "bodyfile must contain path: {out}"
+        );
+        assert!(
+            out.contains("1700000001"),
+            "bodyfile must contain mtime: {out}"
+        );
+        assert!(out.contains("1024"), "bodyfile must contain size: {out}");
+        // Verify structure: exactly 10 pipe separators per line
+        let line = out.trim();
+        assert_eq!(
+            line.chars().filter(|&c| c == '|').count(),
+            10,
+            "bodyfile line must have 10 pipe separators: {line}"
+        );
+    }
+
+    #[test]
+    fn bodyfile_missing_columns_uses_zero() {
+        // Only 'path' column; everything else defaults to 0
+        let headers = &["path"];
+        let rows = vec![vec!["/etc/passwd".into()]];
+        let out = rows_to_bodyfile(headers, &rows);
+        let line = out.trim();
+        assert!(line.contains("/etc/passwd"), "path must appear: {line}");
+        // Should have 10 pipe separators
+        assert_eq!(
+            line.chars().filter(|&c| c == '|').count(),
+            10,
+            "bodyfile line must have 10 pipe separators even with missing cols: {line}"
+        );
+        // All the timestamp/size fields should be 0
+        assert!(
+            line.contains("|0|0|0|0|0|0|0"),
+            "missing fields should be 0: {line}"
+        );
+    }
+
+    #[test]
+    fn bodyfile_empty_rows_returns_empty() {
+        let out = rows_to_bodyfile(&["path", "size"], &[]);
+        assert!(
+            out.is_empty(),
+            "empty rows must yield empty output, got: {out}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Task 3 — STIX 2.1 tests (RED: rows_to_stix not yet defined)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn stix_bundle_is_valid_json() {
+        let headers = &["pid", "name"];
+        let rows = vec![vec!["1".into(), "systemd".into()]];
+        let out = rows_to_stix("process", headers, &rows);
+        let parsed: Result<serde_json::Value, _> = serde_json::from_str(&out);
+        assert!(parsed.is_ok(), "STIX output must be valid JSON: {out}");
+    }
+
+    #[test]
+    fn stix_bundle_has_type_field() {
+        let headers = &["pid", "name"];
+        let rows = vec![vec!["1".into(), "init".into()]];
+        let out = rows_to_stix("process", headers, &rows);
+        let v: serde_json::Value = serde_json::from_str(&out).expect("valid JSON");
+        assert_eq!(
+            v["type"], "bundle",
+            "top-level 'type' must be 'bundle': {out}"
+        );
+        assert!(
+            v.get("id").is_some(),
+            "bundle must have an 'id' field: {out}"
+        );
+        assert!(
+            v["objects"].is_array(),
+            "bundle must have 'objects' array: {out}"
+        );
+    }
+
+    #[test]
+    fn stix_empty_rows_produces_empty_objects() {
+        let out = rows_to_stix("process", &["pid", "name"], &[]);
+        let v: serde_json::Value = serde_json::from_str(&out).expect("valid JSON");
+        assert_eq!(
+            v["objects"].as_array().map(|a| a.len()).unwrap_or(1),
+            0,
+            "empty rows must produce empty objects array: {out}"
+        );
     }
 }

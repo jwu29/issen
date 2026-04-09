@@ -1,4 +1,5 @@
 pub mod alerts;
+pub mod analysis;
 pub mod dashboard;
 pub mod data;
 pub mod detail;

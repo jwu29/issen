@@ -2,8 +2,36 @@ use std::path::PathBuf;
 
 use anyhow::Context;
 
-use crate::open::detect_format;
+use crate::open::{detect_format, DumpFormat};
 use crate::output::{print_table, OutputFormat};
+
+/// Operating system heuristic derived from dump format.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TargetOs {
+    /// Linux memory image (LiME or AVML).
+    Linux,
+    /// Windows memory image (crash dump).
+    Windows,
+    /// Unknown — format is Raw with no definitive OS indicator.
+    Unknown,
+}
+
+/// Derive a target OS heuristic from the detected dump format.
+///
+/// | Format             | OS      |
+/// |--------------------|---------|
+/// | `Lime`             | Linux   |
+/// | `Avml`             | Linux   |
+/// | `WindowsCrashDump` | Windows |
+/// | `Raw`              | Unknown |
+#[must_use]
+pub fn detect_os(fmt: DumpFormat) -> TargetOs {
+    match fmt {
+        DumpFormat::Lime | DumpFormat::Avml => TargetOs::Linux,
+        DumpFormat::WindowsCrashDump => TargetOs::Windows,
+        DumpFormat::Raw => TargetOs::Unknown,
+    }
+}
 
 /// The memory forensic sub-command to execute.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -37,6 +65,28 @@ impl std::fmt::Display for MemfCommand {
             Self::Scan => write!(f, "scan"),
             Self::Creds => write!(f, "creds"),
             Self::All => write!(f, "all"),
+        }
+    }
+}
+
+impl MemfCommand {
+    /// Return a short human-readable description of what this command queries.
+    ///
+    /// Used in help text and formatted output headers.
+    /// Return a short human-readable description of what this command queries.
+    ///
+    /// Used in help text and formatted output headers.
+    #[must_use]
+    pub fn describe(&self) -> &'static str {
+        match self {
+            Self::Ps => "Enumerate running processes from the memory image",
+            Self::Modules => "List loaded kernel modules / drivers",
+            Self::Netstat => "Show active network connections and sockets",
+            Self::Check => "Run hook / rootkit integrity checks",
+            Self::Timeline => "Dump timestamped events as a bodyfile timeline",
+            Self::Scan => "Pool / malfind injection scanner",
+            Self::Creds => "Extract credential material (hashes, tickets, keys)",
+            Self::All => "Run every sub-command in sequence",
         }
     }
 }
@@ -125,6 +175,66 @@ pub fn run_memf_command(args: &MemfArgs) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // -----------------------------------------------------------------------
+    // Task 1 — OS detection tests (RED: detect_os / TargetOs not yet defined)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn detect_os_lime_is_linux() {
+        assert_eq!(detect_os(crate::open::DumpFormat::Lime), TargetOs::Linux);
+    }
+
+    #[test]
+    fn detect_os_crash_dump_is_windows() {
+        assert_eq!(
+            detect_os(crate::open::DumpFormat::WindowsCrashDump),
+            TargetOs::Windows
+        );
+    }
+
+    #[test]
+    fn detect_os_raw_is_unknown() {
+        assert_eq!(detect_os(crate::open::DumpFormat::Raw), TargetOs::Unknown);
+    }
+
+    #[test]
+    fn detect_os_avml_is_linux() {
+        assert_eq!(detect_os(crate::open::DumpFormat::Avml), TargetOs::Linux);
+    }
+
+    // -----------------------------------------------------------------------
+    // Task 4 — MemfCommand description text tests (RED: describe() not yet defined)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn memf_command_ps_description_mentions_processes() {
+        let desc = MemfCommand::Ps.describe();
+        assert!(
+            desc.to_lowercase().contains("process"),
+            "expected 'process' in Ps description, got: {desc}"
+        );
+    }
+
+    #[test]
+    fn memf_command_modules_description_mentions_modules() {
+        let desc = MemfCommand::Modules.describe();
+        assert!(
+            desc.to_lowercase().contains("module") || desc.to_lowercase().contains("driver"),
+            "expected 'module' or 'driver' in Modules description, got: {desc}"
+        );
+    }
+
+    #[test]
+    fn memf_command_netstat_description_mentions_network() {
+        let desc = MemfCommand::Netstat.describe();
+        assert!(
+            desc.to_lowercase().contains("network")
+                || desc.to_lowercase().contains("connection")
+                || desc.to_lowercase().contains("socket"),
+            "expected network-related term in Netstat description, got: {desc}"
+        );
+    }
 
     fn missing_file_args(cmd: MemfCommand) -> MemfArgs {
         MemfArgs {

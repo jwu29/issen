@@ -11,7 +11,7 @@
 /// Uses `#[path]` to bypass `investigation/mod.rs` which depends on binary-only
 /// modules (`app`, `ui`, etc.).
 pub mod investigation {
-    #[path = "../investigation/alerts.rs"]
+    #[path = "../investigation/alerts/mod.rs"]
     pub mod alerts;
 
     #[path = "../investigation/timeline.rs"]

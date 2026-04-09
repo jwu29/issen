@@ -194,6 +194,7 @@ pub fn load_uac_collection(
         hashes: &hashes,
         packages: &packages,
         logins: &logins,
+        windows_events: &[], // UAC collections don't contain EVTX
     };
     let alerts = detect_alerts(&alert_input);
 
