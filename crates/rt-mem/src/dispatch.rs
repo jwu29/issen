@@ -160,46 +160,372 @@ pub fn dispatch_linux_netstat(
 
 /// Run Linux hook/rootkit integrity checks and return headers + rows.
 ///
+/// Calls multiple walkers in sequence; if a walker returns `Err`, logs via
+/// `eprintln!` and continues with the remaining walkers.
+///
 /// # Errors
 ///
-/// Returns `Err` if the walker fails.
+/// Never returns `Err` — individual walker failures are logged and skipped.
 pub fn dispatch_linux_check(
-    _reader: &ObjectReader<Box<dyn PhysicalMemoryProvider>>,
+    reader: &ObjectReader<Box<dyn PhysicalMemoryProvider>>,
 ) -> anyhow::Result<(Vec<&'static str>, Vec<Vec<String>>)> {
-    todo!("dispatch_linux_check: real walker calls not yet wired")
+    let headers = vec!["Check", "Status", "Location", "Detail"];
+    let mut rows: Vec<Vec<String>> = Vec::new();
+
+    // inline hooks (syscalls / kernel functions)
+    match memf_linux::check_hooks::check_inline_hooks(reader) {
+        Ok(items) => {
+            for h in &items {
+                rows.push(vec![
+                    "inline-hook".into(),
+                    if h.suspicious { "HOOKED" } else { "ok" }.into(),
+                    format!("{:#018x}", h.address),
+                    format!("{} ({})", h.symbol, h.hook_type),
+                ]);
+            }
+        }
+        Err(e) => eprintln!("check_hooks walker error (skipped): {e}"),
+    }
+
+    // IDT manipulation
+    match memf_linux::check_idt::walk_check_idt(reader) {
+        Ok(items) => {
+            for h in &items {
+                rows.push(vec![
+                    "idt".into(),
+                    if h.is_hooked { "HOOKED" } else { "ok" }.into(),
+                    format!("vector={}", h.vector),
+                    format!("{:#018x} ({})", h.handler_addr, h.gate_type),
+                ]);
+            }
+        }
+        Err(e) => eprintln!("check_idt walker error (skipped): {e}"),
+    }
+
+    // file_operations hooks
+    match memf_linux::check_fops::scan_proc_fops(reader) {
+        Ok(items) => {
+            for h in &items {
+                rows.push(vec![
+                    "fops".into(),
+                    if h.is_suspicious { "HOOKED" } else { "ok" }.into(),
+                    h.path.clone(),
+                    format!("{:#018x}", h.struct_address),
+                ]);
+            }
+        }
+        Err(e) => eprintln!("check_fops walker error (skipped): {e}"),
+    }
+
+    // hidden kernel modules
+    match memf_linux::check_modules::check_hidden_modules(reader) {
+        Ok(items) => {
+            for m in &items {
+                // A module is suspicious if it is absent from either view.
+                let is_hidden = !(m.in_modules_list && m.in_sysfs);
+                rows.push(vec![
+                    "module".into(),
+                    if is_hidden { "HIDDEN" } else { "ok" }.into(),
+                    format!("{:#018x}", m.base_addr),
+                    m.name.clone(),
+                ]);
+            }
+        }
+        Err(e) => eprintln!("check_modules walker error (skipped): {e}"),
+    }
+
+    // network protocol hooks (afinfo)
+    match memf_linux::check_afinfo::walk_check_afinfo(reader) {
+        Ok(items) => {
+            for h in &items {
+                rows.push(vec![
+                    "afinfo".into(),
+                    if h.is_hooked { "HOOKED" } else { "ok" }.into(),
+                    format!("{}.{}", h.struct_name, h.field),
+                    format!("{:#018x}", h.hook_address),
+                ]);
+            }
+        }
+        Err(e) => eprintln!("check_afinfo walker error (skipped): {e}"),
+    }
+
+    // shared credential anomalies
+    match memf_linux::check_creds::walk_check_creds(reader) {
+        Ok(items) => {
+            for c in &items {
+                rows.push(vec![
+                    "cred-share".into(),
+                    if c.is_suspicious { "SUSPICIOUS" } else { "ok" }.into(),
+                    format!("pid={}", c.pid),
+                    format!("{} uid={}", c.process_name, c.uid),
+                ]);
+            }
+        }
+        Err(e) => eprintln!("check_creds walker error (skipped): {e}"),
+    }
+
+    // ftrace hooks
+    match memf_linux::ftrace::walk_ftrace_hooks(reader) {
+        Ok(items) => {
+            for h in &items {
+                rows.push(vec![
+                    "ftrace".into(),
+                    if h.is_suspicious { "HOOKED" } else { "ok" }.into(),
+                    format!("{:#018x}", h.address),
+                    h.func_name.clone(),
+                ]);
+            }
+        }
+        Err(e) => eprintln!("ftrace walker error (skipped): {e}"),
+    }
+
+    if rows.is_empty() {
+        rows.push(vec![
+            "all-checks".into(),
+            "ok".into(),
+            String::new(),
+            "no hooks detected (or symbols unavailable)".into(),
+        ]);
+    }
+
+    Ok((headers, rows))
 }
 
 /// Run Linux pool/malfind scan and return headers + rows.
 ///
+/// Calls multiple walkers in sequence; if a walker returns `Err`, logs via
+/// `eprintln!` and continues with the remaining walkers.
+///
 /// # Errors
 ///
-/// Returns `Err` if the walker fails.
+/// Never returns `Err` — individual walker failures are logged and skipped.
 pub fn dispatch_linux_scan(
-    _reader: &ObjectReader<Box<dyn PhysicalMemoryProvider>>,
+    reader: &ObjectReader<Box<dyn PhysicalMemoryProvider>>,
 ) -> anyhow::Result<(Vec<&'static str>, Vec<Vec<String>>)> {
-    todo!("dispatch_linux_scan: real walker calls not yet wired")
+    let headers = vec!["PID", "Type", "Address", "Size", "Detail"];
+    let mut rows: Vec<Vec<String>> = Vec::new();
+
+    // anonymous executable VMAs (malfind)
+    match memf_linux::malfind::scan_malfind(reader) {
+        Ok(items) => {
+            for m in &items {
+                let size = m.end.saturating_sub(m.start);
+                rows.push(vec![
+                    m.pid.to_string(),
+                    "malfind".into(),
+                    format!("{:#018x}", m.start),
+                    format!("{:#x}", size),
+                    format!("{}: {}", m.comm, m.reason),
+                ]);
+            }
+        }
+        Err(e) => eprintln!("malfind walker error (skipped): {e}"),
+    }
+
+    // processes running from deleted executables
+    match memf_linux::deleted_exe::walk_deleted_exe(reader) {
+        Ok(items) => {
+            for d in &items {
+                rows.push(vec![
+                    d.pid.to_string(),
+                    "deleted-exe".into(),
+                    String::new(),
+                    String::new(),
+                    format!("{}: {}", d.comm, d.exe_path),
+                ]);
+            }
+        }
+        Err(e) => eprintln!("deleted_exe walker error (skipped): {e}"),
+    }
+
+    // hidden module cross-view
+    match memf_linux::modxview::walk_modxview(reader) {
+        Ok(items) => {
+            for m in &items {
+                rows.push(vec![
+                    String::new(),
+                    "hidden-module".into(),
+                    format!("{:#018x}", m.base_addr),
+                    format!("{:#x}", m.size),
+                    m.name.clone(),
+                ]);
+            }
+        }
+        Err(e) => eprintln!("modxview walker error (skipped): {e}"),
+    }
+
+    if rows.is_empty() {
+        rows.push(vec![
+            String::new(),
+            "scan".into(),
+            String::new(),
+            String::new(),
+            "no injections detected (or symbols unavailable)".into(),
+        ]);
+    }
+
+    Ok((headers, rows))
 }
 
 /// Extract Linux credential material and return headers + rows.
 ///
+/// Calls multiple walkers in sequence; if a walker returns `Err`, logs via
+/// `eprintln!` and continues with the remaining walkers.
+///
 /// # Errors
 ///
-/// Returns `Err` if the walker fails.
+/// Never returns `Err` — individual walker failures are logged and skipped.
 pub fn dispatch_linux_creds(
-    _reader: &ObjectReader<Box<dyn PhysicalMemoryProvider>>,
+    reader: &ObjectReader<Box<dyn PhysicalMemoryProvider>>,
 ) -> anyhow::Result<(Vec<&'static str>, Vec<Vec<String>>)> {
-    todo!("dispatch_linux_creds: real walker calls not yet wired")
+    let headers = vec!["Type", "PID", "User", "Detail"];
+    let mut rows: Vec<Vec<String>> = Vec::new();
+
+    // SSH private keys in memory
+    match memf_linux::ssh_keys::extract_ssh_keys(reader) {
+        Ok(items) => {
+            for k in &items {
+                rows.push(vec![
+                    format!("ssh-key:{:?}", k.key_type),
+                    k.pid.to_string(),
+                    k.comment.clone(),
+                    k.key_data.chars().take(64).collect::<String>(),
+                ]);
+            }
+        }
+        Err(e) => eprintln!("ssh_keys walker error (skipped): {e}"),
+    }
+
+    // bash history (may contain passwords)
+    match memf_linux::bash::walk_bash_history(reader) {
+        Ok(items) => {
+            for b in &items {
+                rows.push(vec![
+                    "bash-history".into(),
+                    b.pid.to_string(),
+                    b.comm.clone(),
+                    b.command.clone(),
+                ]);
+            }
+        }
+        Err(e) => eprintln!("bash walker error (skipped): {e}"),
+    }
+
+    // LD_PRELOAD credential hooks (requires process list)
+    let procs = memf_linux::process::walk_processes(reader).unwrap_or_default();
+    match memf_linux::ld_preload::scan_ld_preload(reader, &procs) {
+        Ok(items) => {
+            for l in &items {
+                rows.push(vec![
+                    "ld-preload".into(),
+                    l.pid.to_string(),
+                    l.process_name.clone(),
+                    l.ld_preload_value.clone(),
+                ]);
+            }
+        }
+        Err(e) => eprintln!("ld_preload walker error (skipped): {e}"),
+    }
+
+    // shared credential anomalies
+    match memf_linux::check_creds::walk_check_creds(reader) {
+        Ok(items) => {
+            for c in &items {
+                if c.is_suspicious {
+                    rows.push(vec![
+                        "shared-cred".into(),
+                        c.pid.to_string(),
+                        format!("uid={}", c.uid),
+                        format!(
+                            "{} shares cred with pids: {:?}",
+                            c.process_name, c.shared_with_pids
+                        ),
+                    ]);
+                }
+            }
+        }
+        Err(e) => eprintln!("check_creds walker error (skipped): {e}"),
+    }
+
+    if rows.is_empty() {
+        rows.push(vec![
+            "creds".into(),
+            String::new(),
+            String::new(),
+            "no credential artifacts found (or symbols unavailable)".into(),
+        ]);
+    }
+
+    Ok((headers, rows))
 }
 
 /// Walk Linux timestamped events and return headers + rows.
 ///
+/// Calls multiple walkers in sequence; if a walker returns `Err`, logs via
+/// `eprintln!` and continues with the remaining walkers.
+///
 /// # Errors
 ///
-/// Returns `Err` if the walker fails.
+/// Never returns `Err` — individual walker failures are logged and skipped.
 pub fn dispatch_linux_timeline(
-    _reader: &ObjectReader<Box<dyn PhysicalMemoryProvider>>,
+    reader: &ObjectReader<Box<dyn PhysicalMemoryProvider>>,
 ) -> anyhow::Result<(Vec<&'static str>, Vec<Vec<String>>)> {
-    todo!("dispatch_linux_timeline: real walker calls not yet wired")
+    let headers = vec!["Time", "Event", "Source", "Detail"];
+    let mut rows: Vec<Vec<String>> = Vec::new();
+
+    // system boot time
+    match memf_linux::boot_time::extract_boot_time(reader) {
+        Ok(bt) => {
+            rows.push(vec![
+                bt.boot_epoch_secs.to_string(),
+                "boot".into(),
+                format!("{:?}", bt.source),
+                "system boot epoch (seconds since Unix epoch)".into(),
+            ]);
+        }
+        Err(e) => eprintln!("boot_time walker error (skipped): {e}"),
+    }
+
+    // kernel messages with timestamps
+    match memf_linux::kmsg::walk_kmsg(reader) {
+        Ok(items) => {
+            for k in &items {
+                rows.push(vec![
+                    k.timestamp_ns.to_string(),
+                    "kmsg".into(),
+                    format!("level={}", k.level),
+                    k.text.clone(),
+                ]);
+            }
+        }
+        Err(e) => eprintln!("kmsg walker error (skipped): {e}"),
+    }
+
+    // OOM kill events
+    match memf_linux::oom_events::walk_oom_events(reader) {
+        Ok(items) => {
+            for o in &items {
+                rows.push(vec![
+                    o.timestamp_ns.to_string(),
+                    "oom-kill".into(),
+                    o.reason.clone(),
+                    format!("pid={} comm={}", o.victim_pid, o.victim_comm),
+                ]);
+            }
+        }
+        Err(e) => eprintln!("oom_events walker error (skipped): {e}"),
+    }
+
+    if rows.is_empty() {
+        rows.push(vec![
+            String::new(),
+            "timeline".into(),
+            String::new(),
+            "no timeline events found (or symbols unavailable)".into(),
+        ]);
+    }
+
+    Ok((headers, rows))
 }
 
 // ---------------------------------------------------------------------------
