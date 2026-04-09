@@ -19,7 +19,7 @@ members = [
     "crates/rt-navigator",
     "crates/rt-mft-tree",
     "crates/rt-unpack",
-    "crates/rt-memf",
+    "crates/rt-mem",
     "xtask",
 ]
 
@@ -48,7 +48,7 @@ rt-signatures = { path = "crates/rt-signatures" }
 rt-remote-access = { path = "crates/rt-remote-access" }
 rt-mft-tree      = { path = "crates/rt-mft-tree" }
 rt-unpack        = { path = "crates/rt-unpack" }
-rt-memf          = { path = "crates/rt-memf" }
+rt-mem          = { path = "crates/rt-mem" }
 
 # Memory forensic crates (path dependencies into sibling workspace)
 memf-core    = { path = "../memory-forensic/crates/memf-core" }

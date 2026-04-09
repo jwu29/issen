@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 use anyhow::Result;
-use rt_memf::cmd_memf::{MemfArgs, MemfCommand};
-use rt_memf::output::OutputFormat;
+use rt_mem::cmd_memf::{MemfArgs, MemfCommand};
+use rt_mem::output::OutputFormat;
 
 /// Parse the CLI `--format` string into an [`OutputFormat`].
 fn parse_output_format(s: &str) -> OutputFormat {
@@ -42,5 +42,5 @@ pub fn run(
         output: parse_output_format(format),
         pid_filter: pid,
     };
-    rt_memf::run_memf_command(&args)
+    rt_mem::run_memf_command(&args)
 }

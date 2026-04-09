@@ -4109,7 +4109,7 @@ dependencies = [
  "predicates",
  "rt-core",
  "rt-fswalker",
- "rt-memf",
+ "rt-mem",
  "rt-parser-evtx",
  "rt-parser-mft",
  "rt-parser-uac",
@@ -4171,7 +4171,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "rt-memf"
+name = "rt-mem"
 version = "0.1.0"
 dependencies = [
  "anyhow",
