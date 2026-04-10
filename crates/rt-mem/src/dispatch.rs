@@ -745,53 +745,220 @@ pub fn dispatch_windows_netstat(
 
 /// Run Windows hook/rootkit integrity checks and return headers + rows.
 ///
+/// Calls multiple walkers in sequence; if a walker returns `Err`, logs via
+/// `eprintln!` and continues with the remaining walkers.
+///
 /// # Errors
 ///
-/// Returns `Err` if the walker fails.
+/// Never returns `Err` — individual walker failures are logged and skipped.
 pub fn dispatch_windows_check(
-    _reader: &ObjectReader<Box<dyn PhysicalMemoryProvider>>,
+    reader: &ObjectReader<Box<dyn PhysicalMemoryProvider>>,
 ) -> anyhow::Result<(Vec<&'static str>, Vec<Vec<String>>)> {
     let headers = vec!["Check", "Status", "Detail"];
-    let rows = vec![vec![
-        "hook-scan".into(),
-        "ok".into(),
-        "no walkers wired for check yet".into(),
-    ]];
+    let mut rows: Vec<Vec<String>> = Vec::new();
+
+    // DSE bypass — check g_CiOptions for code integrity disable
+    match memf_windows::dse_bypass::walk_dse_bypass(reader) {
+        Ok(Some(info)) => {
+            rows.push(vec![
+                "dse-bypass".into(),
+                if info.is_disabled { "BYPASS" } else { "ok" }.into(),
+                format!(
+                    "ci_options={:#x} expected={:#x} technique={}",
+                    info.ci_options_value, info.expected_value, info.technique
+                ),
+            ]);
+        }
+        Ok(None) => {}
+        Err(e) => eprintln!("dse_bypass walker error (skipped): {e}"),
+    }
+
+    // ETW patching — detect NtTraceEvent / EtwpLogKernelEvent patches
+    if let Ok(items) = memf_windows::etw_patch::walk_etw_patches(reader) {
+        for p in &items {
+            rows.push(vec![
+                "etw-patch".into(),
+                if p.is_suspicious { "PATCHED" } else { "ok" }.into(),
+                format!(
+                    "{} @ {:#018x} technique={}",
+                    p.function_name, p.patch_address, p.technique
+                ),
+            ]);
+        }
+    }
+
+    // AMSI bypass — detect AmsiScanBuffer patches in processes
+    if let Ok(items) = memf_windows::amsi_bypass::walk_amsi_bypass(reader) {
+        for a in &items {
+            rows.push(vec![
+                "amsi-bypass".into(),
+                if a.is_suspicious { "PATCHED" } else { "ok" }.into(),
+                format!(
+                    "pid={} {} @ {:#018x} technique={}",
+                    a.pid, a.process_name, a.patch_address, a.technique
+                ),
+            ]);
+        }
+    }
+
+    // Token impersonation — detect suspicious thread impersonation
+    if let Ok(items) = memf_windows::token_impersonation::walk_token_impersonation(reader) {
+        for t in &items {
+            if t.is_suspicious {
+                rows.push(vec![
+                    "token-impersonation".into(),
+                    "SUSPICIOUS".into(),
+                    format!(
+                        "pid={} tid={} {} impersonates {} level={}",
+                        t.pid,
+                        t.tid,
+                        t.process_name,
+                        t.impersonation_token_user,
+                        t.impersonation_level_name
+                    ),
+                ]);
+            }
+        }
+    }
+
+    // PspCidTable cross-view — detect processes hidden from active list
+    if let Ok(items) = memf_windows::psxview_cid::walk_psp_cid_table(reader) {
+        for p in &items {
+            if p.is_hidden {
+                rows.push(vec![
+                    "psxview-hidden".into(),
+                    "HIDDEN".into(),
+                    format!(
+                        "pid={} eproc={:#018x} {} in_active={}",
+                        p.pid, p.eprocess_addr, p.image_name, p.in_active_list
+                    ),
+                ]);
+            }
+        }
+    }
+
+    if rows.is_empty() {
+        rows.push(vec![
+            "all-checks".into(),
+            "ok".into(),
+            "no evasion detected (or symbols unavailable)".into(),
+        ]);
+    }
+
     Ok((headers, rows))
 }
 
 /// Run Windows pool/malfind scan and return headers + rows.
 ///
+/// Calls multiple walkers in sequence; if a walker returns `Err`, logs via
+/// `eprintln!` and continues with the remaining walkers.
+///
 /// # Errors
 ///
-/// Returns `Err` if the walker fails.
+/// Never returns `Err` — individual walker failures are logged and skipped.
 pub fn dispatch_windows_scan(
-    _reader: &ObjectReader<Box<dyn PhysicalMemoryProvider>>,
+    reader: &ObjectReader<Box<dyn PhysicalMemoryProvider>>,
 ) -> anyhow::Result<(Vec<&'static str>, Vec<Vec<String>>)> {
     let headers = vec!["Type", "Address", "Size", "Detail"];
-    let rows = vec![vec![
-        "n/a".into(),
-        "0x0".into(),
-        "0".into(),
-        "no scan walkers wired yet".into(),
-    ]];
+    let mut rows: Vec<Vec<String>> = Vec::new();
+
+    // Pool scan — walk non-paged pool for suspicious allocations
+    if let Ok(items) = memf_windows::pool_scan::walk_pool_scan(reader) {
+        for p in &items {
+            rows.push(vec![
+                format!("pool:{}", p.struct_type),
+                format!("{:#018x}", p.physical_addr),
+                format!("{:#x}", p.block_size),
+                format!(
+                    "tag={} type={} suspicious={}",
+                    p.pool_tag, p.pool_type, p.is_suspicious
+                ),
+            ]);
+        }
+    }
+
+    // MBR scan — detect suspicious master boot records
+    if let Ok(items) = memf_windows::mbr_scan::walk_mbr_scan(reader) {
+        for m in &items {
+            rows.push(vec![
+                "mbr".into(),
+                format!("{:#018x}", m.physical_offset),
+                "512".into(),
+                format!(
+                    "magic={:#010x} suspicious={} hash={}",
+                    m.signature, m.is_suspicious, m.bootstrap_hash
+                ),
+            ]);
+        }
+    }
+
+    // PE version info — detect DLL/driver version mismatches (indicator of hollowing)
+    if let Ok(items) = memf_windows::pe_version_info::walk_pe_version_info(reader) {
+        for v in &items {
+            if v.is_suspicious {
+                rows.push(vec![
+                    "pe-version".into(),
+                    format!("{:#018x}", v.module_base),
+                    String::new(),
+                    format!(
+                        "{} mismatch: original_filename={} file_version={}",
+                        v.module_name, v.original_filename, v.file_version
+                    ),
+                ]);
+            }
+        }
+    }
+
+    if rows.is_empty() {
+        rows.push(vec![
+            "scan".into(),
+            String::new(),
+            String::new(),
+            "no scan results (or symbols unavailable)".into(),
+        ]);
+    }
+
     Ok((headers, rows))
 }
 
 /// Extract Windows credential material and return headers + rows.
 ///
+/// Calls multiple walkers in sequence; if a walker returns `Err`, logs via
+/// `eprintln!` and continues with the remaining walkers.
+///
 /// # Errors
 ///
-/// Returns `Err` if the walker fails.
+/// Never returns `Err` — individual walker failures are logged and skipped.
 pub fn dispatch_windows_creds(
-    _reader: &ObjectReader<Box<dyn PhysicalMemoryProvider>>,
+    reader: &ObjectReader<Box<dyn PhysicalMemoryProvider>>,
 ) -> anyhow::Result<(Vec<&'static str>, Vec<Vec<String>>)> {
     let headers = vec!["Type", "User", "Hash"];
-    let rows = vec![vec![
-        "n/a".into(),
-        "".into(),
-        "no creds walkers wired yet".into(),
-    ]];
+    let mut rows: Vec<Vec<String>> = Vec::new();
+
+    // BitLocker keys — extract VMK/FVEK key material from memory
+    if let Ok(items) = memf_windows::bitlocker_keys::walk_bitlocker_keys(reader) {
+        for k in &items {
+            let key_hex: String = k
+                .key_material
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect();
+            rows.push(vec![
+                format!("bitlocker:{}", k.key_type),
+                k.volume_guid.clone(),
+                key_hex,
+            ]);
+        }
+    }
+
+    if rows.is_empty() {
+        rows.push(vec![
+            "n/a".into(),
+            String::new(),
+            "no credential artifacts found (or symbols unavailable)".into(),
+        ]);
+    }
+
     Ok((headers, rows))
 }
 
@@ -839,7 +1006,7 @@ pub fn dispatch_linux_security(
 }
 
 /// Walk Windows forensic artifact data (atom tables, clipboard, message hooks,
-/// COM hijacking) and return headers + rows.
+/// COM hijacking, named pipes, RDP sessions) and return headers + rows.
 ///
 /// Calls multiple walkers in sequence; if a walker returns `Err`, logs via
 /// `eprintln!` and continues with the remaining walkers.
@@ -848,15 +1015,115 @@ pub fn dispatch_linux_security(
 ///
 /// Never returns `Err` — individual walker failures are logged and skipped.
 pub fn dispatch_windows_artifacts(
-    _reader: &ObjectReader<Box<dyn PhysicalMemoryProvider>>,
+    reader: &ObjectReader<Box<dyn PhysicalMemoryProvider>>,
 ) -> anyhow::Result<(Vec<&'static str>, Vec<Vec<String>>)> {
     let headers = vec!["Type", "Name", "Address", "Detail"];
-    let rows = vec![vec![
-        "n/a".into(),
-        String::new(),
-        String::new(),
-        "no artifact walkers wired yet".into(),
-    ]];
+    let mut rows: Vec<Vec<String>> = Vec::new();
+
+    // Global atom table — enumerate registered atoms (malware C2 config / mutex)
+    if let Ok(items) = memf_windows::atom_table::walk_atom_table(reader) {
+        for a in &items {
+            if a.is_suspicious {
+                rows.push(vec![
+                    "atom".into(),
+                    a.name.clone(),
+                    format!("{:#06x}", a.atom),
+                    format!("refs={} suspicious=true", a.reference_count),
+                ]);
+            }
+        }
+    }
+
+    // Clipboard — enumerate clipboard entries per window station
+    if let Ok(items) = memf_windows::clipboard::walk_clipboard(reader) {
+        for c in &items {
+            rows.push(vec![
+                "clipboard".into(),
+                c.format_name.clone(),
+                format!("pid={}", c.owner_pid),
+                format!(
+                    "size={} suspicious={} preview={}",
+                    c.data_size,
+                    c.is_suspicious,
+                    c.preview.chars().take(64).collect::<String>()
+                ),
+            ]);
+        }
+    }
+
+    // Message hooks — enumerate SetWindowsHookEx hooks (keyloggers etc.)
+    if let Ok(items) = memf_windows::messagehooks::walk_message_hooks(reader) {
+        for h in &items {
+            rows.push(vec![
+                "winhook".into(),
+                h.hook_type.clone(),
+                format!("{:#018x}", h.address),
+                format!(
+                    "pid={} module={} proc={:#018x} suspicious={}",
+                    h.owner_pid, h.module_name, h.hook_proc_addr, h.is_suspicious
+                ),
+            ]);
+        }
+    }
+
+    // COM hijacking — compare HKCR vs HKCU InProcServer32 entries
+    if let Ok(items) = memf_windows::com_hijacking::walk_com_hijacking(reader) {
+        for c in &items {
+            if c.is_suspicious {
+                rows.push(vec![
+                    "com-hijack".into(),
+                    c.clsid.clone(),
+                    String::new(),
+                    format!(
+                        "hkcr={} hkcu={} (user override)",
+                        c.hkcr_server, c.hkcu_server
+                    ),
+                ]);
+            }
+        }
+    }
+
+    // Named pipes — enumerate kernel pipe objects for suspicious IPC channels
+    if let Ok(items) = memf_windows::pipes::walk_named_pipes(reader) {
+        for p in &items {
+            if p.is_suspicious {
+                rows.push(vec![
+                    "named-pipe".into(),
+                    p.name.clone(),
+                    String::new(),
+                    format!(
+                        "suspicious=true reason={}",
+                        p.suspicion_reason.as_deref().unwrap_or("unknown")
+                    ),
+                ]);
+            }
+        }
+    }
+
+    // RDP sessions — enumerate Terminal Services / RDP sessions
+    if let Ok(items) = memf_windows::rdp_sessions::walk_rdp_sessions(reader) {
+        for r in &items {
+            rows.push(vec![
+                "rdp-session".into(),
+                r.username.clone(),
+                format!("session={}", r.session_id),
+                format!(
+                    "client={} state={} suspicious={}",
+                    r.client_address, r.state, r.is_suspicious
+                ),
+            ]);
+        }
+    }
+
+    if rows.is_empty() {
+        rows.push(vec![
+            "artifacts".into(),
+            String::new(),
+            String::new(),
+            "no artifact data found (or symbols unavailable)".into(),
+        ]);
+    }
+
     Ok((headers, rows))
 }
 
