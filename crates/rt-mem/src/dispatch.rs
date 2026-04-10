@@ -530,6 +530,23 @@ pub fn dispatch_linux_creds(
         Err(e) => eprintln!("check_creds walker error (skipped): {e}"),
     }
 
+    // seccomp-BPF filter profiles (container security / unconfined processes)
+    if let Ok(items) = memf_linux::seccomp::walk_seccomp_profiles(reader, &procs) {
+        for s in &items {
+            if s.is_unconfined {
+                rows.push(vec![
+                    "seccomp".into(),
+                    s.pid.to_string(),
+                    s.comm.clone(),
+                    format!(
+                        "UNCONFINED mode={} filters={}",
+                        s.seccomp_mode, s.filter_count
+                    ),
+                ]);
+            }
+        }
+    }
+
     if rows.is_empty() {
         rows.push(vec![
             "creds".into(),
@@ -751,10 +768,10 @@ pub fn dispatch_windows_check(
 pub fn dispatch_windows_scan(
     _reader: &ObjectReader<Box<dyn PhysicalMemoryProvider>>,
 ) -> anyhow::Result<(Vec<&'static str>, Vec<Vec<String>>)> {
-    let headers = vec!["Offset", "Tag", "Size", "Detail"];
+    let headers = vec!["Type", "Address", "Size", "Detail"];
     let rows = vec![vec![
-        "0x0".into(),
         "n/a".into(),
+        "0x0".into(),
         "0".into(),
         "no scan walkers wired yet".into(),
     ]];
@@ -785,9 +802,40 @@ pub fn dispatch_windows_creds(
 ///
 /// Never returns `Err` — individual walker failures are logged and skipped.
 pub fn dispatch_linux_security(
-    _reader: &ObjectReader<Box<dyn PhysicalMemoryProvider>>,
+    reader: &ObjectReader<Box<dyn PhysicalMemoryProvider>>,
 ) -> anyhow::Result<(Vec<&'static str>, Vec<Vec<String>>)> {
-    todo!("dispatch_linux_security not yet implemented")
+    let headers = vec!["PID", "Capability", "Detail"];
+    let mut rows: Vec<Vec<String>> = Vec::new();
+
+    // capabilities audit — walk processes then check each process's capability sets
+    let procs = memf_linux::process::walk_processes(reader).unwrap_or_default();
+    if let Ok(items) = memf_linux::capabilities::walk_capabilities(reader, &procs) {
+        for c in &items {
+            let caps_display = if c.suspicious_caps.is_empty() {
+                format!("eff={:#x}", c.effective)
+            } else {
+                c.suspicious_caps.join(", ")
+            };
+            rows.push(vec![
+                c.pid.to_string(),
+                caps_display,
+                format!(
+                    "{} suspicious={} eff={:#x} perm={:#x}",
+                    c.name, c.is_suspicious, c.effective, c.permitted
+                ),
+            ]);
+        }
+    }
+
+    if rows.is_empty() {
+        rows.push(vec![
+            String::new(),
+            "no-caps".into(),
+            "no capability data found (or symbols unavailable)".into(),
+        ]);
+    }
+
+    Ok((headers, rows))
 }
 
 /// Walk Windows forensic artifact data (atom tables, clipboard, message hooks,
@@ -802,7 +850,14 @@ pub fn dispatch_linux_security(
 pub fn dispatch_windows_artifacts(
     _reader: &ObjectReader<Box<dyn PhysicalMemoryProvider>>,
 ) -> anyhow::Result<(Vec<&'static str>, Vec<Vec<String>>)> {
-    todo!("dispatch_windows_artifacts not yet implemented")
+    let headers = vec!["Type", "Name", "Address", "Detail"];
+    let rows = vec![vec![
+        "n/a".into(),
+        String::new(),
+        String::new(),
+        "no artifact walkers wired yet".into(),
+    ]];
+    Ok((headers, rows))
 }
 
 // ---------------------------------------------------------------------------
@@ -1131,7 +1186,7 @@ mod tests {
     fn dispatch_windows_scan_returns_ok_with_expected_headers() {
         let reader = make_stub_reader();
         let (headers, rows) = dispatch_windows_scan(&reader).unwrap();
-        assert!(headers.contains(&"Offset"));
+        assert!(headers.contains(&"Type"));
         assert!(!rows.is_empty());
     }
 
