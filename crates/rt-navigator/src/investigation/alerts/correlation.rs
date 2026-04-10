@@ -15,8 +15,42 @@ use super::types::{Alert, AlertInput, AlertSeverity};
 /// empty.
 #[must_use]
 pub fn correlate_memory_process_mft(input: &AlertInput<'_>) -> Vec<Alert> {
-    let _ = input;
-    vec![]
+    if input.processes.is_empty() || input.mft_entries.is_empty() {
+        return vec![];
+    }
+
+    let mut alerts = Vec::new();
+
+    for proc in input.processes {
+        // Extract the executable path: first whitespace-delimited token of command
+        let exe = proc.command.split_whitespace().next().unwrap_or(&proc.command);
+
+        for mft in input.mft_entries {
+            if !mft.is_deleted {
+                continue;
+            }
+            // Compare case-insensitively for Windows paths
+            if mft.path.eq_ignore_ascii_case(exe) {
+                // Extract the filename for a concise alert message
+                let name = std::path::Path::new(exe)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or(exe);
+                alerts.push(Alert {
+                    severity: AlertSeverity::Critical,
+                    category: "process".into(),
+                    message: format!("Process running from deleted executable: {name}"),
+                    detail: format!(
+                        "pid={} user={} exe={} mft_path={}",
+                        proc.pid, proc.user, exe, mft.path
+                    ),
+                });
+                break;
+            }
+        }
+    }
+
+    alerts
 }
 
 /// Cross-correlate active network connections with EventLog failed-logon events.
@@ -29,8 +63,75 @@ pub fn correlate_memory_process_mft(input: &AlertInput<'_>) -> Vec<Alert> {
 /// empty.
 #[must_use]
 pub fn correlate_network_eventlog(input: &AlertInput<'_>) -> Vec<Alert> {
-    let _ = input;
-    vec![]
+    if input.network.is_empty() || input.windows_events.is_empty() {
+        return vec![];
+    }
+
+    // Count 4625 failed logon events by source IP extracted from description
+    let mut failed_logon_counts: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
+
+    for event in input.windows_events {
+        if event.event_id != 4625 {
+            continue;
+        }
+        // Extract IP from description — look for "IpAddress: <ip>" pattern
+        if let Some(ip) = extract_ip_from_description(&event.description) {
+            *failed_logon_counts.entry(ip).or_insert(0) += 1;
+        }
+    }
+
+    // Find connection remote IPs with 3+ failed logons
+    let mut alerts = Vec::new();
+    for conn in input.network {
+        // Extract remote IP without port
+        let remote_ip = conn.remote_addr.rsplit(':').nth(1).map_or_else(
+            || conn.remote_addr.as_str(),
+            |_| {
+                // Handle "ip:port" format — split at last ':'
+                conn.remote_addr
+                    .rfind(':')
+                    .map(|idx| &conn.remote_addr[..idx])
+                    .unwrap_or(&conn.remote_addr)
+            },
+        );
+
+        if let Some(&count) = failed_logon_counts.get(remote_ip) {
+            if count >= 3 {
+                alerts.push(Alert {
+                    severity: AlertSeverity::Warning,
+                    category: "network".into(),
+                    message: format!("Active connection to brute-force source: {remote_ip}"),
+                    detail: format!(
+                        "remote={} state={} failed_logons={count}",
+                        conn.remote_addr, conn.state
+                    ),
+                });
+            }
+        }
+    }
+
+    alerts
+}
+
+/// Extract an IP address from a Windows event description field.
+///
+/// Handles the common format: `IpAddress: <ip>` (with or without surrounding
+/// text). Returns `None` if no IP can be found.
+fn extract_ip_from_description(description: &str) -> Option<String> {
+    // Look for "IpAddress: <value>" or "IpAddress:<value>"
+    let lower = description.to_ascii_lowercase();
+    let marker = "ipaddress:";
+    let idx = lower.find(marker)?;
+    let after = description[idx + marker.len()..].trim_start();
+    // IP ends at whitespace or end of string
+    let ip = after.split_whitespace().next()?;
+    // Strip any trailing punctuation
+    let ip = ip.trim_end_matches(|c: char| !c.is_alphanumeric() && c != '.' && c != ':');
+    if ip.is_empty() || ip == "-" || ip == "0.0.0.0" {
+        return None;
+    }
+    Some(ip.to_string())
 }
 
 /// Detect C2 beacon timing patterns in timestamped connection logs.
@@ -44,8 +145,62 @@ pub fn correlate_network_eventlog(input: &AlertInput<'_>) -> Vec<Alert> {
 /// entries for any IP.
 #[must_use]
 pub fn correlate_c2_beacon(input: &AlertInput<'_>) -> Vec<Alert> {
-    let _ = input;
-    vec![]
+    if input.connection_log.is_empty() {
+        return vec![];
+    }
+
+    // Group timestamps by remote IP
+    let mut by_ip: std::collections::HashMap<&str, Vec<i64>> =
+        std::collections::HashMap::new();
+    for conn in input.connection_log {
+        by_ip.entry(conn.remote_ip.as_str()).or_default().push(conn.timestamp);
+    }
+
+    let mut alerts = Vec::new();
+
+    for (ip, mut timestamps) in by_ip {
+        if timestamps.len() < 3 {
+            continue;
+        }
+
+        timestamps.sort_unstable();
+
+        // Compute inter-arrival deltas
+        let deltas: Vec<f64> = timestamps
+            .windows(2)
+            .map(|w| (w[1] - w[0]) as f64)
+            .collect();
+
+        let n = deltas.len() as f64;
+        let mean = deltas.iter().sum::<f64>() / n;
+
+        // Mean must be in [30s, 3600s] to be interesting
+        if !(30.0..=3600.0).contains(&mean) {
+            continue;
+        }
+
+        // Compute standard deviation
+        let variance = deltas.iter().map(|&d| (d - mean).powi(2)).sum::<f64>() / n;
+        let std_dev = variance.sqrt();
+
+        // Coefficient of variation < 10% indicates regular beaconing
+        if mean > 0.0 && (std_dev / mean) < 0.10 {
+            alerts.push(Alert {
+                severity: AlertSeverity::Warning,
+                category: "network".into(),
+                message: format!(
+                    "Possible C2 beacon to {ip}: interval ~{:.0}s",
+                    mean
+                ),
+                detail: format!(
+                    "remote_ip={ip} connections={} mean_interval={mean:.1}s std_dev={std_dev:.1}s",
+                    timestamps.len()
+                ),
+            });
+        }
+    }
+
+    alerts
 }
 
 // ---------------------------------------------------------------------------
