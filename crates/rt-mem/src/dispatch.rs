@@ -695,6 +695,18 @@ pub fn dispatch_windows_creds(
     Ok((headers, rows))
 }
 
+/// Audit Linux process security policies (capabilities, seccomp, IPC, TTY hooks,
+/// signal handlers, keyboard notifiers, KASLR) and return headers + rows.
+///
+/// # Errors
+///
+/// Never returns `Err` — individual walker failures are logged and skipped.
+pub fn dispatch_linux_security(
+    _reader: &ObjectReader<Box<dyn PhysicalMemoryProvider>>,
+) -> anyhow::Result<(Vec<&'static str>, Vec<Vec<String>>)> {
+    todo!("dispatch_linux_security not yet implemented")
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -1082,5 +1094,41 @@ mod tests {
         let row = struct_to_row(&d, &["count", "flag"]);
         assert_eq!(row[0], "99");
         assert_eq!(row[1], "true");
+    }
+
+    // -----------------------------------------------------------------------
+    // RED: dispatch_linux_security — panics (todo!()) until wired in GREEN
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn dispatch_linux_security_headers_correct() {
+        // Panics with todo!() in RED phase (test FAILS). In GREEN: asserts
+        // headers contain "PID", "Capability", "Detail".
+        let reader = make_stub_reader();
+        let (headers, _rows) = dispatch_linux_security(&*Box::new(reader)).unwrap();
+        assert!(
+            headers.contains(&"PID"),
+            "headers should contain 'PID', got: {headers:?}"
+        );
+        assert!(
+            headers.contains(&"Capability"),
+            "headers should contain 'Capability', got: {headers:?}"
+        );
+        assert!(
+            headers.contains(&"Detail"),
+            "headers should contain 'Detail', got: {headers:?}"
+        );
+    }
+
+    #[test]
+    fn dispatch_linux_security_returns_ok() {
+        // Panics with todo!() in RED phase (test FAILS). In GREEN: asserts
+        // Ok with non-empty headers and at least one fallback row.
+        let reader = make_stub_reader();
+        let result = dispatch_linux_security(&*Box::new(reader));
+        assert!(result.is_ok(), "dispatch_linux_security must return Ok");
+        let (headers, rows) = result.unwrap();
+        assert!(!headers.is_empty());
+        assert!(!rows.is_empty(), "must have at least one row (fallback)");
     }
 }
