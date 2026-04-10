@@ -53,31 +53,25 @@ pub fn run(
         eprintln!("Warning: {warning}");
     }
 
-    if result.findings.is_empty() {
+    if format == "json" {
+        let json = serde_json::to_string_pretty(&result.findings).unwrap_or_else(|_| "[]".into());
+        println!("{json}");
+    } else if result.findings.is_empty() {
         println!("No remote access artifacts detected.");
     } else {
         println!("Found {} remote access tool(s):\n", result.findings.len());
         for finding in &result.findings {
-            match format {
-                "json" => {
-                    let json =
-                        serde_json::to_string_pretty(finding).unwrap_or_else(|_| "{}".into());
-                    println!("{json}");
-                }
-                _ => {
-                    println!(
-                        "  {} [{}] — {} artifact(s)",
-                        finding.tool_name,
-                        finding.category,
-                        finding.artifacts.len()
-                    );
-                    if let Some(first) = finding.first_seen {
-                        println!("    First seen: {first}");
-                    }
-                    if let Some(last) = finding.last_seen {
-                        println!("    Last seen:  {last}");
-                    }
-                }
+            println!(
+                "  {} [{}] — {} artifact(s)",
+                finding.tool_name,
+                finding.category,
+                finding.artifacts.len()
+            );
+            if let Some(first) = finding.first_seen {
+                println!("    First seen: {first}");
+            }
+            if let Some(last) = finding.last_seen {
+                println!("    Last seen:  {last}");
             }
         }
     }

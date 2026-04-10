@@ -1680,6 +1680,128 @@ fn full_pipeline_ingest_timeline_report() {
     assert!(html.contains("PIPELINE-CASE-001"), "report must contain case ID");
 }
 
+// ── NEW: timeline --format json (non-flagged) ────────────────────────
+
+#[test]
+fn timeline_format_json_produces_valid_json() {
+    let dir = TempDir::new().expect("tmpdir");
+    let evidence_dir = TempDir::new().expect("tmpdir");
+    let db_path = dir.path().join("test.duckdb");
+
+    // Ingest a USN record so there is at least one event.
+    let record = build_usn_v2_record("json_test_file.txt", 0x100, 42, 100, 0);
+    std::fs::write(evidence_dir.path().join("$J"), &record).unwrap();
+
+    rt_cmd()
+        .args([
+            "ingest",
+            &evidence_dir.path().to_string_lossy(),
+            "-o",
+            &db_path.to_string_lossy(),
+        ])
+        .assert()
+        .success();
+
+    let output = rt_cmd()
+        .args(["timeline", &db_path.to_string_lossy(), "--format", "json"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "timeline --format json should succeed");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).expect("timeline --format json should produce valid JSON");
+    assert!(parsed.is_array(), "JSON output should be an array");
+    let arr = parsed.as_array().unwrap();
+    assert!(!arr.is_empty(), "array should contain at least one event");
+    // Verify expected fields are present.
+    assert!(arr[0]["timestamp"].is_string());
+    assert!(arr[0]["event_type"].is_string());
+    assert!(arr[0]["source"].is_string());
+    assert!(arr[0]["description"].is_string());
+}
+
+#[test]
+fn timeline_format_json_empty_db_produces_empty_array() {
+    let dir = TempDir::new().expect("tmpdir");
+    let evidence_dir = TempDir::new().expect("tmpdir");
+    let db_path = dir.path().join("empty.duckdb");
+
+    rt_cmd()
+        .args([
+            "ingest",
+            &evidence_dir.path().to_string_lossy(),
+            "-o",
+            &db_path.to_string_lossy(),
+        ])
+        .assert()
+        .success();
+
+    let output = rt_cmd()
+        .args(["timeline", &db_path.to_string_lossy(), "--format", "json"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).expect("should be valid JSON even when empty");
+    assert!(parsed.is_array());
+    assert_eq!(parsed.as_array().unwrap().len(), 0);
+}
+
+// ── NEW: timeline nonexistent db error text ───────────────────────────
+
+#[test]
+fn timeline_nonexistent_db_shows_error_text() {
+    rt_cmd()
+        .args(["timeline", "/nonexistent/db/path/98765.duckdb"])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("Failed to open database")
+                .or(predicate::str::contains("Error")),
+        );
+}
+
+// ── NEW: feed --help ──────────────────────────────────────────────────
+
+#[test]
+fn feed_help_exits_success() {
+    rt_cmd()
+        .args(["feed", "--help"])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("list")
+                .and(predicate::str::contains("update")),
+        );
+}
+
+// ── NEW: scan --yara-rules with nonexistent rules file ────────────────
+
+#[test]
+fn scan_yara_rules_nonexistent_file_exits_nonzero_with_error() {
+    let dir = TempDir::new().expect("tmpdir");
+    let target = dir.path().join("benign.bin");
+    std::fs::write(&target, b"clean content").unwrap();
+
+    rt_cmd()
+        .args([
+            "scan",
+            target.to_str().unwrap(),
+            "--yara-rules",
+            "/nonexistent/rules/file.yar",
+        ])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("not found")
+                .or(predicate::str::contains("No such file"))
+                .or(predicate::str::contains("Error")),
+        );
+}
+
 // ── NEW: verbose flag with operational subcommands ────────────────────
 
 #[test]

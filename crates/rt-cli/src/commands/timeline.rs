@@ -50,6 +50,22 @@ pub fn run(
 
     let rows = store.query(&query).context("Query failed")?;
 
+    if format == "json" {
+        let arr: Vec<serde_json::Value> = rows
+            .iter()
+            .map(|r| {
+                serde_json::json!({
+                    "timestamp": r.timestamp_display,
+                    "event_type": r.event_type,
+                    "source": r.source,
+                    "description": r.description,
+                })
+            })
+            .collect();
+        println!("{}", serde_json::to_string_pretty(&arr)?);
+        return Ok(());
+    }
+
     if rows.is_empty() {
         println!("No events found.");
         return Ok(());
