@@ -104,7 +104,7 @@ pub fn anomalies_to_alerts(index: &AnomalyIndex, tree: &FileTree) -> Vec<Alert> 
 
 #[cfg(test)]
 mod tests {
-    use super::super::types::{AlertInput, AlertSeverity, WindowsEvent};
+    use super::super::types::{AlertInput, AlertSeverity};
     use super::*;
     use rt_mft_tree::tree::FileTree;
     use rt_parser_uac::parsers::bodyfile::BodyfileEntry;

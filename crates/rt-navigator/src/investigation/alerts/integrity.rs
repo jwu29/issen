@@ -314,7 +314,6 @@ mod tests {
 
     #[test]
     fn env_vbox_vmware_conflict_warning() {
-        use rt_parser_uac::parsers::rootkit::RootkitSeverity;
         let configs = vec![cfg(
             "system/lsmod.txt",
             "Module                  Size  Used by\n\
