@@ -195,6 +195,8 @@ pub fn load_uac_collection(
         packages: &packages,
         logins: &logins,
         windows_events: &[], // UAC collections don't contain EVTX
+        mft_entries: &[],    // UAC collections don't contain MFT
+        connection_log: &[], // UAC live-response captures socket state only
     };
     let alerts = detect_alerts(&alert_input);
 

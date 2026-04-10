@@ -6,6 +6,7 @@ use rt_signatures::matching::results::Severity;
 
 use super::auth::{check_login_anomalies, check_session_forensics, check_windows_auth_forensics};
 use super::config::{check_config_alerts, check_config_baseline};
+use super::correlation::{correlate_c2_beacon, correlate_memory_process_mft, correlate_network_eventlog};
 use super::filesystem::{
     check_bodyfile_alerts, check_permission_anomalies, check_temporal_patterns,
 };
@@ -67,6 +68,11 @@ pub fn detect_alerts(input: &AlertInput<'_>) -> Vec<Alert> {
     check_windows_persistence(input.windows_events, &mut alerts);
     check_windows_system_integrity(input.windows_events, &mut alerts);
 
+    // --- Cross-artifact correlation (MFT + processes, network + EventLog, C2 beacon) ---
+    alerts.extend(correlate_memory_process_mft(input));
+    alerts.extend(correlate_network_eventlog(input));
+    alerts.extend(correlate_c2_beacon(input));
+
     alerts.sort_by_key(|a| a.severity);
     alerts
 }
@@ -127,6 +133,8 @@ mod tests {
             packages: &[],
             logins: &[],
             windows_events: &[],
+            mft_entries: &[],
+            connection_log: &[],
         }
     }
 

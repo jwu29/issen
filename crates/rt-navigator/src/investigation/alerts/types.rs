@@ -62,6 +62,33 @@ pub struct WindowsEvent {
     pub description: String,
 }
 
+/// A parsed MFT file entry for cross-artifact correlation.
+///
+/// Produced from the Windows MFT (parsed separately from UAC bodyfile output).
+/// The `is_deleted` flag is set when the MFT entry's `$FILE_NAME` attribute
+/// indicates the file has been deleted (directory entry removed).
+#[derive(Debug, Clone)]
+pub struct MftFileEntry {
+    /// Full file path as reconstructed from the MFT.
+    pub path: String,
+    /// Whether the MFT entry is marked as deleted.
+    pub is_deleted: bool,
+}
+
+/// A timestamped network connection record for C2 beacon analysis.
+///
+/// Unlike `NetworkConnection` (which reflects the live socket state at
+/// collection time), `TimestampedConnection` captures a single observed
+/// connection event with a Unix epoch timestamp — suitable for inter-arrival
+/// timing analysis.
+#[derive(Debug, Clone)]
+pub struct TimestampedConnection {
+    /// Remote IP address (without port).
+    pub remote_ip: String,
+    /// Unix epoch seconds when this connection was observed.
+    pub timestamp: i64,
+}
+
 /// Borrowed slices of parsed artifacts fed into the alert engine.
 pub struct AlertInput<'a> {
     pub bodyfile: &'a [BodyfileEntry],
@@ -75,6 +102,11 @@ pub struct AlertInput<'a> {
     pub packages: &'a [InstalledPackage],
     pub logins: &'a [LoginRecord],
     pub windows_events: &'a [WindowsEvent],
+    /// MFT file entries (Windows collections); empty for Linux/macOS UAC.
+    pub mft_entries: &'a [MftFileEntry],
+    /// Timestamped connection log for C2 beacon timing analysis; empty when
+    /// not available (e.g. UAC live-response only captures socket state).
+    pub connection_log: &'a [TimestampedConnection],
 }
 
 /// A suspicious port entry with provenance for forensic traceability.

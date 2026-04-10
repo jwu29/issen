@@ -134,6 +134,8 @@ mod tests {
             packages: &[],
             logins: &[],
             windows_events: &[],
+            mft_entries: &[],
+            connection_log: &[],
         }
     }
 

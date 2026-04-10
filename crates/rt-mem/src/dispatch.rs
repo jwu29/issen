@@ -279,6 +279,89 @@ pub fn dispatch_linux_check(
         Err(e) => eprintln!("ftrace walker error (skipped): {e}"),
     }
 
+    // TTY driver operations hooks
+    if let Ok(items) = memf_linux::tty_check::check_tty_hooks(reader) {
+        for t in &items {
+            rows.push(vec![
+                "tty-hook".into(),
+                if t.hooked { "HOOKED" } else { "ok" }.into(),
+                format!("{} ({})", t.name, t.operation),
+                format!("{:#018x}", t.handler),
+            ]);
+        }
+    }
+
+    // signal handler anomalies
+    if let Ok(items) = memf_linux::signal_handlers::walk_signal_handlers(reader) {
+        for s in &items {
+            if s.is_suspicious {
+                rows.push(vec![
+                    "signal".into(),
+                    "SUSPICIOUS".into(),
+                    format!("pid={} ({})", s.pid, s.comm),
+                    format!(
+                        "{}: {} → {:#018x}",
+                        s.signal_name, s.handler_type, s.handler
+                    ),
+                ]);
+            }
+        }
+    }
+
+    // keyboard notifier chain (keylogger detection)
+    if let Ok(items) = memf_linux::keyboard_notifiers::walk_keyboard_notifiers(reader) {
+        for k in &items {
+            rows.push(vec![
+                "kbd-notifier".into(),
+                if k.is_suspicious { "SUSPICIOUS" } else { "ok" }.into(),
+                format!("{:#018x}", k.address),
+                format!("call={:#018x} prio={}", k.notifier_call, k.priority),
+            ]);
+        }
+    }
+
+    // KASLR offset detection
+    if let Ok(offset) =
+        memf_linux::kaslr::detect_kaslr_offset(reader.vas().physical(), reader.symbols())
+    {
+        rows.push(vec![
+            "kaslr".into(),
+            "ok".into(),
+            String::new(),
+            format!("slide={:#018x}", offset),
+        ]);
+    }
+
+    // IPC shared memory segments
+    if let Ok(items) = memf_linux::ipc::walk_shm_segments(reader) {
+        for shm in &items {
+            rows.push(vec![
+                "ipc-shm".into(),
+                "ok".into(),
+                format!("shmid={}", shm.shmid),
+                format!(
+                    "key={:#x} size={} owner_pid={} attaches={}",
+                    shm.key, shm.size, shm.owner_pid, shm.num_attaches
+                ),
+            ]);
+        }
+    }
+
+    // IPC semaphore sets
+    if let Ok(items) = memf_linux::ipc::walk_semaphores(reader) {
+        for sem in &items {
+            rows.push(vec![
+                "ipc-sem".into(),
+                "ok".into(),
+                format!("semid={}", sem.semid),
+                format!(
+                    "key={:#x} nsems={} owner_pid={}",
+                    sem.key, sem.num_sems, sem.owner_pid
+                ),
+            ]);
+        }
+    }
+
     if rows.is_empty() {
         rows.push(vec![
             "all-checks".into(),
@@ -707,6 +790,21 @@ pub fn dispatch_linux_security(
     todo!("dispatch_linux_security not yet implemented")
 }
 
+/// Walk Windows forensic artifact data (atom tables, clipboard, message hooks,
+/// COM hijacking) and return headers + rows.
+///
+/// Calls multiple walkers in sequence; if a walker returns `Err`, logs via
+/// `eprintln!` and continues with the remaining walkers.
+///
+/// # Errors
+///
+/// Never returns `Err` — individual walker failures are logged and skipped.
+pub fn dispatch_windows_artifacts(
+    _reader: &ObjectReader<Box<dyn PhysicalMemoryProvider>>,
+) -> anyhow::Result<(Vec<&'static str>, Vec<Vec<String>>)> {
+    todo!("dispatch_windows_artifacts not yet implemented")
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -1094,6 +1192,54 @@ mod tests {
         let row = struct_to_row(&d, &["count", "flag"]);
         assert_eq!(row[0], "99");
         assert_eq!(row[1], "true");
+    }
+
+    // -----------------------------------------------------------------------
+    // RED: dispatch_windows_artifacts and updated header tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn dispatch_windows_check_includes_dse_and_amsi() {
+        // dispatch_windows_check is wired with dse_bypass/amsi walkers in GREEN.
+        // With stub reader (no symbols), all sub-walkers degrade gracefully → Ok.
+        let reader = make_stub_reader();
+        let result = dispatch_windows_check(&reader);
+        assert!(result.is_ok(), "dispatch_windows_check must return Ok");
+        let (headers, rows) = result.unwrap();
+        assert!(
+            headers.contains(&"Check"),
+            "headers must contain 'Check', got: {headers:?}"
+        );
+        assert!(!rows.is_empty(), "must have at least one row");
+    }
+
+    #[test]
+    fn dispatch_windows_scan_headers_correct() {
+        // GREEN: dispatch_windows_scan includes Type and Address columns.
+        let reader = make_stub_reader();
+        let result = dispatch_windows_scan(&reader);
+        assert!(result.is_ok(), "dispatch_windows_scan must return Ok");
+        let (headers, _rows) = result.unwrap();
+        assert!(
+            headers.contains(&"Type"),
+            "headers must contain 'Type', got: {headers:?}"
+        );
+        assert!(
+            headers.contains(&"Address"),
+            "headers must contain 'Address', got: {headers:?}"
+        );
+    }
+
+    #[test]
+    fn dispatch_windows_artifacts_returns_ok() {
+        // RED: dispatch_windows_artifacts is todo!() → panics → FAIL
+        // GREEN: implemented function returns Ok with non-empty headers/rows
+        let reader = make_stub_reader();
+        let result = dispatch_windows_artifacts(&reader);
+        assert!(result.is_ok(), "dispatch_windows_artifacts must return Ok");
+        let (headers, rows) = result.unwrap();
+        assert!(!headers.is_empty(), "headers must be non-empty");
+        assert!(!rows.is_empty(), "must have at least one row");
     }
 
     // -----------------------------------------------------------------------

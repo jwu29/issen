@@ -6,6 +6,7 @@
 
 mod auth;
 mod config;
+pub mod correlation;
 mod engine;
 mod filesystem;
 mod integrity;
@@ -16,4 +17,4 @@ mod process;
 mod types;
 
 pub use engine::{anomalies_to_alerts, detect_alerts};
-pub use types::{Alert, AlertInput, AlertSeverity, WindowsEvent};
+pub use types::{Alert, AlertInput, AlertSeverity, MftFileEntry, TimestampedConnection, WindowsEvent};
