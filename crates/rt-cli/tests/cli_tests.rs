@@ -1250,3 +1250,458 @@ fn test_remote_access_json_format() {
         .assert()
         .success();
 }
+
+// ── NEW: Verbose flag tests ──────────────────────────────────────────
+
+#[test]
+fn verbose_flag_does_not_crash() {
+    rt_cmd()
+        .arg("-v")
+        .arg("--help")
+        .assert()
+        .success();
+}
+
+#[test]
+fn verbose_flag_with_subcommand_help() {
+    rt_cmd()
+        .arg("-v")
+        .args(["timeline", "--help"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn verbose_flag_with_ingest_help() {
+    rt_cmd()
+        .arg("-v")
+        .args(["ingest", "--help"])
+        .assert()
+        .success();
+}
+
+// ── NEW: Version flag shows actual package version ───────────────────
+
+#[test]
+fn version_flag_shows_version() {
+    rt_cmd()
+        .arg("--version")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(env!("CARGO_PKG_VERSION")));
+}
+
+// ── NEW: --help for every subcommand ─────────────────────────────────
+
+#[test]
+fn all_subcommands_help_exits_success() {
+    for sub in &[
+        "ingest",
+        "timeline",
+        "info",
+        "scan",
+        "remote-access",
+        "report",
+        "memf",
+    ] {
+        rt_cmd()
+            .args([sub, "--help"])
+            .assert()
+            .success();
+    }
+}
+
+#[test]
+fn feed_subcommands_help_exits_success() {
+    for sub in &["list", "update"] {
+        rt_cmd()
+            .args(["feed", sub, "--help"])
+            .assert()
+            .success();
+    }
+}
+
+// ── NEW: Error message text validation ───────────────────────────────
+
+#[test]
+fn ingest_missing_source_shows_error_message() {
+    rt_cmd()
+        .args(["ingest", "/nonexistent/evidence/path/12345"])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("does not exist")
+                .or(predicate::str::contains("No such file")),
+        );
+}
+
+#[test]
+fn info_nonexistent_db_shows_error_message() {
+    rt_cmd()
+        .args(["info", "/nonexistent/db/path/12345.duckdb"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Error"));
+}
+
+#[test]
+fn scan_nonexistent_target_shows_error_message() {
+    rt_cmd()
+        .args(["scan", "/nonexistent/scan/target/12345"])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("does not exist")
+                .or(predicate::str::contains("No such file"))
+                .or(predicate::str::contains("Error")),
+        );
+}
+
+#[test]
+fn remote_access_nonexistent_path_shows_error_message() {
+    rt_cmd()
+        .args(["remote-access", "/nonexistent/evidence/12345"])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("does not exist")
+                .or(predicate::str::contains("No such file"))
+                .or(predicate::str::contains("Error")),
+        );
+}
+
+#[test]
+fn report_nonexistent_db_shows_error_message() {
+    rt_cmd()
+        .args(["report", "/nonexistent/db/12345.duckdb"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Error"));
+}
+
+// ── NEW: Multi-flag combinations ─────────────────────────────────────
+
+#[test]
+fn timeline_multi_flag_descending_limit() {
+    let dir = TempDir::new().expect("tmpdir");
+    let evidence_dir = TempDir::new().expect("tmpdir");
+    let db_path = dir.path().join("test.duckdb");
+
+    // Create DB via ingest.
+    rt_cmd()
+        .args([
+            "ingest",
+            &evidence_dir.path().to_string_lossy(),
+            "-o",
+            &db_path.to_string_lossy(),
+        ])
+        .assert()
+        .success();
+
+    rt_cmd()
+        .args([
+            "timeline",
+            &db_path.to_string_lossy(),
+            "--descending",
+            "-n",
+            "10",
+        ])
+        .assert()
+        .success();
+}
+
+#[test]
+fn timeline_multi_flag_event_type_and_source() {
+    let dir = TempDir::new().expect("tmpdir");
+    let evidence_dir = TempDir::new().expect("tmpdir");
+    let db_path = dir.path().join("test.duckdb");
+
+    rt_cmd()
+        .args([
+            "ingest",
+            &evidence_dir.path().to_string_lossy(),
+            "-o",
+            &db_path.to_string_lossy(),
+        ])
+        .assert()
+        .success();
+
+    rt_cmd()
+        .args([
+            "timeline",
+            &db_path.to_string_lossy(),
+            "--event-type",
+            "FileCreate",
+            "--source",
+            "UsnJournal",
+            "--descending",
+        ])
+        .assert()
+        .success();
+}
+
+#[test]
+fn scan_multi_flag_min_severity_and_format() {
+    let dir = TempDir::new().expect("tmpdir");
+    let target = dir.path().join("file.bin");
+    std::fs::write(&target, b"benign content").unwrap();
+
+    rt_cmd()
+        .args([
+            "scan",
+            target.to_str().unwrap(),
+            "--min-severity",
+            "medium",
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success();
+}
+
+#[test]
+fn remote_access_multi_flag_categories_and_format() {
+    let dir = TempDir::new().expect("tmpdir");
+
+    rt_cmd()
+        .args([
+            "remote-access",
+            &dir.path().to_string_lossy(),
+            "--categories",
+            "rmm",
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success();
+}
+
+#[test]
+fn ingest_multi_flag_output_and_source() {
+    let evidence_dir = TempDir::new().expect("tmpdir");
+    let out_dir = TempDir::new().expect("tmpdir");
+    let db_path = out_dir.path().join("multi.duckdb");
+
+    rt_cmd()
+        .args([
+            "ingest",
+            &evidence_dir.path().to_string_lossy(),
+            "-o",
+            &db_path.to_string_lossy(),
+            "-s",
+            "CASE-MULTI-001",
+        ])
+        .assert()
+        .success();
+}
+
+#[test]
+fn report_multi_flag_case_id_examiner_max_events() {
+    let dir = TempDir::new().expect("tmpdir");
+    let evidence_dir = TempDir::new().expect("tmpdir");
+    let db_path = dir.path().join("test.duckdb");
+    let report_path = dir.path().join("report.html");
+
+    rt_cmd()
+        .args([
+            "ingest",
+            &evidence_dir.path().to_string_lossy(),
+            "-o",
+            &db_path.to_string_lossy(),
+        ])
+        .assert()
+        .success();
+
+    rt_cmd()
+        .args([
+            "report",
+            &db_path.to_string_lossy(),
+            "-o",
+            &report_path.to_string_lossy(),
+            "--case-id",
+            "MULTI-CASE",
+            "--examiner",
+            "Multi Tester",
+            "--max-events",
+            "100",
+        ])
+        .assert()
+        .success();
+}
+
+// ── NEW: JSON output format validation ───────────────────────────────
+
+#[test]
+fn timeline_flagged_json_output_is_valid_json() {
+    let dir = TempDir::new().expect("tmpdir");
+    let evidence_dir = TempDir::new().expect("tmpdir");
+    let db_path = dir.path().join("test.duckdb");
+
+    rt_cmd()
+        .args([
+            "ingest",
+            &evidence_dir.path().to_string_lossy(),
+            "-o",
+            &db_path.to_string_lossy(),
+        ])
+        .assert()
+        .success();
+
+    let output = rt_cmd()
+        .args([
+            "timeline",
+            &db_path.to_string_lossy(),
+            "--flagged",
+            "--format",
+            "json",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "timeline --flagged --format json should succeed");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let _: serde_json::Value = serde_json::from_str(&stdout)
+        .expect("timeline --flagged --format json should produce valid JSON");
+}
+
+#[test]
+fn scan_json_output_is_valid_json() {
+    let dir = TempDir::new().expect("tmpdir");
+    let target = dir.path().join("benign.bin");
+    std::fs::write(&target, b"no threats here").unwrap();
+
+    let output = rt_cmd()
+        .args(["scan", target.to_str().unwrap(), "--format", "json"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "scan --format json should succeed");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let _: serde_json::Value = serde_json::from_str(&stdout)
+        .expect("scan --format json should produce valid JSON");
+}
+
+#[test]
+fn remote_access_json_output_is_valid_json() {
+    let dir = TempDir::new().expect("tmpdir");
+
+    let output = rt_cmd()
+        .args([
+            "remote-access",
+            &dir.path().to_string_lossy(),
+            "--format",
+            "json",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "remote-access --format json should succeed");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let _: serde_json::Value = serde_json::from_str(&stdout)
+        .expect("remote-access --format json should produce valid JSON");
+}
+
+// ── NEW: memf subcommand ─────────────────────────────────────────────
+
+#[test]
+fn memf_help_exits_success() {
+    rt_cmd()
+        .args(["memf", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("DUMP_PATH"));
+}
+
+#[test]
+fn memf_nonexistent_dump_shows_error() {
+    rt_cmd()
+        .args(["memf", "/nonexistent/memory.lime"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Error"));
+}
+
+// ── NEW: Full pipeline integration test ──────────────────────────────
+
+#[test]
+fn full_pipeline_ingest_timeline_report() {
+    let dir = TempDir::new().expect("tmpdir");
+    let evidence_dir = TempDir::new().expect("tmpdir");
+    let db_path = dir.path().join("pipeline.duckdb");
+    let report_path = dir.path().join("pipeline.html");
+
+    // Write a minimal USN record as evidence.
+    let record = build_usn_v2_record("pipeline_file.txt", 0x100, 42, 100, 0);
+    std::fs::write(evidence_dir.path().join("$J"), &record).unwrap();
+
+    // Step 1: ingest.
+    rt_cmd()
+        .args([
+            "ingest",
+            &evidence_dir.path().to_string_lossy(),
+            "-o",
+            &db_path.to_string_lossy(),
+            "-s",
+            "PIPELINE-CASE-001",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Artifacts found:"));
+
+    // Step 2: timeline query — output from step 1 feeds step 2.
+    rt_cmd()
+        .args(["timeline", &db_path.to_string_lossy()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("pipeline_file.txt"));
+
+    // Step 3: info — verify DB is consistent.
+    rt_cmd()
+        .args(["info", &db_path.to_string_lossy()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Total events:"));
+
+    // Step 4: report generation — output from step 1 feeds step 4.
+    rt_cmd()
+        .args([
+            "report",
+            &db_path.to_string_lossy(),
+            "-o",
+            &report_path.to_string_lossy(),
+            "--case-id",
+            "PIPELINE-CASE-001",
+        ])
+        .assert()
+        .success();
+
+    let html = std::fs::read_to_string(&report_path).expect("read pipeline report");
+    assert!(html.contains("<!DOCTYPE html>"), "report must be HTML");
+    assert!(html.contains("PIPELINE-CASE-001"), "report must contain case ID");
+}
+
+// ── NEW: verbose flag with operational subcommands ────────────────────
+
+#[test]
+fn verbose_flag_with_scan_subcommand() {
+    let dir = TempDir::new().expect("tmpdir");
+    let target = dir.path().join("file.bin");
+    std::fs::write(&target, b"test content").unwrap();
+
+    rt_cmd()
+        .arg("-v")
+        .args(["scan", target.to_str().unwrap()])
+        .assert()
+        .success();
+}
+
+#[test]
+fn verbose_flag_with_remote_access_subcommand() {
+    let dir = TempDir::new().expect("tmpdir");
+
+    rt_cmd()
+        .arg("-v")
+        .args(["remote-access", &dir.path().to_string_lossy()])
+        .assert()
+        .success();
+}

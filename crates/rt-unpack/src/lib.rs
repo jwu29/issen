@@ -111,6 +111,44 @@ mod tests {
     }
 
     #[test]
+    fn test_confidence_none_is_lowest() {
+        assert_eq!(
+            vec![Confidence::None, Confidence::Low].into_iter().min(),
+            Some(Confidence::None)
+        );
+    }
+
+    #[test]
+    fn test_confidence_medium_between_low_and_high() {
+        assert!(Confidence::Medium > Confidence::Low);
+        assert!(Confidence::Medium < Confidence::High);
+    }
+
+    #[test]
+    fn test_confidence_equality() {
+        assert_eq!(Confidence::None, Confidence::None);
+        assert_eq!(Confidence::Low, Confidence::Low);
+        assert_eq!(Confidence::Medium, Confidence::Medium);
+        assert_eq!(Confidence::High, Confidence::High);
+    }
+
+    #[test]
+    fn test_confidence_debug() {
+        assert_eq!(format!("{:?}", Confidence::None), "None");
+        assert_eq!(format!("{:?}", Confidence::Low), "Low");
+        assert_eq!(format!("{:?}", Confidence::Medium), "Medium");
+        assert_eq!(format!("{:?}", Confidence::High), "High");
+    }
+
+    #[test]
+    fn test_confidence_clone_copy() {
+        let c = Confidence::High;
+        let d = c; // Copy
+        let e = c.clone(); // Clone
+        assert_eq!(d, e);
+    }
+
+    #[test]
     fn test_manifest_entry_with_type() {
         let entry = ManifestEntry {
             path: PathBuf::from("$MFT"),
@@ -129,6 +167,81 @@ mod tests {
     }
 
     #[test]
+    fn test_manifest_entry_path_field() {
+        let entry = ManifestEntry {
+            path: PathBuf::from("C:/Windows/System32/config/SAM"),
+            artifact_type: None,
+        };
+        assert_eq!(entry.path, PathBuf::from("C:/Windows/System32/config/SAM"));
+    }
+
+    #[test]
+    fn test_manifest_entry_debug() {
+        let entry = ManifestEntry {
+            path: PathBuf::from("test.dat"),
+            artifact_type: None,
+        };
+        let dbg = format!("{:?}", entry);
+        assert!(dbg.contains("test.dat"));
+    }
+
+    #[test]
+    fn test_manifest_entry_clone() {
+        let entry = ManifestEntry {
+            path: PathBuf::from("clone.dat"),
+            artifact_type: Some(ArtifactType::Mft),
+        };
+        let cloned = entry.clone();
+        assert_eq!(cloned.path, entry.path);
+        assert_eq!(cloned.artifact_type, entry.artifact_type);
+    }
+
+    #[test]
+    fn test_os_type_windows() {
+        let os = OsType::Windows;
+        assert_eq!(os, OsType::Windows);
+    }
+
+    #[test]
+    fn test_os_type_linux() {
+        let os = OsType::Linux;
+        assert_eq!(os, OsType::Linux);
+    }
+
+    #[test]
+    fn test_os_type_macos() {
+        let os = OsType::MacOS;
+        assert_eq!(os, OsType::MacOS);
+    }
+
+    #[test]
+    fn test_os_type_unknown() {
+        let os = OsType::Unknown;
+        assert_eq!(os, OsType::Unknown);
+    }
+
+    #[test]
+    fn test_os_type_debug() {
+        assert_eq!(format!("{:?}", OsType::Windows), "Windows");
+        assert_eq!(format!("{:?}", OsType::Linux), "Linux");
+        assert_eq!(format!("{:?}", OsType::MacOS), "MacOS");
+        assert_eq!(format!("{:?}", OsType::Unknown), "Unknown");
+    }
+
+    #[test]
+    fn test_os_type_clone() {
+        let os = OsType::Linux;
+        let cloned = os.clone();
+        assert_eq!(os, cloned);
+    }
+
+    #[test]
+    fn test_os_type_ne() {
+        assert_ne!(OsType::Windows, OsType::Linux);
+        assert_ne!(OsType::MacOS, OsType::Unknown);
+    }
+
+    #[test]
     fn test_collection_metadata_defaults() {
         let meta = CollectionMetadata {
             hostname: None,
@@ -138,6 +251,71 @@ mod tests {
         };
         assert_eq!(meta.os_type, OsType::Unknown);
         assert!(meta.hostname.is_none());
+    }
+
+    #[test]
+    fn test_collection_metadata_with_some_fields() {
+        let now = chrono::Utc::now();
+        let meta = CollectionMetadata {
+            hostname: Some("DESKTOP-ABC123".to_string()),
+            collection_time: Some(now),
+            os_type: OsType::Windows,
+            tool_version: Some("6.0.0".to_string()),
+        };
+        assert_eq!(meta.hostname.as_deref(), Some("DESKTOP-ABC123"));
+        assert_eq!(meta.os_type, OsType::Windows);
+        assert_eq!(meta.tool_version.as_deref(), Some("6.0.0"));
+        assert!(meta.collection_time.is_some());
+    }
+
+    #[test]
+    fn test_collection_metadata_linux() {
+        let meta = CollectionMetadata {
+            hostname: Some("ubuntu-server".to_string()),
+            collection_time: None,
+            os_type: OsType::Linux,
+            tool_version: None,
+        };
+        assert_eq!(meta.os_type, OsType::Linux);
+        assert_eq!(meta.hostname.as_deref(), Some("ubuntu-server"));
+    }
+
+    #[test]
+    fn test_collection_metadata_macos() {
+        let meta = CollectionMetadata {
+            hostname: Some("macbook".to_string()),
+            collection_time: None,
+            os_type: OsType::MacOS,
+            tool_version: Some("2.1.0".to_string()),
+        };
+        assert_eq!(meta.os_type, OsType::MacOS);
+    }
+
+    #[test]
+    fn test_collection_metadata_debug() {
+        let meta = CollectionMetadata {
+            hostname: Some("host1".to_string()),
+            collection_time: None,
+            os_type: OsType::Windows,
+            tool_version: None,
+        };
+        let dbg = format!("{:?}", meta);
+        assert!(dbg.contains("host1"));
+        assert!(dbg.contains("Windows"));
+    }
+
+    #[test]
+    fn test_collection_metadata_clone() {
+        let meta = CollectionMetadata {
+            hostname: Some("clone-host".to_string()),
+            collection_time: None,
+            os_type: OsType::Linux,
+            tool_version: Some("1.0".to_string()),
+        };
+        let cloned = meta.clone();
+        assert_eq!(cloned.hostname, meta.hostname);
+        assert_eq!(cloned.os_type, meta.os_type);
+        assert_eq!(cloned.tool_version, meta.tool_version);
     }
 
     #[test]
@@ -161,5 +339,105 @@ mod tests {
         drop(manifest);
         // After drop, temp directory is cleaned up
         assert!(!path.exists());
+    }
+
+    #[test]
+    fn test_collection_manifest_format_name() {
+        let tempdir = tempfile::tempdir().expect("create tempdir");
+        let manifest = CollectionManifest::new(
+            "Velociraptor".into(),
+            tempdir,
+            vec![],
+            CollectionMetadata {
+                hostname: None,
+                collection_time: None,
+                os_type: OsType::Unknown,
+                tool_version: None,
+            },
+        );
+        assert_eq!(manifest.format_name, "Velociraptor");
+    }
+
+    #[test]
+    fn test_collection_manifest_artifacts_field() {
+        let tempdir = tempfile::tempdir().expect("create tempdir");
+        let entries = vec![
+            ManifestEntry {
+                path: PathBuf::from("$MFT"),
+                artifact_type: Some(ArtifactType::Mft),
+            },
+            ManifestEntry {
+                path: PathBuf::from("unknown.dat"),
+                artifact_type: None,
+            },
+        ];
+        let manifest = CollectionManifest::new(
+            "UAC".into(),
+            tempdir,
+            entries,
+            CollectionMetadata {
+                hostname: None,
+                collection_time: None,
+                os_type: OsType::Linux,
+                tool_version: None,
+            },
+        );
+        assert_eq!(manifest.artifacts.len(), 2);
+        assert_eq!(manifest.artifacts[0].path, PathBuf::from("$MFT"));
+        assert_eq!(manifest.artifacts[1].artifact_type, None);
+    }
+
+    #[test]
+    fn test_collection_manifest_metadata_field() {
+        let tempdir = tempfile::tempdir().expect("create tempdir");
+        let manifest = CollectionManifest::new(
+            "test-format".into(),
+            tempdir,
+            vec![],
+            CollectionMetadata {
+                hostname: Some("testhost".to_string()),
+                collection_time: None,
+                os_type: OsType::Windows,
+                tool_version: Some("3.0".to_string()),
+            },
+        );
+        assert_eq!(manifest.metadata.hostname.as_deref(), Some("testhost"));
+        assert_eq!(manifest.metadata.os_type, OsType::Windows);
+        assert_eq!(manifest.metadata.tool_version.as_deref(), Some("3.0"));
+    }
+
+    #[test]
+    fn test_collection_manifest_debug() {
+        let tempdir = tempfile::tempdir().expect("create tempdir");
+        let manifest = CollectionManifest::new(
+            "DebugFormat".into(),
+            tempdir,
+            vec![],
+            CollectionMetadata {
+                hostname: None,
+                collection_time: None,
+                os_type: OsType::Unknown,
+                tool_version: None,
+            },
+        );
+        let dbg = format!("{:?}", manifest);
+        assert!(dbg.contains("DebugFormat"));
+    }
+
+    #[test]
+    fn test_collection_manifest_empty_artifacts() {
+        let tempdir = tempfile::tempdir().expect("create tempdir");
+        let manifest = CollectionManifest::new(
+            "empty".into(),
+            tempdir,
+            vec![],
+            CollectionMetadata {
+                hostname: None,
+                collection_time: None,
+                os_type: OsType::Unknown,
+                tool_version: None,
+            },
+        );
+        assert!(manifest.artifacts.is_empty());
     }
 }
