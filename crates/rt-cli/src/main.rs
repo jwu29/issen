@@ -195,6 +195,11 @@ pub enum Commands {
         /// Filter output to a specific PID (process commands only).
         #[arg(long)]
         pid: Option<u32>,
+
+        /// CR3 page-directory base register (hex, e.g. 0x1a2000 or 1a2000).
+        /// Required for LiME/AVML dumps that have no embedded CR3.
+        #[arg(long, value_parser = commands::memf::parse_cr3_hex)]
+        cr3: Option<u64>,
     },
 
     /// Generate a self-contained HTML report from a timeline database.
@@ -340,7 +345,8 @@ fn main() -> ExitCode {
             profile,
             format,
             pid,
-        } => commands::memf::run(&dump_path, profile.as_deref(), &command, &format, pid),
+            cr3,
+        } => commands::memf::run(&dump_path, profile.as_deref(), &command, &format, pid, cr3),
         Commands::Report {
             db_path,
             output,

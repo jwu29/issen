@@ -1613,6 +1613,15 @@ fn memf_help_exits_success() {
 }
 
 #[test]
+fn memf_help_shows_cr3_flag() {
+    rt_cmd()
+        .args(["memf", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--cr3"));
+}
+
+#[test]
 fn memf_nonexistent_dump_shows_error() {
     rt_cmd()
         .args(["memf", "/nonexistent/memory.lime"])

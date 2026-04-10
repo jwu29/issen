@@ -27,6 +27,14 @@ fn parse_memf_command(s: &str) -> MemfCommand {
     }
 }
 
+/// Parse a `--cr3` hex value from the CLI.
+///
+/// Accepts both `0x`-prefixed (e.g. `0xdeadbeef`) and bare hex (e.g. `deadbeef`).
+/// Returns `Err(String)` with a human-readable message on parse failure.
+pub fn parse_cr3_hex(s: &str) -> Result<u64, String> {
+    todo!("parse_cr3_hex not yet implemented")
+}
+
 /// Run the `rt memf` subcommand.
 pub fn run(
     dump_path: &PathBuf,
@@ -34,6 +42,7 @@ pub fn run(
     command: &str,
     format: &str,
     pid: Option<u32>,
+    cr3: Option<u64>,
 ) -> Result<()> {
     let args = MemfArgs {
         dump_path: dump_path.clone(),
@@ -41,6 +50,30 @@ pub fn run(
         command: parse_memf_command(command),
         output: parse_output_format(format),
         pid_filter: pid,
+        cr3,
     };
     rt_mem::run_memf_command(&args)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_cr3_hex_valid_with_prefix() {
+        let result = parse_cr3_hex("0x1a2b3c");
+        assert_eq!(result, Ok(0x1a2b3c), "0x-prefixed hex should parse correctly");
+    }
+
+    #[test]
+    fn parse_cr3_hex_valid_bare() {
+        let result = parse_cr3_hex("deadbeef");
+        assert_eq!(result, Ok(0xdeadbeef), "bare hex should parse correctly");
+    }
+
+    #[test]
+    fn parse_cr3_hex_invalid() {
+        let result = parse_cr3_hex("not-hex");
+        assert!(result.is_err(), "invalid hex should return Err");
+    }
 }

@@ -21,11 +21,13 @@ use crate::open::DumpFormat;
 /// # Errors
 ///
 /// - Returns `Err` containing `"profile"` when `profile` is `None`.
-/// - Returns `Err` containing `"CR3"` when the dump has no embedded CR3.
+/// - Returns `Err` containing `"CR3"` when the dump has no embedded CR3 and
+///   `cr3_override` is `None`.
 /// - Returns `Err` on I/O failure or ISF parse error.
 pub fn build_reader(
     path: &Path,
     profile: Option<&str>,
+    cr3_override: Option<u64>,
 ) -> anyhow::Result<(DumpFormat, ObjectReader<Box<dyn PhysicalMemoryProvider>>)> {
     let profile_path = profile.ok_or_else(|| anyhow!("--profile <isf.json> is required"))?;
 
@@ -36,8 +38,12 @@ pub fn build_reader(
     let fmt = crate::open::detect_format(path).unwrap_or(DumpFormat::Raw);
 
     let metadata = provider.metadata();
-    let cr3 = metadata.as_ref().and_then(|m| m.cr3).ok_or_else(|| {
-        anyhow!("dump has no embedded CR3; use a Windows crash dump or provide --cr3 <addr>")
+    let embedded_cr3 = metadata.as_ref().and_then(|m| m.cr3);
+
+    // For RED: keep old behavior — cr3_override is not yet used.
+    // The build_reader_succeeds_with_cr3_override test will fail here.
+    let cr3 = embedded_cr3.ok_or_else(|| {
+        anyhow!("dump has no embedded CR3; use --cr3 <addr> to provide one")
     })?;
 
     let resolver = IsfResolver::from_path(Path::new(profile_path))
@@ -1167,7 +1173,7 @@ mod tests {
     #[test]
     fn build_reader_fails_without_profile() {
         let f = tempfile::NamedTempFile::new().unwrap();
-        let result = build_reader(f.path(), None);
+        let result = build_reader(f.path(), None, None);
         assert!(result.is_err(), "expected Err when profile is None");
         let msg = result.err().unwrap().to_string();
         assert!(
@@ -1189,12 +1195,70 @@ mod tests {
             .unwrap();
         isf.flush().unwrap();
 
-        let result = build_reader(f.path(), Some(isf.path().to_str().unwrap()));
+        let result = build_reader(f.path(), Some(isf.path().to_str().unwrap()), None);
         assert!(result.is_err(), "expected Err when dump has no CR3");
         let msg = result.err().unwrap().to_string();
         assert!(
             msg.to_lowercase().contains("cr3"),
             "error should mention 'CR3', got: {msg}"
+        );
+        // New message format: should say "use --cr3 <addr>"
+        assert!(
+            msg.contains("--cr3"),
+            "error should mention '--cr3', got: {msg}"
+        );
+    }
+
+    #[test]
+    fn build_reader_succeeds_with_cr3_override() {
+        use memf_core::test_builders::PageTableBuilder;
+
+        // Build a synthetic physical memory image with a known CR3.
+        let (cr3, _mem) = PageTableBuilder::new().build();
+
+        // Write that memory image to a temp file so open_dump_with_raw_fallback can open it.
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        // Use a raw (non-LiME) dump — all zeros is fine; we just need the file to open.
+        f.write_all(&[0u8; 4096]).unwrap();
+        f.flush().unwrap();
+
+        let mut isf = tempfile::NamedTempFile::new().unwrap();
+        isf.write_all(br#"{"base_types":{},"user_types":{},"symbols":{},"enums":{}}"#)
+            .unwrap();
+        isf.flush().unwrap();
+
+        // Pass cr3 as the override — even though the raw dump has no embedded CR3.
+        let result = build_reader(
+            f.path(),
+            Some(isf.path().to_str().unwrap()),
+            Some(cr3),
+        );
+        assert!(
+            result.is_ok(),
+            "expected Ok when cr3_override is provided, got: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn build_reader_fails_without_cr3_and_no_override() {
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        // LiME magic — no embedded CR3
+        f.write_all(&[0x45, 0x4D, 0x69, 0x4C, 0x00, 0x00, 0x00, 0x01])
+            .unwrap();
+        f.flush().unwrap();
+
+        let mut isf = tempfile::NamedTempFile::new().unwrap();
+        isf.write_all(br#"{"base_types":{},"user_types":{},"symbols":{},"enums":{}}"#)
+            .unwrap();
+        isf.flush().unwrap();
+
+        let result = build_reader(f.path(), Some(isf.path().to_str().unwrap()), None);
+        assert!(result.is_err(), "expected Err when no CR3 in dump and no override");
+        let msg = result.err().unwrap().to_string();
+        assert!(
+            msg.contains("--cr3"),
+            "error should instruct user to use --cr3, got: {msg}"
         );
     }
 
@@ -1478,7 +1542,7 @@ mod tests {
         f.write_all(&[0x45, 0x4D, 0x69, 0x4C, 0x00, 0x00, 0x00, 0x01])
             .unwrap();
         f.flush().unwrap();
-        let result = build_reader(f.path(), Some("/nonexistent/profile.json"));
+        let result = build_reader(f.path(), Some("/nonexistent/profile.json"), None);
         assert!(result.is_err(), "expected Err for nonexistent ISF path");
     }
 

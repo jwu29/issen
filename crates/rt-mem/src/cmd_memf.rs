@@ -109,6 +109,10 @@ pub struct MemfArgs {
     pub output: OutputFormat,
     /// Optional PID filter (process-level commands only).
     pub pid_filter: Option<u32>,
+    /// Optional CR3 page-directory base register override for LiME/AVML dumps
+    /// that have no embedded CR3. When `Some(addr)`, `addr` is used instead of
+    /// the dump's embedded CR3.
+    pub cr3: Option<u64>,
 }
 
 /// Route a single [`MemfCommand`] to the appropriate OS-specific walker.
@@ -180,7 +184,7 @@ pub fn run_memf_command(args: &MemfArgs) -> anyhow::Result<()> {
     // For raw/LiME/AVML dumps without embedded CR3, or when no profile is
     // supplied, build_reader returns Err and we fall through to the
     // structured placeholder so existing integration tests keep passing.
-    let reader_result = build_reader(&args.dump_path, args.profile.as_deref());
+    let reader_result = build_reader(&args.dump_path, args.profile.as_deref(), args.cr3);
 
     // Detect OS from format for dispatch routing.
     let os = detect_os(fmt);
@@ -325,6 +329,7 @@ mod tests {
             command: cmd,
             output: OutputFormat::Text,
             pid_filter: None,
+            cr3: None,
         }
     }
 
@@ -374,6 +379,7 @@ mod tests {
             command: MemfCommand::Ps,
             output: OutputFormat::Text,
             pid_filter: None,
+            cr3: None,
         };
         // Should succeed (placeholder output) for an existing file.
         assert!(run_memf_command(&args).is_ok());
@@ -390,6 +396,7 @@ mod tests {
             command: MemfCommand::All,
             output: OutputFormat::Json,
             pid_filter: None,
+            cr3: None,
         };
         assert!(run_memf_command(&args).is_ok());
     }
