@@ -359,4 +359,99 @@ mod tests {
             "empty rows must produce empty objects array: {out}"
         );
     }
+
+    // -----------------------------------------------------------------------
+    // OutputFormat: default, clone, copy, partial_eq, debug
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn output_format_default_is_text() {
+        let fmt: OutputFormat = OutputFormat::default();
+        assert_eq!(fmt, OutputFormat::Text, "default must be Text");
+    }
+
+    #[test]
+    fn output_format_clone_and_copy() {
+        let fmt = OutputFormat::Json;
+        let cloned = fmt;  // Copy
+        assert_eq!(fmt, cloned);
+        let cloned2 = fmt.clone();
+        assert_eq!(fmt, cloned2);
+    }
+
+    #[test]
+    fn output_format_debug() {
+        let s = format!("{:?}", OutputFormat::Bodyfile);
+        assert!(s.contains("Bodyfile"), "Debug output should contain 'Bodyfile': {s}");
+    }
+
+    // -----------------------------------------------------------------------
+    // print_table: exercise all three OutputFormat branches
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn print_table_text_format_does_not_panic() {
+        let headers = &["pid", "name"];
+        let rows = vec![vec!["1".into(), "init".into()]];
+        // print_table writes to stdout; just assert it doesn't panic.
+        print_table(headers, &rows, OutputFormat::Text);
+    }
+
+    #[test]
+    fn print_table_json_format_does_not_panic() {
+        let headers = &["pid", "name"];
+        let rows = vec![vec!["1".into(), "init".into()]];
+        print_table(headers, &rows, OutputFormat::Json);
+    }
+
+    #[test]
+    fn print_table_bodyfile_format_does_not_panic() {
+        let headers = &["pid", "name"];
+        let rows = vec![vec!["1".into(), "init".into()]];
+        print_table(headers, &rows, OutputFormat::Bodyfile);
+    }
+
+    #[test]
+    fn print_table_bodyfile_format_empty_row_does_not_panic() {
+        // A row with no elements — row.first() returns None → "unknown"
+        let headers = &["pid"];
+        let rows: Vec<Vec<String>> = vec![vec![]];
+        print_table(headers, &rows, OutputFormat::Bodyfile);
+    }
+
+    #[test]
+    fn print_table_json_format_empty_rows_does_not_panic() {
+        print_table(&["pid"], &[], OutputFormat::Json);
+    }
+
+    // -----------------------------------------------------------------------
+    // rows_to_stix: object_type and custom_properties content
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn stix_object_type_is_preserved() {
+        let headers = &["pid", "name"];
+        let rows = vec![vec!["2".into(), "kthreadd".into()]];
+        let out = rows_to_stix("process", headers, &rows);
+        let v: serde_json::Value = serde_json::from_str(&out).expect("valid JSON");
+        let obj = &v["objects"][0];
+        assert_eq!(obj["object_type"], "process");
+        assert_eq!(obj["type"], "observed-data");
+        assert_eq!(obj["custom_properties"]["pid"], "2");
+        assert_eq!(obj["custom_properties"]["name"], "kthreadd");
+    }
+
+    // -----------------------------------------------------------------------
+    // rows_to_bodyfile: inode field extraction
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn bodyfile_inode_field_is_used() {
+        let headers = &["path", "inode", "size"];
+        let rows = vec![vec!["/usr/bin/ls".into(), "12345".into(), "256".into()]];
+        let out = rows_to_bodyfile(headers, &rows);
+        assert!(out.contains("12345"), "inode must appear in bodyfile: {out}");
+        assert!(out.contains("/usr/bin/ls"), "path must appear: {out}");
+        assert!(out.contains("256"), "size must appear: {out}");
+    }
 }

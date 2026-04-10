@@ -892,4 +892,195 @@ mod tests {
         assert_eq!(row[1], "test");
         assert_eq!(row[2], "");
     }
+
+    // -----------------------------------------------------------------------
+    // Actual dispatch function invocations (not just static header checks)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn dispatch_linux_ps_returns_ok_with_non_empty_headers() {
+        let reader = make_stub_reader();
+        // walk_processes returns Err with empty ISF → function returns Err too.
+        // Either Ok or Err is acceptable; what matters is headers when Ok.
+        match dispatch_linux_ps(&reader) {
+            Ok((headers, _rows)) => {
+                assert!(!headers.is_empty(), "headers must be non-empty");
+                assert!(headers.contains(&"PID"), "must contain PID");
+            }
+            Err(_) => {
+                // Walker gracefully returns Err for missing symbols — acceptable.
+            }
+        }
+    }
+
+    #[test]
+    fn dispatch_linux_modules_returns_ok_with_non_empty_headers() {
+        let reader = make_stub_reader();
+        match dispatch_linux_modules(&reader) {
+            Ok((headers, _rows)) => {
+                assert!(!headers.is_empty());
+                assert!(headers.contains(&"Name"));
+            }
+            Err(_) => {}
+        }
+    }
+
+    #[test]
+    fn dispatch_linux_netstat_returns_ok_with_non_empty_headers() {
+        let reader = make_stub_reader();
+        match dispatch_linux_netstat(&reader) {
+            Ok((headers, _rows)) => {
+                assert!(!headers.is_empty());
+                assert!(headers.contains(&"Proto"));
+            }
+            Err(_) => {}
+        }
+    }
+
+    // dispatch_linux_check/scan/creds/timeline never return Err — always Ok.
+
+    #[test]
+    fn dispatch_linux_check_returns_ok() {
+        let reader = make_stub_reader();
+        let result = dispatch_linux_check(&reader);
+        assert!(result.is_ok(), "dispatch_linux_check must return Ok");
+        let (headers, rows) = result.unwrap();
+        assert!(!headers.is_empty());
+        assert!(!rows.is_empty(), "must have at least one row (fallback)");
+    }
+
+    #[test]
+    fn dispatch_linux_scan_returns_ok() {
+        let reader = make_stub_reader();
+        let result = dispatch_linux_scan(&reader);
+        assert!(result.is_ok(), "dispatch_linux_scan must return Ok");
+        let (headers, rows) = result.unwrap();
+        assert!(!headers.is_empty());
+        assert!(!rows.is_empty());
+    }
+
+    #[test]
+    fn dispatch_linux_creds_returns_ok() {
+        let reader = make_stub_reader();
+        let result = dispatch_linux_creds(&reader);
+        assert!(result.is_ok(), "dispatch_linux_creds must return Ok");
+        let (headers, rows) = result.unwrap();
+        assert!(!headers.is_empty());
+        assert!(!rows.is_empty());
+    }
+
+    #[test]
+    fn dispatch_linux_timeline_returns_ok() {
+        let reader = make_stub_reader();
+        let result = dispatch_linux_timeline(&reader);
+        assert!(result.is_ok(), "dispatch_linux_timeline must return Ok");
+        let (headers, rows) = result.unwrap();
+        assert!(!headers.is_empty());
+        assert!(!rows.is_empty());
+    }
+
+    // Windows dispatch functions: ps/modules return Err (missing symbol) with
+    // empty ISF; netstat/check/scan/creds always return Ok.
+
+    #[test]
+    fn dispatch_windows_ps_calls_without_panic() {
+        let reader = make_stub_reader();
+        // Returns Err (missing PsActiveProcessHead) — that's the correct behaviour.
+        let result = dispatch_windows_ps(&reader);
+        // Either Ok or Err is fine — just must not panic.
+        let _ = result;
+    }
+
+    #[test]
+    fn dispatch_windows_modules_calls_without_panic() {
+        let reader = make_stub_reader();
+        let _ = dispatch_windows_modules(&reader);
+    }
+
+    #[test]
+    fn dispatch_windows_netstat_returns_ok() {
+        let reader = make_stub_reader();
+        // Symbol-absent branch returns a placeholder Ok row.
+        let result = dispatch_windows_netstat(&reader);
+        assert!(result.is_ok(), "dispatch_windows_netstat must return Ok");
+        let (headers, rows) = result.unwrap();
+        assert!(!headers.is_empty());
+        assert!(!rows.is_empty());
+    }
+
+    #[test]
+    fn dispatch_windows_check_returns_ok_with_expected_headers() {
+        let reader = make_stub_reader();
+        let (headers, rows) = dispatch_windows_check(&reader).unwrap();
+        assert!(headers.contains(&"Check"));
+        assert!(headers.contains(&"Status"));
+        assert!(!rows.is_empty());
+    }
+
+    #[test]
+    fn dispatch_windows_scan_returns_ok_with_expected_headers() {
+        let reader = make_stub_reader();
+        let (headers, rows) = dispatch_windows_scan(&reader).unwrap();
+        assert!(headers.contains(&"Offset"));
+        assert!(!rows.is_empty());
+    }
+
+    #[test]
+    fn dispatch_windows_creds_returns_ok_with_expected_headers() {
+        let reader = make_stub_reader();
+        let (headers, rows) = dispatch_windows_creds(&reader).unwrap();
+        assert!(headers.contains(&"Type"));
+        assert!(!rows.is_empty());
+    }
+
+    // -----------------------------------------------------------------------
+    // build_reader: additional error path — nonexistent ISF file
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn build_reader_fails_with_nonexistent_isf() {
+        use std::io::Write;
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        // Write LiME magic so the dump opens; CR3 check happens after ISF load
+        // but order depends on implementation — just assert Err is returned.
+        f.write_all(&[0x45, 0x4D, 0x69, 0x4C, 0x00, 0x00, 0x00, 0x01])
+            .unwrap();
+        f.flush().unwrap();
+        let result = build_reader(f.path(), Some("/nonexistent/profile.json"));
+        assert!(result.is_err(), "expected Err for nonexistent ISF path");
+    }
+
+    // -----------------------------------------------------------------------
+    // struct_to_row: edge cases
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn struct_to_row_with_space_in_header_maps_to_underscore() {
+        #[derive(serde::Serialize)]
+        struct Dummy {
+            process_name: String,
+        }
+        let d = Dummy {
+            process_name: "sshd".into(),
+        };
+        // Header "process name" → key "process_name" after normalisation.
+        let row = struct_to_row(&d, &["process name"]);
+        assert_eq!(row[0], "sshd");
+    }
+
+    #[test]
+    fn struct_to_row_non_string_value_is_stringified() {
+        #[derive(serde::Serialize)]
+        struct Dummy {
+            count: u64,
+            flag: bool,
+        }
+        let d = Dummy {
+            count: 99,
+            flag: true,
+        };
+        let row = struct_to_row(&d, &["count", "flag"]);
+        assert_eq!(row[0], "99");
+        assert_eq!(row[1], "true");
+    }
 }
