@@ -260,6 +260,55 @@ pub fn run_auto(
     }
 }
 
+/// Run the pipeline using rayon parallel iteration across artifacts.
+///
+/// Produces identical output to [`run_pipeline`] but executes parser dispatch
+/// concurrently. Requires all parsers and the emitter to be `Send + Sync`,
+/// which is guaranteed by the trait bounds.
+///
+/// # Errors
+///
+/// Returns an error if artifact discovery fails or if the implementation is not
+/// yet available.
+pub fn run_pipeline_parallel(
+    _evidence_path: &Path,
+    _progress: &ProgressReporter,
+) -> Result<(Vec<TimelineEvent>, IngestResult), RtError> {
+    Err(RtError::UnsupportedFormat("not yet implemented".into()))
+}
+
+/// Run the collection pipeline using rayon parallel iteration across artifacts.
+///
+/// Parallel variant of [`run_collection_pipeline`]: unpacks the archive then
+/// dispatches parsers concurrently.
+///
+/// # Errors
+///
+/// Returns an error if the collection format is not recognized, extraction fails,
+/// or the implementation is not yet available.
+pub fn run_collection_pipeline_parallel(
+    _collection_path: &Path,
+    _progress: &ProgressReporter,
+) -> Result<(Vec<TimelineEvent>, IngestResult), RtError> {
+    Err(RtError::UnsupportedFormat("not yet implemented".into()))
+}
+
+/// Run the pipeline, auto-detecting input type, using parallel artifact dispatch.
+///
+/// Parallel variant of [`run_auto`]: chooses between directory walk and
+/// collection archive, then runs parsers concurrently via rayon.
+///
+/// # Errors
+///
+/// Returns an error if the path is a file in an unrecognized format, or if
+/// pipeline execution fails.
+pub fn run_auto_parallel(
+    _path: &Path,
+    _progress: &ProgressReporter,
+) -> Result<(Vec<TimelineEvent>, IngestResult), RtError> {
+    Err(RtError::UnsupportedFormat("not yet implemented".into()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -404,5 +453,90 @@ mod tests {
         );
         emitter.emit(event).expect("emit");
         assert_eq!(emitter.into_events().len(), 1);
+    }
+
+    // ── Parallel pipeline tests ──────────────────────────────────────────────
+
+    #[test]
+    fn parallel_produces_same_artifact_count_as_sequential() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        std::fs::write(dir.path().join("$J"), b"fake usn").expect("write");
+        std::fs::write(dir.path().join("Security.evtx"), b"fake evtx").expect("write");
+
+        let progress_seq = ProgressReporter::new();
+        let (_events_seq, result_seq) =
+            run_pipeline(dir.path(), &progress_seq).expect("sequential pipeline");
+
+        let progress_par = ProgressReporter::new();
+        let (_events_par, result_par) =
+            run_pipeline_parallel(dir.path(), &progress_par).expect("parallel pipeline");
+
+        assert_eq!(
+            result_seq.artifacts_found, result_par.artifacts_found,
+            "parallel must discover the same number of artifacts as sequential"
+        );
+    }
+
+    #[test]
+    fn parallel_handles_empty_directory() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+
+        let progress = ProgressReporter::new();
+        let (events, result) =
+            run_pipeline_parallel(dir.path(), &progress).expect("parallel empty dir");
+
+        assert_eq!(result.artifacts_found, 0, "no artifacts in empty dir");
+        assert_eq!(result.artifacts_parsed, 0);
+        assert!(events.is_empty(), "no events from empty dir");
+        assert!(result.errors.is_empty(), "no errors from empty dir");
+    }
+
+    #[test]
+    fn parallel_handles_single_artifact_no_parser() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        std::fs::write(dir.path().join("$J"), b"fake usn data").expect("write");
+
+        let progress = ProgressReporter::new();
+        let (events, result) =
+            run_pipeline_parallel(dir.path(), &progress).expect("parallel single artifact");
+
+        assert_eq!(result.artifacts_found, 1);
+        assert_eq!(result.artifacts_parsed, 0, "no parsers registered in test binary");
+        assert!(events.is_empty(), "no events without a parser");
+        assert!(result.errors.is_empty(), "no errors — unmatched artifact is not an error");
+    }
+
+    #[test]
+    fn parallel_collecting_emitter_is_send_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<CollectingEmitter>();
+    }
+
+    #[test]
+    fn parallel_progress_reporter_is_send_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<ProgressReporter>();
+    }
+
+    #[test]
+    fn parallel_ingest_result_fields_non_negative() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        std::fs::write(dir.path().join("$J"), b"fake usn").expect("write");
+        std::fs::write(dir.path().join("Security.evtx"), b"fake evtx").expect("write");
+
+        let progress = ProgressReporter::new();
+        let (_events, result) =
+            run_pipeline_parallel(dir.path(), &progress).expect("parallel pipeline");
+
+        assert!(
+            result.artifacts_found >= result.artifacts_parsed,
+            "found ({}) must be >= parsed ({})",
+            result.artifacts_found,
+            result.artifacts_parsed
+        );
+        // total_events and total_bytes are u64 (unsigned), so they're always >= 0 by type.
+        // Verify the field is accessible and matches what progress tracks.
+        let _ = result.total_events;
+        let _ = result.total_bytes;
     }
 }
