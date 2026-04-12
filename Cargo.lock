@@ -2789,6 +2789,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "lzo1x"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e8138859503d536f7a33a44032e1681e4a67266de388a6961ad7e3efdfe969ea"
+dependencies = [
+ "cfg-if",
+]
+
+[[package]]
 name = "mach2"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2842,6 +2851,7 @@ name = "memf-core"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
+ "lzo1x",
  "memf-format",
  "memf-symbols",
  "memmap2",
@@ -4231,6 +4241,20 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tracing",
+]
+
+[[package]]
+name = "rt-parser-mft"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "inventory",
+ "mft",
+ "rt-core",
+ "serde_json",
+ "tempfile",
+ "tracing",
+ "usnjrnl-forensic",
 ]
 
 [[package]]

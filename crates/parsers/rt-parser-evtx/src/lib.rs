@@ -349,6 +349,183 @@ mod tests {
         assert!(caps.max_memory_bytes.is_some());
     }
 
+    // -- Accuracy: comprehensive event ID coverage -------------------------
+
+    /// Verify every security-relevant event ID maps to the exact expected variant.
+    /// This is an accuracy regression guard — if a mapping changes, this fails loudly.
+    #[test]
+    fn test_event_id_accuracy_table() {
+        let cases: &[(u64, EventType)] = &[
+            (4624, EventType::LogonSuccess),
+            (4625, EventType::LogonFailure),
+            (4634, EventType::Logoff),
+            (4647, EventType::Logoff),
+            (4688, EventType::ProcessExec),
+            (4689, EventType::ProcessExit),
+            (7045, EventType::ServiceInstall),
+            (7036, EventType::ServiceStart),
+            (4698, EventType::ScheduledTaskCreate),
+            (4702, EventType::ScheduledTaskRun),
+            (106, EventType::ScheduledTaskRun),
+            (4720, EventType::UserAccountChange),
+            (4722, EventType::UserAccountChange),
+            (4725, EventType::UserAccountChange),
+            (4726, EventType::UserAccountChange),
+            (4738, EventType::UserAccountChange),
+            (4719, EventType::PolicyChange),
+            (6005, EventType::SystemBoot),
+            (6009, EventType::SystemBoot),
+            (6006, EventType::SystemShutdown),
+            (6008, EventType::SystemShutdown),
+            (5156, EventType::NetworkConnect),
+            (5157, EventType::NetworkConnect),
+            (9999, EventType::Other("EventID:9999".to_string())),
+            (0, EventType::Other("EventID:0".to_string())),
+        ];
+        for (id, expected) in cases {
+            let got = event_id_to_event_type(*id);
+            assert_eq!(
+                got, *expected,
+                "event_id_to_event_type({id}) expected {expected:?} but got {got:?}"
+            );
+        }
+    }
+
+    // -- Accuracy: extract_event_id edge cases -----------------------------
+
+    #[test]
+    fn test_extract_event_id_4624_accuracy() {
+        // Canonical Security event structure
+        let data = serde_json::json!({
+            "Event": { "System": { "EventID": 4624 } }
+        });
+        assert_eq!(extract_event_id(&data), Some(4624));
+    }
+
+    #[test]
+    fn test_extract_event_id_4625_string_form() {
+        // Some EVTX serialisers emit the EventID as a string
+        let data = serde_json::json!({
+            "Event": { "System": { "EventID": "4625" } }
+        });
+        assert_eq!(extract_event_id(&data), Some(4625));
+    }
+
+    #[test]
+    fn test_extract_event_id_object_with_numeric_u64_text() {
+        // Numeric value inside an "#text" wrapper (as emitted by some evtx decoders)
+        let data = serde_json::json!({
+            "Event": { "System": { "EventID": { "#text": 4688_u64 } } }
+        });
+        assert_eq!(extract_event_id(&data), Some(4688));
+    }
+
+    #[test]
+    fn test_extract_event_id_malformed_returns_none() {
+        // Boolean value is invalid — must not panic, must return None
+        let data = serde_json::json!({
+            "Event": { "System": { "EventID": true } }
+        });
+        assert_eq!(extract_event_id(&data), None);
+    }
+
+    #[test]
+    fn test_extract_event_id_null_returns_none() {
+        let data = serde_json::json!({
+            "Event": { "System": { "EventID": null } }
+        });
+        assert_eq!(extract_event_id(&data), None);
+    }
+
+    #[test]
+    fn test_extract_event_id_nested_text_string() {
+        // Canonical object form with string "#text"
+        let data = serde_json::json!({
+            "Event": { "System": { "EventID": { "#text": "7045" } } }
+        });
+        assert_eq!(extract_event_id(&data), Some(7045));
+    }
+
+    // -- Accuracy: record_to_event field extraction ------------------------
+
+    #[test]
+    fn test_record_to_event_process_create_accuracy() {
+        let ts_ns = 1_700_000_000_000_000_000_i64;
+        let data = serde_json::json!({
+            "Event": {
+                "System": {
+                    "EventID": 4688,
+                    "Channel": "Security",
+                    "Computer": "DC01.corp.local",
+                    "Provider": { "#attributes": { "Name": "Microsoft-Windows-Security-Auditing" } }
+                },
+                "EventData": { "NewProcessName": "C:\\Windows\\System32\\cmd.exe" }
+            }
+        });
+
+        let event = record_to_event(55, ts_ns, "2023-11-14T22:13:20Z", &data, "evtx-src");
+
+        assert_eq!(event.event_type, EventType::ProcessExec);
+        assert_eq!(event.source, ArtifactType::EventLog);
+        assert_eq!(event.metadata["event_id"], serde_json::json!(4688));
+        assert_eq!(event.metadata["record_id"], serde_json::json!(55));
+        assert_eq!(event.hostname.as_deref(), Some("DC01.corp.local"));
+        assert!(event.description.contains("EventID:4688"));
+        assert!(event.description.contains("Record 55"));
+    }
+
+    #[test]
+    fn test_record_to_event_service_install_accuracy() {
+        let data = serde_json::json!({
+            "Event": {
+                "System": {
+                    "EventID": 7045,
+                    "Channel": "System",
+                    "Computer": "SERVER02",
+                    "Provider": { "#attributes": { "Name": "Service Control Manager" } }
+                },
+                "EventData": { "ServiceName": "malicious_svc" }
+            }
+        });
+
+        let event = record_to_event(200, 0, "2023-01-01T00:00:00Z", &data, "evtx-src");
+
+        assert_eq!(event.event_type, EventType::ServiceInstall);
+        assert_eq!(event.metadata["event_id"], serde_json::json!(7045));
+        assert_eq!(event.metadata["channel"], serde_json::json!("System"));
+        assert_eq!(
+            event.metadata["provider"],
+            serde_json::json!("Service Control Manager")
+        );
+    }
+
+    #[test]
+    fn test_record_to_event_no_channel_uses_eventlog_path() {
+        // When Channel is absent, artifact_path should default to "EventLog"
+        let data = serde_json::json!({
+            "Event": { "System": { "EventID": 4624 } }
+        });
+        let event = record_to_event(1, 0, "2023-01-01T00:00:00Z", &data, "src");
+        assert_eq!(event.artifact_path, "EventLog");
+    }
+
+    #[test]
+    fn test_record_to_event_channel_used_as_path() {
+        let data = serde_json::json!({
+            "Event": {
+                "System": {
+                    "EventID": 4625,
+                    "Channel": "Microsoft-Windows-Security-Auditing/Operational"
+                }
+            }
+        });
+        let event = record_to_event(2, 0, "2023-01-01T00:00:00Z", &data, "src");
+        assert_eq!(
+            event.artifact_path,
+            "Microsoft-Windows-Security-Auditing/Operational"
+        );
+    }
+
     // -- Event ID mapping tests ---------------------------------------------
 
     #[test]

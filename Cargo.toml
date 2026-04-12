@@ -9,6 +9,7 @@ members = [
     "crates/rt-shrinkpath",
     "crates/rt-signatures",
     "crates/rt-remote-access",
+    "crates/parsers/rt-parser-mft",
     "crates/parsers/rt-parser-evtx",
     "crates/parsers/rt-parser-velociraptor",
     "crates/parsers/rt-parser-uac",
@@ -36,6 +37,7 @@ rt-plugin-sdk = { path = "crates/rt-plugin-sdk" }
 rt-timeline   = { path = "crates/rt-timeline" }
 rt-ewf        = { path = "crates/rt-ewf" }
 rt-shrinkpath = { path = "crates/rt-shrinkpath" }
+rt-parser-mft     = { path = "crates/parsers/rt-parser-mft" }
 rt-parser-evtx    = { path = "crates/parsers/rt-parser-evtx" }
 rt-parser-velociraptor = { path = "crates/parsers/rt-parser-velociraptor" }
 rt-parser-uac          = { path = "crates/parsers/rt-parser-uac" }

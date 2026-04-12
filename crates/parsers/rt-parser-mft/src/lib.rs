@@ -22,6 +22,17 @@ use tracing::warn;
 /// NTFS Master File Table parser.
 pub struct MftFileParser;
 
+/// Convert a Windows FILETIME (100-nanosecond intervals since 1601-01-01) to
+/// nanoseconds since the Unix epoch.
+///
+/// Returns `None` if `filetime` is zero (represents "not set") or if the
+/// value predates the Unix epoch (1970-01-01T00:00:00Z, FILETIME
+/// `116_444_736_000_000_000`).
+#[must_use]
+pub fn filetime_to_ns(filetime: u64) -> Option<i64> {
+    todo!("implement filetime_to_ns")
+}
+
 /// Convert a `chrono::DateTime<Utc>` to nanoseconds since the Unix epoch.
 #[must_use]
 pub fn datetime_to_ns(dt: &DateTime<Utc>) -> i64 {
@@ -347,6 +358,82 @@ mod tests {
         assert!(!caps.streaming, "MFT parser loads entire file");
         assert!(caps.deterministic);
         assert!(caps.max_memory_bytes.is_some());
+    }
+
+    // -- FILETIME accuracy tests --------------------------------------------
+
+    /// Windows FILETIME epoch offset: 100-ns ticks from 1601-01-01 to 1970-01-01.
+    const FILETIME_EPOCH_OFFSET: u64 = 116_444_736_000_000_000;
+
+    #[test]
+    fn test_filetime_to_ns_known_value() {
+        // FILETIME 132_000_000_000_000_000 is a known timestamp in the Windows era.
+        // Formula: (filetime - 116_444_736_000_000_000) * 100
+        let filetime: u64 = 132_000_000_000_000_000;
+        let expected_ns: i64 = ((filetime - FILETIME_EPOCH_OFFSET) as i64) * 100;
+        assert_eq!(filetime_to_ns(filetime), Some(expected_ns));
+    }
+
+    #[test]
+    fn test_filetime_to_ns_unix_epoch() {
+        // FILETIME 116_444_736_000_000_000 == Unix epoch 1970-01-01T00:00:00Z → 0 ns.
+        let filetime: u64 = FILETIME_EPOCH_OFFSET;
+        assert_eq!(filetime_to_ns(filetime), Some(0));
+    }
+
+    #[test]
+    fn test_filetime_to_ns_zero_is_none() {
+        // FILETIME 0 means "not set" in the Windows world — should return None.
+        assert_eq!(filetime_to_ns(0), None);
+    }
+
+    #[test]
+    fn test_filetime_to_ns_before_unix_epoch_is_none() {
+        // A FILETIME before Unix epoch (e.g. 1601-01-01T00:00:00Z = FILETIME 1)
+        // cannot be represented as a positive Unix timestamp.
+        assert_eq!(filetime_to_ns(1), None);
+        // Also test a value just below the epoch offset.
+        assert_eq!(filetime_to_ns(FILETIME_EPOCH_OFFSET - 1), None);
+    }
+
+    // -- datetime_to_display round-trip accuracy ----------------------------
+
+    #[test]
+    fn test_datetime_to_display_known_filetime_roundtrip() {
+        // FILETIME 132_000_000_000_000_000 corresponds to 2019-04-17T18:40:00Z.
+        // (132_000_000_000_000_000 - 116_444_736_000_000_000) * 100 ns
+        // = 15_555_264_000_000_000 * 100 = 1_555_526_400_000_000_000 ns
+        // = 1_555_526_400 seconds = 2019-04-17T18:40:00Z
+        let ns: i64 = 1_555_526_400_000_000_000;
+        use chrono::TimeZone;
+        let dt = Utc.timestamp_nanos(ns);
+        let display = datetime_to_display(&dt);
+        assert!(
+            display.starts_with("2019-04-17T18:40:00"),
+            "Expected date 2019-04-17T18:40:00, got: {display}"
+        );
+    }
+
+    #[test]
+    fn test_datetime_to_display_unix_epoch() {
+        use chrono::TimeZone;
+        let dt = Utc.timestamp_nanos(0);
+        let display = datetime_to_display(&dt);
+        assert!(
+            display.starts_with("1970-01-01T00:00:00"),
+            "Expected Unix epoch display, got: {display}"
+        );
+    }
+
+    #[test]
+    fn test_datetime_to_display_format_iso8601() {
+        // Verify the format includes sub-second precision and trailing 'Z'.
+        let dt = DateTime::parse_from_rfc3339("2019-02-22T00:00:00Z")
+            .expect("valid timestamp")
+            .with_timezone(&Utc);
+        let display = datetime_to_display(&dt);
+        // Should match "2019-02-22T00:00:00.000000000Z"
+        assert_eq!(display, "2019-02-22T00:00:00.000000000Z");
     }
 
     // -- Timestamp helpers --------------------------------------------------
