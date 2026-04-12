@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+use rayon::prelude::*;
 use rt_core::artifacts::ArtifactType;
 use rt_core::error::RtError;
 use rt_core::plugin::registry::all_parsers;
@@ -268,29 +269,91 @@ pub fn run_auto(
 ///
 /// # Errors
 ///
-/// Returns an error if artifact discovery fails or if the implementation is not
-/// yet available.
+/// Returns an error if artifact discovery fails.
 pub fn run_pipeline_parallel(
-    _evidence_path: &Path,
-    _progress: &ProgressReporter,
+    evidence_path: &Path,
+    progress: &ProgressReporter,
 ) -> Result<(Vec<TimelineEvent>, IngestResult), RtError> {
-    Err(RtError::UnsupportedFormat("not yet implemented".into()))
+    let artifacts = discover_artifacts(evidence_path)?;
+    let parsers = all_parsers();
+    let emitter = CollectingEmitter::new();
+
+    // Each artifact is dispatched in parallel. The emitter is Sync (Mutex-backed).
+    // ProgressReporter is Sync (Arc<AtomicU64>-backed).
+    let parse_results: Vec<Option<Result<_, String>>> = artifacts
+        .par_iter()
+        .map(|artifact| {
+            let parser = parsers
+                .iter()
+                .find(|p| p.supported_artifacts().contains(&artifact.artifact_type))?;
+
+            match FileDataSource::open(&artifact.path) {
+                Ok(source) => match parser.parse(&source, &emitter) {
+                    Ok(stats) => {
+                        progress.add_events(stats.events_emitted);
+                        progress.add_bytes(stats.bytes_processed);
+                        progress.complete_artifact();
+                        Some(Ok(stats))
+                    }
+                    Err(e) => Some(Err(format!(
+                        "Parse error on {}: {e}",
+                        artifact.path.display()
+                    ))),
+                },
+                Err(e) => Some(Err(format!(
+                    "Failed to open {}: {e}",
+                    artifact.path.display()
+                ))),
+            }
+        })
+        .collect();
+
+    let mut result = IngestResult {
+        artifacts_found: artifacts.len(),
+        artifacts_parsed: 0,
+        total_events: 0,
+        total_bytes: 0,
+        errors: Vec::new(),
+    };
+
+    for entry in parse_results.into_iter().flatten() {
+        match entry {
+            Ok(stats) => {
+                result.artifacts_parsed += 1;
+                result.total_events += stats.events_emitted;
+                result.total_bytes += stats.bytes_processed;
+            }
+            Err(msg) => result.errors.push(msg),
+        }
+    }
+
+    let events = emitter.into_events();
+    Ok((events, result))
 }
 
 /// Run the collection pipeline using rayon parallel iteration across artifacts.
 ///
 /// Parallel variant of [`run_collection_pipeline`]: unpacks the archive then
-/// dispatches parsers concurrently.
+/// dispatches parsers concurrently via [`run_pipeline_parallel`].
 ///
 /// # Errors
 ///
-/// Returns an error if the collection format is not recognized, extraction fails,
-/// or the implementation is not yet available.
+/// Returns an error if the collection format is not recognized or extraction fails.
 pub fn run_collection_pipeline_parallel(
-    _collection_path: &Path,
-    _progress: &ProgressReporter,
+    collection_path: &Path,
+    progress: &ProgressReporter,
 ) -> Result<(Vec<TimelineEvent>, IngestResult), RtError> {
-    Err(RtError::UnsupportedFormat("not yet implemented".into()))
+    let manifest = rt_unpack::registry::open_collection(collection_path)
+        .map_err(|e| RtError::UnsupportedFormat(e.to_string()))?;
+
+    tracing::info!(
+        format = %manifest.format_name,
+        artifacts = manifest.artifacts.len(),
+        root = %manifest.extracted_root.display(),
+        "Collection opened, running parallel pipeline"
+    );
+
+    run_pipeline_parallel(&manifest.extracted_root, progress)
 }
 
 /// Run the pipeline, auto-detecting input type, using parallel artifact dispatch.
@@ -303,10 +366,14 @@ pub fn run_collection_pipeline_parallel(
 /// Returns an error if the path is a file in an unrecognized format, or if
 /// pipeline execution fails.
 pub fn run_auto_parallel(
-    _path: &Path,
-    _progress: &ProgressReporter,
+    path: &Path,
+    progress: &ProgressReporter,
 ) -> Result<(Vec<TimelineEvent>, IngestResult), RtError> {
-    Err(RtError::UnsupportedFormat("not yet implemented".into()))
+    if path.is_dir() {
+        run_pipeline_parallel(path, progress)
+    } else {
+        run_collection_pipeline_parallel(path, progress)
+    }
 }
 
 #[cfg(test)]
