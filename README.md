@@ -145,6 +145,87 @@ The built-in rule set covers the most common patterns (miners, rootkits, SSH tun
 
 ---
 
+## Demo
+
+```
+$ rt analyse collection-WIN10-CORP-20260401.zip
+
+╔══════════════════════════════════════════════════════════╗
+║  RapidTriage — Collection Analysis                       ║
+╚══════════════════════════════════════════════════════════╝
+
+  Collection : collection-WIN10-CORP-20260401.zip
+  Host       : WIN10-CORP
+  OS         : Windows 10 Enterprise 22H2 (19045.4291)
+  Collected  : 2026-04-01T14:32:07Z
+  Artifacts  : MFT, EVTX, Registry, Prefetch, Amcache
+
+  Parsed 1,247,831 MFT entries in 3.2s
+  Parsed 48 EVTX logs (312,406 events) in 1.8s
+  Parsed 4 registry hives in 0.4s
+
+┌─ PERSISTENCE ───────────────────────────────────────────
+│
+│  [SERVICE] AnyDeskMaint
+│    Binary  : C:\ProgramData\Temp\Support\anydesk.exe --service
+│    Start   : Auto (SERVICE_AUTO_START)
+│    Account : LocalSystem
+│    Created : 2026-03-28T09:14:22Z
+│
+│  [REG RUN KEY] HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run
+│    Name    : AnyDeskUpdate
+│    Value   : "C:\ProgramData\Temp\Support\anydesk.exe" --start-with-win
+│    Modified: 2026-03-28T09:14:38Z
+
+┌─ REMOTE ACCESS ─────────────────────────────────────────
+│
+│  [LOLRMM] AnyDesk (relocated binary)
+│    Path    : C:\ProgramData\Temp\Support\anydesk.exe
+│    SHA256  : a1b2c3d4e5f60718293a4b5c6d7e8f90aabbccdd11223344556677889900eeff
+│    Size    : 5,389,312 bytes
+│    Signed  : philandro Software GmbH (valid, not revoked)
+│    Config  : ad.router.custom_id = "corp-maint-04"
+│
+│  [C2 CONNECTION]
+│    Dest IP : 194.36.28.117:7070
+│    First   : 2026-03-28T09:17:03Z
+│    Last    : 2026-04-01T13:58:41Z
+│    Note    : IP not in AnyDesk relay network (AS 208323 / BL Networks, RU)
+
+┌─ TIMELINE ──────────────────────────────────────────────
+│
+│  2026-03-28T09:12:55Z  [EVTX Security 4624]  Logon Type 3 — CORP\svc_backup
+│                         from 10.20.5.44 (WIN-RUNBOOK)
+│  2026-03-28T09:14:18Z  [MFT]  File created: C:\ProgramData\Temp\Support\anydesk.exe
+│                         Parent created at same time — directory is new
+│  2026-03-28T09:14:22Z  [EVTX System 7045]   Service installed: AnyDeskMaint
+│                         ImagePath: C:\ProgramData\Temp\Support\anydesk.exe --service
+│                         Account: LocalSystem | Type: user mode (0x10)
+│  2026-03-28T09:17:03Z  [EVTX Security 5156] Outbound TCP — anydesk.exe (PID 6284)
+│                         → 194.36.28.117:7070
+
+┌─ CORRELATION FINDINGS ──────────────────────────────────
+│
+│  [CRITICAL] LOLRMM with non-vendor C2 infrastructure
+│    Rule    : remote-access.lolrmm.custom-c2
+│    Evidence: AnyDesk outside vendor path (C:\ProgramData\Temp\Support\)
+│              Outbound → 194.36.28.117 (AS 208323, not AnyDesk relay ASN)
+│              MFT entry + EVTX 7045 + EVTX 5156 + Registry Run key
+│    MITRE   : T1219, T1543.003
+│
+│  [HIGH] Lateral movement via service account
+│    Rule    : lateral-movement.service-account.file-drop
+│    Evidence: Type 3 logon CORP\svc_backup from 10.20.5.44 (WIN-RUNBOOK)
+│              File drop + service install within 120s of logon
+│    MITRE   : T1021.002
+
+  2 findings | 1 critical, 1 high | 4 artifact sources correlated
+```
+
+The correlation engine flagged AnyDesk installed under `C:\ProgramData\Temp\Support\` — not its standard `Program Files` path — with outbound connections to a Russian ASN outside AnyDesk's relay infrastructure. The timeline shows a service account logon from an internal host, followed by file drop, service install, and first C2 callback within a four-minute window: the attacker pivoted from `WIN-RUNBOOK` using `svc_backup` credentials to deploy the RAT on `WIN10-CORP`.
+
+---
+
 ## Contributing
 
 PRs welcome. The most valuable contributions right now:
