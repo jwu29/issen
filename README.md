@@ -147,32 +147,24 @@ The built-in rule set covers the most common patterns (miners, rootkits, SSH tun
 
 ## Real example: CTF cryptominer case
 
-A UAC collection from a compromised Linux host. Analyst time from first command to written finding: **30 seconds**.
-
-**What was hiding:**
-
-- `libymv.so.3` injected via `/etc/ld.so.preload` — hiding the miner process from `ps`, `top`, and `ls /proc`
-- XMRig running as PID 977 with a disguised name (`top`), identifiable only by its `libuv-worker` thread
-- Mining traffic tunnelled over SSH (port 3333 → localhost:3333) to evade network egress controls
-
-**What the tool output:**
+A UAC collection from a compromised Linux host (Hal Pomeranz's Linux Forensic Scenario). Analyst time from collection to written finding: **30 seconds**.
 
 ```
-[CRITICAL] Rootkit concealed miner activity
-  Rule    : correlation.miner.rootkit-concealment
-  Evidence: ld_preload /lib/x86_64-linux-gnu/libymv.so.3
-            PID 977 "top" [thread: libuv-worker] → XMRig
-            127.0.0.1:59182 → 127.0.0.1:3333 [Stratum tunnel]
+$ rt analyse uac-vbox-linux-20260324234043.tar.gz
 
-[HIGH] SSH Stratum tunnel detected
-  Rule    : network.tunnel.stratum-over-ssh
-  Evidence: sshd forwarding 127.0.0.1:3333 → external
-            connection age: 14d 3h (persistent)
+┌─ ROOTKIT INDICATORS ──────────────────────────────────
+│  [WARNING]  ld_preload — /lib/x86_64-linux-gnu/libymv.so.3
 
-[HIGH] Hidden process detected
-  Rule    : rootkit.pid-hiding
-  Evidence: PID 977 absent from /proc but present in memory scan
-            process name mismatch: "top" vs ELF export table
+┌─ HIDDEN PROCESSES (ps/top blind-spot) ─────────────────
+│  6 PID(s) visible in /proc but absent from ps
+
+┌─ CPU ───────────────────────────────────────────────────
+│  %Cpu(s): 97.7 us — WARNING: near-100% CPU, no visible process
+
+┌─ PIVOT FINDINGS ────────────────────────────────────────
+│  [CRITICAL] Rootkit concealed miner activity
+│    Rule    : correlation.miner.rootkit-concealment
+│    Evidence: ld_preload + hidden PID [libuv-worker thread] + Stratum tunnel
 ```
 
 No grep. No manual timeline correlation. No Python environment to install first.

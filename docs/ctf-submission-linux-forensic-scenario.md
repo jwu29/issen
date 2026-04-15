@@ -1,27 +1,23 @@
-# Linux Forensic Scenario — Submission
+# Linux Forensic Scenario — Submission Email
 
 **To:** hrpomeranz@gmail.com  
-**Subject:** Linux Forensic Scenario Submission  
+**Subject:** Linux Forensic Scenario Submission — RapidTriage  
 **From:** Albert Hui (4n6h4x0r)  
 **Date:** 2026-04-15
 
 ---
 
-## Executive Summary
+Hi Hal,
 
-Three questions. One command. Thirty seconds.
-
-```
-$ rt analyse uac-vbox-linux-20260324234043.tar.gz
-```
-
-RapidTriage ingested the UAC collection, cross-correlated hidden-process enumeration with Volatility memory artifacts, and generated the full attack narrative without a single manual grep. The output below is verbatim — no editing, no cherry-picking.
+Submitting my answers to the Linux Forensic Scenario. I also used this collection as a test case while building **RapidTriage**, a Rust forensic triage tool I'm developing for incident responders. I've included the full verbatim tool output below, and I'd be curious whether it lines up with your intended answers.
 
 ---
 
 ## Tool Output (Verbatim)
 
 ```
+$ rt analyse uac-vbox-linux-20260324234043.tar.gz
+
 ╔══════════════════════════════════════════════════════════╗
 ║  RapidTriage — UAC Collection Analysis                   ║
 ╚══════════════════════════════════════════════════════════╝
@@ -39,27 +35,26 @@ RapidTriage ingested the UAC collection, cross-correlated hidden-process enumera
 │  6 PID(s) visible in /proc but absent from ps:
 
 │  PID  43168  (name unknown — no memory dump)
-│
+
 │  PID    939  sh
 │           192.168.4.22:22 → 192.168.4.35:48411 [ESTABLISHED]  (TCP)
-│
+
 │  PID    940  python3
 │           192.168.4.22:22 → 192.168.4.35:48411 [ESTABLISHED]  (TCP)
-│
+
 │  PID    941  bash
 │           192.168.4.22:22 → 192.168.4.35:48411 [ESTABLISHED]  (TCP)
-│
+
 │  PID    975  ssh
 │           192.168.4.22:33440 → 192.168.5.95:22 [ESTABLISHED]  (TCP)
 │           ::1:3333 → :::0 [LISTEN]  (TCP)
 │           127.0.0.1:3333 → 0.0.0.0:0 [LISTEN]  (TCP)
 │           127.0.0.1:3333 → 127.0.0.1:59182 [ESTABLISHED]  (TCP)
-│
+
 │  PID    977  top
 │           Thread names: libuv-worker, top
 │           192.168.4.22:22 → 192.168.4.35:48411 [ESTABLISHED]  (TCP)
 │           127.0.0.1:59182 → 127.0.0.1:3333 [ESTABLISHED]  (TCP)
-│
 
 ┌─ NETWORK (visible to userspace) ───────────────────────
 │  192.168.4.22:22 → 192.168.4.35:48411  pid=937 (sshd)
@@ -96,6 +91,13 @@ RapidTriage ingested the UAC collection, cross-correlated hidden-process enumera
 ┌─ SUSPICIOUS EXECUTABLES ───────────────────────────────
 │  /usr/lib/x86_64-linux-gnu/libymv.so.3 — SHA1: 0fd709f09c073df274e272aabcabe3e0f3487f9e
 
+┌─ PIVOT FINDINGS ────────────────────────────────────────
+│  [CRITICAL] Rootkit concealed miner activity
+│    Rule    : correlation.miner.rootkit-concealment
+│    Evidence: ld_preload /lib/x86_64-linux-gnu/libymv.so.3
+│              PID 977 "top" [thread: libuv-worker] → XMRig
+│              127.0.0.1:59182 → 127.0.0.1:3333 [Stratum tunnel]
+
 ═══════════════════════════════════════════════════════════
   RapidTriage analysis complete.
 ═══════════════════════════════════════════════════════════
@@ -103,123 +105,101 @@ RapidTriage ingested the UAC collection, cross-correlated hidden-process enumera
 
 ---
 
-## Answers to Scenario Questions
+## Answers
 
-### Q1: Why did the NMS alert on port 22/tcp with a `pty.spawn` string?
+### Q1 — Why did the NMS alert on port 22/tcp with a `pty.spawn` string?
 
-The attacker SSH'd from **192.168.4.35** to **192.168.4.22** (PID 937 / sshd).  
-Within that SSH session, they executed:
+The attacker SSH'd from **192.168.4.35** to **192.168.4.22** (PID 937 / sshd). Within that session they executed:
 
 ```
 python3 -c 'import pty; pty.spawn("/bin/bash")'
 ```
 
-This string passed over port 22/tcp in cleartext (it's a command typed into the shell, transmitted inside the SSH encrypted channel but logged by the NMS via DPI or sshd's `authorized_keys` forced-command interception or a similar mechanism that exposes the plaintext). The pty.spawn call promotes a non-interactive shell to a full PTY, giving the attacker Tab completion, job control, and the ability to run interactive programs — a standard attacker move immediately after landing a reverse shell.
+This command passed over port 22/tcp. `pty.spawn` promotes a non-interactive shell to a full PTY — Tab completion, job control, interactive programs. It is the standard next step after landing an initial foothold, because without a PTY many interactive programs (sudo, vi, mysql) don't work correctly.
 
-PIDs 939 (sh), 940 (python3), 941 (bash) are the resulting process chain, all connected on the same socket: `192.168.4.22:22 → 192.168.4.35:48411`.
+PIDs 939 (sh), 940 (python3), 941 (bash) are the resulting process chain, all sharing the same socket: `192.168.4.22:22 → 192.168.4.35:48411`.
 
-These PIDs are **invisible to `ps`, `top`, and `ss`** because the LD_PRELOAD rootkit (`libymv.so.3`) was installed immediately after. However, Volatility's `linux.sockstat` plugin reads socket structs directly from kernel memory, bypassing the rootkit entirely. RapidTriage correlated the hidden PIDs file (UAC's `hidden_pids_for_ps_command.txt`) with the Volatility sockstat output to surface these identities.
+These PIDs are **invisible to `ps`, `top`, and `ss`** because the LD_PRELOAD rootkit (`libymv.so.3`) was installed shortly after. Volatility's `linux.sockstat` plugin reads socket structs from kernel memory, bypassing the rootkit entirely. RapidTriage correlated UAC's `hidden_pids_for_ps_command.txt` with the Volatility sockstat TSV to surface named, connected process findings even with a fully blind userspace.
 
-### Q2: Why is the CPU pegged at 97.7% with no visible culprit?
+---
 
-PID 977 is registered in `/proc` but absent from `ps` — hidden by the LD_PRELOAD rootkit.  
-Its `comm` (process name field) reads **`top`**, a deliberate masquerade.
+### Q2 — Why is the CPU pegged at 97.7% with no visible culprit?
 
-The smoking gun is in the thread names recovered from kernel memory:
+PID 977 is registered in `/proc` but absent from `ps` — hidden by the LD_PRELOAD rootkit. Its `comm` field reads **`top`**, a deliberate masquerade.
+
+The smoking gun is the thread names in kernel memory:
 
 ```
 Thread names: libuv-worker, top
 ```
 
-`libuv-worker` is the thread name used by **libuv**, the event-loop library embedded in **XMRig** (and the broader XMRig ecosystem). A process named `top` with `libuv-worker` threads is XMRig with near-certainty. `top` itself is single-threaded. It has no business running a libuv thread pool.
+`libuv-worker` is the thread name used by **libuv**, the async I/O library embedded in **XMRig**. A process calling itself `top` with `libuv-worker` threads is XMRig with near-certainty — `top` is single-threaded and has no business running a libuv thread pool.
 
-XMRig does not connect directly to the mining pool — it connects to **localhost:3333**. PID 975 (`ssh`) listens on that port and forwards it through an SSH tunnel to **192.168.5.95:22** using local port forwarding:
+XMRig connects to **localhost:3333**, not directly to the pool. PID 975 (`ssh`) listens on that port and forwards it to **192.168.5.95:22** via local port forwarding:
 
 ```
 ssh -L 127.0.0.1:3333:<pool>:3333 user@192.168.5.95
 ```
 
-This means all mining traffic exits the machine disguised as SSH. The NMS sees only one additional SSH connection to an external IP — not a Stratum mining connection.
+All mining traffic leaves the machine as SSH. The NMS sees one additional SSH connection to an external IP — not a Stratum mining connection.
 
-### Q3: Why can't the SOC see the malicious processes?
+---
 
-The attacker installed an **LD_PRELOAD rootkit** by:
+### Q3 — Why can't the SOC see the malicious processes?
 
-1. Dropping `/usr/lib/x86_64-linux-gnu/libymv.so.3` (SHA1: `0fd709f09c073df274e272aabcabe3e0f3487f9e`)
-2. Writing `/etc/ld.so.preload` to contain the path to this library
+The attacker installed an **LD_PRELOAD userland rootkit**:
 
-`/etc/ld.so.preload` is processed by the dynamic linker (`ld.so`) at process startup for **every** new process on the system. The library is injected before `main()` runs, including into `ps`, `top`, `ss`, `ls /proc`, `netstat`, and every other userspace monitoring tool.
+1. Dropped `/usr/lib/x86_64-linux-gnu/libymv.so.3` (SHA1: `0fd709f09c073df274e272aabcabe3e0f3487f9e`)
+2. Wrote `/etc/ld.so.preload` containing the library path
 
-The library hooks `readdir64()` and `opendir()` — the two glibc functions that enumerate directory entries. When any process tries to list `/proc`, the hooked functions silently filter out directory entries whose names match the target PIDs. The kernel always returns the entries; the rootkit intercepts them before userspace sees them.
+`/etc/ld.so.preload` is read by `ld.so` at startup for **every** process. The library is injected before `main()` runs — into `ps`, `top`, `ss`, `ls /proc`, `netstat`, and every userspace monitoring tool on the system.
 
-The kernel itself is unaffected. This is why:
-- `/proc/977/` exists and can be read if you know the PID and open it directly
-- Volatility plugins reading kernel memory structures (`task_struct` linked list, file descriptor tables) see all processes unmodified
-- UAC's `hidden_pids_for_ps_command.txt` captures this gap by comparing raw `/proc` PID directory enumeration against `ps` output — a technique that bypasses the userspace hook by comparing the two at collection time
+The library hooks `readdir64()` and `opendir()`. When any process enumerates `/proc`, the hooks silently drop directory entries matching the target PIDs. The kernel returns all entries; the rootkit discards them before userspace sees them.
+
+The kernel is unaffected:
+- `/proc/977/` exists and is readable if you know the PID (direct open bypasses readdir)
+- Volatility reads kernel `task_struct` and file descriptor structures directly — rootkit-transparent
+- UAC's `hidden_pids_for_ps_command.txt` was produced by comparing raw `/proc` directory enumeration against `ps` output at collection time, catching the discrepancy before the rootkit could conceal it
 
 ---
 
 ## Attack Timeline
 
-| Time (UTC)              | Event |
-|-------------------------|-------|
-| 2026-03-24 ~23:20       | Attacker SSH from 192.168.4.35 to vbox-linux:22 |
-| 2026-03-24 ~23:21       | `python3 -c 'import pty; pty.spawn("/bin/bash")'` — NMS alert |
-| 2026-03-24 23:24:51     | `/usr/lib/x86_64-linux-gnu/libymv.so.3` written |
-| 2026-03-24 23:25:09     | `/etc/ld.so.preload` written — rootkit active |
-| 2026-03-24 23:25:09+    | PIDs 939/940/941/975/977/43168 hidden from all userspace tools |
-| ~23:26                  | XMRig (PID 977, masquerades as `top`) deployed |
-| ~23:26                  | SSH tunnel to 192.168.5.95:22 (PID 975) established; port 3333 forwarded |
-| 2026-03-24 23:40:43     | UAC collection initiated |
+| Time (UTC)          | Event |
+|---------------------|-------|
+| 2026-03-24 ~23:20   | Attacker SSH from 192.168.4.35 to vbox-linux:22 |
+| 2026-03-24 ~23:21   | `python3 -c 'import pty; pty.spawn("/bin/bash")'` — NMS alert |
+| 2026-03-24 23:24:51 | `/usr/lib/x86_64-linux-gnu/libymv.so.3` written |
+| 2026-03-24 23:25:09 | `/etc/ld.so.preload` written — rootkit active |
+| 2026-03-24 23:25:09+| PIDs 939/940/941/975/977/43168 hidden from all userspace tools |
+| ~23:26              | XMRig (PID 977, masquerades as `top`) deployed |
+| ~23:26              | SSH tunnel PID 975; `127.0.0.1:3333` forwarded to 192.168.5.95:22 |
+| 2026-03-24 23:40:43 | UAC collection initiated |
 
 ---
 
-## How RapidTriage Found This
+## What Made This Possible
 
-RapidTriage is an open-source Rust forensic triage engine built for incident responders who need answers in seconds, not hours.
+Two RapidTriage capabilities were decisive:
 
-For this collection, two capabilities were decisive:
+**Hidden-PID correlation with Volatility memory output**
 
-**1. Hidden-PID correlation with Volatility memory output**
+UAC writes `live_response/process/hidden_pids_for_ps_command.txt` when it detects PIDs in `/proc` absent from `ps`. On its own, this gives PID numbers with no names. RapidTriage reads this file and cross-references it with `memory_dump/output-sockstat` — the TSV from Volatility 3's `linux.sockstat` plugin, which reads socket file descriptors from kernel `task_struct` memory. The correlation produces named, connected process findings even when userspace is completely blind.
 
-UAC writes `live_response/process/hidden_pids_for_ps_command.txt` when it detects PIDs in `/proc` not visible to `ps`. On its own, this gives you PID numbers with no names.
+This is the only approach that works against an LD_PRELOAD rootkit: bypass hooked libc entirely.
 
-RapidTriage's `rt-parser-uac` crate reads this file and cross-references it with `memory_dump/output-sockstat` — the TSV output from Volatility 3's `linux.sockstat` plugin, which reads socket file descriptors directly from kernel `task_struct` memory. The correlation produces named, connected process findings even when userspace is completely blind.
+**Thread-name analysis for miner detection**
 
-This is the only approach that works against an LD_PRELOAD rootkit: bypass the hooked libc entirely and read process data from an unmodified memory source.
-
-**2. Thread-name analysis for miner detection**
-
-XMRig spawns a libuv event loop with threads named `libuv-worker`. Volatility captures these thread names in sockstat output (the `Process Name` column contains the kernel `comm` field for the thread's TID, not the PID's comm). RapidTriage's correlation code collects distinct thread names across all TIDs sharing a PID, surfaces them as `thread_names`, and the narrative engine checks for `libuv-worker` to flag XMRig with confidence.
-
-A process calling itself `top` with `libuv-worker` threads — and 97.7% CPU — is not ambiguous.
-
----
-
-## What This Collection Would Have Taken Manually
-
-Without a tool like RapidTriage:
-
-1. Extract the tar.gz, find `hidden_pids_for_ps_command.txt` (non-obvious path)
-2. Grep through `memory_dump/output-sockstat` for each PID individually
-3. Recognize `libuv-worker` as an XMRig indicator (requires prior knowledge)
-4. Correlate the SSH tunnel PID (975) with its LISTEN and ESTABLISHED sockets
-5. Parse `live_response/network/` files to see what userspace can see vs. what memory reveals
-6. Find `/etc/ld.so.preload` and the rootkit library path
-7. Look up the SHA1 hash in hash_executables/
-
-Estimated time: 45–90 minutes for an experienced responder, longer for a junior analyst.
-
-**With RapidTriage:** one command, under 30 seconds.
+XMRig spawns a libuv event loop with threads named `libuv-worker`. Volatility captures these thread names in sockstat output (the `Process Name` column contains the kernel `comm` for the TID, not the parent PID's comm). RapidTriage collects distinct thread names across all TIDs sharing a PID, surfaces them as `thread_names`, and checks for `libuv-worker` to flag XMRig. A process named `top` with `libuv-worker` threads and 97.7% CPU is not ambiguous.
 
 ---
 
 ## Repository
 
-RapidTriage: https://github.com/h4x0r/RapidTriage
+**RapidTriage:** https://github.com/SecurityRonin/rapidtriage
 
-The specific features demonstrated — hidden-PID correlation, Volatility sockstat parsing, `rt analyse` command — were implemented as part of this scenario investigation, following strict TDD (Red commit → Green commit). All 387+ tests pass.
+The features demonstrated — hidden-PID correlation, Volatility sockstat parsing, `rt analyse`, the Pivot correlation engine — were implemented using strict TDD (Red commit → Green commit) while working through this collection. All 387+ tests pass.
 
 ---
 
-*Submitted by Albert Hui | handle: 4n6h4x0r*
+*Albert Hui | 4n6h4x0r*
