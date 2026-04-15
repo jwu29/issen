@@ -106,17 +106,17 @@ Each crate is independently testable and versioned. The CLI wires them together;
 
 ---
 
-## Pivot Rules — the unique mechanism
+## Correlation Rules
 
 Most tools find indicators. RapidTriage finds **attack patterns** by joining evidence across sources automatically.
 
-A Pivot Rule looks like this:
+A Correlation Rule looks like this:
 
 ```yaml
 id: correlation.miner.rootkit-concealment
 severity: critical
 description: Rootkit concealing cryptominer activity via LD_PRELOAD
-pivots:
+clauses:
   - source: uac.ld_preload
     field: library_path
     match: "lib*.so.*"
@@ -126,13 +126,13 @@ pivots:
   - source: network.connections
     field: dest_port
     match: 3333            # Stratum mining protocol
-logic: all                  # all three must match
+logic: all
 emit:
   finding: "Rootkit concealed miner activity"
   evidence: [library_path, pid, thread_name, src_addr, dest_addr]
 ```
 
-Rules are YAML files in `~/.config/rapidtriage/pivot-rules/`. Ship your own. Share with your team.
+Rules are YAML files in `~/.config/rapidtriage/rules/`. Ship your own. Share with your team.
 
 <details>
 <summary>Why YAML rules and not hard-coded detections?</summary>
@@ -145,37 +145,11 @@ The built-in rule set covers the most common patterns (miners, rootkits, SSH tun
 
 ---
 
-## Real example: CTF cryptominer case
-
-A UAC collection from a compromised Linux host (Hal Pomeranz's Linux Forensic Scenario). Analyst time from collection to written finding: **30 seconds**.
-
-```
-$ rt analyse uac-vbox-linux-20260324234043.tar.gz
-
-┌─ ROOTKIT INDICATORS ──────────────────────────────────
-│  [WARNING]  ld_preload — /lib/x86_64-linux-gnu/libymv.so.3
-
-┌─ HIDDEN PROCESSES (ps/top blind-spot) ─────────────────
-│  6 PID(s) visible in /proc but absent from ps
-
-┌─ CPU ───────────────────────────────────────────────────
-│  %Cpu(s): 97.7 us — WARNING: near-100% CPU, no visible process
-
-┌─ PIVOT FINDINGS ────────────────────────────────────────
-│  [CRITICAL] Rootkit concealed miner activity
-│    Rule    : correlation.miner.rootkit-concealment
-│    Evidence: ld_preload + hidden PID [libuv-worker thread] + Stratum tunnel
-```
-
-No grep. No manual timeline correlation. No Python environment to install first.
-
----
-
 ## Contributing
 
 PRs welcome. The most valuable contributions right now:
 
-- New Pivot Rules (add to `crates/rt-correlation/rules/`)
+- New Correlation Rules (add to `crates/rt-correlation/rules/`)
 - Parser support for additional collection formats (Velociraptor, KAPE)
 - Platform-specific memory analysis improvements
 
