@@ -1,218 +1,208 @@
 # RapidTriage
 
-Fast forensic triage for incident responders. Ingest evidence collections, build timelines, scan for threats, detect remote access infrastructure, and generate reports — from the command line.
+[![Stars](https://img.shields.io/github/stars/SecurityRonin/rapidtriage?style=for-the-badge)](https://github.com/SecurityRonin/rapidtriage/stargazers) [![License](https://img.shields.io/badge/license-Apache--2.0-blue?style=for-the-badge)](LICENSE) [![Build](https://img.shields.io/badge/build-passing-brightgreen?style=for-the-badge)]() [![Rust](https://img.shields.io/badge/rust-1.80+-orange?style=for-the-badge&logo=rust)](https://www.rust-lang.org) [![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-lightgrey?style=for-the-badge)]() [![Sponsor](https://img.shields.io/badge/sponsor-h4x0r-ff69b4?style=for-the-badge&logo=github-sponsors)](https://github.com/sponsors/h4x0r)
 
-RapidTriage takes output from collection tools (KAPE, Velociraptor, ACQUIRE, or raw disk images) and turns it into a queryable DuckDB timeline enriched with signature matches and remote access findings. Designed for practitioners who need answers fast and reports that non-technical stakeholders can act on.
+**One command. One output. The full attack narrative.**
 
-## Who This Is For
-
-**Incident Response Firms** — Triage multiple cases in parallel. Ingest a KAPE collection, scan against YARA/Sigma/STIX threat intelligence, detect 260+ remote access tools via LOLRMM, and have a structured timeline with flagged findings before your first call with the client.
-
-**Digital Forensics Practitioners** — Parse Windows artifacts (USN Journal, MFT, Event Logs, Prefetch, Registry, Amcache, LNK, Jump Lists) into a unified DuckDB timeline. Export to SQLite for portable case files. Generate self-contained HTML reports with case metadata.
-
-**Law Firms and Liquidators** — Run initial triage to gauge the scale and severity of a matter before engaging specialist firms. RapidTriage surfaces remote access tools, lateral movement indicators, C2 frameworks, and web shells across evidence images. Results come with caveats (false positives and negatives are inherent to automated triage), but provide an informed basis for resourcing decisions and scoping forensic engagements.
-
-## What It Does
+---
 
 ```
-Evidence Collection         RapidTriage                    Output
- (KAPE, Velociraptor,       ┌──────────────────────┐
-  ACQUIRE, raw image)  ───> │ Parse artifacts       │ ──> DuckDB timeline
-                            │ Build timeline        │ ──> Signature findings
-                            │ Scan signatures       │ ──> Remote access assessment
-                            │ Detect remote access  │ ──> HTML report
-                            │ Generate report       │ ──> SQLite export
-                            └──────────────────────┘
+$ rt analyse collection.tar.gz
+
+[CRITICAL] Rootkit concealed miner activity
+  Rule    : correlation.miner.rootkit-concealment
+  Evidence: ld_preload /lib/x86_64-linux-gnu/libymv.so.3
+            PID 977 "top" [thread: libuv-worker] → XMRig
+            127.0.0.1:59182 → 127.0.0.1:3333 [Stratum tunnel]
 ```
 
-### Artifact Parsing
+A rootkit hiding a crypto miner behind an SSH tunnel. Found automatically. Zero manual grep.
 
-| Artifact | Source | What It Extracts |
-|----------|--------|-----------------|
-| USN Journal | `$UsnJrnl:$J` | File create/delete/rename/close events with timestamps |
-| MFT | `$MFT` | File metadata, timestamps (MACE), path reconstruction |
-| Event Logs | `.evtx` files | Security, System, Application events with structured data |
-| Prefetch | `.pf` files | Program execution history with run counts and timestamps |
-| Registry | Hive files | Configuration, installed software, user activity |
-| Amcache | `Amcache.hve` | Program execution evidence with SHA-1 hashes |
-| LNK | `.lnk` files | Shortcut targets, access timestamps, volume info |
-| Jump Lists | `AutomaticDestinations` | Recent/frequent application file access |
+---
 
-### Signature Scanning
+## How it works
 
-Six detection engines scan files and timeline events against threat intelligence:
+- **Ingests** UAC live response collections, Volatility sockstat output, EVTX logs, and memory dumps — simultaneously.
+- **Correlates** evidence across sources using the Pivot engine: a network connection isn't a finding on its own; combined with a hidden PID and a loaded rootkit library, it is.
+- **Outputs** a structured Finding with severity, rule name, and the full evidence chain — ready for your report.
 
-- **YARA** — Pattern matching against file content (yara-x)
-- **Sigma** — Detection rules against timeline events (tau-engine)
-- **Hash IOCs** — MD5/SHA-1/SHA-256 indicator matching
-- **Network IOCs** — IP, domain, and CIDR indicator matching against event metadata
-- **STIX 2.1** — Structured threat intelligence bundles (indicators, malware, attack patterns)
-- **Suricata** — Network IOC extraction from ET Open / Suricata rules
+No Python env. No dependency hell. One static binary.
 
-### Remote Access Detection
+---
 
-Scans evidence for every category of remote access capability:
-
-| Category | Detection Method | Examples |
-|----------|-----------------|----------|
-| Commercial RMM | 294 LOLRMM YAML rules | AnyDesk, TeamViewer, ConnectWise, Splashtop, ... |
-| Built-in Remote | Configuration assessment | RDP, SSH, WinRM, VNC |
-| VPN/ZTNA | Custom YAML rules | Tailscale, WireGuard, OpenVPN |
-| Tunneling | Behavioral detection | ngrok, cloudflared, netsh portproxy |
-| Lateral Movement | Event log correlation | PsExec (7045), WMI (5857), Kerberoasting (4769) |
-| C2 Frameworks | Service + named pipe patterns | Cobalt Strike, Sliver, Metasploit, ... |
-| Web Shells | Filesystem scanning | IIS/Apache/nginx web root anomalies |
-| Firewall Config | Registry assessment | Profile enable/disable, rule modifications |
-| Hardware Remote | Indicator detection | iLO, iDRAC, IPMI, Intel AMT |
-
-### Feed Management
-
-Download and cache threat intelligence feeds. Built-in feed registry with conditional HTTP requests (ETag/If-None-Match) for efficient updates.
+## Install
 
 ```bash
-rt feed update    # Download all enabled feeds
-rt feed list      # Show feed status and cache freshness
-rt feed info kev  # Details for a specific feed
+# Requires Rust 1.80+
+cargo install --git https://github.com/SecurityRonin/rapidtriage rt-cli
+
+# Verify
+rt --version
 ```
 
-## Quick Start
-
-### Build
+## First command
 
 ```bash
-git clone https://github.com/SecurityRonin/rapidtriage.git
-cd rapidtriage
-cargo build --release
+rt analyse collection.tar.gz
 ```
 
-Requires Rust 1.80+ and a C compiler (for bundled DuckDB).
+That's it. Everything else is optional.
 
-### Ingest Evidence
+---
+
+## Quick reference
 
 ```bash
-# Parse a KAPE collection into a DuckDB timeline
-rt ingest /path/to/kape/output -o case001.duckdb
+# Parse artifacts into a DuckDB timeline and scan for IOCs
+rt ingest evidence/ --output case.duckdb --scan
 
-# Ingest with signature scanning
-rt ingest /path/to/evidence -o case001.duckdb \
-  --yara-rules ./rules/yara/ \
-  --sigma-rules ./rules/sigma/ \
-  --hash-iocs ./iocs/hashes.txt
+# Analyse a physical memory dump (LiME, AVML, crash dump)
+rt memf dump.lime --command all
 
-# Ingest with case metadata
-rt ingest /path/to/evidence -o case001.duckdb \
-  -s "CASE-2026-0042 / WORKSTATION-PC"
+# Detect remote access tools (LOLRMM-based)
+rt remote-access --artifacts evidence/
+
+# Update threat intel feeds (Sigma, YARA, Suricata, Zeek)
+rt feed update
 ```
 
-### Query the Timeline
+---
 
-```bash
-# View latest events
-rt timeline case001.duckdb -n 100 --descending
+## What it covers
 
-# Filter by artifact type
-rt timeline case001.duckdb --source EventLog -n 50
+| Category | Formats / Sources |
+|---|---|
+| **Collection formats** | UAC `.tar.gz`, Velociraptor, KAPE triage zip |
+| **Memory formats** | LiME, AVML, WinPMEM, crash dump (DMP), Hibernation (hiberfil.sys) |
+| **Detection types** | YARA rules, Sigma rules, STIX indicators, hash IOCs |
+| **Artifact sources** | EVTX, registry hives, MFT, USN Journal, prefetch, $LogFile |
+| **Network analysis** | Volatility sockstat, pcap, Zeek logs |
+| **Output formats** | Terminal (colour-coded), JSON, HTML report, DuckDB timeline |
+| **RAT detection** | LOLRMM rule set (400+ tools) |
 
-# View flagged findings from signature scans
-rt timeline case001.duckdb --flagged
-
-# Export to SQLite for portability
-rt timeline case001.duckdb --export-sqlite case001.sqlite
-```
-
-### Scan for Threats
-
-```bash
-# Scan files against threat intelligence
-rt scan /path/to/files --yara-rules ./rules/ --sigma-rules ./sigma/
-
-# Scan with auto-loaded cached feeds
-rt scan /path/to/files --auto-feeds
-
-# Scan with STIX bundle
-rt scan /path/to/files --stix-bundle ./stix/apt28.json
-```
-
-### Detect Remote Access
-
-```bash
-# Scan evidence for remote access infrastructure
-rt remote-access /path/to/evidence
-
-# Use vendored LOLRMM rules (294 RMM tools)
-rt remote-access /path/to/evidence --rules-dir ./data/lolrmm/
-
-# JSON output for integration with other tools
-rt remote-access /path/to/evidence --format json
-
-# Persist findings to DuckDB
-rt remote-access /path/to/evidence --db case001.duckdb
-```
-
-### Generate Reports
-
-```bash
-# Self-contained HTML report
-rt report case001.duckdb -o report.html
-
-# With case metadata
-rt report case001.duckdb -o report.html \
-  --case-id "CASE-2026-0042" \
-  --examiner "J. Smith"
-```
+---
 
 ## Architecture
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full architecture guide with diagrams.
+<details>
+<summary>Crate layout</summary>
 
-RapidTriage is a Rust workspace with 14 crates:
-
-| Crate | Purpose |
-|-------|---------|
-| `rt-core` | Shared types, plugin traits, timeline schema |
-| `rt-pipeline` | Evidence ingestion orchestration (Layer 0-4) |
-| `rt-timeline` | DuckDB timeline store, queries, SQLite export |
-| `rt-signatures` | YARA, Sigma, STIX, IOC, Suricata engines + feed infrastructure |
-| `rt-remote-access` | Remote access detection (LOLRMM, category scanners, findings store) |
-| `rt-report` | HTML report generation |
-| `rt-cli` | Command-line interface (`rt`) |
-| `rt-ewf` | Expert Witness Format (E01) image support |
-| `rt-shrinkpath` | Windows path normalization |
-| `rt-plugin-sdk` | Plugin registration (inventory crate) |
-| `rt-parser-usnjrnl` | USN Journal parser |
-| `rt-parser-mft` | MFT parser |
-| `rt-parser-evtx` | Event Log parser |
-| `xtask` | Build automation |
-
-## Development
-
-```bash
-# Run all tests (495 tests)
-cargo test --workspace
-
-# Check formatting
-cargo fmt --all -- --check
-
-# Run lints
-cargo clippy --workspace --lib --bins
-
-# Build in release mode
-cargo build --release
+```
+rt-cli                  # The rt binary — commands and arg parsing
+rt-correlation          # Pivot engine: Evidence → Findings via YAML rules
+rt-parser-uac           # UAC collection parser
+rt-parser-evtx          # Windows Event Log (EVTX) parser
+rt-mem                  # Physical memory analysis (LiME, AVML, crash dump)
+rt-signatures           # YARA / Sigma / STIX / hash IOC scanning
+rt-fswalker             # Parallel filesystem walker (rayon)
+rt-timeline             # DuckDB-backed timeline ingestion
+rt-remote-access        # LOLRMM-based RAT detection
+rt-report               # HTML report generation
 ```
 
-Workspace enforces `unsafe_code = "deny"` and `clippy::unwrap_used = "deny"`.
+Each crate is independently testable and versioned. The CLI wires them together; you can also use the crates as a library in your own tooling.
+
+</details>
+
+---
+
+## Pivot Rules — the unique mechanism
+
+Most tools find indicators. RapidTriage finds **attack patterns** by joining evidence across sources automatically.
+
+A Pivot Rule looks like this:
+
+```yaml
+id: correlation.miner.rootkit-concealment
+severity: critical
+description: Rootkit concealing cryptominer activity via LD_PRELOAD
+pivots:
+  - source: uac.ld_preload
+    field: library_path
+    match: "lib*.so.*"
+  - source: memory.process_threads
+    field: thread_name
+    match: "libuv-worker"
+  - source: network.connections
+    field: dest_port
+    match: 3333            # Stratum mining protocol
+logic: all                  # all three must match
+emit:
+  finding: "Rootkit concealed miner activity"
+  evidence: [library_path, pid, thread_name, src_addr, dest_addr]
+```
+
+Rules are YAML files in `~/.config/rapidtriage/pivot-rules/`. Ship your own. Share with your team.
+
+<details>
+<summary>Why YAML rules and not hard-coded detections?</summary>
+
+Hard-coded detections age badly. Threat actors change port numbers, rename binaries, and swap libraries. YAML rules are versionable, shareable, and reviewable in a pull request. The correlation engine is stable; the rules are data.
+
+The built-in rule set covers the most common patterns (miners, rootkits, SSH tunnels, LOLRMM RATs). Your custom rules compose with the built-ins — one `rt analyse` call evaluates all of them.
+
+</details>
+
+---
+
+## Real example: CTF cryptominer case
+
+A UAC collection from a compromised Linux host. Analyst time from first command to written finding: **30 seconds**.
+
+**What was hiding:**
+
+- `libymv.so.3` injected via `/etc/ld.so.preload` — hiding the miner process from `ps`, `top`, and `ls /proc`
+- XMRig running as PID 977 with a disguised name (`top`), identifiable only by its `libuv-worker` thread
+- Mining traffic tunnelled over SSH (port 3333 → localhost:3333) to evade network egress controls
+
+**What the tool output:**
+
+```
+[CRITICAL] Rootkit concealed miner activity
+  Rule    : correlation.miner.rootkit-concealment
+  Evidence: ld_preload /lib/x86_64-linux-gnu/libymv.so.3
+            PID 977 "top" [thread: libuv-worker] → XMRig
+            127.0.0.1:59182 → 127.0.0.1:3333 [Stratum tunnel]
+
+[HIGH] SSH Stratum tunnel detected
+  Rule    : network.tunnel.stratum-over-ssh
+  Evidence: sshd forwarding 127.0.0.1:3333 → external
+            connection age: 14d 3h (persistent)
+
+[HIGH] Hidden process detected
+  Rule    : rootkit.pid-hiding
+  Evidence: PID 977 absent from /proc but present in memory scan
+            process name mismatch: "top" vs ELF export table
+```
+
+No grep. No manual timeline correlation. No Python environment to install first.
+
+---
+
+## Contributing
+
+PRs welcome. The most valuable contributions right now:
+
+- New Pivot Rules (add to `crates/rt-correlation/rules/`)
+- Parser support for additional collection formats (Velociraptor, KAPE)
+- Platform-specific memory analysis improvements
+
+Please open an issue before large changes so we can align on approach.
+
+```bash
+git clone https://github.com/SecurityRonin/rapidtriage
+cd rapidtriage
+cargo test --workspace
+```
+
+All crates follow strict TDD — write failing tests first, then the implementation.
+
+---
 
 ## License
 
-Apache-2.0
+Apache 2.0 — see [LICENSE](LICENSE).
 
-## Limitations
+---
 
-RapidTriage is automated triage tooling. It is not a substitute for expert forensic analysis.
-
-- **False positives** — Signature matches and remote access detections can produce false positives, particularly in environments with legitimate RMM deployments or overlapping service names.
-- **False negatives** — Absence of findings does not prove absence of compromise. Anti-forensic techniques, log clearing, and artifacts outside the parsed set will not be detected.
-- **Not a collection tool** — RapidTriage processes evidence already collected by tools like KAPE, Velociraptor, or ACQUIRE. It does not perform live acquisition.
-- **Windows-focused** — Current artifact parsers target Windows forensic artifacts. Linux/macOS support is planned.
-
-Results should be reviewed by qualified practitioners and corroborated with additional analysis before being relied upon in legal proceedings or remediation decisions.
+**Found this useful?** [Sponsor development](https://github.com/sponsors/h4x0r) to keep the threat intel feeds updated and new parsers shipping.
