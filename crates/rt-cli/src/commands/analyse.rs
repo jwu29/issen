@@ -233,17 +233,29 @@ fn build_narrative(
     });
     if let Some(m) = miner {
         let name = m.process_name.as_deref().unwrap_or("(unknown)");
-        // Find the Stratum port (port 3333 or the tunnel local port).
-        let stratum_port = m
-            .connections
-            .iter()
-            .find_map(|c| c.dst_port.filter(|&p| p == 3333))
-            .or_else(|| m.connections.iter().find_map(|c| c.dst_port))
-            .unwrap_or(0);
         println!("│  3. Crypto miner deployed (PID {}, disguised as '{name}'):", m.pid);
         println!("│       libuv-worker threads indicate XMRig or compatible miner.");
-        println!("│       Connects to localhost:{stratum_port} — an SSH local-port-forward");
-        println!("│       tunnelling Stratum protocol to a remote pool over port 22.");
+        println!("│       Connections:");
+        let mut seen = std::collections::HashSet::new();
+        for conn in &m.connections {
+            let key = format!(
+                "{}:{} → {}:{}",
+                conn.src_addr,
+                conn.src_port.map_or("?".to_string(), |p| p.to_string()),
+                conn.dst_addr,
+                conn.dst_port.map_or("?".to_string(), |p| p.to_string()),
+            );
+            if seen.insert(key.clone()) {
+                let annotation = if conn.dst_port == Some(3333) || conn.src_port == Some(3333) {
+                    "  ← Stratum tunnel"
+                } else if conn.dst_port == Some(22) || conn.src_port == Some(22) {
+                    "  ← shared SSH shell socket"
+                } else {
+                    ""
+                };
+                println!("│         {} [{}]{}", key, conn.state, annotation);
+            }
+        }
         println!("│       This explains the CPU anomaly and the 'hidden' process.");
         println!("│");
     }
