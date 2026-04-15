@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/rt-correlation",
     "crates/rt-core",
     "crates/rt-fswalker",
     "crates/rt-plugin-sdk",
@@ -31,6 +32,7 @@ authors = ["RapidTriage Contributors"]
 
 [workspace.dependencies]
 # Internal crates (path dependencies)
+forensic-indicators = { path = "../forensic-indicators" }
 rt-core       = { path = "crates/rt-core" }
 rt-fswalker   = { path = "crates/rt-fswalker" }
 rt-plugin-sdk = { path = "crates/rt-plugin-sdk" }
@@ -47,6 +49,7 @@ rt-remote-access = { path = "crates/rt-remote-access" }
 rt-mft-tree      = { path = "crates/rt-mft-tree" }
 rt-unpack        = { path = "crates/rt-unpack" }
 rt-mem          = { path = "crates/rt-mem" }
+rt-correlation   = { path = "crates/rt-correlation" }
 
 # Memory forensic crates (path dependencies into sibling workspace)
 memf-core    = { path = "../memory-forensic/crates/memf-core" }

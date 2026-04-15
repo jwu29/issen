@@ -1,5 +1,6 @@
 pub mod analyse;
 pub mod feed;
+pub mod pivot;
 pub mod info;
 pub mod ingest;
 pub mod memf;

@@ -29,6 +29,7 @@ rt-report = { workspace = true }
 rt-remote-access = { workspace = true }
 rt-parser-velociraptor = { workspace = true }
 rt-parser-uac = { workspace = true }
+rt-correlation = { workspace = true }
 rt-unpack = { workspace = true }
 rt-mem = { workspace = true }
 clap = { workspace = true }
