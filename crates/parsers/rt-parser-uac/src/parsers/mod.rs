@@ -5,7 +5,9 @@ pub mod chkrootkit;
 pub mod configs;
 pub mod hardware;
 pub mod hash_execs;
+pub mod hidden_pids;
 pub mod journal;
+pub mod mem_sockstat;
 pub mod network;
 pub mod packages;
 pub mod process;
@@ -19,6 +21,42 @@ use std::path::Path;
 use serde::Serialize;
 use tracing::info;
 
+pub use mem_sockstat::SockstatEntry;
+
+/// A hidden process discovered by correlating `/proc` PID enumeration with
+/// `ps` output and (optionally) Volatility memory sockstat.
+#[derive(Debug, Clone, Serialize)]
+pub struct HiddenProcessFinding {
+    /// The PID that was visible in `/proc` but absent from `ps`.
+    pub pid: u32,
+    /// Process name recovered from memory dump (None if no dump available).
+    pub process_name: Option<String>,
+    /// Distinct thread names seen for this PID in sockstat (e.g. "libuv-worker").
+    pub thread_names: Vec<String>,
+    /// Network connections attributed to this PID from memory.
+    pub connections: Vec<SockstatEntry>,
+}
+
+/// Analysis of hidden processes in a UAC collection.
+#[derive(Debug, Default, Serialize)]
+pub struct HiddenProcessAnalysis {
+    /// PIDs that were in `/proc` but not in `ps` output.
+    pub hidden_pids: Vec<u32>,
+    /// Correlated findings (one per hidden PID that appeared in sockstat).
+    pub findings: Vec<HiddenProcessFinding>,
+}
+
+/// Correlate hidden PIDs with Volatility sockstat output.
+///
+/// For each hidden PID, collects all sockstat entries attributed to that PID,
+/// determines the process name, and lists distinct thread names (which can
+/// expose masquerade: a process calling itself "top" with "libuv-worker" threads
+/// is almost certainly XMRig).
+#[must_use]
+pub fn analyze_hidden_processes(root: &Path) -> HiddenProcessAnalysis {
+    todo!("analyze_hidden_processes not yet implemented")
+}
+
 /// Aggregated results from parsing all UAC categories.
 #[derive(Debug, Default, Serialize)]
 pub struct UacParseResult {
@@ -31,6 +69,8 @@ pub struct UacParseResult {
     pub chkrootkit_findings: usize,
     pub config_files: usize,
     pub crontab_entries: usize,
+    /// Hidden process analysis (populated when the collection has the relevant files).
+    pub hidden_process_analysis: HiddenProcessAnalysis,
 }
 
 /// Parse all UAC categories from an extracted collection directory.
@@ -121,6 +161,10 @@ pub fn parse_all_categories(extracted_root: &Path) -> UacParseResult {
 mod tests {
     use super::*;
 
+    fn header() -> &'static str {
+        "NetNS\tProcess Name\tPID\tTID\tFD\tSock Offset\tFamily\tType\tProto\tSource Addr\tSource Port\tDestination Addr\tDestination Port\tState\tFilter\n"
+    }
+
     #[test]
     fn test_parse_all_categories_empty_dir() {
         let dir = tempfile::tempdir().expect("tmpdir");
@@ -143,5 +187,119 @@ mod tests {
 
         let result = parse_all_categories(dir.path());
         assert_eq!(result.bodyfile_entries, 2);
+    }
+
+    // =========================================================================
+    // analyze_hidden_processes — contract:
+    //   Given a UAC root with hidden_pids + sockstat, returns correlated findings.
+    //
+    //   Rules:
+    //     - hidden_pids empty + no sockstat → empty analysis
+    //     - hidden PIDs with no matching sockstat rows → findings has no connections
+    //     - hidden PID with sockstat rows → finding has process_name + connections
+    //     - distinct thread_names collected (e.g. "libuv-worker" for miners)
+    //     - PIDs not in hidden list but in sockstat are ignored
+    // =========================================================================
+
+    #[test]
+    fn analyze_empty_collection_returns_empty() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let analysis = analyze_hidden_processes(dir.path());
+        assert!(analysis.hidden_pids.is_empty());
+        assert!(analysis.findings.is_empty());
+    }
+
+    #[test]
+    fn analyze_hidden_pid_no_sockstat_still_listed() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let proc_dir = dir.path().join("live_response/process");
+        std::fs::create_dir_all(&proc_dir).expect("mkdir");
+        std::fs::write(proc_dir.join("hidden_pids_for_ps_command.txt"), "1234\n")
+            .expect("write");
+
+        let analysis = analyze_hidden_processes(dir.path());
+        assert_eq!(analysis.hidden_pids, vec![1234]);
+        // Without sockstat, we still surface the hidden PID
+        assert_eq!(analysis.findings.len(), 1);
+        assert_eq!(analysis.findings[0].pid, 1234);
+        assert!(analysis.findings[0].process_name.is_none());
+        assert!(analysis.findings[0].connections.is_empty());
+    }
+
+    #[test]
+    fn analyze_correlates_miner_masquerade() {
+        // Reproduces the CTF scenario: PID 977 calls itself "top" but
+        // libuv-worker threads reveal it is XMRig connecting to :3333.
+        let dir = tempfile::tempdir().expect("tmpdir");
+
+        let proc_dir = dir.path().join("live_response/process");
+        std::fs::create_dir_all(&proc_dir).expect("mkdir");
+        std::fs::write(proc_dir.join("hidden_pids_for_ps_command.txt"), "977\n")
+            .expect("write");
+
+        let mem_dir = dir.path().join("memory_dump");
+        std::fs::create_dir_all(&mem_dir).expect("mkdir");
+        let sockstat = format!(
+            "{}\
+             4026531840\ttop\t977\t977\t17\t0xABC\tAF_INET\tSTREAM\tTCP\t127.0.0.1\t59182\t127.0.0.1\t3333\tESTABLISHED\t-\n\
+             4026531840\tlibuv-worker\t977\t978\t17\t0xABC\tAF_INET\tSTREAM\tTCP\t127.0.0.1\t59182\t127.0.0.1\t3333\tESTABLISHED\t-\n\
+             4026531840\tlibuv-worker\t977\t979\t17\t0xABC\tAF_INET\tSTREAM\tTCP\t127.0.0.1\t59182\t127.0.0.1\t3333\tESTABLISHED\t-\n",
+            header()
+        );
+        std::fs::write(mem_dir.join("output-sockstat"), sockstat).expect("write");
+
+        let analysis = analyze_hidden_processes(dir.path());
+        assert_eq!(analysis.hidden_pids, vec![977]);
+        assert_eq!(analysis.findings.len(), 1);
+
+        let finding = &analysis.findings[0];
+        assert_eq!(finding.pid, 977);
+        assert_eq!(finding.process_name.as_deref(), Some("top"));
+        // Should surface "libuv-worker" as a thread name — the XMRig indicator
+        assert!(
+            finding.thread_names.contains(&"libuv-worker".to_string()),
+            "expected libuv-worker in thread_names: {:?}",
+            finding.thread_names
+        );
+        assert_eq!(finding.connections.len(), 3);
+        // All connections are to localhost:3333 (Stratum mining tunnel)
+        assert!(finding
+            .connections
+            .iter()
+            .all(|c| c.dst_port == Some(3333)));
+    }
+
+    #[test]
+    fn analyze_ssh_reverse_shell_chain() {
+        // Reproduces the CTF attack chain: sh→python3→bash all on same socket.
+        let dir = tempfile::tempdir().expect("tmpdir");
+
+        let proc_dir = dir.path().join("live_response/process");
+        std::fs::create_dir_all(&proc_dir).expect("mkdir");
+        std::fs::write(
+            proc_dir.join("hidden_pids_for_ps_command.txt"),
+            "939\n940\n941\n",
+        )
+        .expect("write");
+
+        let mem_dir = dir.path().join("memory_dump");
+        std::fs::create_dir_all(&mem_dir).expect("mkdir");
+        let sockstat = format!(
+            "{}\
+             4026531840\tsh\t939\t939\t0\t0xABC\tAF_INET\tSTREAM\tTCP\t192.168.4.22\t22\t192.168.4.35\t48411\tESTABLISHED\t-\n\
+             4026531840\tpython3\t940\t940\t0\t0xABC\tAF_INET\tSTREAM\tTCP\t192.168.4.22\t22\t192.168.4.35\t48411\tESTABLISHED\t-\n\
+             4026531840\tbash\t941\t941\t8\t0xABC\tAF_INET\tSTREAM\tTCP\t192.168.4.22\t22\t192.168.4.35\t48411\tESTABLISHED\t-\n",
+            header()
+        );
+        std::fs::write(mem_dir.join("output-sockstat"), sockstat).expect("write");
+
+        let analysis = analyze_hidden_processes(dir.path());
+        assert_eq!(analysis.hidden_pids.len(), 3);
+        assert_eq!(analysis.findings.len(), 3);
+
+        // python3 is the pty.spawn process
+        let py = analysis.findings.iter().find(|f| f.pid == 940).unwrap();
+        assert_eq!(py.process_name.as_deref(), Some("python3"));
+        assert!(py.connections.iter().all(|c| c.dst_port == Some(48411)));
     }
 }
