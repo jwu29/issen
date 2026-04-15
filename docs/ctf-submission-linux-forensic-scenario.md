@@ -13,7 +13,7 @@ Submitting my answers to the Linux Forensic Scenario. I also used this collectio
 
 ---
 
-## Tool Output (Verbatim)
+## Tool Output
 
 ```
 $ rt analyse uac-vbox-linux-20260324234043.tar.gz
@@ -66,6 +66,12 @@ $ rt analyse uac-vbox-linux-20260324234043.tar.gz
 │  %Cpu(s): 97.7 us,  2.3 sy,  0.0 ni,  0.0 id, ...
 │  ^ WARNING: Near-100% CPU with no visible process — miner likely hidden by rootkit.
 
+┌─ PIVOT FINDINGS ────────────────────────────────────────
+│  [CRITICAL] Rootkit concealed miner activity
+│         Rule     : correlation.miner.rootkit-concealment
+│         Evidence : rk-1, proc-14, net-16
+│
+
 ┌─ NARRATIVE ─────────────────────────────────────────────
 │  1. LD_PRELOAD rootkit installed:
 │       /lib/x86_64-linux-gnu/libymv.so.3
@@ -86,17 +92,10 @@ $ rt analyse uac-vbox-linux-20260324234043.tar.gz
 │
 │  4. SSH tunnel to 192.168.5.95:22 established (PID 975):
 │       ssh -L 127.0.0.1:3333:<pool>:3333 user@192.168.5.95
-│     Mining traffic appears as SSH to the NMS — evasion technique.
+│     Mining traffic consistent with SSH local-port-forward to pool.
 
 ┌─ SUSPICIOUS EXECUTABLES ───────────────────────────────
 │  /usr/lib/x86_64-linux-gnu/libymv.so.3 — SHA1: 0fd709f09c073df274e272aabcabe3e0f3487f9e
-
-┌─ PIVOT FINDINGS ────────────────────────────────────────
-│  [CRITICAL] Rootkit concealed miner activity
-│    Rule    : correlation.miner.rootkit-concealment
-│    Evidence: ld_preload /lib/x86_64-linux-gnu/libymv.so.3
-│              PID 977 "top" [thread: libuv-worker] → XMRig
-│              127.0.0.1:59182 → 127.0.0.1:3333 [Stratum tunnel]
 
 ═══════════════════════════════════════════════════════════
   RapidTriage analysis complete.
@@ -119,7 +118,7 @@ This command passed over port 22/tcp. `pty.spawn` promotes a non-interactive she
 
 PIDs 939 (sh), 940 (python3), 941 (bash) are the resulting process chain, all sharing the same socket: `192.168.4.22:22 → 192.168.4.35:48411`.
 
-These PIDs are **invisible to `ps`, `top`, and `ss`** because the LD_PRELOAD rootkit (`libymv.so.3`) was installed shortly after. Volatility's `linux.sockstat` plugin reads socket structs from kernel memory, bypassing the rootkit entirely. RapidTriage correlated UAC's `hidden_pids_for_ps_command.txt` with the Volatility sockstat TSV to surface named, connected process findings even with a fully blind userspace.
+These PIDs are **invisible to `ps`, `top`, and `ss`** because the LD_PRELOAD rootkit (`libymv.so.3`) was installed shortly after. Volatility's `linux.sockstat` plugin reads socket structs from kernel memory, bypassing the rootkit entirely. RapidTriage's `rt-parser-uac` correlates `hidden_pids_for_ps_command.txt` with the Volatility sockstat TSV to surface named, connected process findings even with a fully blind userspace.
 
 ---
 
@@ -141,7 +140,7 @@ XMRig connects to **localhost:3333**, not directly to the pool. PID 975 (`ssh`) 
 ssh -L 127.0.0.1:3333:<pool>:3333 user@192.168.5.95
 ```
 
-All mining traffic leaves the machine as SSH. The NMS sees one additional SSH connection to an external IP — not a Stratum mining connection.
+Mining traffic is consistent with being encapsulated inside SSH local-port forwarding. The NMS would see one additional SSH connection to an external IP — no Stratum connection separately visible.
 
 ---
 
@@ -154,7 +153,7 @@ The attacker installed an **LD_PRELOAD userland rootkit**:
 
 `/etc/ld.so.preload` is read by `ld.so` at startup for **every** process. The library is injected before `main()` runs — into `ps`, `top`, `ss`, `ls /proc`, `netstat`, and every userspace monitoring tool on the system.
 
-The library hooks `readdir64()` and `opendir()`. When any process enumerates `/proc`, the hooks silently drop directory entries matching the target PIDs. The kernel returns all entries; the rootkit discards them before userspace sees them.
+LD_PRELOAD rootkits of this class typically hook `readdir64()` and `opendir()`. When any process enumerates `/proc`, the hooks silently drop directory entries matching the target PIDs — the kernel returns all entries, the rootkit discards them before userspace sees them. (The specific hooked symbols for `libymv.so.3` would require reverse-engineering the library, which was not done here; this is the standard mechanism for this rootkit family.)
 
 The kernel is unaffected:
 - `/proc/977/` exists and is readable if you know the PID (direct open bypasses readdir)
@@ -190,7 +189,7 @@ This is the only approach that works against an LD_PRELOAD rootkit: bypass hooke
 
 **Thread-name analysis for miner detection**
 
-XMRig spawns a libuv event loop with threads named `libuv-worker`. Volatility captures these thread names in sockstat output (the `Process Name` column contains the kernel `comm` for the TID, not the parent PID's comm). RapidTriage collects distinct thread names across all TIDs sharing a PID, surfaces them as `thread_names`, and checks for `libuv-worker` to flag XMRig. A process named `top` with `libuv-worker` threads and 97.7% CPU is not ambiguous.
+XMRig spawns a libuv event loop with threads named `libuv-worker`. The Volatility `linux.sockstat` output includes a `Process Name` column that reflects the kernel `comm` for each TID — meaning individual threads appear with their own names rather than the parent process name. RapidTriage's parser collects distinct thread names across all TIDs sharing a PID and surfaces them as `thread_names`. A process calling itself `top` with `libuv-worker` threads and 97.7% CPU is not ambiguous.
 
 ---
 
@@ -198,7 +197,7 @@ XMRig spawns a libuv event loop with threads named `libuv-worker`. Volatility ca
 
 **RapidTriage:** https://github.com/SecurityRonin/rapidtriage
 
-The features demonstrated — hidden-PID correlation, Volatility sockstat parsing, `rt analyse`, the Pivot correlation engine — were implemented using strict TDD (Red commit → Green commit) while working through this collection. All 387+ tests pass.
+The features demonstrated — hidden-PID correlation, Volatility sockstat parsing, `rt analyse`, the correlation engine — were implemented using strict TDD (Red commit → Green commit) while working through this collection.
 
 ---
 
