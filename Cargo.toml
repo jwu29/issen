@@ -27,7 +27,7 @@ members = [
 edition = "2021"
 rust-version = "1.80"
 license = "Apache-2.0"
-repository = "https://github.com/h4x0r/rapidtriage"
+repository = "https://github.com/SecurityRonin/rapidtriage"
 authors = ["RapidTriage Contributors"]
 
 [workspace.dependencies]
