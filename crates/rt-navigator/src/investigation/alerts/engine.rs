@@ -6,7 +6,9 @@ use rt_signatures::matching::results::Severity;
 
 use super::auth::{check_login_anomalies, check_session_forensics, check_windows_auth_forensics};
 use super::config::{check_config_alerts, check_config_baseline};
-use super::correlation::{correlate_c2_beacon, correlate_memory_process_mft, correlate_network_eventlog};
+use super::correlation::{
+    correlate_c2_beacon, correlate_memory_process_mft, correlate_network_eventlog,
+};
 use super::filesystem::{
     check_bodyfile_alerts, check_permission_anomalies, check_temporal_patterns,
 };

@@ -243,12 +243,7 @@ fn enrich_with_usnjrnl(
     // stream analysis.
     let enrich_tuples: Vec<(u64, String)> = records
         .iter()
-        .map(|r| {
-            (
-                r.mft_entry & 0x0000_FFFF_FFFF_FFFF,
-                r.filename.clone(),
-            )
-        })
+        .map(|r| (r.mft_entry & 0x0000_FFFF_FFFF_FFFF, r.filename.clone()))
         .collect();
 
     let count = records.len();

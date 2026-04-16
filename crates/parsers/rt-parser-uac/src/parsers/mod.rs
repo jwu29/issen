@@ -33,6 +33,12 @@ pub struct HiddenProcessFinding {
     pub process_name: Option<String>,
     /// Distinct thread names seen for this PID in sockstat (e.g. "libuv-worker").
     pub thread_names: Vec<String>,
+    /// All names associated with this process: `[process_name] + thread_names`.
+    ///
+    /// Useful for display and detection: a process masquerading as "top" but
+    /// with "libuv-worker" threads is revealed by inspecting this field.
+    /// Empty when no memory dump is available.
+    pub all_thread_names: Vec<String>,
     /// Network connections attributed to this PID from memory.
     pub connections: Vec<SockstatEntry>,
 }
@@ -64,11 +70,8 @@ pub fn analyze_hidden_processes(root: &Path) -> HiddenProcessAnalysis {
     let findings = hidden_pids
         .iter()
         .map(|&pid| {
-            let pid_entries: Vec<SockstatEntry> = sockstat
-                .iter()
-                .filter(|e| e.pid == pid)
-                .cloned()
-                .collect();
+            let pid_entries: Vec<SockstatEntry> =
+                sockstat.iter().filter(|e| e.pid == pid).cloned().collect();
 
             // Primary process name: the main thread (TID == PID), or any entry.
             let process_name = pid_entries
@@ -87,10 +90,21 @@ pub fn analyze_hidden_processes(root: &Path) -> HiddenProcessAnalysis {
                 .collect();
             thread_names.sort();
 
+            // all_thread_names = [process_name] + thread_names (sorted).
+            let mut all_thread_names: Vec<String> = process_name
+                .iter()
+                .cloned()
+                .chain(thread_names.iter().cloned())
+                .collect::<std::collections::HashSet<_>>()
+                .into_iter()
+                .collect();
+            all_thread_names.sort();
+
             HiddenProcessFinding {
                 pid,
                 process_name,
                 thread_names,
+                all_thread_names,
                 connections: pid_entries,
             }
         })
@@ -262,8 +276,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("tmpdir");
         let proc_dir = dir.path().join("live_response/process");
         std::fs::create_dir_all(&proc_dir).expect("mkdir");
-        std::fs::write(proc_dir.join("hidden_pids_for_ps_command.txt"), "1234\n")
-            .expect("write");
+        std::fs::write(proc_dir.join("hidden_pids_for_ps_command.txt"), "1234\n").expect("write");
 
         let analysis = analyze_hidden_processes(dir.path());
         assert_eq!(analysis.hidden_pids, vec![1234]);
@@ -274,6 +287,43 @@ mod tests {
         assert!(analysis.findings[0].connections.is_empty());
     }
 
+    // ── WS-2 RED: all_thread_names must include both process_name and thread_names ──
+
+    #[test]
+    fn all_thread_names_includes_process_name_and_thread_names() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let proc_dir = dir.path().join("live_response/process");
+        std::fs::create_dir_all(&proc_dir).expect("mkdir");
+        std::fs::write(proc_dir.join("hidden_pids_for_ps_command.txt"), "977\n").expect("write");
+
+        let mem_dir = dir.path().join("memory_dump");
+        std::fs::create_dir_all(&mem_dir).expect("mkdir");
+        let sockstat = format!(
+            "{}\
+             4026531840\ttop\t977\t977\t17\t0xABC\tAF_INET\tSTREAM\tTCP\t127.0.0.1\t59182\t127.0.0.1\t3333\tESTABLISHED\t-\n\
+             4026531840\tlibuv-worker\t977\t978\t17\t0xABC\tAF_INET\tSTREAM\tTCP\t127.0.0.1\t59182\t127.0.0.1\t3333\tESTABLISHED\t-\n",
+            header()
+        );
+        std::fs::write(mem_dir.join("output-sockstat"), sockstat).expect("write");
+
+        let analysis = analyze_hidden_processes(dir.path());
+        let finding = &analysis.findings[0];
+
+        // all_thread_names must contain both "top" (process name) and "libuv-worker" (thread)
+        assert!(
+            finding.all_thread_names.contains(&"top".to_string()),
+            "expected 'top' in all_thread_names: {:?}",
+            finding.all_thread_names
+        );
+        assert!(
+            finding
+                .all_thread_names
+                .contains(&"libuv-worker".to_string()),
+            "expected 'libuv-worker' in all_thread_names: {:?}",
+            finding.all_thread_names
+        );
+    }
+
     #[test]
     fn analyze_correlates_miner_masquerade() {
         // Reproduces the CTF scenario: PID 977 calls itself "top" but
@@ -282,8 +332,7 @@ mod tests {
 
         let proc_dir = dir.path().join("live_response/process");
         std::fs::create_dir_all(&proc_dir).expect("mkdir");
-        std::fs::write(proc_dir.join("hidden_pids_for_ps_command.txt"), "977\n")
-            .expect("write");
+        std::fs::write(proc_dir.join("hidden_pids_for_ps_command.txt"), "977\n").expect("write");
 
         let mem_dir = dir.path().join("memory_dump");
         std::fs::create_dir_all(&mem_dir).expect("mkdir");
@@ -311,10 +360,7 @@ mod tests {
         );
         assert_eq!(finding.connections.len(), 3);
         // All connections are to localhost:3333 (Stratum mining tunnel)
-        assert!(finding
-            .connections
-            .iter()
-            .all(|c| c.dst_port == Some(3333)));
+        assert!(finding.connections.iter().all(|c| c.dst_port == Some(3333)));
     }
 
     #[test]

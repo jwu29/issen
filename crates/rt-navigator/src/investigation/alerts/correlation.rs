@@ -23,7 +23,11 @@ pub fn correlate_memory_process_mft(input: &AlertInput<'_>) -> Vec<Alert> {
 
     for proc in input.processes {
         // Extract the executable path: first whitespace-delimited token of command
-        let exe = proc.command.split_whitespace().next().unwrap_or(&proc.command);
+        let exe = proc
+            .command
+            .split_whitespace()
+            .next()
+            .unwrap_or(&proc.command);
 
         for mft in input.mft_entries {
             if !mft.is_deleted {
@@ -150,10 +154,12 @@ pub fn correlate_c2_beacon(input: &AlertInput<'_>) -> Vec<Alert> {
     }
 
     // Group timestamps by remote IP
-    let mut by_ip: std::collections::HashMap<&str, Vec<i64>> =
-        std::collections::HashMap::new();
+    let mut by_ip: std::collections::HashMap<&str, Vec<i64>> = std::collections::HashMap::new();
     for conn in input.connection_log {
-        by_ip.entry(conn.remote_ip.as_str()).or_default().push(conn.timestamp);
+        by_ip
+            .entry(conn.remote_ip.as_str())
+            .or_default()
+            .push(conn.timestamp);
     }
 
     let mut alerts = Vec::new();
@@ -188,10 +194,7 @@ pub fn correlate_c2_beacon(input: &AlertInput<'_>) -> Vec<Alert> {
             alerts.push(Alert {
                 severity: AlertSeverity::Warning,
                 category: "network".into(),
-                message: format!(
-                    "Possible C2 beacon to {ip}: interval ~{:.0}s",
-                    mean
-                ),
+                message: format!("Possible C2 beacon to {ip}: interval ~{:.0}s", mean),
                 detail: format!(
                     "remote_ip={ip} connections={} mean_interval={mean:.1}s std_dev={std_dev:.1}s",
                     timestamps.len()

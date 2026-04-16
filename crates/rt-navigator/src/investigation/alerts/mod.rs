@@ -18,4 +18,6 @@ mod types;
 
 pub use engine::{anomalies_to_alerts, detect_alerts};
 #[allow(unused_imports)]
-pub use types::{Alert, AlertInput, AlertSeverity, MftFileEntry, TimestampedConnection, WindowsEvent};
+pub use types::{
+    Alert, AlertInput, AlertSeverity, MftFileEntry, TimestampedConnection, WindowsEvent,
+};
