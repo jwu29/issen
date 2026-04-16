@@ -4,6 +4,8 @@ pub mod feeds;
 pub mod model;
 pub mod rules;
 pub mod sync;
+pub mod warninglist;
+pub mod zeek_intel;
 
 #[cfg(test)]
 mod tests {
@@ -227,7 +229,10 @@ clauses:
         assert_eq!(rule.id, "correlation.reverse-shell");
         assert_eq!(rule.references.len(), 1);
         assert_eq!(rule.clauses.len(), 2);
-        assert_eq!(rule.clauses[0], RuleClause::tagged(EvidenceSource::Artifact, "reverse_shell"));
+        assert_eq!(
+            rule.clauses[0],
+            RuleClause::tagged(EvidenceSource::Artifact, "reverse_shell")
+        );
     }
 
     #[test]
@@ -235,7 +240,9 @@ clauses:
         let rules = load_rule_pack(&bundled_rule_dir()).expect("load bundled rules");
 
         assert!(!rules.is_empty());
-        assert!(rules.iter().any(|rule| rule.id == "correlation.miner.rootkit-concealment"));
+        assert!(rules
+            .iter()
+            .any(|rule| rule.id == "correlation.miner.rootkit-concealment"));
         assert!(rules
             .iter()
             .any(|rule| rule.id == "correlation.miner.ssh-stratum-tunnel"));
@@ -311,9 +318,12 @@ clauses:
         )
         .expect("write custom rule");
 
-        let rules = load_rule_sources(&[bundled_rule_dir(), custom_dir]).expect("load merged rules");
+        let rules =
+            load_rule_sources(&[bundled_rule_dir(), custom_dir]).expect("load merged rules");
 
-        assert!(rules.iter().any(|rule| rule.id == "correlation.custom.test"));
+        assert!(rules
+            .iter()
+            .any(|rule| rule.id == "correlation.custom.test"));
         let bundled_count = rules
             .iter()
             .filter(|rule| rule.id == "correlation.miner.rootkit-concealment")
@@ -399,6 +409,245 @@ clauses:
             .find(|rule| rule.id == "correlation.miner.ssh-stratum-tunnel")
             .expect("attr-driven tunnel rule");
 
-        assert!(rule.clauses.iter().any(|clause| !clause.attr_predicates.is_empty()));
+        assert!(rule
+            .clauses
+            .iter()
+            .any(|clause| !clause.attr_predicates.is_empty()));
+    }
+
+    // ── IntelKind / IndicatorType model ──────────────────────────────────────
+
+    #[test]
+    fn intel_kind_variants_are_defined() {
+        use crate::model::{IndicatorType, IntelKind};
+        let _kinds = [
+            IntelKind::ContentSignature,
+            IntelKind::EventRule,
+            IntelKind::NetworkSignature,
+            IntelKind::AtomicIndicator,
+            IntelKind::IntelGraph,
+            IntelKind::ReferenceDataset,
+            IntelKind::CorrelationRule,
+        ];
+        let _types = [
+            IndicatorType::IpAddr,
+            IndicatorType::Domain,
+            IndicatorType::Url,
+            IndicatorType::FileHash,
+            IndicatorType::Email,
+            IndicatorType::Mutex,
+            IndicatorType::Ja3Fingerprint,
+            IndicatorType::Ja4Fingerprint,
+            IndicatorType::TlsCertHash,
+            IndicatorType::Cve,
+            IndicatorType::RegistryKey,
+            IndicatorType::FilePath,
+        ];
+    }
+
+    // ── FeedTransport / ArchiveFormat ─────────────────────────────────────────
+
+    #[test]
+    fn feed_transport_variants_are_defined() {
+        use crate::feeds::{ArchiveFormat, AuthConfig, FeedTransport};
+        let _git = FeedTransport::Git {
+            repo_url: "https://github.com/SigmaHQ/sigma".into(),
+            branch: Some("master".into()),
+        };
+        let _archive = FeedTransport::HttpArchive {
+            url: "https://example.com/rules.tar.gz".into(),
+            format: ArchiveFormat::TarGz,
+        };
+        let _json = FeedTransport::HttpJson {
+            url: "https://example.com/feed.json".into(),
+            auth: None,
+        };
+        let _taxii = FeedTransport::Taxii {
+            discovery_url: "https://taxii.example.com/".into(),
+            collection_id: "collection-1".into(),
+            auth: Some(AuthConfig::Bearer {
+                token: "tok".into(),
+            }),
+        };
+        let _misp = FeedTransport::MispApi {
+            base_url: "https://misp.example.com".into(),
+            auth_key: "key".into(),
+        };
+    }
+
+    // ── FeedManifest / ParseStatus ────────────────────────────────────────────
+
+    #[test]
+    fn feed_manifest_round_trips_through_json() {
+        use crate::feeds::{ArchiveFormat, FeedManifest, FeedTransport, ParseStatus, SchemaFamily};
+        use std::path::PathBuf;
+
+        let manifest = FeedManifest {
+            source_id: "sigmahq/sigma".into(),
+            schema_family: SchemaFamily::Sigma,
+            transport: FeedTransport::HttpArchive {
+                url: "https://example.com/sigma.zip".into(),
+                format: ArchiveFormat::Zip,
+            },
+            version: Some("abc123".into()),
+            taxii_cursor: None,
+            fetched_at: chrono::Utc::now(),
+            local_cache_path: PathBuf::from("/tmp/sigma"),
+            parse_status: ParseStatus::Ok { rule_count: 42 },
+        };
+
+        let json = serde_json::to_string(&manifest).expect("serialize");
+        let restored: FeedManifest = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(restored.source_id, "sigmahq/sigma");
+        assert_eq!(restored.version, Some("abc123".into()));
+        match restored.parse_status {
+            ParseStatus::Ok { rule_count } => assert_eq!(rule_count, 42),
+            other => panic!("unexpected parse_status: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_status_partial_error_carries_errors() {
+        use crate::feeds::ParseStatus;
+        let status = ParseStatus::PartialError {
+            rule_count: 10,
+            errors: vec!["parse failure on line 3".into()],
+        };
+        let json = serde_json::to_string(&status).expect("serialize");
+        let restored: ParseStatus = serde_json::from_str(&json).expect("deserialize");
+        match restored {
+            ParseStatus::PartialError { rule_count, errors } => {
+                assert_eq!(rule_count, 10);
+                assert_eq!(errors[0], "parse failure on line 3");
+            }
+            other => panic!("unexpected: {other:?}"),
+        }
+    }
+
+    // ── MISP warninglist importer ─────────────────────────────────────────────
+
+    #[test]
+    fn warninglist_matches_known_domain() {
+        use crate::warninglist::parse_warninglist;
+        let wl =
+            parse_warninglist(r#"{"name":"Test","type":"hostname","list":["evil.com","bad.org"]}"#)
+                .expect("parse warninglist");
+        assert!(wl.contains("evil.com"));
+        assert!(!wl.contains("good.com"));
+    }
+
+    #[test]
+    fn warninglist_is_fp_candidate_returns_true_for_listed_value() {
+        use crate::warninglist::parse_warninglist;
+        let wl = parse_warninglist(
+            r#"{"name":"Alexa Top 1000","type":"hostname","list":["google.com","facebook.com"]}"#,
+        )
+        .expect("parse warninglist");
+        assert!(wl.is_fp_candidate("google.com"));
+        assert!(!wl.is_fp_candidate("evil.com"));
+    }
+
+    #[test]
+    fn warninglist_name_and_type_are_preserved() {
+        use crate::warninglist::parse_warninglist;
+        let wl =
+            parse_warninglist(r#"{"name":"Top Domains","type":"hostname","list":["example.com"]}"#)
+                .expect("parse warninglist");
+        assert_eq!(wl.name, "Top Domains");
+        assert_eq!(wl.list_type, "hostname");
+    }
+
+    // ── Zeek intel importer ───────────────────────────────────────────────────
+
+    #[test]
+    fn zeek_intel_parses_domain_row() {
+        use crate::zeek_intel::parse_zeek_intel;
+        let tsv =
+            "#fields\tindicator\tindicator_type\tmeta.source\nevil.com\tIntel::DOMAIN\ttest_feed\n";
+        let indicators = parse_zeek_intel(tsv).expect("parse zeek intel");
+        assert_eq!(indicators.len(), 1);
+        assert_eq!(indicators[0].value, "evil.com");
+    }
+
+    #[test]
+    fn zeek_intel_parses_ip_addr_row() {
+        use crate::model::IndicatorType;
+        use crate::zeek_intel::parse_zeek_intel;
+        let tsv = "#fields\tindicator\tindicator_type\tmeta.source\n1.2.3.4\tIntel::ADDR\tfeed1\n";
+        let indicators = parse_zeek_intel(tsv).expect("parse zeek intel");
+        assert_eq!(indicators.len(), 1);
+        assert_eq!(indicators[0].value, "1.2.3.4");
+        assert!(matches!(
+            indicators[0].indicator_type,
+            IndicatorType::IpAddr
+        ));
+    }
+
+    #[test]
+    fn zeek_intel_parses_sha256_row() {
+        use crate::model::IndicatorType;
+        use crate::zeek_intel::parse_zeek_intel;
+        let hash = "e3b0c44298fc1c149afb";
+        let tsv = format!(
+            "#fields\tindicator\tindicator_type\tmeta.source\n{hash}\tIntel::SHA256\tfeed1\n"
+        );
+        let indicators = parse_zeek_intel(&tsv).expect("parse zeek intel");
+        assert_eq!(indicators.len(), 1);
+        assert!(matches!(
+            indicators[0].indicator_type,
+            IndicatorType::FileHash
+        ));
+    }
+
+    #[test]
+    fn zeek_intel_skips_comment_lines_and_empty_lines() {
+        use crate::zeek_intel::parse_zeek_intel;
+        let tsv = "#separator \\t\n#fields\tindicator\tindicator_type\tmeta.source\n\nevil.com\tIntel::DOMAIN\tfeed1\n";
+        let indicators = parse_zeek_intel(tsv).expect("parse zeek intel");
+        assert_eq!(indicators.len(), 1);
+    }
+
+    #[test]
+    fn zeek_intel_preserves_source_metadata() {
+        use crate::zeek_intel::parse_zeek_intel;
+        let tsv =
+            "#fields\tindicator\tindicator_type\tmeta.source\nevil.com\tIntel::DOMAIN\tmy_feed\n";
+        let indicators = parse_zeek_intel(tsv).expect("parse zeek intel");
+        assert_eq!(indicators[0].source, "my_feed");
+    }
+
+    // ── Bundled rule: SSH tunnel stratum ──────────────────────────────────────
+
+    #[test]
+    fn bundled_rules_include_ssh_tunnel_stratum() {
+        let rules = load_rule_pack(&bundled_rule_dir()).expect("load bundled rules");
+        assert!(
+            rules
+                .iter()
+                .any(|r| r.id == "correlation.network.ssh-tunnel-stratum"),
+            "expected correlation.network.ssh-tunnel-stratum in bundled rules"
+        );
+    }
+
+    #[test]
+    fn bundled_rules_include_ld_preload_persistence() {
+        let rules = load_rule_pack(&bundled_rule_dir()).expect("load bundled rules");
+        assert!(
+            rules
+                .iter()
+                .any(|r| r.id == "correlation.persistence.ld-preload"),
+            "expected correlation.persistence.ld-preload in bundled rules"
+        );
+    }
+
+    #[test]
+    fn bundled_rules_include_hidden_process_no_memory() {
+        let rules = load_rule_pack(&bundled_rule_dir()).expect("load bundled rules");
+        assert!(
+            rules
+                .iter()
+                .any(|r| r.id == "correlation.process.hidden-no-memory"),
+            "expected correlation.process.hidden-no-memory in bundled rules"
+        );
     }
 }
