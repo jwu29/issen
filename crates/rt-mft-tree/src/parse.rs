@@ -21,7 +21,7 @@ impl FileTree {
     /// # Panics
     ///
     /// Panics if the internal progress bar template is invalid (statically verified).
-    #[allow(clippy::cast_possible_truncation)]
+    #[allow(clippy::cast_possible_truncation, clippy::too_many_lines)]
     pub fn from_mft(path: &Path) -> Result<Self> {
         let buffer =
             std::fs::read(path).with_context(|| format!("Failed to read: {}", path.display()))?;

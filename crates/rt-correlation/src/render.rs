@@ -28,16 +28,8 @@ pub fn render_evidence_line(ev: &Evidence) -> String {
                 return format!("LD_PRELOAD: {path}");
             }
         }
-        let check = ev
-            .attrs
-            .get("check")
-            .map(String::as_str)
-            .unwrap_or("(unknown)");
-        let evidence = ev
-            .attrs
-            .get("evidence")
-            .map(String::as_str)
-            .unwrap_or("(unknown)");
+        let check = ev.attrs.get("check").map_or("(unknown)", String::as_str);
+        let evidence = ev.attrs.get("evidence").map_or("(unknown)", String::as_str);
         return format!("Rootkit indicator [{check}]: {evidence}");
     }
 
@@ -45,9 +37,8 @@ pub fn render_evidence_line(ev: &Evidence) -> String {
         let name = ev
             .attrs
             .get("process_name")
-            .map(String::as_str)
-            .unwrap_or("(unknown)");
-        let pid = ev.attrs.get("pid").map(String::as_str).unwrap_or("?");
+            .map_or("(unknown)", String::as_str);
+        let pid = ev.attrs.get("pid").map_or("?", String::as_str);
 
         // Collect thread annotation (miner indicator)
         let thread_hint = if ev.tags.iter().any(|t| t == "miner_thread") {
@@ -63,7 +54,7 @@ pub fn render_evidence_line(ev: &Evidence) -> String {
         let src_port = ev.attrs.get("src_port");
         let dst_addr = ev.attrs.get("dst_addr").or_else(|| ev.attrs.get("remote"));
         let dst_port = ev.attrs.get("dst_port");
-        let state = ev.attrs.get("state").map(String::as_str).unwrap_or("?");
+        let state = ev.attrs.get("state").map_or("?", String::as_str);
 
         match (src_addr, src_port, dst_addr, dst_port) {
             (Some(sa), Some(sp), Some(da), Some(dp)) => {

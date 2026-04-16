@@ -172,6 +172,7 @@ pub fn dispatch_linux_netstat(
 /// # Errors
 ///
 /// Never returns `Err` — individual walker failures are logged and skipped.
+#[allow(clippy::too_many_lines)]
 pub fn dispatch_linux_check(
     reader: &ObjectReader<Box<dyn PhysicalMemoryProvider>>,
 ) -> anyhow::Result<(Vec<&'static str>, Vec<Vec<String>>)> {
@@ -715,37 +716,34 @@ pub fn dispatch_windows_netstat(
     let table_vaddr = reader.symbols().symbol_address("TcpPortPool");
     let bucket_sym = reader.symbols().symbol_address("TcpNumTablePartitions");
 
-    match (table_vaddr, bucket_sym) {
-        (Some(tbl), Some(buckets)) => {
-            #[allow(clippy::cast_possible_truncation)]
-            let conns = memf_windows::network::walk_tcp_endpoints(reader, tbl, buckets as u32)
-                .map_err(|e| anyhow!("windows netstat walk failed: {e}"))?;
-            let rows = conns
-                .iter()
-                .map(|c| {
-                    vec![
-                        c.protocol.clone(),
-                        format!("{}:{}", c.local_addr, c.local_port),
-                        format!("{}:{}", c.remote_addr, c.remote_port),
-                        c.state.to_string(),
-                        c.pid.to_string(),
-                        c.process_name.clone(),
-                    ]
-                })
-                .collect();
-            Ok((headers, rows))
-        }
-        _ => {
-            let rows = vec![vec![
-                "n/a".into(),
-                "".into(),
-                "".into(),
-                "TCP pool symbols unavailable".into(),
-                "".into(),
-                "".into(),
-            ]];
-            Ok((headers, rows))
-        }
+    if let (Some(tbl), Some(buckets)) = (table_vaddr, bucket_sym) {
+        #[allow(clippy::cast_possible_truncation)]
+        let conns = memf_windows::network::walk_tcp_endpoints(reader, tbl, buckets as u32)
+            .map_err(|e| anyhow!("windows netstat walk failed: {e}"))?;
+        let rows = conns
+            .iter()
+            .map(|c| {
+                vec![
+                    c.protocol.clone(),
+                    format!("{}:{}", c.local_addr, c.local_port),
+                    format!("{}:{}", c.remote_addr, c.remote_port),
+                    c.state.to_string(),
+                    c.pid.to_string(),
+                    c.process_name.clone(),
+                ]
+            })
+            .collect();
+        Ok((headers, rows))
+    } else {
+        let rows = vec![vec![
+            "n/a".into(),
+            String::new(),
+            String::new(),
+            "TCP pool symbols unavailable".into(),
+            String::new(),
+            String::new(),
+        ]];
+        Ok((headers, rows))
     }
 }
 
@@ -944,7 +942,11 @@ pub fn dispatch_windows_creds(
     // BitLocker keys — extract VMK/FVEK key material from memory
     if let Ok(items) = memf_windows::bitlocker_keys::walk_bitlocker_keys(reader) {
         for k in &items {
-            let key_hex: String = k.key_material.iter().map(|b| format!("{b:02x}")).collect();
+            let key_hex: String = k.key_material.iter().fold(String::new(), |mut s, b| {
+                use std::fmt::Write as _;
+                let _ = write!(s, "{b:02x}");
+                s
+            });
             rows.push(vec![
                 format!("bitlocker:{}", k.key_type),
                 k.volume_guid.clone(),
@@ -1016,6 +1018,7 @@ pub fn dispatch_linux_security(
 /// # Errors
 ///
 /// Never returns `Err` — individual walker failures are logged and skipped.
+#[allow(clippy::too_many_lines)]
 pub fn dispatch_windows_artifacts(
     reader: &ObjectReader<Box<dyn PhysicalMemoryProvider>>,
 ) -> anyhow::Result<(Vec<&'static str>, Vec<Vec<String>>)> {
@@ -1082,16 +1085,14 @@ pub fn dispatch_windows_artifacts(
                     && !p.ends_with("S-1-5-19")
                     && !p.ends_with("S-1-5-20")
             })
-            .map(|h| h.hive_addr)
-            .unwrap_or(0);
+            .map_or(0, |h| h.hive_addr);
         let hkcr = hives
             .iter()
             .find(|h| {
                 let p = h.file_full_path.to_ascii_uppercase();
                 p.contains("SOFTWARE\\CLASSES") || p.contains("CLASSES_ROOT")
             })
-            .map(|h| h.hive_addr)
-            .unwrap_or(0);
+            .map_or(0, |h| h.hive_addr);
         (hku, hkcr)
     };
     if let Ok(items) =

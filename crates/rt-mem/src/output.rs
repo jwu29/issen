@@ -41,7 +41,10 @@ pub fn print_text_table(headers: &[&str], rows: &[Vec<String>]) {
     let header_line: Vec<String> = headers
         .iter()
         .enumerate()
-        .map(|(i, h)| format!("{:<width$}", h, width = widths[i]))
+        .map(|(i, h)| {
+            let w = widths[i];
+            format!("{h:<w$}")
+        })
         .collect();
     println!("{}", header_line.join("  "));
 
@@ -55,8 +58,8 @@ pub fn print_text_table(headers: &[&str], rows: &[Vec<String>]) {
             .iter()
             .enumerate()
             .map(|(i, w)| {
-                let val = row.get(i).map(|s| s.as_str()).unwrap_or("");
-                format!("{:<width$}", val, width = w)
+                let val = row.get(i).map_or("", String::as_str);
+                format!("{val:<w$}")
             })
             .collect();
         println!("{}", cells.join("  "));
@@ -187,7 +190,7 @@ pub fn print_table(headers: &[&str], rows: &[Vec<String>], fmt: OutputFormat) {
             // For process listings we emit a minimal bodyfile stub; full
             // timestamps require walker-level integration.
             for row in rows {
-                let name = row.first().map(|s| s.as_str()).unwrap_or("unknown");
+                let name = row.first().map_or("unknown", String::as_str);
                 println!("0|{name}|0|----------|0|0|0|0|0|0|0");
             }
         }
