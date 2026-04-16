@@ -132,7 +132,19 @@ pub fn run(collection_path: &Path) -> anyhow::Result<()> {
     if established.is_empty() {
         println!("│  No established TCP connections found.");
     } else {
+        // Deduplicate across numeric (ss -n) and service-name (ss) outputs.
+        // Key on normalised addrs so :22 and :ssh collapse to the same entry.
+        let mut seen_net: std::collections::HashSet<String> = std::collections::HashSet::new();
         for c in &established {
+            let key = format!(
+                "{}|{}|{:?}",
+                normalize_port_names(&c.local_addr),
+                normalize_port_names(&c.remote_addr),
+                c.pid,
+            );
+            if !seen_net.insert(key) {
+                continue;
+            }
             let pid_prog = match (c.pid, c.program.as_deref()) {
                 (Some(p), Some(n)) => format!("  pid={p} ({n})"),
                 (Some(p), None) => format!("  pid={p}"),
@@ -203,17 +215,31 @@ pub fn run(collection_path: &Path) -> anyhow::Result<()> {
     if hash_dir.is_dir() {
         let hashes = parsers::hash_execs::parse_hash_dir(&hash_dir);
         // Flag any library in lib path that is NOT from a known package.
-        let suspicious_libs: Vec<_> = hashes
-            .iter()
-            .filter(|h| {
-                let p = h.path.to_lowercase();
-                p.contains(".so") && (p.contains("libymv") || p.contains("libhide") || p.contains("libproc"))
-            })
-            .collect();
-        if !suspicious_libs.is_empty() {
+        // Deduplicate by path, preferring SHA1 (40 hex chars) over MD5/SHA256.
+        let mut best: std::collections::HashMap<String, &parsers::hash_execs::HashedExecutable> =
+            std::collections::HashMap::new();
+        for h in &hashes {
+            let p = h.path.to_lowercase();
+            if p.contains(".so") && (p.contains("libymv") || p.contains("libhide") || p.contains("libproc")) {
+                let entry = best.entry(h.path.clone()).or_insert(h);
+                // Prefer SHA1 (40 chars) over MD5 (32) or SHA256 (64).
+                if h.hash.len() == 40 && entry.hash.len() != 40 {
+                    *entry = h;
+                }
+            }
+        }
+        if !best.is_empty() {
+            let mut suspicious_libs: Vec<_> = best.values().collect();
+            suspicious_libs.sort_by_key(|h| &h.path);
             println!("┌─ SUSPICIOUS EXECUTABLES ───────────────────────────────");
             for h in &suspicious_libs {
-                println!("│  {} — SHA1: {}", h.path, h.hash);
+                let algo = match h.hash.len() {
+                    32 => "MD5",
+                    40 => "SHA1",
+                    64 => "SHA256",
+                    _ => "hash",
+                };
+                println!("│  {} — {}: {}", h.path, algo, h.hash);
             }
             println!();
         }
@@ -308,4 +334,27 @@ fn build_narrative(
             println!("│     Mining traffic appears as SSH to the NMS — evasion technique.");
         }
     }
+}
+
+/// Replace well-known service names in an addr string with port numbers
+/// so `:ssh` and `:22` produce the same dedup key.
+fn normalize_port_names(addr: &str) -> String {
+    const MAP: &[(&str, &str)] = &[
+        (":ssh",    ":22"),
+        (":http",   ":80"),
+        (":https",  ":443"),
+        (":bootpc", ":68"),
+        (":bootps", ":67"),
+        (":domain", ":53"),
+        (":ftp",    ":21"),
+        (":smtp",   ":25"),
+    ];
+    let mut s = addr.to_string();
+    for (name, num) in MAP {
+        if s.ends_with(name) {
+            s = format!("{}{}", &s[..s.len() - name.len()], num);
+            break;
+        }
+    }
+    s
 }

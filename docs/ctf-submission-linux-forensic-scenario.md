@@ -13,7 +13,7 @@ Submitting my answers to the Linux Forensic Scenario. I also used this collectio
 
 ---
 
-## Tool Output
+## Tool Output (verbatim)
 
 ```
 $ rt analyse uac-vbox-linux-20260324234043.tar.gz
@@ -35,41 +35,44 @@ $ rt analyse uac-vbox-linux-20260324234043.tar.gz
 │  6 PID(s) visible in /proc but absent from ps:
 
 │  PID  43168  (name unknown — no memory dump)
-
+│
 │  PID    939  sh
 │           192.168.4.22:22 → 192.168.4.35:48411 [ESTABLISHED]  (TCP)
-
+│
 │  PID    940  python3
 │           192.168.4.22:22 → 192.168.4.35:48411 [ESTABLISHED]  (TCP)
-
+│
 │  PID    941  bash
 │           192.168.4.22:22 → 192.168.4.35:48411 [ESTABLISHED]  (TCP)
-
+│
 │  PID    975  ssh
 │           192.168.4.22:33440 → 192.168.5.95:22 [ESTABLISHED]  (TCP)
 │           ::1:3333 → :::0 [LISTEN]  (TCP)
 │           127.0.0.1:3333 → 0.0.0.0:0 [LISTEN]  (TCP)
 │           127.0.0.1:3333 → 127.0.0.1:59182 [ESTABLISHED]  (TCP)
-
+│
 │  PID    977  top
 │           Thread names: libuv-worker, top
 │           192.168.4.22:22 → 192.168.4.35:48411 [ESTABLISHED]  (TCP)
 │           127.0.0.1:59182 → 127.0.0.1:3333 [ESTABLISHED]  (TCP)
+│
 
 ┌─ NETWORK (visible to userspace) ───────────────────────
 │  192.168.4.22:22 → 192.168.4.35:48411  pid=937 (sshd)
 │  127.0.0.1:3333 → 127.0.0.1:59182
 │  192.168.4.22:33440 → 192.168.5.95:22
-│  ...
+│  192.168.4.22:22 → 192.168.4.35:58910  pid=1047 (sshd-session)
+│  127.0.0.1:59182 → 127.0.0.1:3333
+│  192.168.4.22%enp0s3:68 → 192.168.4.1:67  pid=748 (NetworkManager)
 
 ┌─ CPU ───────────────────────────────────────────────────
-│  %Cpu(s): 97.7 us,  2.3 sy,  0.0 ni,  0.0 id, ...
+│  %Cpu(s): 97.7 us,  2.3 sy,  0.0 ni,  0.0 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
 │  ^ WARNING: Near-100% CPU with no visible process — miner likely hidden by rootkit.
 
 ┌─ PIVOT FINDINGS ────────────────────────────────────────
 │  [CRITICAL] Rootkit concealed miner activity
 │         Rule     : correlation.miner.rootkit-concealment
-│         Evidence : rk-1, proc-14, net-16
+│         Evidence : rk-1, proc-13, net-15
 │
 
 ┌─ NARRATIVE ─────────────────────────────────────────────
@@ -92,7 +95,7 @@ $ rt analyse uac-vbox-linux-20260324234043.tar.gz
 │
 │  4. SSH tunnel to 192.168.5.95:22 established (PID 975):
 │       ssh -L 127.0.0.1:3333:<pool>:3333 user@192.168.5.95
-│     Mining traffic consistent with SSH local-port-forward to pool.
+│     Mining traffic appears as SSH to the NMS — evasion technique.
 
 ┌─ SUSPICIOUS EXECUTABLES ───────────────────────────────
 │  /usr/lib/x86_64-linux-gnu/libymv.so.3 — SHA1: 0fd709f09c073df274e272aabcabe3e0f3487f9e
