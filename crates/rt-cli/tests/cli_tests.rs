@@ -1255,11 +1255,7 @@ fn test_remote_access_json_format() {
 
 #[test]
 fn verbose_flag_does_not_crash() {
-    rt_cmd()
-        .arg("-v")
-        .arg("--help")
-        .assert()
-        .success();
+    rt_cmd().arg("-v").arg("--help").assert().success();
 }
 
 #[test]
@@ -1304,20 +1300,14 @@ fn all_subcommands_help_exits_success() {
         "report",
         "memf",
     ] {
-        rt_cmd()
-            .args([sub, "--help"])
-            .assert()
-            .success();
+        rt_cmd().args([sub, "--help"]).assert().success();
     }
 }
 
 #[test]
 fn feed_subcommands_help_exits_success() {
     for sub in &["list", "update"] {
-        rt_cmd()
-            .args(["feed", sub, "--help"])
-            .assert()
-            .success();
+        rt_cmd().args(["feed", sub, "--help"]).assert().success();
     }
 }
 
@@ -1330,8 +1320,7 @@ fn ingest_missing_source_shows_error_message() {
         .assert()
         .failure()
         .stderr(
-            predicate::str::contains("does not exist")
-                .or(predicate::str::contains("No such file")),
+            predicate::str::contains("does not exist").or(predicate::str::contains("No such file")),
         );
 }
 
@@ -1558,7 +1547,10 @@ fn timeline_flagged_json_output_is_valid_json() {
         .output()
         .unwrap();
 
-    assert!(output.status.success(), "timeline --flagged --format json should succeed");
+    assert!(
+        output.status.success(),
+        "timeline --flagged --format json should succeed"
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
     let _: serde_json::Value = serde_json::from_str(&stdout)
         .expect("timeline --flagged --format json should produce valid JSON");
@@ -1577,8 +1569,8 @@ fn scan_json_output_is_valid_json() {
 
     assert!(output.status.success(), "scan --format json should succeed");
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let _: serde_json::Value = serde_json::from_str(&stdout)
-        .expect("scan --format json should produce valid JSON");
+    let _: serde_json::Value =
+        serde_json::from_str(&stdout).expect("scan --format json should produce valid JSON");
 }
 
 #[test]
@@ -1595,7 +1587,10 @@ fn remote_access_json_output_is_valid_json() {
         .output()
         .unwrap();
 
-    assert!(output.status.success(), "remote-access --format json should succeed");
+    assert!(
+        output.status.success(),
+        "remote-access --format json should succeed"
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
     let _: serde_json::Value = serde_json::from_str(&stdout)
         .expect("remote-access --format json should produce valid JSON");
@@ -1686,7 +1681,10 @@ fn full_pipeline_ingest_timeline_report() {
 
     let html = std::fs::read_to_string(&report_path).expect("read pipeline report");
     assert!(html.contains("<!DOCTYPE html>"), "report must be HTML");
-    assert!(html.contains("PIPELINE-CASE-001"), "report must contain case ID");
+    assert!(
+        html.contains("PIPELINE-CASE-001"),
+        "report must contain case ID"
+    );
 }
 
 // ── NEW: timeline --format json (non-flagged) ────────────────────────
@@ -1716,7 +1714,10 @@ fn timeline_format_json_produces_valid_json() {
         .output()
         .unwrap();
 
-    assert!(output.status.success(), "timeline --format json should succeed");
+    assert!(
+        output.status.success(),
+        "timeline --format json should succeed"
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
     let parsed: serde_json::Value =
         serde_json::from_str(&stdout).expect("timeline --format json should produce valid JSON");
@@ -1781,10 +1782,7 @@ fn feed_help_exits_success() {
         .args(["feed", "--help"])
         .assert()
         .success()
-        .stdout(
-            predicate::str::contains("list")
-                .and(predicate::str::contains("update")),
-        );
+        .stdout(predicate::str::contains("list").and(predicate::str::contains("update")));
 }
 
 // ── NEW: scan --yara-rules with nonexistent rules file ────────────────

@@ -22,11 +22,7 @@ pub fn run(collection_path: &Path) -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("Failed to open collection: {e}"))?;
 
     let root = &manifest.extracted_root;
-    let hostname = manifest
-        .metadata
-        .hostname
-        .as_deref()
-        .unwrap_or("(unknown)");
+    let hostname = manifest.metadata.hostname.as_deref().unwrap_or("(unknown)");
     let collected_at = manifest
         .metadata
         .collection_time
@@ -93,8 +89,15 @@ pub fn run(collection_path: &Path) -> anyhow::Result<()> {
                 .unwrap_or("(name unknown — no memory dump)");
             println!("│  PID {:6}  {}", finding.pid, name);
 
-            if !finding.thread_names.is_empty() {
-                println!("│           Thread names: {}", finding.thread_names.join(", "));
+            // Prefer all_thread_names (process + threads) when available, fall
+            // back to thread_names for backward compat with old collections.
+            let display_names = if !finding.all_thread_names.is_empty() {
+                finding.all_thread_names.clone()
+            } else {
+                finding.thread_names.clone()
+            };
+            if !display_names.is_empty() {
+                println!("│           Names: {}", display_names.join(", "));
             }
 
             // Deduplicate connections for display.
@@ -125,7 +128,9 @@ pub fn run(collection_path: &Path) -> anyhow::Result<()> {
     };
     let established: Vec<_> = net_conns
         .iter()
-        .filter(|c| c.state.eq_ignore_ascii_case("ESTAB") || c.state.eq_ignore_ascii_case("ESTABLISHED"))
+        .filter(|c| {
+            c.state.eq_ignore_ascii_case("ESTAB") || c.state.eq_ignore_ascii_case("ESTABLISHED")
+        })
         .collect();
 
     println!("┌─ NETWORK (visible to userspace) ───────────────────────");
@@ -150,10 +155,7 @@ pub fn run(collection_path: &Path) -> anyhow::Result<()> {
                 (Some(p), None) => format!("  pid={p}"),
                 _ => String::new(),
             };
-            println!(
-                "│  {} → {}{}",
-                c.local_addr, c.remote_addr, pid_prog
-            );
+            println!("│  {} → {}{}", c.local_addr, c.remote_addr, pid_prog);
         }
     }
     println!();
@@ -187,14 +189,20 @@ pub fn run(collection_path: &Path) -> anyhow::Result<()> {
     }
 
     // ── 6. Pivot rule findings ─────────────────────────────────────────────
-    match super::pivot::evaluate_pivot(&rootkit_findings, &hidden, &net_conns, cpu_user_pct) {
+    match super::pivot::evaluate_correlation(&rootkit_findings, &hidden, &net_conns, cpu_user_pct) {
         Ok(findings) if !findings.is_empty() => {
-            println!("┌─ PIVOT FINDINGS ────────────────────────────────────────");
+            println!("┌─ CORRELATION FINDINGS ──────────────────────────────────");
             for f in &findings {
                 let severity_label = f.severity.to_uppercase();
                 println!("│  [{severity_label}] {}", f.title);
-                println!("│         Rule     : {}", f.rule_id);
-                println!("│         Evidence : {}", f.evidence_ids.join(", "));
+                println!("│         Rule : {}", f.rule_id);
+                if f.evidence_rendered.is_empty() {
+                    println!("│         Evidence : {}", f.evidence_ids.join(", "));
+                } else {
+                    for line in &f.evidence_rendered {
+                        println!("│           • {line}");
+                    }
+                }
                 println!("│");
             }
             println!();
@@ -220,7 +228,9 @@ pub fn run(collection_path: &Path) -> anyhow::Result<()> {
             std::collections::HashMap::new();
         for h in &hashes {
             let p = h.path.to_lowercase();
-            if p.contains(".so") && (p.contains("libymv") || p.contains("libhide") || p.contains("libproc")) {
+            if p.contains(".so")
+                && (p.contains("libymv") || p.contains("libhide") || p.contains("libproc"))
+            {
                 let entry = best.entry(h.path.clone()).or_insert(h);
                 // Prefer SHA1 (40 chars) over MD5 (32) or SHA256 (64).
                 if h.hash.len() == 40 && entry.hash.len() != 40 {
@@ -285,12 +295,16 @@ fn build_narrative(
     }
 
     // Detect miner via libuv threads.
-    let miner = hidden.findings.iter().find(|f| {
-        f.thread_names.iter().any(|t| t == "libuv-worker")
-    });
+    let miner = hidden
+        .findings
+        .iter()
+        .find(|f| f.thread_names.iter().any(|t| t == "libuv-worker"));
     if let Some(m) = miner {
         let name = m.process_name.as_deref().unwrap_or("(unknown)");
-        println!("│  3. Crypto miner deployed (PID {}, disguised as '{name}'):", m.pid);
+        println!(
+            "│  3. Crypto miner deployed (PID {}, disguised as '{name}'):",
+            m.pid
+        );
         println!("│       libuv-worker threads indicate XMRig or compatible miner.");
         println!("│       Connections:");
         let mut seen = std::collections::HashSet::new();
@@ -320,17 +334,26 @@ fn build_narrative(
     // Detect SSH tunnel.
     let tunnel = hidden.findings.iter().find(|f| {
         f.process_name.as_deref() == Some("ssh")
-            && f.connections.iter().any(|c| c.src_port == Some(3333) || c.dst_port == Some(3333))
+            && f.connections
+                .iter()
+                .any(|c| c.src_port == Some(3333) || c.dst_port == Some(3333))
     });
     if let Some(t) = tunnel {
-        if let Some(conn) = t.connections.iter().find(|c| c.state == "ESTABLISHED" && c.dst_port == Some(22)) {
+        if let Some(conn) = t
+            .connections
+            .iter()
+            .find(|c| c.state == "ESTABLISHED" && c.dst_port == Some(22))
+        {
             println!(
                 "│  4. SSH tunnel to {}:{} established (PID {}):",
                 conn.dst_addr,
                 conn.dst_port.unwrap_or(22),
                 t.pid
             );
-            println!("│       ssh -L 127.0.0.1:3333:<pool>:3333 user@{}", conn.dst_addr);
+            println!(
+                "│       ssh -L 127.0.0.1:3333:<pool>:3333 user@{}",
+                conn.dst_addr
+            );
             println!("│     Mining traffic appears as SSH to the NMS — evasion technique.");
         }
     }
@@ -340,14 +363,14 @@ fn build_narrative(
 /// so `:ssh` and `:22` produce the same dedup key.
 fn normalize_port_names(addr: &str) -> String {
     const MAP: &[(&str, &str)] = &[
-        (":ssh",    ":22"),
-        (":http",   ":80"),
-        (":https",  ":443"),
+        (":ssh", ":22"),
+        (":http", ":80"),
+        (":https", ":443"),
         (":bootpc", ":68"),
         (":bootps", ":67"),
         (":domain", ":53"),
-        (":ftp",    ":21"),
-        (":smtp",   ":25"),
+        (":ftp", ":21"),
+        (":smtp", ":25"),
     ];
     let mut s = addr.to_string();
     for (name, num) in MAP {

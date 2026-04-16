@@ -1,9 +1,9 @@
 pub mod analyse;
 pub mod feed;
-pub mod pivot;
 pub mod info;
 pub mod ingest;
 pub mod memf;
+pub mod pivot;
 pub mod remote_access;
 pub mod report;
 pub mod scan;

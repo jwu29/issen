@@ -8,8 +8,8 @@
 //! The hardcoded narrative strings in `commands/analyse.rs` can then be
 //! replaced (or augmented) by these structured findings.
 
-use rt_correlation::enrich::enrich_evidence;
 use rt_correlation::engine::CorrelationEngine;
+use rt_correlation::enrich::enrich_evidence;
 use rt_correlation::model::{Evidence, EvidenceKind, EvidenceSource, Finding, SubjectRef};
 use rt_correlation::rules::{bundled_rule_dir, load_rule_pack};
 use rt_parser_uac::parsers::{
@@ -17,12 +17,15 @@ use rt_parser_uac::parsers::{
     HiddenProcessAnalysis,
 };
 
-/// Convert UAC parser outputs to Evidence, enrich, and evaluate pivot rules.
+/// Convert UAC parser outputs to Evidence, enrich, and evaluate correlation rules.
+///
+/// This is the canonical name going forward.  The previous name `evaluate_pivot`
+/// is kept as a deprecated alias for backwards compatibility.
 ///
 /// # Errors
 ///
 /// Returns an error if the bundled rule pack cannot be loaded.
-pub fn evaluate_pivot(
+pub fn evaluate_correlation(
     rootkit_findings: &[RootkitFinding],
     hidden: &HiddenProcessAnalysis,
     net_conns: &[NetworkConnection],
@@ -32,6 +35,21 @@ pub fn evaluate_pivot(
     let enriched = enrich_evidence(evidence);
     let rules = load_rule_pack(&bundled_rule_dir())?;
     Ok(CorrelationEngine::default().evaluate(&rules, &enriched))
+}
+
+/// Deprecated alias for [`evaluate_correlation`].
+///
+/// # Errors
+///
+/// Returns an error if the bundled rule pack cannot be loaded.
+#[deprecated(since = "0.1.0", note = "use evaluate_correlation instead")]
+pub fn evaluate_pivot(
+    rootkit_findings: &[RootkitFinding],
+    hidden: &HiddenProcessAnalysis,
+    net_conns: &[NetworkConnection],
+    cpu_percent_user: Option<f32>,
+) -> anyhow::Result<Vec<Finding>> {
+    evaluate_correlation(rootkit_findings, hidden, net_conns, cpu_percent_user)
 }
 
 /// Build raw (pre-enrichment) Evidence from UAC parser outputs.
@@ -164,10 +182,38 @@ pub fn build_evidence(
 mod tests {
     use super::*;
     use rt_parser_uac::parsers::{
+        mem_sockstat::SockstatEntry,
         rootkit::{RootkitFinding, RootkitSeverity},
         HiddenProcessAnalysis, HiddenProcessFinding,
-        mem_sockstat::SockstatEntry,
     };
+
+    // ── WS-5 RED: evaluate_correlation must exist and behave identically to evaluate_pivot ──
+
+    #[test]
+    fn evaluate_correlation_exists_and_returns_findings() {
+        let rootkit = vec![RootkitFinding {
+            check: "ld_preload".into(),
+            evidence: "/lib/x86_64-linux-gnu/libymv.so.3".into(),
+            description: "LD_PRELOAD rootkit".into(),
+            severity: RootkitSeverity::Warning,
+        }];
+        let hidden = HiddenProcessAnalysis {
+            hidden_pids: vec![977],
+            findings: vec![HiddenProcessFinding {
+                pid: 977,
+                process_name: Some("top".into()),
+                thread_names: vec!["libuv-worker".into()],
+                all_thread_names: vec!["libuv-worker".into(), "top".into()],
+                connections: vec![make_sockstat(977, 3333)],
+            }],
+        };
+        let findings = evaluate_correlation(&rootkit, &hidden, &[], Some(97.7))
+            .expect("correlation evaluation");
+        assert!(
+            !findings.is_empty(),
+            "expected correlation findings for CTF scenario"
+        );
+    }
 
     fn make_sockstat(pid: u32, dst_port: u16) -> SockstatEntry {
         SockstatEntry {
@@ -197,7 +243,10 @@ mod tests {
         let ev = build_evidence(&rk, &HiddenProcessAnalysis::default(), &[], None);
         assert_eq!(ev.len(), 1);
         assert!(ev[0].tags.contains(&"rootkit_indicator".to_string()));
-        assert_eq!(ev[0].attrs.get("check").map(String::as_str), Some("ld_preload"));
+        assert_eq!(
+            ev[0].attrs.get("check").map(String::as_str),
+            Some("ld_preload")
+        );
     }
 
     #[test]
@@ -208,13 +257,17 @@ mod tests {
                 pid: 977,
                 process_name: Some("top".into()),
                 thread_names: vec![],
+                all_thread_names: vec!["top".into()],
                 connections: vec![],
             }],
         };
         let ev = build_evidence(&[], &hidden, &[], None);
         assert_eq!(ev.len(), 1);
         assert!(ev[0].tags.contains(&"hidden_process".to_string()));
-        assert_eq!(ev[0].attrs.get("process_name").map(String::as_str), Some("top"));
+        assert_eq!(
+            ev[0].attrs.get("process_name").map(String::as_str),
+            Some("top")
+        );
     }
 
     #[test]
@@ -225,11 +278,15 @@ mod tests {
                 pid: 977,
                 process_name: Some("top".into()),
                 thread_names: vec!["libuv-worker".into()],
+                all_thread_names: vec!["libuv-worker".into(), "top".into()],
                 connections: vec![],
             }],
         };
         let ev = build_evidence(&[], &hidden, &[], None);
-        let proc_ev = ev.iter().find(|e| e.tags.contains(&"hidden_process".to_string())).unwrap();
+        let proc_ev = ev
+            .iter()
+            .find(|e| e.tags.contains(&"hidden_process".to_string()))
+            .unwrap();
         assert!(proc_ev.tags.contains(&"miner_thread".to_string()));
     }
 
@@ -241,6 +298,7 @@ mod tests {
                 pid: 977,
                 process_name: Some("top".into()),
                 thread_names: vec!["libuv-worker".into()],
+                all_thread_names: vec!["libuv-worker".into(), "top".into()],
                 connections: vec![make_sockstat(977, 3333)],
             }],
         };
@@ -252,10 +310,16 @@ mod tests {
     #[test]
     fn cpu_above_90_percent_emits_cpu_anomaly_evidence() {
         let ev = build_evidence(&[], &HiddenProcessAnalysis::default(), &[], Some(97.7));
-        let cpu_ev = ev.iter().find(|e| e.tags.contains(&"cpu_anomaly".to_string()));
+        let cpu_ev = ev
+            .iter()
+            .find(|e| e.tags.contains(&"cpu_anomaly".to_string()));
         assert!(cpu_ev.is_some(), "expected cpu_anomaly evidence");
         assert_eq!(
-            cpu_ev.unwrap().attrs.get("cpu_user_percent").map(String::as_str),
+            cpu_ev
+                .unwrap()
+                .attrs
+                .get("cpu_user_percent")
+                .map(String::as_str),
             Some("97.7")
         );
     }
@@ -263,9 +327,12 @@ mod tests {
     #[test]
     fn cpu_below_90_percent_does_not_emit_anomaly() {
         let ev = build_evidence(&[], &HiddenProcessAnalysis::default(), &[], Some(55.0));
-        assert!(!ev.iter().any(|e| e.tags.contains(&"cpu_anomaly".to_string())));
+        assert!(!ev
+            .iter()
+            .any(|e| e.tags.contains(&"cpu_anomaly".to_string())));
     }
 
+    #[allow(deprecated)]
     #[test]
     fn ctf_scenario_produces_pivot_findings() {
         // Full CTF scenario: rootkit + hidden XMRig (libuv-worker) + Stratum + CPU
@@ -281,14 +348,18 @@ mod tests {
                 pid: 977,
                 process_name: Some("top".into()),
                 thread_names: vec!["libuv-worker".into()],
+                all_thread_names: vec!["libuv-worker".into(), "top".into()],
                 connections: vec![make_sockstat(977, 3333)],
             }],
         };
 
-        let findings = evaluate_pivot(&rootkit, &hidden, &[], Some(97.7))
-            .expect("pivot evaluation");
+        let findings =
+            evaluate_pivot(&rootkit, &hidden, &[], Some(97.7)).expect("pivot evaluation");
 
         // Must produce at least one finding from the bundled rules
-        assert!(!findings.is_empty(), "expected pivot findings for CTF scenario");
+        assert!(
+            !findings.is_empty(),
+            "expected pivot findings for CTF scenario"
+        );
     }
 }
