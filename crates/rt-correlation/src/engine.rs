@@ -42,6 +42,16 @@ impl CorrelationEngine {
             }
 
             if satisfied {
+                // Collect matched Evidence objects for rendering.
+                let matched_evidence: Vec<&Evidence> = matched
+                    .iter()
+                    .filter_map(|id| evidence.iter().find(|e| &e.id == id))
+                    .collect();
+                let evidence_rendered = matched_evidence
+                    .iter()
+                    .map(|e| render_evidence_line(e))
+                    .collect();
+
                 findings.push(Finding {
                     rule_id: rule.id.clone(),
                     title: rule.title.clone(),
@@ -51,7 +61,7 @@ impl CorrelationEngine {
                     explanation: rule.description.clone(),
                     confidence: 0,
                     assertion_level: crate::model::AssertionLevel::Correlated,
-                    evidence_rendered: vec![],
+                    evidence_rendered,
                 });
             }
         }
