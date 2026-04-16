@@ -2,6 +2,7 @@ pub mod engine;
 pub mod enrich;
 pub mod feeds;
 pub mod model;
+pub mod render;
 pub mod rules;
 pub mod sync;
 pub mod warninglist;

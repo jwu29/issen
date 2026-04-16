@@ -1,0 +1,30 @@
+id: correlation.network.ssh-tunnel-stratum
+title: SSH tunnel carrying Stratum mining traffic
+severity: high
+description: SSH local port-forward carrying Stratum mining traffic over an encrypted channel.
+within_seconds: 300
+references:
+  - https://redcanary.com/threat-detection-report/trends/linux-coinminers/
+  - https://attack.mitre.org/techniques/T1572/
+clauses:
+  - source: memory
+    required_tag: ""
+    attr_predicates:
+      - kind: equals
+        key: dst_port
+        value: "22"
+  - source: memory
+    required_tag: ""
+    attr_predicates:
+      - kind: any_of
+        key: src_port
+        values:
+          - "3333"
+          - "3334"
+          - "3335"
+  - source: memory
+    required_tag: ""
+    attr_predicates:
+      - kind: equals
+        key: process_name
+        value: ssh
