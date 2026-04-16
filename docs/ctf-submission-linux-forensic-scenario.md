@@ -165,6 +165,38 @@ The kernel is unaffected:
 
 ---
 
+### Q4 — Is the system compromised?
+
+Yes, unambiguously.
+
+Multiple independent indicators confirm active compromise, none of which can be explained by legitimate activity:
+
+1. **LD_PRELOAD rootkit** — `/etc/ld.so.preload` was modified to load `libymv.so.3`, a library with no legitimate package provenance. This is an offensive persistence mechanism with no defensive or operational justification.
+2. **Crypto miner running** — PID 977 is consuming 97.7% CPU while masquerading as `top` with `libuv-worker` threads. XMRig does not appear on a system by accident.
+3. **Attacker interactive shell** — PIDs 939/940/941 (sh → python3 → bash) are connected back to 192.168.4.35:48411, an outbound ephemeral port — the classic reverse shell / attacker terminal pattern.
+4. **Outbound SSH tunnel to 192.168.5.95** — PID 975 maintains a persistent outbound connection forwarding localhost:3333 to an external host. This is covert exfiltration infrastructure, not legitimate admin activity.
+5. **Kernel taint bit 2 set** — indicates a kernel module was force-loaded or an out-of-tree module is active, consistent with a kernel-level component of the rootkit installation.
+
+---
+
+### Q5 — When and how did that happen?
+
+**When:** approximately 2026-03-24 23:20–23:26 UTC, about 14 minutes before the UAC collection.
+
+**How (reconstructed from MFT timestamps and UAC artifacts):**
+
+1. **Initial access via SSH** (~23:20 UTC) — attacker connected from 192.168.4.35 to vbox-linux:22. The mechanism (credential theft, brute force, or reuse of a compromised key) is not determinable from this collection alone, but the SSH service was accessible and accepted the connection.
+
+2. **Shell upgrade** (~23:21 UTC) — within the SSH session, the attacker executed `python3 -c 'import pty; pty.spawn("/bin/bash")'` to promote the shell to a full interactive PTY. This is the string the NMS flagged.
+
+3. **Rootkit installation** (23:24:51–23:25:09 UTC) — the attacker dropped `/usr/lib/x86_64-linux-gnu/libymv.so.3` (SHA1: `0fd709f09c073df274e272aabcabe3e0f3487f9e`) and wrote `/etc/ld.so.preload` to load it system-wide. From this point, all new processes were rootkit-injected and any PIDs the attacker chose became invisible to `ps`, `top`, `ss`, and every other userspace tool.
+
+4. **Miner and tunnel deployed** (~23:26 UTC) — XMRig was started as PID 977 under the alias `top`. A concurrent SSH local port forward (PID 975) was established to 192.168.5.95:22, forwarding localhost:3333 to the attacker's pool relay. Both processes were immediately hidden by the rootkit.
+
+The entire compromise — from first connection to fully operational hidden miner — took approximately **6 minutes**.
+
+---
+
 ## Attack Timeline
 
 | Time (UTC)          | Event |
