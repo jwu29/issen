@@ -1,0 +1,14 @@
+id: correlation.miner.persistence-stack
+title: Persistent miner deployment
+severity: high
+description: Correlates miner execution with persistence artifacts such as cron or authorized_keys tampering.
+within_seconds: 1800
+references:
+  - https://redcanary.com/threat-detection-report/trends/linux-coinminers/
+  - https://isc.sans.edu/diary/Securing%2BYour%2BSSH%2Bauthorizedkeys%2BFile/31986/
+  - https://www.elastic.co/security-labs/approaching-the-summit-on-persistence
+clauses:
+  - source: artifact
+    required_tag: miner_process
+  - source: artifact
+    required_tag: persistence_artifact

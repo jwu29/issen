@@ -1730,6 +1730,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
+name = "forensic-catalog"
+version = "0.1.0"
+
+[[package]]
 name = "form_urlencoded"
 version = "1.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2860,6 +2864,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "memf-correlate"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "memf-format"
 version = "0.1.0"
 dependencies = [
@@ -2880,6 +2894,7 @@ version = "0.1.0"
 dependencies = [
  "inventory",
  "memf-core",
+ "memf-correlate",
  "memf-format",
  "memf-symbols",
  "serde",
@@ -2903,6 +2918,7 @@ name = "memf-windows"
 version = "0.1.0"
 dependencies = [
  "memf-core",
+ "memf-correlate",
  "memf-format",
  "memf-symbols",
  "serde",
@@ -4121,6 +4137,7 @@ dependencies = [
  "mft",
  "predicates",
  "rt-core",
+ "rt-correlation",
  "rt-fswalker",
  "rt-mem",
  "rt-parser-evtx",
@@ -4153,6 +4170,25 @@ dependencies = [
  "sha2",
  "tempfile",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "rt-correlation"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "flate2",
+ "forensic-catalog",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tar",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tracing",
+ "zip 2.4.2",
 ]
 
 [[package]]

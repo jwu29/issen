@@ -34,7 +34,7 @@ jobs:
           toolchain: stable
           components: clippy
       - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
-      - run: cargo clippy --workspace --lib --bins
+      - run: cargo clippy --workspace --lib --bins -- -D warnings
 
   test:
     name: Test
@@ -57,3 +57,23 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: EmbarkStudios/cargo-deny-action@82eb9f621fbc699dd0918f3ea06864c14cc84246 # v2
+
+  audit:
+    name: Cargo Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: rustsec/audit-check@1d580f6bfa5ac4c6b7fb3a0519e8a41dff61fce2 # v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  msrv:
+    name: MSRV (1.80)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # master
+        with:
+          toolchain: "1.80"
+      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+      - run: cargo check --workspace

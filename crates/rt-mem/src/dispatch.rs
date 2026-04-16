@@ -42,9 +42,9 @@ pub fn build_reader(
 
     // Resolve CR3: prefer the dump's embedded value; fall back to the
     // caller-supplied override; fail if neither is available.
-    let cr3 = embedded_cr3.or(cr3_override).ok_or_else(|| {
-        anyhow!("dump has no embedded CR3; use --cr3 <addr> to provide one")
-    })?;
+    let cr3 = embedded_cr3
+        .or(cr3_override)
+        .ok_or_else(|| anyhow!("dump has no embedded CR3; use --cr3 <addr> to provide one"))?;
 
     let resolver = IsfResolver::from_path(Path::new(profile_path))
         .map_err(|e| anyhow!("failed to load ISF profile '{profile_path}': {e}"))?;
@@ -944,11 +944,7 @@ pub fn dispatch_windows_creds(
     // BitLocker keys — extract VMK/FVEK key material from memory
     if let Ok(items) = memf_windows::bitlocker_keys::walk_bitlocker_keys(reader) {
         for k in &items {
-            let key_hex: String = k
-                .key_material
-                .iter()
-                .map(|b| format!("{b:02x}"))
-                .collect();
+            let key_hex: String = k.key_material.iter().map(|b| format!("{b:02x}")).collect();
             rows.push(vec![
                 format!("bitlocker:{}", k.key_type),
                 k.volume_guid.clone(),
@@ -1072,8 +1068,35 @@ pub fn dispatch_windows_artifacts(
         }
     }
 
-    // COM hijacking — compare HKCR vs HKCU InProcServer32 entries
-    if let Ok(items) = memf_windows::com_hijacking::walk_com_hijacking(reader) {
+    // COM hijacking — compare HKCR vs HKCU InProcServer32 entries.
+    // Resolve hive addresses from the live hive list; default to 0 (graceful
+    // degradation) when a hive is not found or the symbol is unavailable.
+    let (hku_hive_addr, hkcr_hive_addr) = {
+        let hives = memf_windows::registry::walk_hive_list(reader).unwrap_or_default();
+        let hku = hives
+            .iter()
+            .find(|h| {
+                let p = h.file_full_path.to_ascii_uppercase();
+                p.contains("\\REGISTRY\\USER\\S-1-5-")
+                    && !p.ends_with("S-1-5-18")
+                    && !p.ends_with("S-1-5-19")
+                    && !p.ends_with("S-1-5-20")
+            })
+            .map(|h| h.hive_addr)
+            .unwrap_or(0);
+        let hkcr = hives
+            .iter()
+            .find(|h| {
+                let p = h.file_full_path.to_ascii_uppercase();
+                p.contains("SOFTWARE\\CLASSES") || p.contains("CLASSES_ROOT")
+            })
+            .map(|h| h.hive_addr)
+            .unwrap_or(0);
+        (hku, hkcr)
+    };
+    if let Ok(items) =
+        memf_windows::com_hijacking::walk_com_hijacking(reader, hku_hive_addr, hkcr_hive_addr)
+    {
         for c in &items {
             if c.is_suspicious {
                 rows.push(vec![
@@ -1228,11 +1251,7 @@ mod tests {
         isf.flush().unwrap();
 
         // Pass cr3 as the override — even though the raw dump has no embedded CR3.
-        let result = build_reader(
-            f.path(),
-            Some(isf.path().to_str().unwrap()),
-            Some(cr3),
-        );
+        let result = build_reader(f.path(), Some(isf.path().to_str().unwrap()), Some(cr3));
         assert!(
             result.is_ok(),
             "expected Ok when cr3_override is provided, got: {:?}",
@@ -1254,7 +1273,10 @@ mod tests {
         isf.flush().unwrap();
 
         let result = build_reader(f.path(), Some(isf.path().to_str().unwrap()), None);
-        assert!(result.is_err(), "expected Err when no CR3 in dump and no override");
+        assert!(
+            result.is_err(),
+            "expected Err when no CR3 in dump and no override"
+        );
         let msg = result.err().unwrap().to_string();
         assert!(
             msg.contains("--cr3"),

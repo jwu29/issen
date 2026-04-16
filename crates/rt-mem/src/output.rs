@@ -373,7 +373,7 @@ mod tests {
     #[test]
     fn output_format_clone_and_copy() {
         let fmt = OutputFormat::Json;
-        let cloned = fmt;  // Copy
+        let cloned = fmt; // Copy
         assert_eq!(fmt, cloned);
         let cloned2 = fmt.clone();
         assert_eq!(fmt, cloned2);
@@ -382,7 +382,10 @@ mod tests {
     #[test]
     fn output_format_debug() {
         let s = format!("{:?}", OutputFormat::Bodyfile);
-        assert!(s.contains("Bodyfile"), "Debug output should contain 'Bodyfile': {s}");
+        assert!(
+            s.contains("Bodyfile"),
+            "Debug output should contain 'Bodyfile': {s}"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -450,7 +453,10 @@ mod tests {
         let headers = &["path", "inode", "size"];
         let rows = vec![vec!["/usr/bin/ls".into(), "12345".into(), "256".into()]];
         let out = rows_to_bodyfile(headers, &rows);
-        assert!(out.contains("12345"), "inode must appear in bodyfile: {out}");
+        assert!(
+            out.contains("12345"),
+            "inode must appear in bodyfile: {out}"
+        );
         assert!(out.contains("/usr/bin/ls"), "path must appear: {out}");
         assert!(out.contains("256"), "size must appear: {out}");
     }

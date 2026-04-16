@@ -1,0 +1,13 @@
+id: correlation.reverse-shell
+title: Reverse shell over suspicious port
+severity: high
+description: Correlates a reverse-shell command with suspicious network activity on the same subject.
+within_seconds: 300
+references:
+  - https://redcanary.com/threat-detection-report/trends/linux-coinminers/
+  - https://car.mitre.org/
+clauses:
+  - source: artifact
+    required_tag: reverse_shell
+  - source: zeek
+    required_tag: suspicious_port

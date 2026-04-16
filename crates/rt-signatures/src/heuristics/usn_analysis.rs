@@ -373,7 +373,14 @@ mod tests {
     fn usn_001_triggers_on_sdelete_pattern() {
         let base = base_ts();
         let records = vec![
-            make_usn_record("AAAAAA.AAA", 100, 10, UsnReason::RENAME_NEW_NAME, base, 1000),
+            make_usn_record(
+                "AAAAAA.AAA",
+                100,
+                10,
+                UsnReason::RENAME_NEW_NAME,
+                base,
+                1000,
+            ),
             make_usn_record(
                 "BBBBBB.BBB",
                 100,
@@ -412,7 +419,14 @@ mod tests {
     fn usn_001_does_not_trigger_normal_rename() {
         let base = base_ts();
         let records = vec![
-            make_usn_record("old_name.txt", 100, 10, UsnReason::RENAME_NEW_NAME, base, 1000),
+            make_usn_record(
+                "old_name.txt",
+                100,
+                10,
+                UsnReason::RENAME_NEW_NAME,
+                base,
+                1000,
+            ),
             make_usn_record(
                 "new_name.txt",
                 100,
@@ -435,7 +449,14 @@ mod tests {
     fn usn_001_does_not_trigger_without_delete() {
         let base = base_ts();
         let records = vec![
-            make_usn_record("AAAAAA.AAA", 100, 10, UsnReason::RENAME_NEW_NAME, base, 1000),
+            make_usn_record(
+                "AAAAAA.AAA",
+                100,
+                10,
+                UsnReason::RENAME_NEW_NAME,
+                base,
+                1000,
+            ),
             make_usn_record(
                 "BBBBBB.BBB",
                 100,
@@ -551,8 +572,14 @@ mod tests {
         let tree = make_tree();
         let base = base_ts();
         // FRN 999 does not exist in tree — ghost file.
-        let records =
-            vec![make_usn_record("deleted.exe", 999, 10, UsnReason::FILE_DELETE, base, 1000)];
+        let records = vec![make_usn_record(
+            "deleted.exe",
+            999,
+            10,
+            UsnReason::FILE_DELETE,
+            base,
+            1000,
+        )];
         let index = check_usn_stream(&records, Some(&tree));
         // Should be attached to parent (FRN 10 -> Users dir).
         let parent_idx = *tree.entry_to_idx(10).unwrap();
@@ -566,8 +593,14 @@ mod tests {
     fn usn_004_does_not_trigger_for_existing_entries() {
         let tree = make_tree();
         let base = base_ts();
-        let records =
-            vec![make_usn_record("report.docx", 100, 10, UsnReason::FILE_CREATE, base, 1000)];
+        let records = vec![make_usn_record(
+            "report.docx",
+            100,
+            10,
+            UsnReason::FILE_CREATE,
+            base,
+            1000,
+        )];
         let index = check_usn_stream(&records, Some(&tree));
         let has_004 = (0..3).any(|idx| {
             index
@@ -581,8 +614,14 @@ mod tests {
     #[test]
     fn usn_004_skipped_when_no_tree() {
         let base = base_ts();
-        let records =
-            vec![make_usn_record("deleted.exe", 999, 10, UsnReason::FILE_DELETE, base, 1000)];
+        let records = vec![make_usn_record(
+            "deleted.exe",
+            999,
+            10,
+            UsnReason::FILE_DELETE,
+            base,
+            1000,
+        )];
         let index = check_usn_stream(&records, None);
         assert_eq!(index.flagged_count(), 0);
     }

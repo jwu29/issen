@@ -568,9 +568,15 @@ mod tests {
             run_pipeline_parallel(dir.path(), &progress).expect("parallel single artifact");
 
         assert_eq!(result.artifacts_found, 1);
-        assert_eq!(result.artifacts_parsed, 0, "no parsers registered in test binary");
+        assert_eq!(
+            result.artifacts_parsed, 0,
+            "no parsers registered in test binary"
+        );
         assert!(events.is_empty(), "no events without a parser");
-        assert!(result.errors.is_empty(), "no errors — unmatched artifact is not an error");
+        assert!(
+            result.errors.is_empty(),
+            "no errors — unmatched artifact is not an error"
+        );
     }
 
     #[test]

@@ -1,0 +1,31 @@
+id: correlation.miner.ssh-stratum-tunnel
+title: Miner traffic tunneled over SSH
+severity: critical
+description: Correlates SSH tunnel behavior with mining-pool activity on the same subject.
+within_seconds: 900
+references:
+  - https://redcanary.com/threat-detection-report/trends/linux-coinminers/
+  - https://unit42.paloaltonetworks.com/hildegard-malware-teamtnt/
+  - https://www.elastic.co/security-labs/outlaw-linux-malware
+clauses:
+  - source: zeek
+    attr_predicates:
+      - kind: any_of
+        key: protocol
+        values:
+          - ssh
+      - kind: any_of
+        key: tunnel_type
+        values:
+          - local_forward
+          - remote_forward
+          - dynamic_forward
+  - source: zeek
+    attr_predicates:
+      - kind: any_of
+        key: dst_port
+        values:
+          - "3333"
+          - "4444"
+          - "5555"
+          - "14444"
