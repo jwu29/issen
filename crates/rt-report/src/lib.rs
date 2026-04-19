@@ -9,6 +9,8 @@ use std::fmt::Write as FmtWrite;
 use std::path::Path;
 
 pub mod mermaid;
+pub mod pdf;
+pub use pdf::export_pdf;
 
 pub use mermaid::{
     render_attack_chain, render_defenses,
