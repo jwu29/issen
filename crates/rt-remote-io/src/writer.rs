@@ -94,4 +94,16 @@ mod tests {
         // Drop without calling finish — should not panic.
         drop(w);
     }
+
+    /// Regression test: dropping a RemoteWriter from inside a Tokio async
+    /// context (e.g. inside `#[tokio::test]`) must not panic with
+    /// "Cannot start a runtime from within a Tokio runtime".
+    #[tokio::test]
+    async fn drop_from_async_context_does_not_panic() {
+        let op = mem_op();
+        let mut w = RemoteWriter::new(op, "test/async_drop.txt");
+        w.write_all(b"async drop test").expect("write");
+        // Drop fires finish() from within an active Tokio runtime — must not SIGABORT.
+        drop(w);
+    }
 }
