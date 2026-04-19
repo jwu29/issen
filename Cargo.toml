@@ -20,6 +20,7 @@ members = [
     "crates/rt-mft-tree",
     "crates/rt-unpack",
     "crates/rt-mem",
+    "crates/rt-remote-io",
     "xtask",
 ]
 
@@ -50,6 +51,7 @@ rt-mft-tree      = { path = "crates/rt-mft-tree" }
 rt-unpack        = { path = "crates/rt-unpack" }
 rt-mem          = { path = "crates/rt-mem" }
 rt-correlation   = { path = "crates/rt-correlation" }
+rt-remote-io     = { path = "crates/rt-remote-io" }
 
 # Memory forensic crates (path dependencies into sibling workspace)
 memf-core    = { path = "../memory-forensic/crates/memf-core" }
@@ -61,6 +63,7 @@ memf-windows = { path = "../memory-forensic/crates/memf-windows" }
 # External dependencies
 duckdb       = { version = "1", features = ["bundled"] }
 rusqlite     = { version = "0.32", features = ["bundled"] }
+tokio        = { version = "1", features = ["rt-multi-thread", "macros"] }
 rayon        = "1"
 clap         = { version = "4", features = ["derive"] }
 serde        = { version = "1", features = ["derive"] }

@@ -1,0 +1,69 @@
+use anyhow::Result;
+use opendal::Operator;
+use std::io;
+
+/// A `std::io::Write` implementation that buffers bytes and flushes them to a
+/// remote backend via OpenDAL when [`finish`](RemoteWriter::finish) is called.
+pub struct RemoteWriter {
+    op: Operator,
+    path: String,
+    buf: Vec<u8>,
+    finished: bool,
+}
+
+impl RemoteWriter {
+    /// Create a new writer that will write to `path` within `op`.
+    pub fn new(op: Operator, path: impl Into<String>) -> Self {
+        todo!("implement RemoteWriter::new")
+    }
+
+    /// Flush the internal buffer to the remote backend.
+    pub fn finish(&mut self) -> Result<()> {
+        todo!("implement RemoteWriter::finish")
+    }
+}
+
+impl io::Write for RemoteWriter {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        todo!("implement RemoteWriter::write")
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+impl Drop for RemoteWriter {
+    fn drop(&mut self) {
+        todo!("implement RemoteWriter::drop")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::operator::operator_for_uri;
+    use std::io::Write as _;
+
+    fn mem_op() -> Operator {
+        let (op, _) = operator_for_uri("mem://testbucket/ignored").expect("mem op");
+        op
+    }
+
+    #[tokio::test]
+    async fn writer_buffers_and_finish_succeeds() {
+        let op = mem_op();
+        let mut w = RemoteWriter::new(op, "test/hello.txt");
+        w.write_all(b"hello remote").expect("write_all");
+        w.finish().expect("finish should succeed on mem backend");
+    }
+
+    #[tokio::test]
+    async fn drop_without_finish_does_not_panic() {
+        let op = mem_op();
+        let mut w = RemoteWriter::new(op, "test/nodrop.txt");
+        w.write_all(b"data").expect("write");
+        // Drop without calling finish — should not panic.
+        drop(w);
+    }
+}
