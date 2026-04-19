@@ -7,7 +7,8 @@
     clippy::doc_markdown,
     clippy::missing_errors_doc,
     clippy::missing_panics_doc,
-    clippy::must_use_candidate
+    clippy::must_use_candidate,
+    clippy::unnecessary_literal_bound
 )]
 
 pub mod parser;
@@ -29,8 +30,7 @@ impl LnkParser {
     pub fn can_parse(path: &Path) -> bool {
         path.extension()
             .and_then(|e| e.to_str())
-            .map(|e| e.eq_ignore_ascii_case("lnk"))
-            .unwrap_or(false)
+            .is_some_and(|e| e.eq_ignore_ascii_case("lnk"))
     }
 }
 
