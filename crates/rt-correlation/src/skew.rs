@@ -71,9 +71,50 @@ fn artifact_key(ev: &Evidence) -> String {
 /// `|timestamp_a − timestamp_b| > opts.threshold_secs` a [`SkewFinding`] is
 /// returned.
 pub fn detect_time_skew(events: &[Evidence], opts: &SkewOpts) -> Vec<SkewFinding> {
-    // Stub — returns empty so tests fail in RED phase.
-    let _ = (events, opts);
-    vec![]
+    use std::collections::HashMap;
+
+    // Group events by artefact key, keeping only those with a timestamp.
+    let mut groups: HashMap<String, Vec<&Evidence>> = HashMap::new();
+    for ev in events {
+        if ev.timestamp.is_some() {
+            groups.entry(artifact_key(ev)).or_default().push(ev);
+        }
+    }
+
+    let mut findings = Vec::new();
+
+    for (path, members) in &groups {
+        let n = members.len();
+        for i in 0..n {
+            for j in (i + 1)..n {
+                let a = members[i];
+                let b = members[j];
+
+                // Only compare events from *different* sources.
+                if a.source == b.source {
+                    continue;
+                }
+
+                // Safety: only events with Some(timestamp) are inserted into groups.
+                let Some(ts_a) = a.timestamp else { continue };
+                let Some(ts_b) = b.timestamp else { continue };
+                let delta_secs = (ts_a - ts_b).num_seconds().abs();
+
+                if delta_secs > opts.threshold_secs {
+                    findings.push(SkewFinding {
+                        path: path.clone(),
+                        source_a: source_label(&a.source),
+                        timestamp_a: ts_a,
+                        source_b: source_label(&b.source),
+                        timestamp_b: ts_b,
+                        delta_secs,
+                    });
+                }
+            }
+        }
+    }
+
+    findings
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
