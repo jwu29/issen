@@ -286,10 +286,3 @@ All crates follow strict TDD — write failing tests first, then the implementat
 
 ---
 
-## License
-
-Apache 2.0 — see [LICENSE](LICENSE).
-
----
-
-**Found this useful?** [Sponsor development](https://github.com/sponsors/h4x0r) to keep the threat intel feeds updated and new parsers shipping.
