@@ -32,10 +32,12 @@ rt-parser-uac = { workspace = true }
 rt-correlation = { workspace = true }
 rt-unpack = { workspace = true }
 rt-mem = { workspace = true }
+rt-remote-io = { workspace = true, features = ["remote"] }
 clap = { workspace = true }
 anyhow = { workspace = true }
 duckdb = { workspace = true }
 serde_json = { workspace = true }
+csv = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 

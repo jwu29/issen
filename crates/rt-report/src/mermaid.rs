@@ -1,8 +1,10 @@
-//! Mermaid diagram generators for RapidTriage reports.
+//! Mermaid diagram generators for `RapidTriage` reports.
 //!
 //! Provides two pure string-generation functions:
 //! - [`render_attack_chain`]: color-coded `flowchart LR` by [`AttackTactic`]
 //! - [`render_defenses`]: `flowchart TD` with PREVENT/DETECT/HUNT/GAPS subgraphs
+
+use std::fmt::Write as FmtWrite;
 
 // ---------------------------------------------------------------------------
 // Attack chain types
@@ -109,16 +111,10 @@ fn emit_subgraph(
     if items.is_empty() {
         return;
     }
-    out.push_str(&format!(
-        "\n    subgraph {}[\"{}\"]\n",
-        subgraph_id, subgraph_label
-    ));
+    let _ = write!(out, "\n    subgraph {subgraph_id}[\"{subgraph_label}\"]\n");
     for (i, item) in items.iter().enumerate() {
         let label = mermaid_escape(&item.label);
-        out.push_str(&format!(
-            "        {}{}[\"{}\"]:::{}\n",
-            prefix, i, label, class
-        ));
+        let _ = writeln!(out, "        {prefix}{i}[\"{label}\"]:::{class}");
     }
     out.push_str("    end\n");
 }
@@ -161,11 +157,14 @@ pub fn render_attack_chain(input: &AttackChainInput) -> String {
     for node in &input.nodes {
         let label = mermaid_escape(&node.label);
         let class = node.tactic.class_name();
-        out.push_str(&format!("\n    {}[\"{}\"]:::{}\n", node.id, label, class));
+        let id = &node.id;
+        let _ = writeln!(out, "\n    {id}[\"{label}\"]:::{class}");
     }
 
     for edge in &input.edges {
-        out.push_str(&format!("    {} --> {}\n", edge.from, edge.to));
+        let from = &edge.from;
+        let to = &edge.to;
+        let _ = writeln!(out, "    {from} --> {to}");
     }
 
     out

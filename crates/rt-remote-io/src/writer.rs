@@ -1,6 +1,7 @@
 use anyhow::Result;
 use opendal::Operator;
 use std::io;
+use tokio::runtime::Handle;
 
 /// A `std::io::Write` implementation that buffers bytes and flushes them to a
 /// remote backend via OpenDAL when [`finish`](RemoteWriter::finish) is called.
@@ -34,13 +35,31 @@ impl RemoteWriter {
         let op = self.op.clone();
         let path = self.path.clone();
 
-        // Drive the async write to completion.  We use a fresh single-threaded
-        // runtime so this works from any calling context (blocking, async
-        // current-thread, or async multi-thread) without `block_in_place`.
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()?;
-        rt.block_on(op.write(&path, bytes))?;
+        // Drive the async write to completion.
+        //
+        // If a Tokio runtime is already active on this thread (e.g. when Drop
+        // fires inside a `#[tokio::test]`), creating a new runtime would panic
+        // with "Cannot start a runtime from within a Tokio runtime".  Instead
+        // we hand the future to a fresh OS thread that has no runtime context;
+        // that thread can safely drive the future by calling `Handle::block_on`
+        // against the existing runtime handle.  This works with both
+        // current-thread and multi-thread runtimes.
+        //
+        // When no runtime is active at all we spin up a temporary single-
+        // threaded runtime as before.
+        match Handle::try_current() {
+            Ok(handle) => {
+                std::thread::spawn(move || handle.block_on(op.write(&path, bytes)))
+                    .join()
+                    .map_err(|_| anyhow::anyhow!("writer thread panicked"))??;
+            }
+            Err(_) => {
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()?;
+                rt.block_on(op.write(&path, bytes))?;
+            }
+        }
 
         self.finished = true;
         Ok(())
@@ -92,6 +111,18 @@ mod tests {
         let mut w = RemoteWriter::new(op, "test/nodrop.txt");
         w.write_all(b"data").expect("write");
         // Drop without calling finish — should not panic.
+        drop(w);
+    }
+
+    /// Regression test: dropping a RemoteWriter from inside a Tokio async
+    /// context (e.g. inside `#[tokio::test]`) must not panic with
+    /// "Cannot start a runtime from within a Tokio runtime".
+    #[tokio::test]
+    async fn drop_from_async_context_does_not_panic() {
+        let op = mem_op();
+        let mut w = RemoteWriter::new(op, "test/async_drop.txt");
+        w.write_all(b"async drop test").expect("write");
+        // Drop fires finish() from within an active Tokio runtime — must not SIGABORT.
         drop(w);
     }
 }

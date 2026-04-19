@@ -86,7 +86,7 @@ rt report case.duckdb --output report.html
 | **Detection types** | YARA rules, Sigma rules, STIX indicators, hash IOCs |
 | **Artifact sources** | EVTX, registry hives, MFT, USN Journal, prefetch, $LogFile |
 | **Network analysis** | Volatility sockstat, pcap, Zeek logs |
-| **Remote evidence** | S3, GCS, Azure Blob, WebDAV, HTTP, Google Drive (OAuth2) |
+| **Remote evidence** | 48 URI schemes — S3, GCS, Azure, SFTP, HDFS, OneDrive, Google Drive, Redis, PostgreSQL, IPFS, and more ([full list →](https://securityronin.github.io/rapidtriage/)) |
 | **Output formats** | Terminal (colour-coded), JSON, HTML report, DuckDB timeline, bodyfile |
 | **RAT detection** | LOLRMM rule set (400+ tools) |
 
@@ -104,7 +104,7 @@ rt-plugin-sdk               # Compile-time parser registration via inventory
 rt-timeline                 # DuckDB (primary) + SQLite export timeline store
 rt-fswalker                 # Parallel filesystem walk via rayon, SHA-256 integrity
 rt-unpack                   # Collection format detection (UAC tar.gz, Velociraptor, KAPE)
-rt-remote-io                # Remote storage I/O (S3, GCS, Azure Blob, WebDAV, GDrive)
+rt-remote-io                # Remote storage I/O — 48 URI schemes via OpenDAL (S3, GCS, Azure, SFTP, HDFS, GDrive, …)
 rt-signatures               # YARA-X, Tau-Engine, Hash/Network/STIX IOCs, feed sync
 rt-correlation              # Pivot engine: YAML rules, zeek-intel
 rt-remote-access            # LOLRMM 400+ tool definitions, RMM/RAT detection
@@ -247,6 +247,25 @@ The correlation engine flagged AnyDesk installed under `C:\ProgramData\Temp\Supp
 
 ---
 
+## Remote evidence — wherever it lives
+
+Evidence doesn't wait on an FTP download. Point `rt ingest` at the source:
+
+```bash
+# Evidence uploaded to S3 after cloud acquisition
+rt ingest --source s3://dfir-bucket/cases/2026-04-19/collection.tar.gz
+
+# Analyst workstation via SFTP — no staging required
+rt ingest --source sftp://analyst@10.0.1.5/evidence/
+
+# Google Drive share from the client
+rt ingest --source gdrive://1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms
+```
+
+48 URI schemes supported: object storage (S3, GCS, Azure, B2), cloud drives (OneDrive, Dropbox, Google Drive), SFTP, HDFS, IPFS, Redis, PostgreSQL, and more. Same command regardless of backend. [Full reference →](https://securityronin.github.io/rapidtriage/rt_remote_io/)
+
+---
+
 ## Contributing
 
 PRs welcome. The most valuable contributions right now:
@@ -267,10 +286,3 @@ All crates follow strict TDD — write failing tests first, then the implementat
 
 ---
 
-## License
-
-Apache 2.0 — see [LICENSE](LICENSE).
-
----
-
-**Found this useful?** [Sponsor development](https://github.com/sponsors/h4x0r) to keep the threat intel feeds updated and new parsers shipping.

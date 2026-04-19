@@ -9,6 +9,10 @@ use std::fmt::Write as FmtWrite;
 use std::path::Path;
 
 pub mod mermaid;
+pub mod misp;
+pub mod pdf;
+pub use pdf::export_pdf;
+pub use misp::{MispEvent, MispAttribute, MispEventId, build_misp_event};
 
 pub use mermaid::{
     render_attack_chain, render_defenses,

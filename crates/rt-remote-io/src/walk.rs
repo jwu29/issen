@@ -21,18 +21,37 @@ pub fn walk_remote_prefix(
         ..Default::default()
     };
 
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()?;
-    let entries = rt.block_on(op.list_options(prefix, list_opts))?;
+    let entries = match tokio::runtime::Handle::try_current() {
+        Ok(handle) => {
+            tokio::task::block_in_place(|| handle.block_on(op.list_options(prefix, list_opts)))?
+        }
+        Err(_) => {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?;
+            rt.block_on(op.list_options(prefix, list_opts))?
+        }
+    };
 
     let mut count = 0usize;
     for entry in entries {
-        let meta = entry.metadata();
-        if meta.mode() == EntryMode::DIR {
+        if entry.metadata().mode() == EntryMode::DIR {
             continue;
         }
-        let size = meta.content_length();
+        // Stat each file individually to get accurate content_length (listing may return 0).
+        let size = match tokio::runtime::Handle::try_current() {
+            Ok(handle) => {
+                let stat = tokio::task::block_in_place(|| handle.block_on(op.stat(entry.path())))?;
+                stat.content_length()
+            }
+            Err(_) => {
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()?;
+                let stat = rt.block_on(op.stat(entry.path()))?;
+                stat.content_length()
+            }
+        };
         writeln!(out, "{}\t{size}", entry.path())?;
         count += 1;
     }
@@ -44,7 +63,7 @@ mod tests {
     use super::*;
     use crate::operator::operator_for_uri;
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn walk_returns_count_and_correct_line() {
         let (op, _) = operator_for_uri("mem://walkbucket/ignored").expect("mem op");
         // Write a test file into the mem backend using the async operator.

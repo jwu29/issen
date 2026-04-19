@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod download;
 
 /// Parse a Google Drive file ID from various input formats:
 /// - `gdrive://<id>`

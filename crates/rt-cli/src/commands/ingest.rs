@@ -1,6 +1,8 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use rt_remote_io::gdrive;
+use rt_remote_io::uri::{UriScheme, is_remote_uri};
 use rt_fswalker::orchestrator::run_auto;
 use rt_fswalker::progress::ProgressReporter;
 use rt_signatures::engines::ioc_hash::HashIocStore;
@@ -37,12 +39,46 @@ pub fn run(
     evidence_path: &Path,
     output: &Path,
     evidence_source: Option<&str>,
+    source_uri: Option<&str>,
     scan: bool,
     yara_rules: Option<&Path>,
     sigma_rules: Option<&Path>,
     hash_iocs: Option<&[PathBuf]>,
     network_iocs: Option<&[PathBuf]>,
 ) -> Result<()> {
+    // Remote source URI dispatch.
+    if let Some(uri) = source_uri {
+        if !is_remote_uri(uri) {
+            anyhow::bail!("Unsupported URI scheme: {uri}");
+        }
+
+        let scheme = UriScheme::detect(uri)
+            .ok_or_else(|| anyhow::anyhow!("Unsupported URI scheme: {uri}"))?;
+
+        match scheme {
+            UriScheme::GDrive => {
+                let file_id = gdrive::parse_file_id(uri)
+                    .ok_or_else(|| anyhow::anyhow!("Could not parse gdrive file ID from: {uri}"))?;
+                let auth = rt_remote_io::gdrive::auth::resolve_auth_mode();
+                println!("Remote source URI: gdrive://{file_id} (auth: {auth:?})");
+                println!(
+                    "Note: gdrive fetch is a stub — download would stream to a temp file for ingest."
+                );
+            }
+            _ => {
+                // All other recognised schemes use the OpenDAL operator.
+                let (_, path) = rt_remote_io::operator::operator_for_uri(uri)
+                    .with_context(|| format!("building operator for source URI: {uri}"))?;
+                println!("Remote source URI: {uri} (path: {path})");
+                println!(
+                    "Note: remote fetch is a stub — bytes would be streamed to a temp file for ingest."
+                );
+            }
+        }
+
+        return Ok(());
+    }
+
     if !evidence_path.exists() {
         anyhow::bail!("Evidence path does not exist: {}", evidence_path.display());
     }

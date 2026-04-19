@@ -7,6 +7,9 @@ license = "Apache-2.0"
 description = "HTML report generator for RapidTriage"
 repository.workspace = true
 
+[features]
+remote = ["dep:reqwest"]
+
 [dependencies]
 rt-core = { workspace = true }
 rt-timeline = { workspace = true }
@@ -15,6 +18,9 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 chrono = { workspace = true }
 thiserror = { workspace = true }
+anyhow = { workspace = true }
+printpdf = "0.9"
+reqwest = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
