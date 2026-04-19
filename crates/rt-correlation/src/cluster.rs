@@ -24,11 +24,35 @@ pub enum ClusterKey {
 #[must_use]
 pub fn cluster_events<'a>(
     events: &'a [Evidence],
-    key: ClusterKey,
+    key: &ClusterKey,
 ) -> HashMap<String, Vec<&'a Evidence>> {
-    // RED stub — returns empty map so tests fail predictably.
-    let _ = (events, key);
-    HashMap::new()
+    const UNKNOWN: &str = "__unknown__";
+    let mut map: HashMap<String, Vec<&'a Evidence>> = HashMap::new();
+
+    for ev in events {
+        let bucket = match &key {
+            ClusterKey::ByPid => {
+                use crate::model::SubjectRef;
+                match &ev.subject {
+                    Some(SubjectRef::Process(pid)) => pid.to_string(),
+                    _ => UNKNOWN.to_string(),
+                }
+            }
+            ClusterKey::ByUser => ev
+                .attrs
+                .get("user")
+                .cloned()
+                .unwrap_or_else(|| UNKNOWN.to_string()),
+            ClusterKey::ByPath => ev
+                .attrs
+                .get("path")
+                .cloned()
+                .unwrap_or_else(|| UNKNOWN.to_string()),
+        };
+        map.entry(bucket).or_default().push(ev);
+    }
+
+    map
 }
 
 #[cfg(test)]
@@ -68,7 +92,7 @@ mod tests {
             make_process_evidence("ev-3", 5678),
         ];
 
-        let clusters = cluster_events(&events, ClusterKey::ByPid);
+        let clusters = cluster_events(&events, &ClusterKey::ByPid);
 
         let group_1234 = clusters.get("1234").expect("cluster for pid 1234");
         assert_eq!(group_1234.len(), 2);
@@ -89,7 +113,7 @@ mod tests {
             make_evidence_with_attrs("ev-no-pid", &[("user", "root")]),
         ];
 
-        let clusters = cluster_events(&events, ClusterKey::ByPid);
+        let clusters = cluster_events(&events, &ClusterKey::ByPid);
 
         let unknown = clusters.get("__unknown__").expect("__unknown__ bucket");
         assert_eq!(unknown.len(), 1);
@@ -106,7 +130,7 @@ mod tests {
             make_evidence_with_attrs("ev-3", &[("user", "bob")]),
         ];
 
-        let clusters = cluster_events(&events, ClusterKey::ByUser);
+        let clusters = cluster_events(&events, &ClusterKey::ByUser);
 
         let alice = clusters.get("alice").expect("cluster for alice");
         assert_eq!(alice.len(), 2);
@@ -125,7 +149,7 @@ mod tests {
             make_evidence_with_attrs("ev-no-user", &[("path", "/tmp/evil")]),
         ];
 
-        let clusters = cluster_events(&events, ClusterKey::ByUser);
+        let clusters = cluster_events(&events, &ClusterKey::ByUser);
 
         assert!(clusters.contains_key("charlie"));
         let unknown = clusters.get("__unknown__").expect("__unknown__ bucket");
@@ -144,7 +168,7 @@ mod tests {
             make_evidence_with_attrs("ev-4", &[("user", "root")]), // no path
         ];
 
-        let clusters = cluster_events(&events, ClusterKey::ByPath);
+        let clusters = cluster_events(&events, &ClusterKey::ByPath);
 
         let passwd = clusters.get("/etc/passwd").expect("cluster for /etc/passwd");
         assert_eq!(passwd.len(), 2);
@@ -161,7 +185,7 @@ mod tests {
 
     #[test]
     fn empty_input_yields_empty_map() {
-        let clusters = cluster_events(&[], ClusterKey::ByPid);
+        let clusters = cluster_events(&[], &ClusterKey::ByPid);
         assert!(clusters.is_empty());
     }
 }

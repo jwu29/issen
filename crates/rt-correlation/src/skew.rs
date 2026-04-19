@@ -70,6 +70,7 @@ fn artifact_key(ev: &Evidence) -> String {
 /// all pairs from *different* sources are compared.  When
 /// `|timestamp_a − timestamp_b| > opts.threshold_secs` a [`SkewFinding`] is
 /// returned.
+#[must_use]
 pub fn detect_time_skew(events: &[Evidence], opts: &SkewOpts) -> Vec<SkewFinding> {
     use std::collections::HashMap;
 
