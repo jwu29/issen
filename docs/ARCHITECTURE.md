@@ -1,5 +1,7 @@
 # Architecture
 
+> **Interactive diagram:** [architecture-diagram.html](architecture-diagram.html) — full system map with all 24 crates, cloud backends, detection engines, and data flow.
+
 This document describes RapidTriage's architecture using progressive disclosure. Start with the overview, then drill into subsystems as needed.
 
 ## Overview
@@ -9,21 +11,24 @@ RapidTriage transforms forensic evidence collections into structured timelines a
 ```mermaid
 flowchart LR
     Evidence["Evidence Collection\n(KAPE, Velociraptor,\nraw image)"]
-    Pipeline["rt-pipeline\nIngestion"]
+    Ingest["rt-unpack + rt-fswalker\nIngestion"]
     Timeline["rt-timeline\nDuckDB Store"]
     Sigs["rt-signatures\nThreat Intel"]
     RA["rt-remote-access\nRemote Access"]
+    Corr["rt-correlation\nPivot Engine"]
     Report["rt-report\nHTML Output"]
     CLI["rt-cli"]
 
-    CLI --> Pipeline
+    CLI --> Ingest
     CLI --> Sigs
     CLI --> RA
+    CLI --> Corr
     CLI --> Report
-    Evidence --> Pipeline
-    Pipeline --> Timeline
+    Evidence --> Ingest
+    Ingest --> Timeline
     Sigs --> Timeline
     RA --> Timeline
+    Corr --> Timeline
     Timeline --> Report
 ```
 
@@ -31,7 +36,7 @@ The CLI (`rt`) is the entry point. It dispatches to four subsystems: the ingesti
 
 ## Workspace Structure
 
-14 crates in a Cargo workspace, organized by responsibility:
+20 crates in a Cargo workspace, organized by responsibility:
 
 ```mermaid
 graph TD
@@ -42,21 +47,34 @@ graph TD
     subgraph Assessment["Assessment Layer"]
         rt-signatures
         rt-remote-access
+        rt-correlation
     end
 
     subgraph Pipeline["Pipeline Layer"]
-        rt-pipeline
+        rt-unpack
+        rt-fswalker
         rt-report
+        rt-navigator
+        rt-mft-tree
     end
 
     subgraph Storage["Storage Layer"]
         rt-timeline
     end
 
+    subgraph RemoteIO["Remote I/O Layer"]
+        rt-remote-io
+    end
+
+    subgraph Memory["Memory Layer"]
+        rt-mem
+    end
+
     subgraph Parsers["Parser Plugins"]
-        rt-parser-usnjrnl
         rt-parser-mft
         rt-parser-evtx
+        rt-parser-uac
+        rt-parser-velociraptor
     end
 
     subgraph Foundation["Foundation"]
@@ -66,26 +84,36 @@ graph TD
         rt-shrinkpath
     end
 
-    rt-cli --> rt-pipeline
+    rt-cli --> rt-unpack
+    rt-cli --> rt-fswalker
     rt-cli --> rt-signatures
     rt-cli --> rt-remote-access
+    rt-cli --> rt-correlation
     rt-cli --> rt-report
-    rt-pipeline --> rt-timeline
-    rt-pipeline --> rt-core
-    rt-pipeline --> rt-plugin-sdk
+    rt-cli --> rt-mem
+    rt-cli --> rt-navigator
+    rt-cli --> rt-remote-io
+    rt-unpack --> rt-core
+    rt-fswalker --> rt-core
+    rt-fswalker --> rt-plugin-sdk
     rt-signatures --> rt-core
     rt-remote-access --> rt-core
     rt-remote-access --> rt-timeline
+    rt-correlation --> rt-core
+    rt-correlation --> rt-timeline
     rt-report --> rt-timeline
     rt-report --> rt-core
     rt-timeline --> rt-core
-    rt-parser-usnjrnl --> rt-core
-    rt-parser-usnjrnl --> rt-plugin-sdk
+    rt-mft-tree --> rt-core
     rt-parser-mft --> rt-core
     rt-parser-mft --> rt-plugin-sdk
     rt-parser-evtx --> rt-core
     rt-parser-evtx --> rt-plugin-sdk
-    rt-pipeline --> rt-ewf
+    rt-parser-uac --> rt-core
+    rt-parser-uac --> rt-plugin-sdk
+    rt-parser-velociraptor --> rt-core
+    rt-parser-velociraptor --> rt-plugin-sdk
+    rt-unpack --> rt-ewf
 ```
 
 **Dependency rule:** Arrows point downward. Higher layers depend on lower layers, never the reverse. `rt-core` has no internal dependencies.
@@ -97,13 +125,22 @@ graph TD
 | `rt-core` | Foundation | Shared types (`TimelineEvent`, `ArtifactType`, `EventType`), plugin traits, error types, configuration |
 | `rt-plugin-sdk` | Foundation | Parser plugin registration via `inventory` crate. Parsers register themselves at compile time |
 | `rt-ewf` | Foundation | Expert Witness Format (E01) forensic image reading |
-| `rt-shrinkpath` | Foundation | Windows path normalization and shortening |
+| `rt-shrinkpath` | Foundation | Path abbreviation utilities |
 | `rt-timeline` | Storage | DuckDB columnar timeline store. Insert events, query by time/type/source, export to SQLite |
-| `rt-pipeline` | Pipeline | Evidence ingestion orchestration. Discovers parseable files, dispatches parsers via rayon, writes events to timeline |
-| `rt-report` | Pipeline | Self-contained HTML report generation from timeline data |
-| `rt-signatures` | Assessment | Six detection engines (YARA, Sigma, Hash IOC, Network IOC, STIX, Suricata) + feed infrastructure |
-| `rt-remote-access` | Assessment | Remote access detection: LOLRMM rule engine + 7 category scanners + DuckDB findings store |
-| `rt-parser-*` | Parsers | Individual artifact parsers (USN Journal, MFT, Event Logs). Each registers via `inventory::submit!` |
+| `rt-unpack` | Pipeline | Collection format detection and unpacking (UAC tar.gz, Velociraptor, KAPE) |
+| `rt-fswalker` | Pipeline | Parallel filesystem walk via rayon; SHA-256 integrity hashing; dispatches parsers via plugin SDK |
+| `rt-report` | Pipeline | Self-contained HTML report generation from timeline data, including Mermaid attack chain diagrams |
+| `rt-navigator` | Pipeline | Interactive TUI navigation for timeline and findings |
+| `rt-mft-tree` | Pipeline | MFT heuristic analysis |
+| `rt-remote-io` | Remote I/O | Remote storage I/O via OpenDAL 0.55: S3, GCS, Azure Blob, WebDAV, HTTP, Google Drive (OAuth2) |
+| `rt-mem` | Memory | Memory forensics bridge into the memf-* sibling workspace |
+| `rt-signatures` | Assessment | Six detection engines (YARA-X, Sigma/Tau-Engine, Hash IOC, Network IOC, STIX, Suricata) + feed infrastructure |
+| `rt-remote-access` | Assessment | Remote access detection: LOLRMM rule engine (400+ tools) + 7 category scanners + DuckDB findings store |
+| `rt-correlation` | Assessment | Pivot engine: YAML correlation rules, zeek-intel, cross-source evidence joining |
+| `rt-parser-mft` | Parsers | NTFS MFT + USN Journal parser. Registers via `inventory::submit!` |
+| `rt-parser-evtx` | Parsers | Windows Event Log (EVTX) parser. Registers via `inventory::submit!` |
+| `rt-parser-uac` | Parsers | UAC collection format parser. Registers via `inventory::submit!` |
+| `rt-parser-velociraptor` | Parsers | Velociraptor collection parser. Registers via `inventory::submit!` |
 | `rt-cli` | CLI | Command-line interface. Parses args, dispatches to subsystems, formats output |
 | `xtask` | Build | Build automation tasks |
 
@@ -116,35 +153,37 @@ The pipeline ingests an evidence collection and produces a DuckDB timeline. It u
 ```mermaid
 flowchart TD
     Input["Evidence Path\n/path/to/collection/"]
-    L4["Layer 4: Artifact Parsing\n(rayon parallel dispatch)"]
-    USN["USN Journal\nParser"]
-    MFT["MFT\nParser"]
-    EVTX["Event Log\nParser"]
-    Future["Future\nParsers..."]
+    Unpack["rt-unpack\nFormat Detection + Unpack"]
+    Walk["rt-fswalker\nParallel Walk (rayon)"]
+    MFT["rt-parser-mft\nMFT + USN Journal"]
+    EVTX["rt-parser-evtx\nEvent Log"]
+    UAC["rt-parser-uac\nUAC Format"]
+    Veloci["rt-parser-velociraptor\nVelociraptor"]
     TL["rt-timeline\nDuckDB Insert"]
 
-    Input --> L4
-    L4 --> USN
-    L4 --> MFT
-    L4 --> EVTX
-    L4 --> Future
-    USN --> TL
+    Input --> Unpack
+    Unpack --> Walk
+    Walk --> MFT
+    Walk --> EVTX
+    Walk --> UAC
+    Walk --> Veloci
     MFT --> TL
     EVTX --> TL
-    Future --> TL
+    UAC --> TL
+    Veloci --> TL
 ```
 
 ### Plugin System
 
-Parsers register themselves at compile time using the `inventory` crate. The pipeline discovers registered parsers at runtime without hardcoded dispatch:
+Parsers register themselves at compile time using the `inventory` crate. The filesystem walker discovers registered parsers at runtime without hardcoded dispatch:
 
 ```rust
-// In rt-parser-usnjrnl:
+// In rt-parser-mft:
 inventory::submit! {
-    ParserPlugin::new("usnjrnl", &["$UsnJrnl:$J"], parse_usnjrnl)
+    ParserPlugin::new("mft", &["$MFT"], parse_mft)
 }
 
-// In rt-pipeline:
+// In rt-fswalker:
 for plugin in inventory::iter::<ParserPlugin> {
     if plugin.can_parse(file_path) {
         plugin.parse(file_path, &timeline)?;
@@ -247,7 +286,7 @@ flowchart TD
     scan["scan(provider, config)"]
 
     subgraph Phase1["Phase 1: Rule Engine"]
-        LOLRMM["LOLRMM YAML\n(294 RMM tools)"]
+        LOLRMM["LOLRMM YAML\n(400+ RMM tools)"]
         Custom["Custom YAML\n(VPN/ZTNA/Hardware)"]
         Compile["Compile to\nDetectionRule"]
         Eval["Evaluate against\nArtifactProvider"]
@@ -361,17 +400,18 @@ End-to-end flow for a typical incident response engagement:
 sequenceDiagram
     participant User as Practitioner
     participant CLI as rt (CLI)
-    participant Pipeline as rt-pipeline
+    participant Unpack as rt-unpack
+    participant Walker as rt-fswalker
     participant Timeline as rt-timeline (DuckDB)
     participant Sigs as rt-signatures
     participant RA as rt-remote-access
     participant Report as rt-report
 
     User->>CLI: rt ingest /evidence -o case.duckdb --scan
-    CLI->>Pipeline: ingest(path, db)
-    Pipeline->>Pipeline: Discover parseable files
-    Pipeline->>Pipeline: Parse artifacts (parallel via rayon)
-    Pipeline->>Timeline: Insert TimelineEvents
+    CLI->>Unpack: detect + unpack collection format
+    Unpack->>Walker: walk unpacked evidence tree
+    Walker->>Walker: Discover parseable files (parallel via rayon)
+    Walker->>Timeline: Insert TimelineEvents
     CLI->>Sigs: scan(timeline_events, engines)
     Sigs->>Timeline: Insert ScanFindings
     CLI-->>User: Ingestion complete (N events, M findings)
@@ -416,14 +456,16 @@ sequenceDiagram
 |------------|---------|---------|
 | `duckdb` | 1.x (bundled) | Columnar timeline storage, analytical queries |
 | `yara-x` | 0.12 | YARA rule compilation and file scanning |
-| `tau-engine` | 1.x | Sigma rule evaluation |
+| `tau-engine` | 1.0 | Sigma rule evaluation |
+| `opendal` | 0.55 | Remote storage abstraction (S3, GCS, Azure Blob, WebDAV, GDrive) |
 | `notatin` | 1.0 | Windows registry hive parsing |
 | `evtx` | 0.11 | Windows Event Log parsing |
 | `mft` | 0.6 | NTFS Master File Table parsing |
-| `usnjrnl-forensic` | 0.6 | USN Change Journal parsing |
 | `ewf` | 0.1 | Expert Witness Format (E01) image support |
+| `inventory` | 0.3 | Compile-time parser plugin registration |
 | `clap` | 4.x | CLI argument parsing |
 | `rayon` | 1.x | Parallel parser dispatch |
+| `ratatui` | 0.29 | TUI framework for rt-navigator |
 | `reqwest` | 0.12 | HTTP feed downloads (rustls-tls) |
 | `serde` / `serde_yaml` | 1.x / 0.9 | LOLRMM YAML deserialization |
 | `tracing` | 0.1 | Structured logging and diagnostics |

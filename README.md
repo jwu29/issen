@@ -56,14 +56,23 @@ That's it. Everything else is optional.
 # Parse artifacts into a DuckDB timeline and scan for IOCs
 rt ingest evidence/ --output case.duckdb --scan
 
+# Query the timeline
+rt timeline case.duckdb --flagged --min-severity high
+
 # Analyse a physical memory dump (LiME, AVML, crash dump)
 rt memf dump.lime --command all
 
 # Detect remote access tools (LOLRMM-based)
-rt remote-access --artifacts evidence/
+rt remote-access evidence/
 
-# Update threat intel feeds (Sigma, YARA, Suricata, Zeek)
+# Scan files against YARA/Sigma/hash/STIX signatures
+rt scan evidence/ --auto-feeds
+
+# Update threat intel feeds (YARA, Sigma, STIX, Zeek)
 rt feed update
+
+# Generate HTML report from a timeline database
+rt report case.duckdb --output report.html
 ```
 
 ---
@@ -77,7 +86,8 @@ rt feed update
 | **Detection types** | YARA rules, Sigma rules, STIX indicators, hash IOCs |
 | **Artifact sources** | EVTX, registry hives, MFT, USN Journal, prefetch, $LogFile |
 | **Network analysis** | Volatility sockstat, pcap, Zeek logs |
-| **Output formats** | Terminal (colour-coded), JSON, HTML report, DuckDB timeline |
+| **Remote evidence** | S3, GCS, Azure Blob, WebDAV, HTTP, Google Drive (OAuth2) |
+| **Output formats** | Terminal (colour-coded), JSON, HTML report, DuckDB timeline, bodyfile |
 | **RAT detection** | LOLRMM rule set (400+ tools) |
 
 ---
@@ -88,16 +98,27 @@ rt feed update
 <summary>Crate layout</summary>
 
 ```
-rt-cli                  # The rt binary — commands and arg parsing
-rt-correlation          # Pivot engine: Evidence → Findings via YAML rules
-rt-parser-uac           # UAC collection parser
-rt-parser-evtx          # Windows Event Log (EVTX) parser
-rt-mem                  # Physical memory analysis (LiME, AVML, crash dump)
-rt-signatures           # YARA / Sigma / STIX / hash IOC scanning
-rt-fswalker             # Parallel filesystem walker (rayon)
-rt-timeline             # DuckDB-backed timeline ingestion
-rt-remote-access        # LOLRMM-based RAT detection
-rt-report               # HTML report generation
+rt-cli                      # The rt binary — commands and arg parsing
+rt-core                     # Shared types, plugin traits, error types
+rt-plugin-sdk               # Compile-time parser registration via inventory
+rt-timeline                 # DuckDB (primary) + SQLite export timeline store
+rt-fswalker                 # Parallel filesystem walk via rayon, SHA-256 integrity
+rt-unpack                   # Collection format detection (UAC tar.gz, Velociraptor, KAPE)
+rt-remote-io                # Remote storage I/O (S3, GCS, Azure Blob, WebDAV, GDrive)
+rt-signatures               # YARA-X, Tau-Engine, Hash/Network/STIX IOCs, feed sync
+rt-correlation              # Pivot engine: YAML rules, zeek-intel
+rt-remote-access            # LOLRMM 400+ tool definitions, RMM/RAT detection
+rt-mem                      # Memory forensics bridge (memf-* sibling workspace)
+rt-report                   # Self-contained HTML report with Mermaid attack chains
+rt-mft-tree                 # MFT heuristic analysis
+rt-navigator                # Interactive TUI navigation
+rt-shrinkpath               # Path abbreviation utilities
+rt-ewf                      # EWF/E01 forensic image support
+rt-parser-mft               # NTFS MFT + USN Journal parser
+rt-parser-evtx              # Windows Event Log parser
+rt-parser-uac               # UAC collection format parser
+rt-parser-velociraptor      # Velociraptor collection parser
+xtask                       # Build automation
 ```
 
 Each crate is independently testable and versioned. The CLI wires them together; you can also use the crates as a library in your own tooling.
@@ -231,7 +252,7 @@ The correlation engine flagged AnyDesk installed under `C:\ProgramData\Temp\Supp
 PRs welcome. The most valuable contributions right now:
 
 - New Correlation Rules (add to `crates/rt-correlation/rules/`)
-- Parser support for additional collection formats (Velociraptor, KAPE)
+- Additional artifact parsers (implement the `rt-plugin-sdk` trait)
 - Platform-specific memory analysis improvements
 
 Please open an issue before large changes so we can align on approach.
