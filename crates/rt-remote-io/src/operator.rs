@@ -251,4 +251,78 @@ mod tests {
             }
         }
     }
+
+    // ── RED tests for 38 missing schemes ────────────────────────────────────
+
+    macro_rules! scheme_recognised {
+        ($name:ident, $uri:expr) => {
+            #[test]
+            fn $name() {
+                let result = operator_for_uri($uri);
+                match &result {
+                    Err(e) => assert!(
+                        !e.to_string().contains("Unsupported URI scheme"),
+                        "expected {} to be a supported scheme, got: {}",
+                        $uri,
+                        e
+                    ),
+                    Ok(_) => {}
+                }
+            }
+        };
+    }
+
+    // Cloud object storage
+    scheme_recognised!(azdls_uri_returns_ok, "azdls://filesystem/path");
+    scheme_recognised!(azfile_uri_returns_ok, "azfile://share/path");
+    scheme_recognised!(b2_uri_returns_ok, "b2://bucket/key");
+    scheme_recognised!(cos_uri_returns_ok, "cos://bucket/key");
+    scheme_recognised!(obs_uri_returns_ok, "obs://bucket/key");
+    scheme_recognised!(oss_uri_returns_ok, "oss://bucket/key");
+    scheme_recognised!(swift_uri_returns_ok, "swift://container/path");
+    scheme_recognised!(upyun_uri_returns_ok, "upyun://bucket/key");
+
+    // Cloud drives
+    scheme_recognised!(onedrive_uri_returns_ok, "onedrive://path/to/file");
+    scheme_recognised!(dropbox_uri_returns_ok, "dropbox://path/to/file");
+    scheme_recognised!(aliyun_drive_uri_returns_ok, "aliyun-drive://path/to/file");
+    scheme_recognised!(yandex_disk_uri_returns_ok, "yandex-disk://path/to/file");
+    scheme_recognised!(pcloud_uri_returns_ok, "pcloud://path/to/file");
+    scheme_recognised!(koofr_uri_returns_ok, "koofr://path/to/file");
+    scheme_recognised!(seafile_uri_returns_ok, "seafile://server/repo/path");
+
+    // Dev / ML / infra
+    scheme_recognised!(github_uri_returns_ok, "github://owner/repo/path");
+    scheme_recognised!(huggingface_uri_returns_ok, "huggingface://owner/model/file");
+    scheme_recognised!(vercel_blob_uri_returns_ok, "vercel-blob://key");
+    scheme_recognised!(vercel_artifacts_uri_returns_ok, "vercel-artifacts://key");
+    scheme_recognised!(ghac_uri_returns_ok, "ghac://key");
+    scheme_recognised!(dbfs_uri_returns_ok, "dbfs://path/to/file");
+
+    // Big data
+    scheme_recognised!(alluxio_uri_returns_ok, "alluxio://host:19999/path");
+    scheme_recognised!(lakefs_uri_returns_ok, "lakefs://repo/main/path");
+
+    // Decentralized
+    scheme_recognised!(ipfs_uri_returns_ok, "ipfs://QmHash/path");
+    scheme_recognised!(ipmfs_uri_returns_ok, "ipmfs:///path/to/file");
+
+    // Network KV / databases
+    scheme_recognised!(redis_uri_returns_ok, "redis://localhost:6379/key");
+    scheme_recognised!(rediss_uri_returns_ok, "rediss://localhost:6380/key");
+    scheme_recognised!(memcached_uri_returns_ok, "memcached://localhost:11211/key");
+    scheme_recognised!(etcd_uri_returns_ok, "etcd://localhost:2379/key");
+    scheme_recognised!(tikv_uri_returns_ok, "tikv://localhost:2379/key");
+    scheme_recognised!(mongodb_uri_returns_ok, "mongodb://localhost/db/col/key");
+    scheme_recognised!(gridfs_uri_returns_ok, "gridfs://localhost/db/bucket/key");
+    scheme_recognised!(mysql_uri_returns_ok, "mysql://user:pass@localhost/db/key");
+    scheme_recognised!(postgresql_uri_returns_ok, "postgresql://user:pass@localhost/db/key");
+    scheme_recognised!(sqlite_uri_returns_ok, "sqlite:///tmp/test.db/key");
+    scheme_recognised!(cloudflare_kv_uri_returns_ok, "cloudflare-kv://namespace/key");
+    scheme_recognised!(d1_uri_returns_ok, "d1://database-id/key");
+
+    // Filesystem
+    scheme_recognised!(ftp_uri_returns_ok, "ftp://user:pass@host/path");
+    scheme_recognised!(ftps_uri_returns_ok, "ftps://user:pass@host/path");
+    scheme_recognised!(compfs_uri_returns_ok, "compfs:///abs/path/file");
 }
