@@ -37,12 +37,19 @@ pub fn run(
     evidence_path: &Path,
     output: &Path,
     evidence_source: Option<&str>,
+    source_uri: Option<&str>,
     scan: bool,
     yara_rules: Option<&Path>,
     sigma_rules: Option<&Path>,
     hash_iocs: Option<&[PathBuf]>,
     network_iocs: Option<&[PathBuf]>,
 ) -> Result<()> {
+    // Remote source URI dispatch — stub: print intent and return early.
+    if let Some(_uri) = source_uri {
+        // TODO: implement actual fetch; for now return early so tests fail on missing output.
+        let _ = _uri;
+    }
+
     if !evidence_path.exists() {
         anyhow::bail!("Evidence path does not exist: {}", evidence_path.display());
     }

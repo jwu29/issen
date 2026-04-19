@@ -39,6 +39,11 @@ pub enum Commands {
         #[arg(value_name = "EVIDENCE_PATH")]
         evidence_path: PathBuf,
 
+        /// Remote source URI to ingest from (s3://, gcs://, azblob://, webdav://, http(s)://, file://, gdrive://).
+        /// When set, evidence is fetched from the remote URI before ingestion.
+        #[arg(long, value_name = "URI")]
+        source: Option<String>,
+
         /// Output DuckDB database path (default: ./timeline.duckdb).
         #[arg(short, long, default_value = "timeline.duckdb")]
         output: PathBuf,
@@ -273,6 +278,7 @@ fn main() -> ExitCode {
             evidence_path,
             output,
             evidence_source,
+            source,
             scan,
             yara_rules,
             sigma_rules,
@@ -282,6 +288,7 @@ fn main() -> ExitCode {
             &evidence_path,
             &output,
             evidence_source.as_deref(),
+            source.as_deref(),
             scan,
             yara_rules.as_deref(),
             sigma_rules.as_deref(),

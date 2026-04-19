@@ -1834,3 +1834,127 @@ fn verbose_flag_with_remote_access_subcommand() {
         .assert()
         .success();
 }
+
+// ── --source <URI> flag tests (rt-remote-io integration) ─────────────
+
+/// `rt ingest --help` must advertise the `--source` flag.
+#[test]
+fn ingest_help_shows_source_flag() {
+    rt_cmd()
+        .args(["ingest", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--source"));
+}
+
+/// Passing an unrecognised scheme via `--source` must fail with a clear error.
+#[test]
+fn ingest_source_unknown_scheme_fails_with_error() {
+    let dir = TempDir::new().expect("tmpdir");
+    let out_dir = TempDir::new().expect("tmpdir");
+    let db_path = out_dir.path().join("test.duckdb");
+
+    rt_cmd()
+        .args([
+            "ingest",
+            &dir.path().to_string_lossy(),
+            "-o",
+            &db_path.to_string_lossy(),
+            "--source",
+            "unknown://some/path",
+        ])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("Unsupported URI scheme")
+                .or(predicate::str::contains("unknown"))
+                .or(predicate::str::contains("Error")),
+        );
+}
+
+/// A `file:///` URI pointing at a local directory is a recognised scheme and
+/// must be accepted (dispatch prints the stub message, exits 0).
+#[test]
+fn ingest_source_file_uri_is_accepted() {
+    let dir = TempDir::new().expect("tmpdir");
+    let out_dir = TempDir::new().expect("tmpdir");
+    let db_path = out_dir.path().join("test.duckdb");
+
+    let file_uri = format!("file://{}", dir.path().display());
+
+    rt_cmd()
+        .args([
+            "ingest",
+            &dir.path().to_string_lossy(),
+            "-o",
+            &db_path.to_string_lossy(),
+            "--source",
+            &file_uri,
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("source URI"));
+}
+
+/// A `gdrive://` URI must be accepted and print a stub message (auth/download
+/// not attempted in unit tests — the dispatch path is what we verify).
+#[test]
+fn ingest_source_gdrive_uri_is_accepted() {
+    let dir = TempDir::new().expect("tmpdir");
+    let out_dir = TempDir::new().expect("tmpdir");
+    let db_path = out_dir.path().join("test.duckdb");
+
+    rt_cmd()
+        .args([
+            "ingest",
+            &dir.path().to_string_lossy(),
+            "-o",
+            &db_path.to_string_lossy(),
+            "--source",
+            "gdrive://1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("gdrive"));
+}
+
+/// A `mem://` URI (in-process, no network required) must be accepted and print
+/// the stub dispatch message.
+#[test]
+fn ingest_source_mem_uri_is_accepted() {
+    let dir = TempDir::new().expect("tmpdir");
+    let out_dir = TempDir::new().expect("tmpdir");
+    let db_path = out_dir.path().join("test.duckdb");
+
+    rt_cmd()
+        .args([
+            "ingest",
+            &dir.path().to_string_lossy(),
+            "-o",
+            &db_path.to_string_lossy(),
+            "--source",
+            "mem://bucket/key",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("source URI"));
+}
+
+/// Without `--source`, the existing local-path ingest path must still work.
+#[test]
+fn ingest_without_source_flag_still_works() {
+    let dir = TempDir::new().expect("tmpdir");
+    let out_dir = TempDir::new().expect("tmpdir");
+    let db_path = out_dir.path().join("test.duckdb");
+
+    rt_cmd()
+        .args([
+            "ingest",
+            &dir.path().to_string_lossy(),
+            "-o",
+            &db_path.to_string_lossy(),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Artifacts found:"));
+}
