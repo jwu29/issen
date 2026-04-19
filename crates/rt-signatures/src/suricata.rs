@@ -18,20 +18,56 @@ pub struct SuricataAlertDetail {
     pub signature_id: u64,
 }
 
+/// Helper for EVE JSON deserialization — carries `event_type` for filtering.
+#[derive(serde::Deserialize)]
+struct EveRaw {
+    event_type: String,
+    #[serde(flatten)]
+    alert: Option<SuricataAlert>,
+}
+
 /// Parse Suricata EVE JSON log lines. Only lines where `event_type == "alert"` are returned.
 /// Lines that fail to parse are silently skipped.
-pub fn parse_eve_json(_input: &str) -> Vec<SuricataAlert> {
-    vec![]
+pub fn parse_eve_json(input: &str) -> Vec<SuricataAlert> {
+    input
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .filter_map(|line| {
+            let raw: EveRaw = serde_json::from_str(line).ok()?;
+            if raw.event_type != "alert" {
+                return None;
+            }
+            raw.alert
+        })
+        .collect()
 }
 
 /// Correlate Suricata alerts against timeline evidence.
 /// Returns pairs of (alert, matching_evidence_ids) where dest_ip or src_ip
 /// matches any value in an Evidence item's `attrs` map.
 pub fn correlate_alerts<'a>(
-    _alerts: &'a [SuricataAlert],
-    _evidence: &[rt_correlation::model::Evidence],
+    alerts: &'a [SuricataAlert],
+    evidence: &[rt_correlation::model::Evidence],
 ) -> Vec<(&'a SuricataAlert, Vec<String>)> {
-    vec![]
+    alerts
+        .iter()
+        .filter_map(|alert| {
+            let matching_ids: Vec<String> = evidence
+                .iter()
+                .filter(|ev| {
+                    ev.attrs
+                        .values()
+                        .any(|v| v == &alert.dest_ip || v == &alert.src_ip)
+                })
+                .map(|ev| ev.id.clone())
+                .collect();
+            if matching_ids.is_empty() {
+                None
+            } else {
+                Some((alert, matching_ids))
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
