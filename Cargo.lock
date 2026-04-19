@@ -4584,6 +4584,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "opendal",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
  "tokio",
 ]
 
