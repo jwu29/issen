@@ -1,9 +1,12 @@
+use std::io;
 use std::path::Path;
 
 use anyhow::{Context, Result};
 use rt_timeline::findings;
 use rt_timeline::query::{TimelineQuery, TimelineRow};
 use rt_timeline::store::TimelineStore;
+
+use super::timeline_format;
 
 /// Run the timeline command: query events, show findings, or export.
 #[allow(clippy::too_many_arguments)]
@@ -63,6 +66,20 @@ pub fn run(
             })
             .collect();
         println!("{}", serde_json::to_string_pretty(&arr)?);
+        return Ok(());
+    }
+
+    if format == "csv" {
+        let stdout = io::stdout();
+        let mut out = stdout.lock();
+        timeline_format::write_csv(&rows, &mut out).context("CSV export failed")?;
+        return Ok(());
+    }
+
+    if format == "bodyfile" {
+        let stdout = io::stdout();
+        let mut out = stdout.lock();
+        timeline_format::write_bodyfile(&rows, &mut out).context("Bodyfile export failed")?;
         return Ok(());
     }
 

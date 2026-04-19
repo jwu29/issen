@@ -7,9 +7,20 @@ use rt_timeline::query::TimelineRow;
 ///
 /// Header: timestamp,event_type,source,path,description,evidence_source
 pub fn write_csv(events: &[TimelineRow], out: &mut impl Write) -> Result<()> {
-    let _ = events;
-    let _ = out;
-    todo!("csv export not yet implemented")
+    let mut wtr = csv::Writer::from_writer(out);
+    wtr.write_record(["timestamp", "event_type", "source", "path", "description", "evidence_source"])?;
+    for row in events {
+        wtr.write_record([
+            &row.timestamp_display,
+            &row.event_type,
+            &row.source,
+            &row.artifact_path,
+            &row.description,
+            &row.evidence_source,
+        ])?;
+    }
+    wtr.flush()?;
+    Ok(())
 }
 
 /// Write timeline events in mactime-compatible bodyfile format.
@@ -17,17 +28,30 @@ pub fn write_csv(events: &[TimelineRow], out: &mut impl Write) -> Result<()> {
 /// Format: 0|<path>|0|----------|0|0|0|<atime>|<mtime>|<ctime>|<crtime>
 /// Timestamp fields use Unix epoch seconds (0 when not applicable).
 pub fn write_bodyfile(events: &[TimelineRow], out: &mut impl Write) -> Result<()> {
-    let _ = events;
-    let _ = out;
-    todo!("bodyfile export not yet implemented")
+    for row in events {
+        let epoch = ns_to_epoch(row.timestamp_ns);
+
+        let (atime, mtime, ctime, crtime) = match row.event_type.as_str() {
+            "FileCreate" | "FileCreated" => (0, 0, 0, epoch),
+            "FileModify" | "FileModified" => (0, epoch, 0, 0),
+            "FileAccess" | "FileAccessed" => (epoch, 0, 0, 0),
+            _ => (0, epoch, 0, 0),
+        };
+
+        writeln!(
+            out,
+            "0|{}|0|----------|0|0|0|{}|{}|{}|{}",
+            row.artifact_path, atime, mtime, ctime, crtime
+        )?;
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
-// Helpers (used in both stubs and final implementation)
+// Helpers
 // ---------------------------------------------------------------------------
 
 /// Convert a nanosecond timestamp to Unix epoch seconds.
-#[allow(dead_code)]
 fn ns_to_epoch(ns: i64) -> i64 {
     ns / 1_000_000_000
 }

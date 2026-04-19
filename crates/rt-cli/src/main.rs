@@ -102,7 +102,7 @@ pub enum Commands {
         #[arg(long, default_value = "informational")]
         min_severity: String,
 
-        /// Output format for --flagged: text, json.
+        /// Output format: text, json, csv, bodyfile.
         #[arg(long, default_value = "text")]
         format: String,
     },
