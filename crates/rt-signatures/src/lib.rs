@@ -44,6 +44,7 @@
 pub mod engines;
 pub mod feeds;
 pub mod matching;
+pub mod suricata;
 
 #[cfg(feature = "heuristics")]
 pub mod heuristics;

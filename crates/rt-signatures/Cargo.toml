@@ -13,6 +13,7 @@ heuristics = ["dep:rt-mft-tree", "dep:usnjrnl-forensic"]
 
 [dependencies]
 rt-core = { workspace = true }
+rt-correlation = { workspace = true }
 
 # Heuristics (optional)
 rt-mft-tree = { workspace = true, optional = true }
