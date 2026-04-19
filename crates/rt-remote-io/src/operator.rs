@@ -119,4 +119,97 @@ mod tests {
         let result = operator_for_uri("bad://host/path");
         assert!(result.is_err(), "expected error for unknown scheme");
     }
+
+    #[test]
+    fn sftp_uri_returns_ok() {
+        let result = operator_for_uri("sftp://user@host:22/data");
+        // Must NOT be an unsupported-scheme error — scheme is recognised
+        match &result {
+            Err(e) => {
+                let msg = e.to_string();
+                assert!(
+                    !msg.contains("Unsupported URI scheme"),
+                    "expected sftp to be a supported scheme, got: {msg}"
+                );
+            }
+            Ok(_) => {}
+        }
+    }
+
+    #[test]
+    fn sftp_uri_path_extraction() {
+        // Path is everything after the host:port — operator_for_uri returns it
+        // even if the operator itself cannot connect without a real server.
+        let result = operator_for_uri("sftp://host/remote/path");
+        match result {
+            Ok((_, path)) => assert_eq!(path, "remote/path"),
+            Err(e) => {
+                let msg = e.to_string();
+                assert!(
+                    !msg.contains("Unsupported URI scheme"),
+                    "unexpected error: {msg}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn hdfs_uri_returns_ok() {
+        let result = operator_for_uri("hdfs://namenode:9000/user/data");
+        match &result {
+            Err(e) => {
+                let msg = e.to_string();
+                assert!(
+                    !msg.contains("Unsupported URI scheme"),
+                    "expected hdfs to be a supported scheme, got: {msg}"
+                );
+            }
+            Ok(_) => {}
+        }
+    }
+
+    #[test]
+    fn hdfs_uri_path_extraction() {
+        let result = operator_for_uri("hdfs://namenode:9000/user/data");
+        match result {
+            Ok((_, path)) => assert_eq!(path, "user/data"),
+            Err(e) => {
+                let msg = e.to_string();
+                assert!(
+                    !msg.contains("Unsupported URI scheme"),
+                    "unexpected error: {msg}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn webhdfs_uri_returns_ok() {
+        let result = operator_for_uri("webhdfs://namenode:50070/user/data");
+        match &result {
+            Err(e) => {
+                let msg = e.to_string();
+                assert!(
+                    !msg.contains("Unsupported URI scheme"),
+                    "expected webhdfs to be a supported scheme, got: {msg}"
+                );
+            }
+            Ok(_) => {}
+        }
+    }
+
+    #[test]
+    fn webhdfs_uri_path_extraction() {
+        let result = operator_for_uri("webhdfs://namenode:50070/user/data");
+        match result {
+            Ok((_, path)) => assert_eq!(path, "user/data"),
+            Err(e) => {
+                let msg = e.to_string();
+                assert!(
+                    !msg.contains("Unsupported URI scheme"),
+                    "unexpected error: {msg}"
+                );
+            }
+        }
+    }
 }

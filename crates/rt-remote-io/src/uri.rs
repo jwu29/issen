@@ -13,6 +13,7 @@ pub enum UriScheme {
     Sftp,
     WebDav,
     Hdfs,
+    WebHdfs,
     Http,
     Https,
     Mem,
@@ -35,6 +36,7 @@ impl UriScheme {
             "sftp" => Some(Self::Sftp),
             "webdav" => Some(Self::WebDav),
             "hdfs" => Some(Self::Hdfs),
+            "webhdfs" => Some(Self::WebHdfs),
             "http" => Some(Self::Http),
             "https" => Some(Self::Https),
             "mem" => Some(Self::Mem),
@@ -59,6 +61,9 @@ mod tests {
             "mem://bucket/key",
             "file:///tmp/foo",
             "gdrive://file-id",
+            "sftp://host/path",
+            "hdfs://host/path",
+            "webhdfs://host/path",
         ] {
             assert!(is_remote_uri(uri), "expected true for {uri}");
         }
@@ -90,6 +95,10 @@ mod tests {
             Some(UriScheme::WebDav)
         );
         assert_eq!(UriScheme::detect("hdfs://host/path"), Some(UriScheme::Hdfs));
+        assert_eq!(
+            UriScheme::detect("webhdfs://host/path"),
+            Some(UriScheme::WebHdfs)
+        );
         assert_eq!(
             UriScheme::detect("http://example.com/file"),
             Some(UriScheme::Http)
