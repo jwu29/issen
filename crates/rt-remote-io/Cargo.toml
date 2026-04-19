@@ -22,6 +22,9 @@ opendal = { version = "0.55.0", optional = true, features = [
     "services-memory",
     "services-fs",
     "services-http",
+    "services-sftp",
+    "services-hdfs-native",
+    "services-webhdfs",
     "blocking",
 ] }
 tokio = { workspace = true, optional = true }

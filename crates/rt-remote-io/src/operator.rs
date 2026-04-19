@@ -12,6 +12,9 @@ use opendal::{Operator, services};
 /// - `webdav://` — WebDAV; authority+path = endpoint+remote path
 /// - `http://` / `https://` — HTTP(S); full URI used as endpoint + path
 /// - `file://` — Local filesystem; path portion used
+/// - `sftp://` — SFTP; `[user@]host[:port]/path`
+/// - `hdfs://` — HDFS (native); `namenode:port/path`
+/// - `webhdfs://` — `WebHDFS` (HTTP REST); `namenode:port/path`
 ///
 /// Returns an error for unknown or unsupported schemes.
 pub fn operator_for_uri(uri: &str) -> Result<(Operator, String)> {
@@ -88,6 +91,42 @@ pub fn operator_for_uri(uri: &str) -> Result<(Operator, String)> {
                 format!("/{rest}")
             };
             Ok((op, path))
+        }
+
+        "sftp" => {
+            // sftp://user@host:port/path  or  sftp://host/path
+            let (userinfo, hostpath) = if rest.contains('@') {
+                rest.split_once('@').unwrap_or(("", rest))
+            } else {
+                ("", rest)
+            };
+            let (hostport, path) = hostpath.split_once('/').unwrap_or((hostpath, ""));
+            let endpoint = if userinfo.is_empty() {
+                hostport.to_string()
+            } else {
+                format!("{userinfo}@{hostport}")
+            };
+            let builder = services::Sftp::default().endpoint(&endpoint).root("/");
+            let op = Operator::new(builder)?.finish();
+            Ok((op, path.to_string()))
+        }
+
+        "hdfs" => {
+            // hdfs://namenode:port/path
+            let (hostport, path) = rest.split_once('/').unwrap_or((rest, ""));
+            let name_node = format!("hdfs://{hostport}");
+            let builder = services::HdfsNative::default().name_node(&name_node).root("/");
+            let op = Operator::new(builder)?.finish();
+            Ok((op, path.to_string()))
+        }
+
+        "webhdfs" => {
+            // webhdfs://namenode:port/path
+            let (hostport, path) = rest.split_once('/').unwrap_or((rest, ""));
+            let endpoint = format!("http://{hostport}");
+            let builder = services::Webhdfs::default().endpoint(&endpoint).root("/");
+            let op = Operator::new(builder)?.finish();
+            Ok((op, path.to_string()))
         }
 
         other => Err(anyhow!("Unsupported URI scheme: {other}")),
