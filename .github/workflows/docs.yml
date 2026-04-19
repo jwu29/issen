@@ -32,8 +32,9 @@ jobs:
         env:
           RUSTDOCFLAGS: "--enable-index-page -Zunstable-options --default-theme ayu"
 
-      - name: Add redirect index
+      - name: Add redirect index and copy markdown docs
         run: |
+          # Root redirect → rt_cli crate docs
           cat > target/doc/index.html <<'EOF'
           <!DOCTYPE html>
           <html>
@@ -47,6 +48,10 @@ jobs:
           </body>
           </html>
           EOF
+          # Copy markdown docs so they're accessible under /docs/
+          mkdir -p target/doc/docs
+          cp -r docs/*.md target/doc/docs/ 2>/dev/null || true
+          cp README.md target/doc/docs/README.md 2>/dev/null || true
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@4f9cc6602d3f66b9c108549d231e97723741e312 # v4

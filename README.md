@@ -86,7 +86,7 @@ rt report case.duckdb --output report.html
 | **Detection types** | YARA rules, Sigma rules, STIX indicators, hash IOCs |
 | **Artifact sources** | EVTX, registry hives, MFT, USN Journal, prefetch, $LogFile |
 | **Network analysis** | Volatility sockstat, pcap, Zeek logs |
-| **Remote evidence** | 48 URI schemes — object storage, cloud drives, databases, SFTP, HDFS, IPFS, and more (see [Remote Sources](#remote-sources)) |
+| **Remote evidence** | 48 URI schemes — S3, GCS, Azure, SFTP, HDFS, OneDrive, Google Drive, Redis, PostgreSQL, IPFS, and more ([full list →](https://securityronin.github.io/rapidtriage/)) |
 | **Output formats** | Terminal (colour-coded), JSON, HTML report, DuckDB timeline, bodyfile |
 | **RAT detection** | LOLRMM rule set (400+ tools) |
 
@@ -247,78 +247,22 @@ The correlation engine flagged AnyDesk installed under `C:\ProgramData\Temp\Supp
 
 ---
 
-## Remote Sources
+## Remote evidence — wherever it lives
 
-RapidTriage can ingest evidence directly from any of these URI schemes:
+Evidence doesn't wait on an FTP download. Point `rt ingest` at the source:
 
 ```bash
-rt ingest --source s3://my-bucket/case/collection.tar.gz
+# Evidence uploaded to S3 after cloud acquisition
+rt ingest --source s3://dfir-bucket/cases/2026-04-19/collection.tar.gz
+
+# Analyst workstation via SFTP — no staging required
 rt ingest --source sftp://analyst@10.0.1.5/evidence/
+
+# Google Drive share from the client
 rt ingest --source gdrive://1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms
 ```
 
-| Scheme | Backend | Auth env vars |
-|--------|---------|---------------|
-| **Cloud object storage** | | |
-| `s3://bucket/key` | AWS S3, MinIO, R2, Wasabi | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION` |
-| `gcs://bucket/object` | Google Cloud Storage | `GOOGLE_APPLICATION_CREDENTIALS` |
-| `azblob://container/blob` | Azure Blob Storage | `AZURE_STORAGE_ACCOUNT`, `AZURE_STORAGE_ACCESS_KEY` |
-| `azdls://filesystem/path` | Azure Data Lake Gen2 | `AZURE_STORAGE_ACCOUNT`, `AZDLS_ENDPOINT` |
-| `azfile://share/path` | Azure Files | `AZURE_STORAGE_ACCOUNT`, `AZFILE_ENDPOINT` |
-| `b2://bucket/key` | Backblaze B2 | `BACKBLAZE_APPLICATION_KEY_ID`, `BACKBLAZE_APPLICATION_KEY` |
-| `cos://bucket/key` | Tencent Cloud COS | `TENCENTCLOUD_SECRET_ID`, `TENCENTCLOUD_SECRET_KEY`, `TENCENTCLOUD_REGION` |
-| `obs://bucket/key` | Huawei Cloud OBS | `HUAWEI_ACCESS_KEY_ID`, `HUAWEI_SECRET_ACCESS_KEY`, `HUAWEI_REGION` |
-| `oss://bucket/key` | Alibaba Cloud OSS | `ALIBABA_CLOUD_ACCESS_KEY_ID`, `ALIBABA_CLOUD_ACCESS_KEY_SECRET` |
-| `swift://container/path` | OpenStack Swift | `SWIFT_ENDPOINT`, `SWIFT_TOKEN` |
-| `upyun://bucket/key` | Upyun CDN storage | `UPYUN_OPERATOR`, `UPYUN_PASSWORD` |
-| **Cloud drives** | | |
-| `gdrive://file-id` | Google Drive | OAuth2 / service account (interactive or `GOOGLE_APPLICATION_CREDENTIALS`) |
-| `onedrive://path` | Microsoft OneDrive | `ONEDRIVE_ACCESS_TOKEN` |
-| `dropbox://path` | Dropbox | `DROPBOX_ACCESS_TOKEN` |
-| `aliyun-drive://path` | Aliyun Drive | `ALIYUN_DRIVE_ACCESS_TOKEN` |
-| `yandex-disk://path` | Yandex Disk | `YANDEX_DISK_ACCESS_TOKEN` |
-| `pcloud://path` | pCloud | `PCLOUD_USERNAME`, `PCLOUD_PASSWORD` |
-| `koofr://path` | Koofr | `KOOFR_EMAIL`, `KOOFR_PASSWORD` |
-| `seafile://server/repo/path` | Seafile | `SEAFILE_USERNAME`, `SEAFILE_PASSWORD` |
-| **Developer / ML / infra** | | |
-| `github://owner/repo/path` | GitHub (code forensics) | `GITHUB_TOKEN` |
-| `huggingface://owner/repo/path` | HuggingFace datasets | `HUGGINGFACE_TOKEN` |
-| `vercel-blob://key` | Vercel Blob | `BLOB_READ_WRITE_TOKEN` |
-| `vercel-artifacts://key` | Vercel build cache | `VERCEL_ARTIFACTS_TOKEN` |
-| `ghac://key` | GitHub Actions Cache | auto (CI environment) |
-| `dbfs://path` | Databricks DBFS | `DATABRICKS_HOST`, `DATABRICKS_TOKEN` |
-| **Distributed / big data** | | |
-| `alluxio://host:port/path` | Alluxio data orchestration | — |
-| `webhdfs://namenode:port/path` | WebHDFS REST API | `WEBHDFS_USER` |
-| `hdfs://namenode:port/path` | HDFS native (pure Rust, no JVM) | — |
-| `lakefs://repo/branch/path` | LakeFS data versioning | `LAKEFS_ACCESS_KEY_ID`, `LAKEFS_SECRET_ACCESS_KEY`, `LAKEFS_ENDPOINT` |
-| **Decentralized** | | |
-| `ipfs://CID/path` | IPFS (read-only, content-addressed) | `IPFS_GATEWAY` |
-| `ipmfs:///path` | IPFS Mutable File System | `IPFS_ENDPOINT` |
-| **Network KV / databases** | | |
-| `redis://host:port/key` | Redis | endpoint in URI |
-| `rediss://host:port/key` | Redis over TLS | endpoint in URI |
-| `memcached://host:port/key` | Memcached | — |
-| `etcd://host:port/key` | etcd | — |
-| `tikv://pd-host:port/key` | TiKV distributed KV | — |
-| `mongodb://host/db/collection/key` | MongoDB | credentials in URI |
-| `gridfs://host/db/bucket/key` | MongoDB GridFS | credentials in URI |
-| `mysql://host/db/key` | MySQL / MariaDB | credentials in URI |
-| `postgresql://host/db/key` | PostgreSQL | credentials in URI |
-| `sqlite:///path/to/db.sqlite/key` | SQLite | — |
-| `cloudflare-kv://namespace/key` | Cloudflare KV | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` |
-| `d1://database-id/key` | Cloudflare D1 | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` |
-| **Filesystem / network protocols** | | |
-| `file:///abs/path` | Local filesystem | — |
-| `http://host/path` | HTTP (read-only) | — |
-| `https://host/path` | HTTPS (read-only) | — |
-| `webdav://host/path` | WebDAV | — |
-| `sftp://user@host/path` | SFTP | SSH agent / `RT_SFTP_KEY_PATH`, `RT_SFTP_KNOWN_HOSTS_STRATEGY` |
-| `ftp://user:pass@host/path` | FTP | credentials in URI |
-| `ftps://user:pass@host/path` | FTPS (FTP over TLS) | credentials in URI |
-| `mem://path` | In-process memory (testing) | — |
-
-All backends use [OpenDAL](https://opendal.apache.org/) — the same operator interface regardless of where evidence lives. Read and write are both supported except where noted (HTTP/HTTPS and IPFS are read-only).
+48 URI schemes supported: object storage (S3, GCS, Azure, B2), cloud drives (OneDrive, Dropbox, Google Drive), SFTP, HDFS, IPFS, Redis, PostgreSQL, and more. Same command regardless of backend. [Full reference →](https://securityronin.github.io/rapidtriage/rt_remote_io/)
 
 ---
 
