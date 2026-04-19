@@ -40,9 +40,12 @@ impl RegistryHiveParser {
     /// Return `true` when `path`'s filename matches a known registry hive name
     /// (case-insensitive).
     pub fn can_parse(path: &Path) -> bool {
-        // Stub — always returns false so tests fail (RED).
-        let _ = path;
-        false
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        REGISTRY_HIVE_NAMES.contains(&name.as_str())
     }
 }
 
