@@ -4357,6 +4357,7 @@ dependencies = [
  "assert_cmd",
  "chrono",
  "clap",
+ "csv",
  "duckdb",
  "inventory",
  "mft",
@@ -4516,6 +4517,20 @@ dependencies = [
  "tempfile",
  "tracing",
  "usnjrnl-forensic",
+]
+
+[[package]]
+name = "rt-parser-registry"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "inventory",
+ "notatin",
+ "rt-core",
+ "rt-plugin-sdk",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]
