@@ -1,3 +1,4 @@
+pub mod attack_flow;
 pub mod cluster;
 pub mod engine;
 pub mod skew;
@@ -9,6 +10,12 @@ pub mod rules;
 pub mod sync;
 pub mod warninglist;
 pub mod zeek_intel;
+
+pub use attack_flow::{
+    AttackAction, AttackAsset, AttackFlowBundle, AttackFlowRoot, AttackOperator, FlowEdge,
+    FlowGraph, FlowNode, bundle_to_correlation_rules, bundle_to_flow_graph,
+    extract_bundles_from_zip, parse_attack_flow_bundle,
+};
 
 #[cfg(test)]
 mod tests {
