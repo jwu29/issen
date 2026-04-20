@@ -7,6 +7,9 @@ license = "Apache-2.0"
 description = "Cross-source forensic triage correlation engine for RapidTriage"
 repository.workspace = true
 
+[features]
+remote = []
+
 [dependencies]
 forensic-catalog = { workspace = true }
 anyhow = { workspace = true }
