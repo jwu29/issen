@@ -11,8 +11,14 @@ use std::path::Path;
 pub mod mermaid;
 pub mod misp;
 pub mod pdf;
+pub mod stix_output;
+pub mod afb_output;
+pub mod graphviz;
 pub use pdf::export_pdf;
 pub use misp::{MispEvent, MispAttribute, MispEventId, build_misp_event};
+pub use stix_output::{StixBundle, findings_to_stix_bundle, write_stix_bundle};
+pub use afb_output::{AfbDocument, AfbObject, AfbCamera, auto_layout_dag, findings_to_afb, write_afb};
+pub use graphviz::{render_attack_chain_dot, render_attack_chain_png, render_mermaid_png};
 
 pub use mermaid::{
     render_attack_chain, render_defenses,
