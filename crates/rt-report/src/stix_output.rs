@@ -2,7 +2,10 @@
 
 use std::path::Path;
 
+use chrono::SecondsFormat;
 use rt_correlation::model::Finding;
+use serde_json::json;
+use uuid::Uuid;
 
 /// A STIX 2.1 bundle with Attack Flow SDOs.
 pub struct StixBundle {
@@ -10,18 +13,131 @@ pub struct StixBundle {
     pub objects: Vec<serde_json::Value>,
 }
 
+/// Map a severity string to an Attack Flow confidence value.
+fn severity_to_confidence(severity: &str) -> u64 {
+    match severity.to_ascii_lowercase().as_str() {
+        "critical" => 100,
+        "high" => 75,
+        "medium" => 50,
+        _ => 25,
+    }
+}
+
 /// Convert correlation findings to a STIX 2.1 Attack Flow bundle.
+///
+/// Each `Finding` becomes one `attack-action` SDO.
+#[must_use]
 pub fn findings_to_stix_bundle(
-    _findings: &[Finding],
-    _title: &str,
+    findings: &[Finding],
+    title: &str,
     _author: Option<&str>,
 ) -> StixBundle {
-    todo!("implement findings_to_stix_bundle")
+    let now = chrono::Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
+
+    // Static extension-definition object (always the same).
+    let ext_def = json!({
+        "type": "extension-definition",
+        "id": "extension-definition--fb9c968a-745b-4ade-9b25-c324172197f4",
+        "spec_version": "2.1",
+        "created": "2022-08-02T19:34:35.143Z",
+        "modified": "2022-08-02T19:34:35.143Z",
+        "name": "Attack Flow",
+        "schema": "https://center-for-threat-informed-defense.github.io/attack-flow/schema/attack-flow-schema-2.0.0.json",
+        "version": "2.0.0",
+        "extension_types": ["new-sdo"]
+    });
+
+    // Identity object.
+    let identity_id = format!("identity--{}", Uuid::new_v4());
+    let identity = json!({
+        "type": "identity",
+        "id": identity_id,
+        "spec_version": "2.1",
+        "created": now,
+        "modified": now,
+        "name": "RapidTriage",
+        "identity_class": "system",
+        "contact_information": "https://github.com/SecurityRonin/rapidtriage"
+    });
+
+    // Build one attack-action per finding.
+    let ext_key = "extension-definition--fb9c968a-745b-4ade-9b25-c324172197f4";
+    let mut action_ids: Vec<String> = Vec::new();
+    let mut actions: Vec<serde_json::Value> = Vec::new();
+
+    for finding in findings {
+        let action_id = format!("attack-action--{}", Uuid::new_v4());
+        let description = finding
+            .explanation
+            .as_deref()
+            .or(finding.summary.as_deref())
+            .unwrap_or("");
+        let confidence = severity_to_confidence(&finding.severity);
+
+        actions.push(json!({
+            "type": "attack-action",
+            "id": action_id,
+            "spec_version": "2.1",
+            "created": now,
+            "modified": now,
+            "created_by_ref": identity_id,
+            "name": finding.title,
+            "description": description,
+            "confidence": confidence,
+            "effect_refs": [],
+            "extensions": {
+                ext_key: { "extension_type": "new-sdo" }
+            }
+        }));
+        action_ids.push(action_id);
+    }
+
+    let start_refs: Vec<&str> = action_ids
+        .first()
+        .map(|id| vec![id.as_str()])
+        .unwrap_or_default();
+
+    // Root attack-flow object.
+    let flow_id = format!("attack-flow--{}", Uuid::new_v4());
+    let flow = json!({
+        "type": "attack-flow",
+        "id": flow_id,
+        "spec_version": "2.1",
+        "created": now,
+        "modified": now,
+        "created_by_ref": identity_id,
+        "name": title,
+        "scope": "incident",
+        "start_refs": start_refs,
+        "extensions": {
+            ext_key: { "extension_type": "new-sdo" }
+        }
+    });
+
+    let mut objects = vec![ext_def, identity, flow];
+    objects.extend(actions);
+
+    StixBundle {
+        id: format!("bundle--{}", Uuid::new_v4()),
+        objects,
+    }
 }
 
 /// Serialize the bundle to a JSON file (pretty-printed, 2-space indent).
-pub fn write_stix_bundle(_bundle: &StixBundle, _path: &Path) -> anyhow::Result<()> {
-    todo!("implement write_stix_bundle")
+///
+/// # Errors
+///
+/// Returns an error if serialization or file I/O fails.
+pub fn write_stix_bundle(bundle: &StixBundle, path: &Path) -> anyhow::Result<()> {
+    let doc = json!({
+        "type": "bundle",
+        "id": bundle.id,
+        "spec_version": "2.1",
+        "objects": bundle.objects,
+    });
+    let buf = serde_json::to_string_pretty(&doc)?;
+    std::fs::write(path, buf)?;
+    Ok(())
 }
 
 // ===========================================================================

@@ -1,33 +1,12 @@
 //! Graphviz DOT format generation and PNG rendering for attack chains.
 
+use std::io::Write as IoWrite;
 use std::path::Path;
+use std::process::Command;
 
 use crate::{AttackChainInput, AttackTactic};
 
-/// Generate a Graphviz DOT string from an `AttackChainInput`.
-#[must_use]
-pub fn render_attack_chain_dot(_input: &AttackChainInput) -> String {
-    todo!("implement render_attack_chain_dot")
-}
-
-/// Write DOT to a temp file, then shell out to `dot -Tpng`.
-///
-/// # Errors
-///
-/// Returns `Err` if `dot` is not found or conversion fails.
-pub fn render_attack_chain_png(_input: &AttackChainInput, _output: &Path) -> anyhow::Result<()> {
-    todo!("implement render_attack_chain_png")
-}
-
-/// Generate Mermaid syntax and render via `mmdc`.
-///
-/// # Errors
-///
-/// Returns `Err` if `mmdc` is not found.
-pub fn render_mermaid_png(_mermaid_src: &str, _output: &Path) -> anyhow::Result<()> {
-    todo!("implement render_mermaid_png")
-}
-
+/// Map an `AttackTactic` to a fill colour hex string.
 fn tactic_color(tactic: &AttackTactic) -> &'static str {
     match tactic {
         AttackTactic::InitialAccess => "#1a5276",
@@ -40,6 +19,87 @@ fn tactic_color(tactic: &AttackTactic) -> &'static str {
     }
 }
 
+/// Generate a Graphviz DOT string from an `AttackChainInput`.
+///
+/// Uses `rankdir=LR` (left-to-right), filled boxes, white font, tactic colours.
+#[must_use]
+pub fn render_attack_chain_dot(input: &AttackChainInput) -> String {
+    let mut lines: Vec<String> = vec![
+        "digraph attack_chain {".to_string(),
+        r"  rankdir=LR;".to_string(),
+        "  node [fontname=\"Helvetica\" fontcolor=\"white\" shape=\"box\" style=\"filled\"];".to_string(),
+    ];
+
+    for node in &input.nodes {
+        let color = tactic_color(&node.tactic);
+        let escaped = node.label.replace('"', "\\\"");
+        lines.push(format!(
+            r#"  {} [label="{}" fillcolor="{}"];"#,
+            node.id, escaped, color
+        ));
+    }
+
+    for edge in &input.edges {
+        lines.push(format!("  {} -> {};", edge.from, edge.to));
+    }
+
+    lines.push("}".to_string());
+    lines.join("\n")
+}
+
+/// Write DOT to a temp file, then shell out to `dot -Tpng -o <output>`.
+///
+/// # Errors
+///
+/// Returns `Err` if `dot` is not found or if the conversion fails.
+pub fn render_attack_chain_png(input: &AttackChainInput, output: &Path) -> anyhow::Result<()> {
+    let dot_src = render_attack_chain_dot(input);
+    let mut tmp = tempfile::NamedTempFile::new()?;
+    tmp.write_all(dot_src.as_bytes())?;
+    tmp.flush()?;
+
+    let status = Command::new("dot")
+        .args([
+            "-Tpng",
+            "-o",
+            output.to_str().unwrap_or_default(),
+            tmp.path().to_str().unwrap_or_default(),
+        ])
+        .status()?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(anyhow::anyhow!("dot exited with non-zero status: {status}"))
+    }
+}
+
+/// Generate Mermaid syntax and render via `mmdc -i <input> -o <output>`.
+///
+/// # Errors
+///
+/// Returns `Err` if `mmdc` is not found or conversion fails.
+pub fn render_mermaid_png(mermaid_src: &str, output: &Path) -> anyhow::Result<()> {
+    let mut tmp = tempfile::NamedTempFile::with_suffix(".mmd")?;
+    tmp.write_all(mermaid_src.as_bytes())?;
+    tmp.flush()?;
+
+    let status = Command::new("mmdc")
+        .args([
+            "-i",
+            tmp.path().to_str().unwrap_or_default(),
+            "-o",
+            output.to_str().unwrap_or_default(),
+        ])
+        .status()?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(anyhow::anyhow!("mmdc exited with non-zero status: {status}"))
+    }
+}
+
 // ===========================================================================
 // Tests
 // ===========================================================================
@@ -47,7 +107,7 @@ fn tactic_color(tactic: &AttackTactic) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{AttackChainEdge, AttackChainNode, AttackChainInput, AttackTactic};
+    use crate::{AttackChainEdge, AttackChainInput, AttackChainNode, AttackTactic};
 
     fn two_node_input() -> AttackChainInput {
         AttackChainInput {
