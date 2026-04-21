@@ -59,6 +59,10 @@ rt ingest evidence/ --output case.duckdb --scan
 # Query the timeline
 rt timeline case.duckdb --flagged --min-severity high
 
+# Export timeline as CSV or bodyfile
+rt timeline case.duckdb --format csv
+rt timeline case.duckdb --format bodyfile
+
 # Analyse a physical memory dump (LiME, AVML, crash dump)
 rt memf dump.lime --command all
 
@@ -68,7 +72,7 @@ rt remote-access evidence/
 # Scan files against YARA/Sigma/hash/STIX signatures
 rt scan evidence/ --auto-feeds
 
-# Update threat intel feeds (YARA, Sigma, STIX, Zeek)
+# Update threat intel feeds (YARA, Sigma, STIX, Zeek, Suricata)
 rt feed update
 
 # Generate HTML report from a timeline database
@@ -83,12 +87,17 @@ rt report case.duckdb --output report.html
 |---|---|
 | **Collection formats** | UAC `.tar.gz`, Velociraptor, KAPE triage zip |
 | **Memory formats** | LiME, AVML, WinPMEM, crash dump (DMP), Hibernation (hiberfil.sys) |
-| **Detection types** | YARA rules, Sigma rules, STIX indicators, hash IOCs |
-| **Artifact sources** | EVTX, registry hives, MFT, USN Journal, prefetch, $LogFile |
-| **Network analysis** | Volatility sockstat, pcap, Zeek logs |
+| **Detection types** | YARA rules, Sigma rules, STIX 2.1 indicators, hash IOCs, Suricata rules |
+| **Artifact sources** | EVTX, registry hives, MFT, USN Journal, Prefetch, LNK shortcuts |
+| **Network analysis** | Volatility sockstat, Zeek logs, Suricata EVE, pcap |
 | **Remote evidence** | 48 URI schemes — S3, GCS, Azure, SFTP, HDFS, OneDrive, Google Drive, Redis, PostgreSQL, IPFS, and more ([full list →](https://securityronin.github.io/rapidtriage/)) |
-| **Output formats** | Terminal (colour-coded), JSON, HTML report, DuckDB timeline, bodyfile |
+| **Output formats** | Terminal (colour-coded), JSON, HTML report, PDF, STIX 2.1 Attack Flow, AFB (Attack Flow Builder), DOT/PNG (Graphviz), Mermaid, CSV, bodyfile, DuckDB timeline |
 | **RAT detection** | LOLRMM rule set (400+ tools) |
+| **Attack Flow ingestion** | CTID Attack Flow v3.0.0 corpus — parse STIX bundles → correlation rules via BFS DAG traversal |
+| **Attack Flow output** | STIX 2.1 bundle, `.afb` (Attack Flow Builder), Mermaid `flowchart LR`, PNG (via Graphviz or mmdc) |
+| **VSS awareness** | Enumerates Volume Shadow Copies in evidence trees; `is_vss_path` guard prevents double-counting |
+| **Time-skew detection** | Flags timestamp divergence > 5 min across sources for the same artifact — anti-forensics signal |
+| **Event clustering** | Groups evidence by PID, user, or path for focused correlation queries |
 
 ---
 
@@ -102,14 +111,14 @@ rt-cli                      # The rt binary — commands and arg parsing
 rt-core                     # Shared types, plugin traits, error types
 rt-plugin-sdk               # Compile-time parser registration via inventory
 rt-timeline                 # DuckDB (primary) + SQLite export timeline store
-rt-fswalker                 # Parallel filesystem walk via rayon, SHA-256 integrity
+rt-fswalker                 # Parallel filesystem walk via rayon; SHA-256 integrity; VSS awareness
 rt-unpack                   # Collection format detection (UAC tar.gz, Velociraptor, KAPE)
 rt-remote-io                # Remote storage I/O — 48 URI schemes via OpenDAL (S3, GCS, Azure, SFTP, HDFS, GDrive, …)
-rt-signatures               # YARA-X, Tau-Engine, Hash/Network/STIX IOCs, feed sync
-rt-correlation              # Pivot engine: YAML rules, zeek-intel
+rt-signatures               # YARA-X, Sigma/Tau-Engine, Hash/Network/STIX/Suricata IOCs, feed sync
+rt-correlation              # Pivot engine: YAML rules, Attack Flow STIX ingestion, zeek-intel, time-skew, clustering
 rt-remote-access            # LOLRMM 400+ tool definitions, RMM/RAT detection
 rt-mem                      # Memory forensics bridge (memf-* sibling workspace)
-rt-report                   # Self-contained HTML report with Mermaid attack chains
+rt-report                   # HTML/PDF/STIX/AFB/Mermaid/DOT+PNG report generation
 rt-mft-tree                 # MFT heuristic analysis
 rt-navigator                # Interactive TUI navigation
 rt-shrinkpath               # Path abbreviation utilities
@@ -118,6 +127,10 @@ rt-parser-mft               # NTFS MFT + USN Journal parser
 rt-parser-evtx              # Windows Event Log parser
 rt-parser-uac               # UAC collection format parser
 rt-parser-velociraptor      # Velociraptor collection parser
+rt-parser-usnjrnl           # USN Journal parser
+rt-parser-registry          # Windows registry hive parser (notatin)
+rt-parser-prefetch          # Windows Prefetch parser
+rt-parser-lnk               # LNK shortcut / Jump List parser
 xtask                       # Build automation
 ```
 
@@ -137,30 +150,38 @@ A Correlation Rule looks like this:
 id: correlation.miner.rootkit-concealment
 severity: critical
 description: Rootkit concealing cryptominer activity via LD_PRELOAD
+within_seconds: 300
+references:
+  - https://redcanary.com/threat-detection-report/trends/linux-coinminers/
 clauses:
-  - source: uac.ld_preload
-    field: library_path
-    match: "lib*.so.*"
-  - source: memory.process_threads
-    field: thread_name
-    match: "libuv-worker"
-  - source: network.connections
-    field: dest_port
-    match: 3333            # Stratum mining protocol
-logic: all
-emit:
-  finding: "Rootkit concealed miner activity"
-  evidence: [library_path, pid, thread_name, src_addr, dest_addr]
+  - source: artifact
+    required_tag: rootkit_indicator
+  - source: memory
+    required_tag: miner_thread
+  - source: memory
+    required_tag: mining_pool
 ```
 
 Rules are YAML files in `~/.config/rapidtriage/rules/`. Ship your own. Share with your team.
+
+The bundled rule set ships with rules covering miners, rootkits, SSH tunnels, LD_PRELOAD persistence, hidden processes, and LOLRMM RATs. Custom rules compose with the built-ins — one `rt analyse` call evaluates all of them.
+
+### Attack Flow STIX ingestion
+
+The correlation engine also ingests CTID Attack Flow v3.0.0 corpus bundles (STIX 2.1 JSON). Each bundle is parsed into an `AttackFlowBundle` and converted to a `CorrelationRule` via BFS traversal of the `effect_refs` DAG. Every `attack-action` with a `technique_id` becomes a rule clause with `required_tag: "technique:<ID>"`. The bundled corpus is downloaded with `rt feed update`.
+
+```bash
+# Fetch and index the Attack Flow corpus
+rt feed update
+
+# The engine will evaluate Attack Flow rules alongside your YAML rules
+rt analyse collection.tar.gz
+```
 
 <details>
 <summary>Why YAML rules and not hard-coded detections?</summary>
 
 Hard-coded detections age badly. Threat actors change port numbers, rename binaries, and swap libraries. YAML rules are versionable, shareable, and reviewable in a pull request. The correlation engine is stable; the rules are data.
-
-The built-in rule set covers the most common patterns (miners, rootkits, SSH tunnels, LOLRMM RATs). Your custom rules compose with the built-ins — one `rt analyse` call evaluates all of them.
 
 </details>
 
@@ -185,60 +206,60 @@ $ rt analyse collection-WIN10-CORP-20260401.zip
   Parsed 48 EVTX logs (312,406 events) in 1.8s
   Parsed 4 registry hives in 0.4s
 
-┌─ PERSISTENCE ───────────────────────────────────────────
-│
-│  [SERVICE] AnyDeskMaint
-│    Binary  : C:\ProgramData\Temp\Support\anydesk.exe --service
-│    Start   : Auto (SERVICE_AUTO_START)
-│    Account : LocalSystem
-│    Created : 2026-03-28T09:14:22Z
-│
-│  [REG RUN KEY] HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run
-│    Name    : AnyDeskUpdate
-│    Value   : "C:\ProgramData\Temp\Support\anydesk.exe" --start-with-win
-│    Modified: 2026-03-28T09:14:38Z
++- PERSISTENCE ───────────────────────────────────────────
+|
+|  [SERVICE] AnyDeskMaint
+|    Binary  : C:\ProgramData\Temp\Support\anydesk.exe --service
+|    Start   : Auto (SERVICE_AUTO_START)
+|    Account : LocalSystem
+|    Created : 2026-03-28T09:14:22Z
+|
+|  [REG RUN KEY] HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run
+|    Name    : AnyDeskUpdate
+|    Value   : "C:\ProgramData\Temp\Support\anydesk.exe" --start-with-win
+|    Modified: 2026-03-28T09:14:38Z
 
-┌─ REMOTE ACCESS ─────────────────────────────────────────
-│
-│  [LOLRMM] AnyDesk (relocated binary)
-│    Path    : C:\ProgramData\Temp\Support\anydesk.exe
-│    SHA256  : a1b2c3d4e5f60718293a4b5c6d7e8f90aabbccdd11223344556677889900eeff
-│    Size    : 5,389,312 bytes
-│    Signed  : philandro Software GmbH (valid, not revoked)
-│    Config  : ad.router.custom_id = "corp-maint-04"
-│
-│  [C2 CONNECTION]
-│    Dest IP : 194.36.28.117:7070
-│    First   : 2026-03-28T09:17:03Z
-│    Last    : 2026-04-01T13:58:41Z
-│    Note    : IP not in AnyDesk relay network (AS 208323 / BL Networks, RU)
++- REMOTE ACCESS ─────────────────────────────────────────
+|
+|  [LOLRMM] AnyDesk (relocated binary)
+|    Path    : C:\ProgramData\Temp\Support\anydesk.exe
+|    SHA256  : a1b2c3d4e5f60718293a4b5c6d7e8f90aabbccdd11223344556677889900eeff
+|    Size    : 5,389,312 bytes
+|    Signed  : philandro Software GmbH (valid, not revoked)
+|    Config  : ad.router.custom_id = "corp-maint-04"
+|
+|  [C2 CONNECTION]
+|    Dest IP : 194.36.28.117:7070
+|    First   : 2026-03-28T09:17:03Z
+|    Last    : 2026-04-01T13:58:41Z
+|    Note    : IP not in AnyDesk relay network (AS 208323 / BL Networks, RU)
 
-┌─ TIMELINE ──────────────────────────────────────────────
-│
-│  2026-03-28T09:12:55Z  [EVTX Security 4624]  Logon Type 3 — CORP\svc_backup
-│                         from 10.20.5.44 (WIN-RUNBOOK)
-│  2026-03-28T09:14:18Z  [MFT]  File created: C:\ProgramData\Temp\Support\anydesk.exe
-│                         Parent created at same time — directory is new
-│  2026-03-28T09:14:22Z  [EVTX System 7045]   Service installed: AnyDeskMaint
-│                         ImagePath: C:\ProgramData\Temp\Support\anydesk.exe --service
-│                         Account: LocalSystem | Type: user mode (0x10)
-│  2026-03-28T09:17:03Z  [EVTX Security 5156] Outbound TCP — anydesk.exe (PID 6284)
-│                         → 194.36.28.117:7070
++- TIMELINE ──────────────────────────────────────────────
+|
+|  2026-03-28T09:12:55Z  [EVTX Security 4624]  Logon Type 3 — CORP\svc_backup
+|                         from 10.20.5.44 (WIN-RUNBOOK)
+|  2026-03-28T09:14:18Z  [MFT]  File created: C:\ProgramData\Temp\Support\anydesk.exe
+|                         Parent created at same time — directory is new
+|  2026-03-28T09:14:22Z  [EVTX System 7045]   Service installed: AnyDeskMaint
+|                         ImagePath: C:\ProgramData\Temp\Support\anydesk.exe --service
+|                         Account: LocalSystem | Type: user mode (0x10)
+|  2026-03-28T09:17:03Z  [EVTX Security 5156] Outbound TCP — anydesk.exe (PID 6284)
+|                         → 194.36.28.117:7070
 
-┌─ CORRELATION FINDINGS ──────────────────────────────────
-│
-│  [CRITICAL] LOLRMM with non-vendor C2 infrastructure
-│    Rule    : remote-access.lolrmm.custom-c2
-│    Evidence: AnyDesk outside vendor path (C:\ProgramData\Temp\Support\)
-│              Outbound → 194.36.28.117 (AS 208323, not AnyDesk relay ASN)
-│              MFT entry + EVTX 7045 + EVTX 5156 + Registry Run key
-│    MITRE   : T1219, T1543.003
-│
-│  [HIGH] Lateral movement via service account
-│    Rule    : lateral-movement.service-account.file-drop
-│    Evidence: Type 3 logon CORP\svc_backup from 10.20.5.44 (WIN-RUNBOOK)
-│              File drop + service install within 120s of logon
-│    MITRE   : T1021.002
++- CORRELATION FINDINGS ──────────────────────────────────
+|
+|  [CRITICAL] LOLRMM with non-vendor C2 infrastructure
+|    Rule    : remote-access.lolrmm.custom-c2
+|    Evidence: AnyDesk outside vendor path (C:\ProgramData\Temp\Support\)
+|              Outbound → 194.36.28.117 (AS 208323, not AnyDesk relay ASN)
+|              MFT entry + EVTX 7045 + EVTX 5156 + Registry Run key
+|    MITRE   : T1219, T1543.003
+|
+|  [HIGH] Lateral movement via service account
+|    Rule    : lateral-movement.service-account.file-drop
+|    Evidence: Type 3 logon CORP\svc_backup from 10.20.5.44 (WIN-RUNBOOK)
+|              File drop + service install within 120s of logon
+|    MITRE   : T1021.002
 
   2 findings | 1 critical, 1 high | 4 artifact sources correlated
 ```
@@ -285,4 +306,3 @@ cargo test --workspace
 All crates follow strict TDD — write failing tests first, then the implementation.
 
 ---
-

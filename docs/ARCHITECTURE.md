@@ -1,6 +1,6 @@
 # Architecture
 
-> **Interactive diagram:** [architecture-diagram.html](architecture-diagram.html) — full system map with all 24 crates, cloud backends, detection engines, and data flow.
+> **Interactive diagram:** [architecture-diagram.html](architecture-diagram.html) — full system map with all 25 crates, cloud backends, detection engines, and data flow.
 
 This document describes RapidTriage's architecture using progressive disclosure. Start with the overview, then drill into subsystems as needed.
 
@@ -16,7 +16,7 @@ flowchart LR
     Sigs["rt-signatures\nThreat Intel"]
     RA["rt-remote-access\nRemote Access"]
     Corr["rt-correlation\nPivot Engine"]
-    Report["rt-report\nHTML Output"]
+    Report["rt-report\nOutput Formats"]
     CLI["rt-cli"]
 
     CLI --> Ingest
@@ -36,7 +36,7 @@ The CLI (`rt`) is the entry point. It dispatches to four subsystems: the ingesti
 
 ## Workspace Structure
 
-20 crates in a Cargo workspace, organized by responsibility:
+25 crates in a Cargo workspace, organized by responsibility:
 
 ```mermaid
 graph TD
@@ -75,6 +75,10 @@ graph TD
         rt-parser-evtx
         rt-parser-uac
         rt-parser-velociraptor
+        rt-parser-usnjrnl
+        rt-parser-registry
+        rt-parser-prefetch
+        rt-parser-lnk
     end
 
     subgraph Foundation["Foundation"]
@@ -113,6 +117,14 @@ graph TD
     rt-parser-uac --> rt-plugin-sdk
     rt-parser-velociraptor --> rt-core
     rt-parser-velociraptor --> rt-plugin-sdk
+    rt-parser-usnjrnl --> rt-core
+    rt-parser-usnjrnl --> rt-plugin-sdk
+    rt-parser-registry --> rt-core
+    rt-parser-registry --> rt-plugin-sdk
+    rt-parser-prefetch --> rt-core
+    rt-parser-prefetch --> rt-plugin-sdk
+    rt-parser-lnk --> rt-core
+    rt-parser-lnk --> rt-plugin-sdk
     rt-unpack --> rt-ewf
 ```
 
@@ -126,21 +138,25 @@ graph TD
 | `rt-plugin-sdk` | Foundation | Parser plugin registration via `inventory` crate. Parsers register themselves at compile time |
 | `rt-ewf` | Foundation | Expert Witness Format (E01) forensic image reading |
 | `rt-shrinkpath` | Foundation | Path abbreviation utilities |
-| `rt-timeline` | Storage | DuckDB columnar timeline store. Insert events, query by time/type/source, export to SQLite |
+| `rt-timeline` | Storage | DuckDB columnar timeline store. Insert events, query by time/type/source, export to SQLite, CSV, and bodyfile |
 | `rt-unpack` | Pipeline | Collection format detection and unpacking (UAC tar.gz, Velociraptor, KAPE) |
-| `rt-fswalker` | Pipeline | Parallel filesystem walk via rayon; SHA-256 integrity hashing; dispatches parsers via plugin SDK |
-| `rt-report` | Pipeline | Self-contained HTML report generation from timeline data, including Mermaid attack chain diagrams |
+| `rt-fswalker` | Pipeline | Parallel filesystem walk via rayon; SHA-256 integrity hashing; VSS/shadow-copy awareness; dispatches parsers via plugin SDK |
+| `rt-report` | Pipeline | HTML, PDF, STIX 2.1 Attack Flow, AFB, Mermaid, and DOT/PNG report generation from timeline data |
 | `rt-navigator` | Pipeline | Interactive TUI navigation for timeline and findings |
 | `rt-mft-tree` | Pipeline | MFT heuristic analysis |
-| `rt-remote-io` | Remote I/O | Remote storage I/O via OpenDAL 0.55: S3, GCS, Azure Blob, WebDAV, HTTP, Google Drive (OAuth2) |
+| `rt-remote-io` | Remote I/O | Remote storage I/O via OpenDAL 0.55: 48 URI schemes including S3, GCS, Azure Blob, WebDAV, SFTP, HDFS, Google Drive (OAuth2) |
 | `rt-mem` | Memory | Memory forensics bridge into the memf-* sibling workspace |
 | `rt-signatures` | Assessment | Six detection engines (YARA-X, Sigma/Tau-Engine, Hash IOC, Network IOC, STIX, Suricata) + feed infrastructure |
 | `rt-remote-access` | Assessment | Remote access detection: LOLRMM rule engine (400+ tools) + 7 category scanners + DuckDB findings store |
-| `rt-correlation` | Assessment | Pivot engine: YAML correlation rules, zeek-intel, cross-source evidence joining |
+| `rt-correlation` | Assessment | Pivot engine: YAML correlation rules, Attack Flow STIX ingestion, time-skew detection, event clustering, zeek-intel |
 | `rt-parser-mft` | Parsers | NTFS MFT + USN Journal parser. Registers via `inventory::submit!` |
 | `rt-parser-evtx` | Parsers | Windows Event Log (EVTX) parser. Registers via `inventory::submit!` |
-| `rt-parser-uac` | Parsers | UAC collection format parser. Registers via `inventory::submit!` |
+| `rt-parser-uac` | Parsers | UAC collection format parser; hidden-PID detection, sockstat analysis. Registers via `inventory::submit!` |
 | `rt-parser-velociraptor` | Parsers | Velociraptor collection parser. Registers via `inventory::submit!` |
+| `rt-parser-usnjrnl` | Parsers | Windows USN Change Journal parser. Registers via `inventory::submit!` |
+| `rt-parser-registry` | Parsers | Windows registry hive parser (notatin). Run keys, services, shimcache, amcache. Registers via `inventory::submit!` |
+| `rt-parser-prefetch` | Parsers | Windows Prefetch (`.pf`) file parser — execution evidence. Registers via `inventory::submit!` |
+| `rt-parser-lnk` | Parsers | LNK shortcut and Jump List parser — lateral movement evidence. Registers via `inventory::submit!` |
 | `rt-cli` | CLI | Command-line interface. Parses args, dispatches to subsystems, formats output |
 | `xtask` | Build | Build automation tasks |
 
@@ -159,6 +175,10 @@ flowchart TD
     EVTX["rt-parser-evtx\nEvent Log"]
     UAC["rt-parser-uac\nUAC Format"]
     Veloci["rt-parser-velociraptor\nVelociraptor"]
+    USN["rt-parser-usnjrnl\nUSN Journal"]
+    Reg["rt-parser-registry\nRegistry Hives"]
+    PF["rt-parser-prefetch\nPrefetch"]
+    LNK["rt-parser-lnk\nLNK / Jump Lists"]
     TL["rt-timeline\nDuckDB Insert"]
 
     Input --> Unpack
@@ -167,11 +187,23 @@ flowchart TD
     Walk --> EVTX
     Walk --> UAC
     Walk --> Veloci
+    Walk --> USN
+    Walk --> Reg
+    Walk --> PF
+    Walk --> LNK
     MFT --> TL
     EVTX --> TL
     UAC --> TL
     Veloci --> TL
+    USN --> TL
+    Reg --> TL
+    PF --> TL
+    LNK --> TL
 ```
+
+### VSS / Shadow Copy Awareness
+
+`rt-fswalker` enumerates VSS snapshots in the evidence root using `list_vss_volumes`. Each discovered snapshot directory (Windows-style `HarddiskVolumeShadowCopy*`, Unix-style `vss/*/` or `shadow/*/`, and test-friendly `snapshot_*` / `shadow_*` / `vsc_*` prefixes) is walked independently. The `is_vss_path` guard prevents the same file from being double-counted if evidence already includes a mounted VSS path.
 
 ### Plugin System
 
@@ -191,7 +223,7 @@ for plugin in inventory::iter::<ParserPlugin> {
 }
 ```
 
-Adding a new parser means creating a new crate, implementing the trait, and linking it — no changes to the pipeline.
+Adding a new parser means creating a new crate, implementing the trait, and linking it — no changes to the pipeline, timeline, or CLI are required.
 
 ### Timeline Schema
 
@@ -207,7 +239,7 @@ All parsed events become `TimelineEvent` records in DuckDB:
 | `evidence_source` | `VARCHAR` | Case/host identifier |
 | `metadata` | `VARCHAR` (JSON) | Artifact-specific structured data |
 
-DuckDB's columnar storage makes time-range and type-filtered queries fast, even with millions of events.
+DuckDB's columnar storage makes time-range and type-filtered queries fast, even with millions of events. The `rt timeline` command supports `--format text`, `--format json`, `--format csv`, and `--format bodyfile` export.
 
 ---
 
@@ -275,6 +307,73 @@ flowchart LR
 
 Conditional HTTP requests (ETag / If-None-Match) avoid re-downloading unchanged feeds. Each feed has a format parser that extracts indicators into the appropriate engine.
 
+**Built-in `FeedSpec` registry** includes:
+- `sigmahq/sigma` — SigmaHQ rule archive (GitArchive)
+- `neo23x0/signature-base` — YARA rules (GitArchive)
+- `et/open` — Emerging Threats Suricata rules (SuricataUpdate)
+- `zeek/packages` — Zeek intel packages (GitArchive)
+- CTID Attack Flow v3.0.0 corpus — fetched with `download_attack_flow_corpus_zip` (`remote` feature)
+
+---
+
+## Correlation Engine
+
+`rt-correlation` contains the Pivot engine, Attack Flow ingestion, time-skew detection, and event clustering.
+
+### YAML Correlation Rules
+
+Rules are YAML files with `id`, `severity`, `within_seconds`, and `clauses`. Each clause specifies a `source` (artifact, memory, zeek, sigma, …) and either a `required_tag` or `attr_predicates` (key=value matches on evidence attributes). The engine evaluates all clauses against the evidence pool and emits a `Finding` when all clauses are satisfied within the time window.
+
+```mermaid
+flowchart LR
+    Rules["YAML rules\n(bundled + custom)"]
+    Evidence["Evidence pool\n(tagged + attributed)"]
+    Engine["CorrelationEngine\n.evaluate()"]
+    Findings["Finding\n{rule_id, severity, evidence_ids}"]
+
+    Rules --> Engine
+    Evidence --> Engine
+    Engine --> Findings
+```
+
+Bundled rules include:
+- `correlation.miner.rootkit-concealment`
+- `correlation.miner.ssh-stratum-tunnel`
+- `correlation.network.ssh-tunnel-stratum`
+- `correlation.persistence.ld-preload`
+- `correlation.process.hidden-no-memory`
+
+Custom rules in `~/.config/rapidtriage/rules/` merge with bundled rules by ID (duplicates are deduplicated).
+
+### Attack Flow STIX Ingestion
+
+`rt-correlation::attack_flow` parses CTID Attack Flow v3.0.0 STIX 2.1 bundles into `AttackFlowBundle` structs and converts them to `CorrelationRule` objects.
+
+**Public API:**
+
+| Function | Description |
+|----------|-------------|
+| `parse_attack_flow_bundle(json)` | Parse a STIX 2.1 bundle JSON string into `AttackFlowBundle`. Ignores identity, extension-definition, relationship, and other standard STIX objects. |
+| `bundle_to_correlation_rules(bundle)` | BFS DAG traversal over `effect_refs` from `start_refs`. Each `attack-action` with a `technique_id` becomes a `RuleClause` with `required_tag: "technique:<ID>"`. Returns one `CorrelationRule` per bundle. |
+| `bundle_to_flow_graph(bundle)` | Converts actions to `FlowNode`s and `effect_refs` to `FlowEdge`s for Mermaid rendering. Node IDs are short Excel-column-style strings (A, B, … Z, AA, …). Operators are pass-through (not rendered as nodes). |
+| `extract_bundles_from_zip(zip_path)` | Scans a zip archive for STIX 2.1 JSON files containing attack-flow objects. Skips schema files and non-STIX JSON. |
+| `download_attack_flow_corpus_zip(cache_dir)` | Downloads the CTID v3.0.0 corpus zip from GitHub. Requires the `remote` feature. |
+
+**BFS conversion detail:** `bundle_to_correlation_rules` builds a `HashMap<id, AttackAction>` and `HashMap<id, AttackOperator>`. It starts BFS from `flow.start_refs` (or from actions not referenced by any other action's `effect_refs` if there is no flow root). Operators are pass-through nodes: when BFS reaches an operator, its `effect_refs` are enqueued without producing a clause. The resulting clauses preserve the BFS order of the attack chain.
+
+### Time-Skew Detection
+
+`rt-correlation::skew::detect_time_skew` groups `Evidence` items by their `path` attribute (falling back to `id`), then compares all pairs from different sources. When `|Δt| > threshold_secs` (default 300s), a `SkewFinding` is emitted. This is an anti-forensics signal: legitimate timestamps for the same artifact should agree across MFT, USN Journal, and Event Log.
+
+### Event Clustering
+
+`rt-correlation::cluster::cluster_events` groups `Evidence` items by:
+- `ClusterKey::ByPid` — groups by `SubjectRef::Process(pid)`
+- `ClusterKey::ByUser` — groups by `attrs["user"]`
+- `ClusterKey::ByPath` — groups by `attrs["path"]`
+
+Events without the requested attribute fall into the sentinel bucket `"__unknown__"`.
+
 ---
 
 ## Remote Access Detection
@@ -336,59 +435,30 @@ pub trait ArtifactProvider: Send + Sync {
 }
 ```
 
-**Graceful degradation:** Every method has a default implementation returning empty results. If the evidence lacks Event Logs, event-based scanners silently skip rather than error. The `capabilities()` method reports what data is available, and the evaluator checks capabilities before attempting queries.
-
-**CompositeArtifactProvider** aggregates specialized sub-providers (registry, filesystem, event log) into a single provider, delegating calls based on capability.
-
-### Detection Flow
-
-**Rule engine** (Phase 1): LOLRMM YAML definitions describe what artifacts each RMM tool leaves behind (registry keys, file paths, services, event log entries). These are compiled into `DetectionRule` structs with `DetectionCondition` variants:
-
-```
-LOLRMM YAML ──> compile_lolrmm() ──> DetectionRule {
-    conditions: [
-        RegistryKeyExists("HKLM\\SOFTWARE\\AnyDesk"),
-        FilePathExists("C:\\Program Files\\AnyDesk\\*"),
-        ServiceName("AnyDesk"),
-        EventLogSource("AnyDesk"),
-    ]
-}
-```
-
-The evaluator tests each condition against the provider, producing a `Finding` with raw artifact hits when any condition matches.
-
-**Category scanners** (Phase 2): For detection that requires correlation or behavioral analysis (e.g., "RDP is enabled AND NLA is disabled AND firewall allows 3389"), dedicated scanner modules implement the `CategoryScanner` trait.
-
-### Findings Storage
-
-Findings are stored in a DuckDB `findings` table and cross-referenced into the timeline as `Assessment` events:
-
-```mermaid
-flowchart LR
-    Finding["Finding\n{tool, category, artifacts}"]
-    FTable["findings table\n(DuckDB)"]
-    XRef["Cross-reference\nevent"]
-    Timeline["Timeline\n(chronological view)"]
-
-    Finding --> FTable
-    Finding --> XRef
-    XRef --> Timeline
-```
-
-This gives analysts two views: the findings table for assessment-oriented queries ("what remote access tools were found?") and the timeline for chronological context ("when did AnyDesk first appear relative to the intrusion?").
+**Graceful degradation:** Every method has a default implementation returning empty results. If the evidence lacks Event Logs, event-based scanners silently skip rather than error.
 
 ---
 
 ## Report Generation
 
-`rt-report` generates self-contained HTML reports from a DuckDB timeline database. Reports include:
+`rt-report` generates multiple output formats from correlation findings and timeline data.
 
-- Case metadata (case ID, examiner, generation timestamp)
-- Event timeline with filtering and sorting
-- Signature findings summary
-- Evidence source breakdown
+### Output Formats
 
-Reports are single HTML files with embedded CSS — no external dependencies, suitable for email attachment or upload to case management systems.
+| Format | Function | Description |
+|--------|----------|-------------|
+| HTML | `generate_report()` | Self-contained HTML with embedded CSS. No external dependencies. Includes Mermaid attack chain diagrams. |
+| PDF | `export_pdf(html, path)` | Strips HTML to plain text, writes a PDF via `printpdf` using the built-in Helvetica font. No external binaries required. |
+| STIX 2.1 | `findings_to_stix_bundle(findings, title, author)` + `write_stix_bundle(bundle, path)` | Each `Finding` becomes one `attack-action` SDO. Severity maps to STIX confidence (critical→100, high→75, medium→50). |
+| AFB | `findings_to_afb(findings, title)` + `write_afb(doc, path)` | Attack Flow Builder `.afb` JSON. Applies BFS-layered auto-layout: `x = layer × 300px`, `y` centred per layer. |
+| Mermaid | `render_attack_chain(input)` | Color-coded `flowchart LR` by `AttackTactic`. Tactic CSS classes: `initial`, `exec`, `persist`, `evasion`, `c2`, `impact`, `unknown`. |
+| Mermaid | `render_defenses(input)` | `flowchart TD` with PREVENT / DETECT / HUNT / GAPS subgraphs. Empty categories are omitted. |
+| DOT | `render_attack_chain_dot(input)` | Graphviz DOT format (`rankdir=LR`, filled boxes, tactic fill colours). |
+| PNG (Graphviz) | `render_attack_chain_png(input, path)` | Shells out to `dot -Tpng`. Requires Graphviz installed separately. |
+| PNG (Mermaid) | `render_mermaid_png(mermaid_src, path)` | Shells out to `mmdc -i input -o output`. Requires mermaid-cli installed separately. |
+| MISP | `build_misp_event(title, findings)` + `push_to_misp(event, base_url, key)` | Each finding string becomes a MISP attribute. `push_to_misp` POSTs to `{base_url}/events` with `Authorization` header. Requires `remote` feature. |
+
+**System dependencies for PNG output:** `dot` (Graphviz) for `render_attack_chain_png`; `mmdc` (mermaid-cli / `@mermaid-js/mermaid-cli`) for `render_mermaid_png`. If neither is installed, the DOT/Mermaid source string outputs are available without external tools.
 
 ---
 
@@ -405,11 +475,12 @@ sequenceDiagram
     participant Timeline as rt-timeline (DuckDB)
     participant Sigs as rt-signatures
     participant RA as rt-remote-access
+    participant Corr as rt-correlation
     participant Report as rt-report
 
     User->>CLI: rt ingest /evidence -o case.duckdb --scan
     CLI->>Unpack: detect + unpack collection format
-    Unpack->>Walker: walk unpacked evidence tree
+    Unpack->>Walker: walk unpacked evidence tree (VSS-aware)
     Walker->>Walker: Discover parseable files (parallel via rayon)
     Walker->>Timeline: Insert TimelineEvents
     CLI->>Sigs: scan(timeline_events, engines)
@@ -457,18 +528,22 @@ sequenceDiagram
 | `duckdb` | 1.x (bundled) | Columnar timeline storage, analytical queries |
 | `yara-x` | 0.12 | YARA rule compilation and file scanning |
 | `tau-engine` | 1.0 | Sigma rule evaluation |
-| `opendal` | 0.55 | Remote storage abstraction (S3, GCS, Azure Blob, WebDAV, GDrive) |
+| `opendal` | 0.55 | Remote storage abstraction (S3, GCS, Azure Blob, WebDAV, GDrive, SFTP, HDFS) |
 | `notatin` | 1.0 | Windows registry hive parsing |
 | `evtx` | 0.11 | Windows Event Log parsing |
 | `mft` | 0.6 | NTFS Master File Table parsing |
+| `printpdf` | 0.7 | PDF generation (built-in fonts, no external tools) |
 | `ewf` | 0.1 | Expert Witness Format (E01) image support |
 | `inventory` | 0.3 | Compile-time parser plugin registration |
 | `clap` | 4.x | CLI argument parsing |
 | `rayon` | 1.x | Parallel parser dispatch |
 | `ratatui` | 0.29 | TUI framework for rt-navigator |
 | `reqwest` | 0.12 | HTTP feed downloads (rustls-tls) |
-| `serde` / `serde_yaml` | 1.x / 0.9 | LOLRMM YAML deserialization |
+| `serde` / `serde_yaml` | 1.x / 0.9 | LOLRMM YAML deserialization, rule loading |
+| `serde_json` | 1.x | STIX/AFB/MISP JSON serialization |
+| `uuid` | 1.x | STIX object ID generation |
 | `tracing` | 0.1 | Structured logging and diagnostics |
+| `zip` | 2.x | Attack Flow corpus zip extraction |
 
 ---
 
@@ -484,9 +559,15 @@ cargo test --workspace
 # Single crate
 cargo test -p rt-remote-access
 cargo test -p rt-signatures
+cargo test -p rt-correlation
+cargo test -p rt-report
 
 # Lints
 cargo clippy --workspace --lib --bins
 ```
 
 Minimum Rust version: 1.80. C compiler required for bundled DuckDB.
+
+**Optional system dependencies** (not required for the build, only for PNG output):
+- `dot` (Graphviz) — `render_attack_chain_png`
+- `mmdc` (`@mermaid-js/mermaid-cli`) — `render_mermaid_png`
