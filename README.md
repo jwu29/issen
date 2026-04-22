@@ -287,6 +287,3 @@ rt ingest --source gdrive://1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms
 
 ---
 
----
-
-[Contributing](CONTRIBUTING.md) · [Privacy Policy](https://securityronin.github.io/rapidtriage/privacy/) · © 2026 Security Ronin Ltd
