@@ -35,8 +35,7 @@ impl LinuxAuthLogParser {
     pub fn can_parse(path: &Path) -> bool {
         path.file_name()
             .and_then(|n| n.to_str())
-            .map(|n| n == "auth.log" || n.starts_with("auth.log."))
-            .unwrap_or(false)
+            .is_some_and(|n| n == "auth.log" || n.starts_with("auth.log."))
     }
 }
 
@@ -80,8 +79,7 @@ impl LinuxSyslogParser {
     pub fn can_parse(path: &Path) -> bool {
         path.file_name()
             .and_then(|n| n.to_str())
-            .map(|n| n == "syslog" || n.starts_with("syslog."))
-            .unwrap_or(false)
+            .is_some_and(|n| n == "syslog" || n.starts_with("syslog."))
     }
 }
 
@@ -125,8 +123,7 @@ impl LinuxCronParser {
     pub fn can_parse(path: &Path) -> bool {
         path.file_name()
             .and_then(|n| n.to_str())
-            .map(|n| n == "cron.log" || n == "cron" || n.starts_with("cron."))
-            .unwrap_or(false)
+            .is_some_and(|n| n == "cron.log" || n == "cron" || n.starts_with("cron."))
     }
 }
 
@@ -170,8 +167,7 @@ impl LinuxBashHistoryParser {
     pub fn can_parse(path: &Path) -> bool {
         path.file_name()
             .and_then(|n| n.to_str())
-            .map(|n| n == ".bash_history" || n == "bash_history")
-            .unwrap_or(false)
+            .is_some_and(|n| n == ".bash_history" || n == "bash_history")
     }
 }
 
