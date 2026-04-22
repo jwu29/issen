@@ -287,22 +287,6 @@ rt ingest --source gdrive://1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms
 
 ---
 
-## Contributing
-
-PRs welcome. The most valuable contributions right now:
-
-- New Correlation Rules (add to `crates/rt-correlation/rules/`)
-- Additional artifact parsers (implement the `rt-plugin-sdk` trait)
-- Platform-specific memory analysis improvements
-
-Please open an issue before large changes so we can align on approach.
-
-```bash
-git clone https://github.com/SecurityRonin/rapidtriage
-cd rapidtriage
-cargo test --workspace
-```
-
-All crates follow strict TDD — write failing tests first, then the implementation.
-
 ---
+
+[Contributing](CONTRIBUTING.md) · [Privacy Policy](https://securityronin.github.io/rapidtriage/privacy/) · © 2026 Security Ronin Ltd
