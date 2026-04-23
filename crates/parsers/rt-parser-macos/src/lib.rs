@@ -30,8 +30,18 @@ pub struct MacosUnifiedLogParser;
 
 impl MacosUnifiedLogParser {
     /// Return `true` when `path` looks like a Unified Log export.
-    pub fn can_parse(_path: &Path) -> bool {
-        todo!("can_parse not yet implemented")
+    ///
+    /// Matches files named `system.log` or with the `.logarchive` extension.
+    pub fn can_parse(path: &Path) -> bool {
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_default();
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or_default();
+        name == "system.log" || ext.eq_ignore_ascii_case("logarchive")
     }
 }
 
@@ -41,7 +51,7 @@ impl ForensicParser for MacosUnifiedLogParser {
     }
 
     fn supported_artifacts(&self) -> &[ArtifactType] {
-        &[ArtifactType::LoginHistory]
+        &[ArtifactType::SystemInfo]
     }
 
     fn parse(
@@ -72,8 +82,22 @@ pub struct MacosFsEventsParser;
 
 impl MacosFsEventsParser {
     /// Return `true` when `path` looks like an FSEvents export.
-    pub fn can_parse(_path: &Path) -> bool {
-        todo!("can_parse not yet implemented")
+    ///
+    /// Matches paths containing `fseventsd` or files with `.fsevents` extension.
+    pub fn can_parse(path: &Path) -> bool {
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or_default();
+        if ext.eq_ignore_ascii_case("fsevents") {
+            return true;
+        }
+        // Check if any component of the path contains "fseventsd"
+        path.components().any(|c| {
+            c.as_os_str()
+                .to_str()
+                .is_some_and(|s| s.contains("fseventsd"))
+        })
     }
 }
 
@@ -83,7 +107,7 @@ impl ForensicParser for MacosFsEventsParser {
     }
 
     fn supported_artifacts(&self) -> &[ArtifactType] {
-        &[ArtifactType::LoginHistory]
+        &[ArtifactType::SystemInfo]
     }
 
     fn parse(
