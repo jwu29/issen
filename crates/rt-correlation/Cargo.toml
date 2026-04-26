@@ -11,7 +11,7 @@ repository.workspace = true
 remote = []
 
 [dependencies]
-forensic-catalog = { workspace = true }
+forensicnomicon = { workspace = true }
 anyhow = { workspace = true }
 chrono = { workspace = true }
 reqwest = { workspace = true }
