@@ -757,4 +757,68 @@ clauses:
         assert!(miner_rule.default_confidence > 0,
             "miner rootkit rule must have default_confidence > 0");
     }
+
+    // WS-7: rootkit explanation must NOT assert exact hook function names
+    // without YARA/signature evidence.
+    #[test]
+    fn rootkit_rule_explanation_does_not_claim_exact_hooks() {
+        let dir = bundled_rule_dir();
+        let rules = load_rule_pack(&dir).expect("load bundled rules");
+        let rule = rules.iter()
+            .find(|r| r.id == "correlation.miner.rootkit-concealment")
+            .expect("miner rootkit rule must exist");
+        let explanation = rule.explanation_template.as_deref().unwrap_or("");
+        assert!(!explanation.contains("readdir"),
+            "explanation must not name readdir() — exact hook claim requires YARA/signature evidence");
+        assert!(!explanation.contains("getdents"),
+            "explanation must not name getdents() — exact hook claim requires YARA/signature evidence");
+    }
+
+    // WS-6: miner rule explanation must use calibrated language, not definitive claims.
+    #[test]
+    fn miner_rule_explanation_uses_calibrated_language() {
+        let dir = bundled_rule_dir();
+        let rules = load_rule_pack(&dir).expect("load bundled rules");
+        let rule = rules.iter()
+            .find(|r| r.id == "correlation.miner.rootkit-concealment")
+            .expect("miner rootkit rule must exist");
+        let explanation = rule.explanation_template.as_deref().unwrap_or("");
+        let has_hedge = explanation.contains("consistent with")
+            || explanation.contains("likely")
+            || explanation.contains("compatible");
+        assert!(has_hedge,
+            "miner rule explanation must use calibrated language (consistent with / likely / compatible)");
+        assert!(!explanation.contains("Mining traffic is tunnelled"),
+            "explanation must not assert definitive tunnelling — use calibrated framing");
+    }
+
+    // WS-6: SSH tunnel rule must use "consistent with" framing.
+    #[test]
+    fn ssh_stratum_rule_explanation_is_calibrated() {
+        let dir = bundled_rule_dir();
+        let rules = load_rule_pack(&dir).expect("load bundled rules");
+        let rule = rules.iter()
+            .find(|r| r.id == "correlation.network.ssh-tunnel-stratum")
+            .expect("ssh-tunnel-stratum rule must exist");
+        let explanation = rule.explanation_template.as_deref().unwrap_or("");
+        assert!(explanation.contains("consistent with"),
+            "SSH tunnel rule explanation must use 'consistent with' framing, got: {explanation}");
+    }
+
+    // WS-7: LD_PRELOAD rule must not assert definitively that the library IS a rootkit.
+    #[test]
+    fn ldpreload_rule_explanation_is_calibrated() {
+        let dir = bundled_rule_dir();
+        let rules = load_rule_pack(&dir).expect("load bundled rules");
+        let rule = rules.iter()
+            .find(|r| r.id == "correlation.persistence.ld-preload")
+            .expect("ld-preload rule must exist");
+        let explanation = rule.explanation_template.as_deref().unwrap_or("");
+        let has_hedge = explanation.contains("consistent with")
+            || explanation.contains("indicative of")
+            || explanation.contains("may enable")
+            || explanation.contains("commonly used");
+        assert!(has_hedge,
+            "LD_PRELOAD rule explanation must use calibrated language, got: {explanation}");
+    }
 }
