@@ -661,4 +661,92 @@ clauses:
             "expected correlation.process.hidden-no-memory in bundled rules"
         );
     }
+
+    // ── WS-4: Rule template fields ────────────────────────────────────────────
+
+    #[test]
+    fn rule_yaml_with_summary_template_parses() {
+        let yaml = r#"
+id: test.rule.template
+title: Test template rule
+severity: medium
+summary_template: "Summary from template"
+explanation_template: "Explanation from template"
+default_confidence: 75
+assertion_level: inferred
+clauses:
+  - source: artifact
+    required_tag: test_tag
+"#;
+        use crate::model::AssertionLevel;
+        let rule: CorrelationRule = serde_yaml::from_str(yaml).expect("parse");
+        assert_eq!(rule.summary_template.as_deref(), Some("Summary from template"));
+        assert_eq!(rule.explanation_template.as_deref(), Some("Explanation from template"));
+        assert_eq!(rule.default_confidence, 75);
+        assert!(matches!(rule.assertion_level, AssertionLevel::Inferred));
+    }
+
+    #[test]
+    fn rule_without_template_fields_defaults_to_zero_confidence() {
+        let yaml = r#"
+id: test.rule.no-template
+title: No template rule
+severity: low
+clauses:
+  - source: artifact
+    required_tag: something
+"#;
+        use crate::model::AssertionLevel;
+        let rule: CorrelationRule = serde_yaml::from_str(yaml).expect("parse");
+        assert!(rule.summary_template.is_none());
+        assert_eq!(rule.default_confidence, 0);
+        assert!(matches!(rule.assertion_level, AssertionLevel::Correlated));
+    }
+
+    #[test]
+    fn engine_finding_uses_rule_summary_template() {
+        use crate::model::{AssertionLevel, EvidenceKind};
+        // Build a rule with a summary_template
+        let rule = CorrelationRule {
+            id: "test.template".into(),
+            title: "Template rule".into(),
+            severity: "high".into(),
+            description: None,
+            summary_template: Some("Templated summary".into()),
+            explanation_template: Some("Templated explanation".into()),
+            default_confidence: 82,
+            assertion_level: AssertionLevel::Correlated,
+            within_seconds: None,
+            references: Vec::new(),
+            clauses: vec![RuleClause::tagged(EvidenceSource::Artifact, "rk_tag")],
+        };
+        let evidence = vec![Evidence {
+            id: "e1".into(),
+            source: EvidenceSource::Artifact,
+            kind: EvidenceKind::Artifact,
+            subject: None,
+            tags: vec!["rk_tag".into()],
+            timestamp: None,
+            attrs: Default::default(),
+        }];
+        let engine = CorrelationEngine::default();
+        let findings = engine.evaluate(&[rule], &evidence);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].summary.as_deref(), Some("Templated summary"));
+        assert_eq!(findings[0].explanation.as_deref(), Some("Templated explanation"));
+        assert_eq!(findings[0].confidence, 82);
+    }
+
+    #[test]
+    fn bundled_miner_rule_has_summary_template() {
+        let dir = bundled_rule_dir();
+        let rules = load_rule_pack(&dir).expect("load bundled rules");
+        let miner_rule = rules.iter()
+            .find(|r| r.id == "correlation.miner.rootkit-concealment")
+            .expect("miner rule must exist");
+        assert!(miner_rule.summary_template.is_some(),
+            "miner rootkit rule must have a summary_template");
+        assert!(miner_rule.default_confidence > 0,
+            "miner rootkit rule must have default_confidence > 0");
+    }
 }
