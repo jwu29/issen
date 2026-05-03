@@ -8,6 +8,7 @@ use std::path::Path;
 use anyhow::Result;
 use rt_core::artifacts::ArtifactType;
 use rt_core::timeline::event::{EventType, TimelineEvent};
+use rusqlite;
 
 /// Microseconds from 1601-01-01 to 1970-01-01 (WebKit epoch offset).
 const WEBKIT_EPOCH_OFFSET_US: i64 = 11_644_473_600_000_000;
@@ -15,7 +16,8 @@ const WEBKIT_EPOCH_OFFSET_US: i64 = 11_644_473_600_000_000;
 /// Convert a WebKit timestamp (µs since 1601-01-01) to Unix nanoseconds.
 #[must_use]
 pub fn webkit_to_unix_ns(webkit_time: i64) -> i64 {
-    todo!("implement webkit_to_unix_ns")
+    let unix_us = webkit_time - WEBKIT_EPOCH_OFFSET_US;
+    unix_us * 1_000
 }
 
 /// Parse a Chromium `History` SQLite file.
@@ -26,7 +28,46 @@ pub fn webkit_to_unix_ns(webkit_time: i64) -> i64 {
 /// # Errors
 /// Returns an error if the SQLite file cannot be opened or queried.
 pub fn parse_chrome_history(path: &Path) -> Result<Vec<TimelineEvent>> {
-    todo!("implement parse_chrome_history")
+    let conn = rusqlite::Connection::open(path)?;
+
+    let mut stmt = conn.prepare(
+        "SELECT url, title, visit_count, last_visit_time FROM urls ORDER BY last_visit_time",
+    )?;
+
+    let path_str = path.display().to_string();
+
+    let events: Vec<TimelineEvent> = stmt
+        .query_map([], |row| {
+            let url: String = row.get(0)?;
+            let title: String = row.get::<_, Option<String>>(1)?.unwrap_or_default();
+            let visit_count: i64 = row.get(2)?;
+            let last_visit_time: i64 = row.get(3)?;
+            Ok((url, title, visit_count, last_visit_time))
+        })?
+        .filter_map(std::result::Result::ok)
+        .filter(|(_, _, _, last_visit_time)| *last_visit_time > 0)
+        .map(|(url, title, visit_count, last_visit_time)| {
+            let timestamp_ns = webkit_to_unix_ns(last_visit_time);
+            let description = format!("[{visit_count} visits] {title} — {url}");
+            let mut ev = TimelineEvent::new(
+                timestamp_ns,
+                timestamp_ns.to_string(),
+                EventType::NetworkConnect,
+                ArtifactType::BrowserHistory,
+                path_str.clone(),
+                description,
+                "rt-parser-browser".to_string(),
+            );
+            ev = ev
+                .with_metadata("url", serde_json::json!(url))
+                .with_metadata("title", serde_json::json!(title))
+                .with_metadata("visit_count", serde_json::json!(visit_count))
+                .with_metadata("browser", serde_json::json!("chromium"));
+            ev
+        })
+        .collect();
+
+    Ok(events)
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

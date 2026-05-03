@@ -19,5 +19,23 @@ pub enum BrowserFamily {
 /// - File name is `"places.sqlite"` (case-insensitive) → `Firefox`
 /// - Otherwise → `None`
 pub fn detect_browser(path: &Path) -> Option<BrowserFamily> {
-    todo!("implement detect_browser")
+    let file_name = path.file_name()?.to_string_lossy();
+
+    if file_name.eq_ignore_ascii_case("places.sqlite") {
+        return Some(BrowserFamily::Firefox);
+    }
+
+    if file_name.eq_ignore_ascii_case("History") {
+        // Check if any ancestor path component names a Chromium-family browser.
+        let chromium_names = ["Chrome", "Edge", "Brave", "Opera"];
+        let path_str = path.to_string_lossy();
+        if chromium_names
+            .iter()
+            .any(|name| path_str.contains(name))
+        {
+            return Some(BrowserFamily::Chromium);
+        }
+    }
+
+    None
 }

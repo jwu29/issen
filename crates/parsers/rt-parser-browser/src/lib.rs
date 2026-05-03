@@ -17,7 +17,7 @@ pub mod firefox;
 
 use std::path::Path;
 
-use detector::{detect_browser, BrowserFamily};
+use detector::detect_browser;
 use rt_core::artifacts::ArtifactType;
 use rt_core::error::RtError;
 use rt_core::plugin::registry::ParserRegistration;
