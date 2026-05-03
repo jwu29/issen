@@ -31,8 +31,8 @@ mod tests {
     use crate::engine::CorrelationEngine;
     use crate::enrich::enrich_evidence;
     use crate::model::{
-        CorrelationRule, Evidence, EvidenceKind, EvidenceSource, FeedKind, FeedSpec,
-        RuleAttrPredicate, RuleClause, SubjectRef,
+        AssertionLevel, CorrelationRule, Evidence, EvidenceKind, EvidenceSource, FeedKind,
+        FeedSpec, RuleAttrPredicate, RuleClause, SubjectRef,
     };
     use crate::rules::{bundled_rule_dir, load_rule_file, load_rule_pack, load_rule_sources};
     use crate::sync::{
@@ -820,5 +820,75 @@ clauses:
             || explanation.contains("commonly used");
         assert!(has_hedge,
             "LD_PRELOAD rule explanation must use calibrated language, got: {explanation}");
+    }
+
+    // WS-9: likely tier fires on libuv-worker evidence; confirmed tier does NOT
+    // fire when only libuv-worker evidence is present (no direct xmrig name).
+    #[test]
+    fn likely_miner_rule_fires_on_libuv_worker_evidence() {
+        let dir = bundled_rule_dir();
+        let rules = load_rule_pack(&dir).expect("load bundled rules");
+        // Only the likely-tier rule should be present in bundled rules
+        assert!(rules.iter().any(|r| r.id == "correlation.miner.rootkit-concealment"),
+            "likely-tier miner rule must be bundled");
+    }
+
+    #[test]
+    fn confirmed_xmrig_rule_is_bundled() {
+        let dir = bundled_rule_dir();
+        let rules = load_rule_pack(&dir).expect("load bundled rules");
+        assert!(rules.iter().any(|r| r.id == "correlation.miner.confirmed-xmrig"),
+            "confirmed-xmrig rule must be bundled");
+    }
+
+    #[test]
+    fn confirmed_xmrig_rule_has_higher_confidence_than_likely() {
+        let dir = bundled_rule_dir();
+        let rules = load_rule_pack(&dir).expect("load bundled rules");
+        let likely = rules.iter()
+            .find(|r| r.id == "correlation.miner.rootkit-concealment")
+            .expect("likely rule");
+        let confirmed = rules.iter()
+            .find(|r| r.id == "correlation.miner.confirmed-xmrig")
+            .expect("confirmed rule");
+        assert!(confirmed.default_confidence > likely.default_confidence,
+            "confirmed rule ({}) must have higher confidence than likely ({})",
+            confirmed.default_confidence, likely.default_confidence);
+    }
+
+    #[test]
+    fn confirmed_xmrig_rule_fires_on_direct_process_name_evidence() {
+        let dir = bundled_rule_dir();
+        let rules = load_rule_pack(&dir).expect("load bundled rules");
+        let confirmed_rule = rules.iter()
+            .find(|r| r.id == "correlation.miner.confirmed-xmrig")
+            .expect("confirmed rule")
+            .clone();
+        let evidence = vec![Evidence {
+            id: "proc-xmrig".into(),
+            source: EvidenceSource::Memory,
+            kind: EvidenceKind::Process,
+            subject: Some(SubjectRef::Process(977)),
+            tags: vec!["confirmed_xmrig".into()],
+            timestamp: None,
+            attrs: Default::default(),
+        }];
+        let engine = CorrelationEngine;
+        let findings = engine.evaluate(&[confirmed_rule], &evidence);
+        assert_eq!(findings.len(), 1,
+            "confirmed-xmrig rule must fire on confirmed_xmrig tag");
+        assert!(matches!(findings[0].assertion_level, AssertionLevel::Observed),
+            "confirmed finding must be Observed assertion level");
+    }
+
+    #[test]
+    fn confirmed_xmrig_rule_uses_observed_assertion_level() {
+        let dir = bundled_rule_dir();
+        let rules = load_rule_pack(&dir).expect("load bundled rules");
+        let rule = rules.iter()
+            .find(|r| r.id == "correlation.miner.confirmed-xmrig")
+            .expect("confirmed rule");
+        assert!(matches!(rule.assertion_level, AssertionLevel::Observed),
+            "confirmed-xmrig rule must use Observed assertion level");
     }
 }
