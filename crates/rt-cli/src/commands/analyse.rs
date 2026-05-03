@@ -8,6 +8,7 @@ use std::path::Path;
 
 use rt_parser_uac::parsers::{self, rootkit::RootkitSeverity};
 use rt_unpack::CollectionProvider as _;
+use rt_evtx;
 
 /// Run the analyse command against `collection_path`.
 ///
@@ -253,6 +254,29 @@ pub fn run(collection_path: &Path) -> anyhow::Result<()> {
             }
             println!();
         }
+    }
+
+    // ── EVTX Session Correlation ──────────────────────────────────────────
+    let evtx_files = rt_evtx::find_evtx_files(root);
+    if !evtx_files.is_empty() {
+        println!("┌─ WINDOWS EVENT LOG SESSIONS ───────────────────────────────");
+        match rt_evtx::analyse_evtx_sessions(&evtx_files) {
+            Ok(summary) => {
+                println!("│  EVTX files : {}", evtx_files.len());
+                println!("│  Sessions   : {}", summary.session_count);
+                if summary.lateral_movement_count > 0 {
+                    println!(
+                        "│  [!] Lateral movement candidates: {}",
+                        summary.lateral_movement_count
+                    );
+                    for lm in &summary.lateral_movements {
+                        println!("│      {} — {}", lm.src_ip, lm.reason);
+                    }
+                }
+            }
+            Err(e) => println!("│  [WARN] EVTX analysis failed: {e}"),
+        }
+        println!();
     }
 
     println!("═══════════════════════════════════════════════════════════");

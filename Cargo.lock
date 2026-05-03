@@ -6818,6 +6818,7 @@ dependencies = [
  "predicates",
  "rt-core",
  "rt-correlation",
+ "rt-evtx",
  "rt-fswalker",
  "rt-mem",
  "rt-parser-evtx",
