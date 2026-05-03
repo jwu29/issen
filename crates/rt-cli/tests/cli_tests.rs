@@ -2240,6 +2240,97 @@ fn supertimeline_temporal_findings_appear_in_output() {
 
 // ── Attack Flow corpus download ───────────────────────────────────────────────
 
+// ── EVTX session correlation section tests ───────────────────────────────────
+
+/// Build a UAC fixture that contains a zero-byte Security.evtx file.
+/// `rt analyse` must not panic on it and must render the EVTX section header.
+fn build_uac_fixture_with_evtx(dest: &std::path::Path) -> std::path::PathBuf {
+    use flate2::write::GzEncoder;
+    use flate2::Compression;
+
+    let files: &[(&str, &[u8])] = &[
+        ("uac.log", b"2026-03-24 23:40:43 UTC - UAC collection started\nLinux vbox-linux\n"),
+        ("chkrootkit/etc_ld_so_preload.txt", b""),
+        ("live_response/process/hidden_pids_for_ps_command.txt", b""),
+        ("live_response/network/.keep", b""),
+        ("live_response/system/env.txt", b"PATH=/usr/bin:/bin\n"),
+        ("live_response/system/lsmod.txt", b"Module                  Size  Used by\next4                  729088  2\n"),
+        ("live_response/system/cat_proc_sys_kernel_tainted.txt", b"0\n"),
+        // Zero-byte EVTX file — parser must not panic
+        ("Windows/System32/winevt/Logs/Security.evtx", b""),
+    ];
+
+    let archive_path = dest.join("uac-windows-evtx-20260324234043.tar.gz");
+    let file = std::fs::File::create(&archive_path).expect("create archive");
+    let gz = GzEncoder::new(file, Compression::default());
+    let mut builder = tar::Builder::new(gz);
+
+    for (rel_path, content) in files {
+        let mut header = tar::Header::new_gnu();
+        header.set_size(content.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        let archive_path_str =
+            format!("uac-windows-evtx-20260324234043/{rel_path}");
+        builder
+            .append_data(&mut header, &archive_path_str, *content)
+            .expect("append file");
+    }
+
+    builder.finish().expect("finish tar");
+    archive_path
+}
+
+/// When the collection contains .evtx files, `rt analyse` must print the
+/// WINDOWS EVENT LOG SESSIONS section header.
+/// This test FAILS until analyse.rs is wired to call rt_evtx.
+#[test]
+fn analyse_shows_evtx_session_section_when_evtx_present() {
+    let dir = TempDir::new().expect("tmpdir");
+    let archive = build_uac_fixture_with_evtx(dir.path());
+
+    let output = rt_cmd()
+        .args(["analyse", archive.to_str().unwrap()])
+        .output()
+        .expect("run rt analyse");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "rt analyse should exit 0\nstdout: {stdout}\nstderr: {stderr}"
+    );
+    assert!(
+        stdout.contains("WINDOWS EVENT LOG SESSIONS"),
+        "missing WINDOWS EVENT LOG SESSIONS section when evtx present\n{stdout}"
+    );
+}
+
+/// When the collection has no .evtx files, the EVTX section must NOT appear.
+#[test]
+fn analyse_evtx_section_absent_when_no_evtx_files() {
+    let dir = TempDir::new().expect("tmpdir");
+    let archive = build_synthetic_uac_fixture(dir.path());
+
+    let output = rt_cmd()
+        .args(["analyse", archive.to_str().unwrap()])
+        .output()
+        .expect("run rt analyse");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "rt analyse should exit 0\nstdout: {stdout}\nstderr: {stderr}"
+    );
+    assert!(
+        !stdout.contains("WINDOWS EVENT LOG SESSIONS"),
+        "EVTX section must not appear when no evtx files present\n{stdout}"
+    );
+}
+
 /// `rt feed attack-flow --help` must exit 0 and describe the subcommand.
 #[test]
 fn feed_attack_flow_help_exits_success() {
