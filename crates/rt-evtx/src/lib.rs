@@ -316,6 +316,101 @@ mod tests {
         assert_eq!(summary.rare_processes[0], "suspicious.exe");
     }
 
+    // ── analyze module tests (Phase 3 RED) ───────────────────────────────
+    mod analyze_tests {
+        use crate::analyze::{frequency_analysis, pivot_sessions_by_src_ip, FrequencyAnomaly, FrequencyKey};
+        use winevt_core::{EvtxEvent, LogonSession};
+        use std::collections::HashMap;
+
+        fn make_event(event_id: u32, data: Vec<(&str, &str)>, ts: i64) -> EvtxEvent {
+            let data: HashMap<String, String> = data
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect();
+            EvtxEvent {
+                event_id,
+                channel: "Security".into(),
+                timestamp_ns: ts,
+                computer: "WS01".into(),
+                user_sid: None,
+                logon_id: None,
+                process_id: None,
+                thread_id: None,
+                data,
+            }
+        }
+
+        #[test]
+        fn frequency_key_variants_are_usable() {
+            let _cmd = FrequencyKey::CommandLine;
+            let _img = FrequencyKey::ProcessImage;
+            let _usr = FrequencyKey::Username;
+        }
+
+        #[test]
+        fn frequency_anomaly_has_key_and_count() {
+            let anomaly = FrequencyAnomaly {
+                key: "suspicious.exe".into(),
+                count: 1,
+                events: vec![100],
+            };
+            assert_eq!(anomaly.key, "suspicious.exe");
+            assert_eq!(anomaly.count, 1);
+        }
+
+        #[test]
+        fn frequency_analysis_flags_rare_command() {
+            let events = vec![
+                make_event(4688, vec![("CommandLine", "whoami")], 100),
+                make_event(4688, vec![("CommandLine", "dir")], 200),
+                make_event(4688, vec![("CommandLine", "dir")], 300),
+                make_event(4688, vec![("CommandLine", "dir")], 400),
+            ];
+            let anomalies = frequency_analysis(&events, FrequencyKey::CommandLine, 2);
+            assert_eq!(anomalies.len(), 1);
+            assert_eq!(anomalies[0].key, "whoami");
+        }
+
+        #[test]
+        fn frequency_analysis_empty_events() {
+            let anomalies = frequency_analysis(&[], FrequencyKey::ProcessImage, 5);
+            assert!(anomalies.is_empty());
+        }
+
+        #[test]
+        fn pivot_sessions_by_src_ip_groups_correctly() {
+            let sessions = vec![
+                LogonSession {
+                    logon_id: 1,
+                    logon_type: 3,
+                    username: "a".into(),
+                    domain: "D".into(),
+                    src_ip: Some("10.0.0.1".into()),
+                    logon_time_ns: 100,
+                    logoff_time_ns: None,
+                    duration_secs: None,
+                    processes: vec![],
+                    is_orphaned: true,
+                },
+                LogonSession {
+                    logon_id: 2,
+                    logon_type: 3,
+                    username: "b".into(),
+                    domain: "D".into(),
+                    src_ip: Some("10.0.0.1".into()),
+                    logon_time_ns: 200,
+                    logoff_time_ns: None,
+                    duration_secs: None,
+                    processes: vec![],
+                    is_orphaned: true,
+                },
+            ];
+            let pivot = pivot_sessions_by_src_ip(&sessions);
+            assert_eq!(pivot.len(), 1);
+            assert_eq!(pivot["10.0.0.1"].len(), 2);
+        }
+    }
+
     // ── session module tests (Phase 2 RED) ───────────────────────────────
     mod session_tests {
         use crate::session::{
