@@ -254,6 +254,17 @@ pub enum Commands {
         #[arg(long, default_value = "narrative")]
         format: String,
     },
+
+    /// Parse a SRUDB.dat file and display SRUM network usage and app usage records.
+    Srum {
+        /// Path to the SRUDB.dat file.
+        #[arg(value_name = "SRUDB_PATH")]
+        srudb_path: PathBuf,
+
+        /// Output format: text (default), json.
+        #[arg(long, default_value = "text")]
+        format: String,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -427,6 +438,9 @@ fn main() -> ExitCode {
             examiner.as_deref(),
             max_events,
         ),
+        Commands::Srum { srudb_path, format } => {
+            commands::srum::run(&srudb_path, &format)
+        }
         Commands::Pivot { action } => match action {
             PivotAction::Sync { cache_dir } => {
                 let default_cache = dirs_next_cache();

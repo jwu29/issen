@@ -6856,6 +6856,8 @@ dependencies = [
  "rt-unpack",
  "serde_json",
  "sha2",
+ "srum-core",
+ "srum-parser",
  "tar",
  "tempfile",
  "tracing",
@@ -6909,9 +6911,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "winevt-analyze",
  "winevt-core",
- "winevt-session",
 ]
 
 [[package]]
@@ -10266,23 +10266,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6bbff5f0aada427a1e5a6da5f1f98158182f26556f345ac9e04d36d0ebed650"
 
 [[package]]
-name = "winevt-analyze"
-version = "0.1.0"
-dependencies = [
- "winevt-core",
- "winevt-session",
-]
-
-[[package]]
 name = "winevt-core"
 version = "0.1.0"
-
-[[package]]
-name = "winevt-session"
-version = "0.1.0"
-dependencies = [
- "winevt-core",
-]
 
 [[package]]
 name = "winnow"

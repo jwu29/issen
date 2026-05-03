@@ -35,6 +35,8 @@ rt-unpack = { workspace = true }
 rt-mem = { workspace = true }
 rt-evtx = { workspace = true }
 rt-remote-io = { workspace = true, features = ["remote"] }
+srum-parser  = { workspace = true }
+srum-core    = { workspace = true }
 clap = { workspace = true }
 anyhow = { workspace = true }
 duckdb = { workspace = true }
