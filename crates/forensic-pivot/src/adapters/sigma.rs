@@ -3,6 +3,93 @@
 //! Converts Sigma tool output (JSON format from sigmac/pySigma/hayabusa)
 //! into `Evidence` objects for the `PivotEngine`.
 
+use std::collections::HashMap;
+use anyhow::Result;
+use serde::Deserialize;
+use serde_json::Value;
+
+use crate::evidence::{Evidence, EvidenceKind, EvidenceSource};
+
+/// A parsed Sigma alert from hayabusa/pySigma JSON output.
+#[derive(Debug, Clone)]
+pub struct SigmaAlert {
+    pub rule_id: String,
+    pub title: String,
+    pub level: String,
+    pub process_name: Option<String>,
+    pub command_line: Option<String>,
+    pub timestamp: Option<String>,
+    pub extra: HashMap<String, Value>,
+}
+
+#[derive(Deserialize)]
+struct RawSigma {
+    rule_id: String,
+    title: String,
+    level: String,
+    process_name: Option<String>,
+    command_line: Option<String>,
+    timestamp: Option<String>,
+    #[serde(flatten)]
+    extra: HashMap<String, Value>,
+}
+
+impl SigmaAlert {
+    /// Parse a Sigma alert from a JSON string.
+    pub fn from_json(json: &str) -> Result<Self> {
+        let raw: RawSigma = serde_json::from_str(json)?;
+        Ok(Self {
+            rule_id: raw.rule_id,
+            title: raw.title,
+            level: raw.level,
+            process_name: raw.process_name,
+            command_line: raw.command_line,
+            timestamp: raw.timestamp,
+            extra: raw.extra,
+        })
+    }
+}
+
+impl From<SigmaAlert> for Evidence {
+    fn from(alert: SigmaAlert) -> Self {
+        let kind = if alert.process_name.is_some() {
+            EvidenceKind::ProcessName
+        } else {
+            EvidenceKind::Custom("Alert".to_string())
+        };
+
+        let value = alert
+            .command_line
+            .clone()
+            .or_else(|| alert.process_name.clone())
+            .unwrap_or_else(|| alert.title.clone());
+
+        let mut attrs: HashMap<String, String> = HashMap::new();
+        attrs.insert("title".to_string(), alert.title.clone());
+        attrs.insert("level".to_string(), alert.level.clone());
+        if let Some(ref pn) = alert.process_name {
+            attrs.insert("process_name".to_string(), pn.clone());
+        }
+        if let Some(ref cl) = alert.command_line {
+            attrs.insert("command_line".to_string(), cl.clone());
+        }
+        if let Some(ref ts) = alert.timestamp {
+            attrs.insert("timestamp".to_string(), ts.clone());
+        }
+
+        Evidence {
+            id: alert.rule_id,
+            source: EvidenceSource::Sigma,
+            kind,
+            value,
+            subject: None,
+            timestamp_ns: None,
+            confidence: 80,
+            attrs,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
