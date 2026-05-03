@@ -236,6 +236,18 @@ pub enum Commands {
         #[arg(long)]
         max_events: Option<usize>,
     },
+
+    /// Build a semantic supertimeline from a collection — parses all artifacts,
+    /// applies temporal correlation rules, and outputs a narrative timeline.
+    Supertimeline {
+        /// Path to the collection file (UAC .tar.gz, zip) or evidence directory.
+        #[arg(value_name = "COLLECTION")]
+        collection: PathBuf,
+
+        /// Output format: narrative (default), jsonl, csv.
+        #[arg(long, default_value = "narrative")]
+        format: String,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -274,6 +286,9 @@ fn main() -> ExitCode {
 
     let result = match cli.command {
         Commands::Analyse { collection_path } => commands::analyse::run(&collection_path),
+        Commands::Supertimeline { collection, format } => {
+            commands::supertimeline::run(&collection, &format)
+        }
         Commands::Ingest {
             evidence_path,
             output,

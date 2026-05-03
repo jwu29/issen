@@ -7,5 +7,6 @@ pub mod pivot;
 pub mod remote_access;
 pub mod report;
 pub mod scan;
+pub mod supertimeline;
 pub mod timeline;
 pub mod timeline_format;
