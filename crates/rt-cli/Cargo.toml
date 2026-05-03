@@ -16,6 +16,7 @@ name = "rt_cli"
 path = "src/lib.rs"
 
 [dependencies]
+forensic-pivot = { workspace = true }
 rt-core = { workspace = true }
 rt-fswalker = { workspace = true }
 rt-timeline = { workspace = true }

@@ -45,7 +45,8 @@ authors = ["RapidTriage Contributors"]
 
 [workspace.dependencies]
 # Internal crates (path dependencies)
-forensicnomicon = { path = "../forensicnomicon" }
+forensicnomicon  = { path = "../forensicnomicon" }
+forensic-pivot   = { path = "crates/forensic-pivot" }
 rt-core       = { path = "crates/rt-core" }
 rt-fswalker   = { path = "crates/rt-fswalker" }
 rt-plugin-sdk = { path = "crates/rt-plugin-sdk" }

@@ -2,6 +2,7 @@ use std::path::Path;
 
 use serde::Deserialize as _;
 
+use crate::feeds::{FeedKind, FeedSpec};
 use crate::rule::PivotRule;
 
 // ---------------------------------------------------------------------------
@@ -54,6 +55,36 @@ pub fn load_rules_from_dir(dir: &Path) -> Vec<PivotRule> {
         }
     }
     rules
+}
+
+/// Return the default threat intelligence feed registry.
+///
+/// All feeds have `last_synced = None` (never synced) so they will be
+/// treated as stale by [`crate::downloader::stale_feeds`] on first run.
+#[must_use]
+pub fn default_feeds() -> Vec<FeedSpec> {
+    vec![
+        FeedSpec {
+            name: "sigma-rules".to_string(),
+            url: "https://github.com/SigmaHQ/sigma/archive/refs/heads/master.zip".to_string(),
+            kind: FeedKind::Sigma,
+            last_synced: None,
+        },
+        FeedSpec {
+            name: "yara-rules".to_string(),
+            url: "https://github.com/Neo23x0/signature-base/archive/refs/heads/master.zip"
+                .to_string(),
+            kind: FeedKind::Yara,
+            last_synced: None,
+        },
+        FeedSpec {
+            name: "suricata-et".to_string(),
+            url: "https://rules.emergingthreats.net/open/suricata-5.0/emerging.rules.tar.gz"
+                .to_string(),
+            kind: FeedKind::Suricata,
+            last_synced: None,
+        },
+    ]
 }
 
 /// Return the built-in rule set compiled into the binary.

@@ -214,6 +214,12 @@ pub enum Commands {
         cr3: Option<u64>,
     },
 
+    /// Pivot engine — sync threat intelligence feeds, list rules, evaluate evidence.
+    Pivot {
+        #[command(subcommand)]
+        action: PivotAction,
+    },
+
     /// Generate a self-contained HTML report from a timeline database.
     Report {
         /// Path to the DuckDB database.
@@ -266,6 +272,28 @@ pub enum FeedAction {
         /// Directory to cache the corpus zip (default: ~/.local/share/rapidtriage/attack-flow).
         #[arg(long)]
         cache_dir: Option<std::path::PathBuf>,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum PivotAction {
+    /// Download stale threat intelligence feeds into the cache directory.
+    Sync {
+        /// Cache directory for pivot feeds (default: ~/.local/share/rapidtriage/pivot/).
+        #[arg(long, value_name = "PATH")]
+        cache_dir: Option<PathBuf>,
+    },
+    /// List bundled and directory-loaded pivot rules.
+    Rules {
+        /// Optional directory with additional YAML rule files.
+        #[arg(long, value_name = "PATH")]
+        rules_dir: Option<PathBuf>,
+    },
+    /// Evaluate pivot rules against a JSON evidence file.
+    Eval {
+        /// Path to a JSON file containing an array of Evidence objects.
+        #[arg(value_name = "EVIDENCE_FILE")]
+        evidence_file: PathBuf,
     },
 }
 
@@ -399,6 +427,19 @@ fn main() -> ExitCode {
             examiner.as_deref(),
             max_events,
         ),
+        Commands::Pivot { action } => match action {
+            PivotAction::Sync { cache_dir } => {
+                let default_cache = dirs_next_cache();
+                let cache = cache_dir.unwrap_or(default_cache);
+                commands::pivot_cmd::run_sync(&cache)
+            }
+            PivotAction::Rules { rules_dir } => {
+                commands::pivot_cmd::run_rules(rules_dir.as_deref())
+            }
+            PivotAction::Eval { evidence_file } => {
+                commands::pivot_cmd::run_eval(&evidence_file)
+            }
+        },
     };
 
     match result {
@@ -408,6 +449,17 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// Return `~/.local/share/rapidtriage/pivot/` as the default pivot cache dir.
+fn dirs_next_cache() -> PathBuf {
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".local")
+        .join("share")
+        .join("rapidtriage")
+        .join("pivot")
 }
 
 #[cfg(test)]

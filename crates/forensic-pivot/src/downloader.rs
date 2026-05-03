@@ -1,3 +1,4 @@
+use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -67,11 +68,75 @@ pub fn prepare_feed_cache(spec: &FeedSpec, cache_dir: &Path) -> anyhow::Result<P
     Ok(feed_dir)
 }
 
-/// Stub: will be implemented in Phase 5 with real HTTP.
+/// Download a feed and extract it into `<cache_dir>/<feed.name>/`.
+///
+/// Extraction rules:
+/// - URL ends with `.zip` → unzip all entries
+/// - URL ends with `.tar.gz` or `.tgz` → extract tar+gz
+/// - Otherwise → write raw bytes to `<feed_dir>/raw`
 ///
 /// # Errors
-/// Currently always returns `Ok(())`. Phase 5 will return network errors.
-#[allow(clippy::unnecessary_wraps)]
-pub fn download_feed(_spec: &FeedSpec, _cache_dir: &Path) -> anyhow::Result<()> {
+/// Returns an error on network failure, I/O error, or archive parse error.
+pub fn download_feed(spec: &FeedSpec, cache_dir: &Path) -> anyhow::Result<()> {
+    let feed_dir = prepare_feed_cache(spec, cache_dir)?;
+
+    let response = reqwest::blocking::get(&spec.url)
+        .map_err(|e| anyhow::anyhow!("HTTP GET '{}' failed: {e}", spec.url))?;
+
+    if !response.status().is_success() {
+        anyhow::bail!(
+            "HTTP GET '{}' returned status {}",
+            spec.url,
+            response.status()
+        );
+    }
+
+    let bytes = response
+        .bytes()
+        .map_err(|e| anyhow::anyhow!("reading response body from '{}' failed: {e}", spec.url))?;
+
+    let url_lower = spec.url.to_ascii_lowercase();
+    if url_lower.ends_with(".zip") {
+        extract_zip(&bytes, &feed_dir)?;
+    } else if url_lower.ends_with(".tar.gz") || url_lower.ends_with(".tgz") {
+        extract_tar_gz(&bytes, &feed_dir)?;
+    } else {
+        std::fs::write(feed_dir.join("raw"), &bytes)?;
+    }
+
+    Ok(())
+}
+
+fn extract_zip(bytes: &[u8], dest: &Path) -> anyhow::Result<()> {
+    let cursor = std::io::Cursor::new(bytes);
+    let mut archive = zip::ZipArchive::new(cursor)
+        .map_err(|e| anyhow::anyhow!("zip parse error: {e}"))?;
+
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i)?;
+        let entry_path = match entry.enclosed_name() {
+            Some(p) => dest.join(p),
+            None => continue,
+        };
+        if entry.is_dir() {
+            std::fs::create_dir_all(&entry_path)?;
+        } else {
+            if let Some(parent) = entry_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let mut out = std::fs::File::create(&entry_path)?;
+            std::io::copy(&mut entry, &mut out)?;
+        }
+    }
+    Ok(())
+}
+
+fn extract_tar_gz(bytes: &[u8], dest: &Path) -> anyhow::Result<()> {
+    let cursor = std::io::Cursor::new(bytes);
+    let gz = flate2::read::GzDecoder::new(cursor);
+    let mut archive = tar::Archive::new(gz);
+    archive
+        .unpack(dest)
+        .map_err(|e| anyhow::anyhow!("tar.gz unpack error: {e}"))?;
     Ok(())
 }
