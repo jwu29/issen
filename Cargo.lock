@@ -2755,6 +2755,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
+name = "forensic-hashdb"
+version = "0.1.0"
+dependencies = [
+ "memmap2",
+]
+
+[[package]]
 name = "forensicnomicon"
 version = "0.1.0"
 
@@ -4595,6 +4602,18 @@ dependencies = [
  "memf-symbols",
  "serde",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "memf-strings"
+version = "0.1.0"
+dependencies = [
+ "aho-corasick",
+ "inventory",
+ "memf-format",
+ "regex",
+ "thiserror 2.0.18",
+ "yara-x",
 ]
 
 [[package]]
@@ -6845,9 +6864,12 @@ name = "rt-mem"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "forensic-hashdb",
  "memf-core",
+ "memf-correlate",
  "memf-format",
  "memf-linux",
+ "memf-strings",
  "memf-symbols",
  "memf-windows",
  "serde",

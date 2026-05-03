@@ -8,11 +8,14 @@ description = "Memory forensic integration layer for RapidTriage"
 repository.workspace = true
 
 [dependencies]
-memf-core    = { workspace = true }
-memf-format  = { workspace = true }
-memf-symbols = { workspace = true }
-memf-linux   = { workspace = true }
-memf-windows = { workspace = true }
+memf-core      = { workspace = true }
+memf-format    = { workspace = true }
+memf-symbols   = { workspace = true }
+memf-linux     = { workspace = true }
+memf-windows   = { workspace = true }
+memf-strings   = { workspace = true }
+memf-correlate = { workspace = true }
+forensic-hashdb = { workspace = true }
 serde        = { workspace = true }
 serde_json   = { workspace = true }
 thiserror    = { workspace = true }

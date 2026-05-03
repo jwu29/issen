@@ -47,3 +47,8 @@ pub mod strings;
 
 pub use cmd_memf::run_memf_command;
 pub use open::{detect_format, DumpFormat};
+
+// Re-export all 8 wrapped memory-forensic crates.
+pub use correlate::{Entity, Finding, ForensicEvent, ProcessNode, ProcessTree, Severity};
+pub use hashdb::{BadFileInfo, BadFileSource, DriverInfo, KnownBadDb};
+pub use strings::{ClassifiedString, StringCategory, StringEncoding};

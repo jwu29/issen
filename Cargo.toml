@@ -64,11 +64,14 @@ rt-correlation   = { path = "crates/rt-correlation" }
 rt-remote-io     = { path = "crates/rt-remote-io" }
 
 # Memory forensic crates (path dependencies into sibling workspace)
-memf-core    = { path = "../memory-forensic/crates/memf-core" }
-memf-format  = { path = "../memory-forensic/crates/memf-format" }
-memf-symbols = { path = "../memory-forensic/crates/memf-symbols" }
-memf-linux   = { path = "../memory-forensic/crates/memf-linux" }
-memf-windows = { path = "../memory-forensic/crates/memf-windows" }
+memf-core      = { path = "../memory-forensic/crates/memf-core" }
+memf-format    = { path = "../memory-forensic/crates/memf-format" }
+memf-symbols   = { path = "../memory-forensic/crates/memf-symbols" }
+memf-linux     = { path = "../memory-forensic/crates/memf-linux" }
+memf-windows   = { path = "../memory-forensic/crates/memf-windows" }
+memf-strings   = { path = "../memory-forensic/crates/memf-strings" }
+memf-correlate = { path = "../memory-forensic/crates/memf-correlate" }
+forensic-hashdb = { path = "../memory-forensic/crates/forensic-hashdb" }
 
 # External dependencies
 duckdb       = { version = "1", features = ["bundled"] }
