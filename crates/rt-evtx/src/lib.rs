@@ -316,6 +316,84 @@ mod tests {
         assert_eq!(summary.rare_processes[0], "suspicious.exe");
     }
 
+    // ── session module tests (Phase 2 RED) ───────────────────────────────
+    mod session_tests {
+        use crate::session::{
+            correlate_sessions, extract_process_events, find_lateral_movement,
+            find_orphaned_sessions, link_processes_to_sessions, LateralMovementFinding,
+        };
+        use winevt_core::EvtxEvent;
+        use std::collections::HashMap;
+
+        fn make_logon(logon_id: u64) -> EvtxEvent {
+            let mut data = HashMap::new();
+            data.insert("TargetLogonId".into(), format!("0x{logon_id:016x}"));
+            data.insert("LogonType".into(), "3".into());
+            data.insert("TargetUserName".into(), "testuser".into());
+            data.insert("TargetDomainName".into(), "DOM".into());
+            data.insert("IpAddress".into(), "10.0.0.1".into());
+            EvtxEvent {
+                event_id: 4624,
+                channel: "Security".into(),
+                timestamp_ns: 1_000_000_000,
+                computer: "WS01".into(),
+                user_sid: None,
+                logon_id: Some(logon_id),
+                process_id: None,
+                thread_id: None,
+                data,
+            }
+        }
+
+        #[test]
+        fn correlate_sessions_from_evtx_events() {
+            let events = vec![make_logon(0x1234)];
+            let sessions = correlate_sessions(&events);
+            assert_eq!(sessions.len(), 1);
+            assert!(sessions.contains_key(&0x1234));
+        }
+
+        #[test]
+        fn lateral_movement_finding_has_src_ip_field() {
+            let finding = LateralMovementFinding {
+                src_ip: "10.0.0.1".into(),
+                sessions: vec![0x1234],
+                reason: "test".into(),
+            };
+            assert_eq!(finding.src_ip, "10.0.0.1");
+        }
+
+        #[test]
+        fn find_lateral_movement_detects_type3_logons() {
+            let events = vec![make_logon(0x5678)];
+            let sessions_map = correlate_sessions(&events);
+            let sessions_vec: Vec<_> = sessions_map.into_values().collect();
+            let findings = find_lateral_movement(&sessions_vec);
+            assert!(!findings.is_empty(), "type-3 logon from remote IP should be detected");
+        }
+
+        #[test]
+        fn extract_process_events_empty() {
+            let events: Vec<EvtxEvent> = vec![];
+            let procs = extract_process_events(&events);
+            assert!(procs.is_empty());
+        }
+
+        #[test]
+        fn find_orphaned_sessions_empty() {
+            let sessions: Vec<winevt_core::LogonSession> = vec![];
+            let orphans = find_orphaned_sessions(&sessions);
+            assert!(orphans.is_empty());
+        }
+
+        #[test]
+        fn link_processes_does_not_panic_on_empty() {
+            let mut sessions = std::collections::HashMap::new();
+            let procs: Vec<winevt_core::ProcessEvent> = vec![];
+            link_processes_to_sessions(&mut sessions, &procs);
+        }
+    }
+
     // ── handlers module tests (Phase 1 RED) ──────────────────────────────
     mod handler_tests {
         use crate::handlers::all_handlers;
