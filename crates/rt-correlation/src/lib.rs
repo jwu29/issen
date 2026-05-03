@@ -9,6 +9,7 @@ pub mod model;
 pub mod render;
 pub mod rules;
 pub mod sync;
+pub mod temporal_rule;
 pub mod warninglist;
 pub mod zeek_intel;
 

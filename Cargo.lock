@@ -2755,7 +2755,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
-name = "forensic-catalog"
+name = "forensicnomicon"
 version = "0.1.0"
 
 [[package]]
@@ -6751,6 +6751,7 @@ dependencies = [
  "clap",
  "csv",
  "duckdb",
+ "flate2",
  "inventory",
  "mft",
  "predicates",
@@ -6769,6 +6770,7 @@ dependencies = [
  "rt-unpack",
  "serde_json",
  "sha2",
+ "tar",
  "tempfile",
  "tracing",
  "tracing-subscriber",
@@ -6798,8 +6800,9 @@ dependencies = [
  "anyhow",
  "chrono",
  "flate2",
- "forensic-catalog",
+ "forensicnomicon",
  "reqwest",
+ "rt-core",
  "serde",
  "serde_json",
  "serde_yaml",

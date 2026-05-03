@@ -11,6 +11,7 @@ repository.workspace = true
 remote = []
 
 [dependencies]
+rt-core = { workspace = true }
 forensicnomicon = { workspace = true }
 anyhow = { workspace = true }
 chrono = { workspace = true }
