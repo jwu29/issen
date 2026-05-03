@@ -8,12 +8,14 @@
 //! - **discrepancy** — two artifact sources disagree about *when* the same
 //!   entity (file, process) was created or first seen
 
+use rt_core::timeline::event::{EntityRef, TimelineEvent};
 use serde::{Deserialize, Serialize};
 
 #[cfg(test)]
-use rt_core::artifacts::ArtifactType;
-#[cfg(test)]
-use rt_core::timeline::event::{EntityRef, EventType, TimelineEvent};
+use rt_core::{
+    artifacts::ArtifactType,
+    timeline::event::EventType,
+};
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -164,15 +166,179 @@ pub struct TemporalFinding {
 ///
 /// Returns one [`TemporalFinding`] per anchor event that satisfies all clauses.
 ///
-/// - Sequence clauses: all must be present in the window.
+/// - Sequence clauses: all must be present within the time window.
 /// - Absent clauses: all must be absent from the window.
-/// - Discrepancy clauses: at least one must detect a contradiction.
+/// - Discrepancy clauses: at least one must detect a timestamp contradiction.
+///
+/// The time window is symmetric (±`within_seconds`) around the anchor timestamp.
 #[must_use]
-pub fn evaluate_temporal(
-    _rule: &TemporalRule,
-    _events: &[rt_core::timeline::event::TimelineEvent],
-) -> Vec<TemporalFinding> {
-    todo!("WS-10 Phase 2: implement temporal rule evaluation")
+pub fn evaluate_temporal(rule: &TemporalRule, events: &[TimelineEvent]) -> Vec<TemporalFinding> {
+    let within_ns = rule.within_seconds.saturating_mul(1_000_000_000);
+    let mut findings = Vec::new();
+
+    for anchor in events.iter().filter(|e| filter_matches(e, &rule.anchor)) {
+        // Collect events within the time window (excluding anchor itself).
+        let window: Vec<&TimelineEvent> = events
+            .iter()
+            .filter(|e| {
+                e.record_hash != anchor.record_hash
+                    && (e.timestamp_ns - anchor.timestamp_ns).abs() <= within_ns
+            })
+            .collect();
+
+        // 1. Sequence clauses: every filter must match at least one window event.
+        let mut matched_hashes: Vec<String> = Vec::new();
+        let mut sequence_ok = true;
+        for seq_filter in &rule.sequence {
+            if let Some(ev) = window.iter().find(|e| filter_matches(e, seq_filter)) {
+                matched_hashes.push(ev.record_hash.clone());
+            } else {
+                sequence_ok = false;
+                break;
+            }
+        }
+        if !sequence_ok {
+            continue;
+        }
+
+        // 2. Absent clauses: none of the absent filters may match any window event.
+        let all_absent = rule
+            .absent
+            .iter()
+            .all(|abs_filter| !window.iter().any(|e| filter_matches(e, abs_filter)));
+        if !all_absent {
+            continue;
+        }
+
+        // 3. Discrepancy clauses: if any are defined, at least one must fire.
+        if !rule.discrepancy.is_empty() {
+            let mut found_discrepancy: Option<DiscrepancyDetail> = None;
+
+            'outer: for clause in &rule.discrepancy {
+                // Find anchor entity refs matching the entity_role.
+                for anchor_ref in anchor.entity_refs.iter().filter(|r| {
+                    entity_role_matches(r, &clause.entity_role)
+                }) {
+                    let anchor_key = entity_key(anchor_ref);
+
+                    // Find a compare event in the FULL events slice (not window-restricted)
+                    // that shares the same entity and matches the compare filters.
+                    for compare in events.iter().filter(|e| {
+                        e.record_hash != anchor.record_hash
+                            && event_type_str_matches(e, &clause.compare_event_type)
+                            && source_str_matches(e, &clause.compare_source)
+                            && e.entity_refs.iter().any(|r| entity_key(r) == anchor_key)
+                    }) {
+                        let delta_ns =
+                            (compare.timestamp_ns - anchor.timestamp_ns).abs();
+                        let min_delta_ns =
+                            clause.min_delta_seconds.saturating_mul(1_000_000_000);
+
+                        let contradiction = match clause.direction.as_str() {
+                            "after" => {
+                                // Fires when anchor is AFTER compare by at least min_delta
+                                anchor.timestamp_ns > compare.timestamp_ns + min_delta_ns
+                            }
+                            _ => {
+                                // "before" (default): fires when anchor is BEFORE compare
+                                // by at least min_delta
+                                anchor.timestamp_ns + min_delta_ns < compare.timestamp_ns
+                            }
+                        };
+
+                        if contradiction {
+                            found_discrepancy = Some(DiscrepancyDetail {
+                                entity_key: anchor_key.clone(),
+                                anchor_source: format!("{:?}", anchor.source),
+                                anchor_timestamp_ns: anchor.timestamp_ns,
+                                compare_source: clause.compare_source.clone(),
+                                compare_timestamp_ns: compare.timestamp_ns,
+                                delta_ns,
+                            });
+                            matched_hashes.push(compare.record_hash.clone());
+                            break 'outer;
+                        }
+                    }
+                }
+            }
+
+            if found_discrepancy.is_none() {
+                continue;
+            }
+
+            findings.push(TemporalFinding {
+                rule_id: rule.id.clone(),
+                title: rule.title.clone(),
+                severity: rule.severity.clone(),
+                anchor_record_hash: anchor.record_hash.clone(),
+                matched_record_hashes: matched_hashes,
+                discrepancy: found_discrepancy,
+            });
+        } else {
+            // No discrepancy clauses — fire based on sequence + absent alone.
+            findings.push(TemporalFinding {
+                rule_id: rule.id.clone(),
+                title: rule.title.clone(),
+                severity: rule.severity.clone(),
+                anchor_record_hash: anchor.record_hash.clone(),
+                matched_record_hashes: matched_hashes,
+                discrepancy: None,
+            });
+        }
+    }
+
+    findings
+}
+
+// ── Internal helpers ──────────────────────────────────────────────────────────
+
+/// Returns true when `event` matches all non-None fields of `filter`.
+fn filter_matches(event: &TimelineEvent, filter: &EventTypeFilter) -> bool {
+    if !event_type_str_matches(event, &filter.event_type) {
+        return false;
+    }
+    if let Some(ref src) = filter.source {
+        if !source_str_matches(event, src) {
+            return false;
+        }
+    }
+    if let Some(ref needle) = filter.description_contains {
+        if !event.description.contains(needle.as_str()) {
+            return false;
+        }
+    }
+    true
+}
+
+/// Match event_type by display string (e.g. `"ProcessExec"`, `"FileCreate"`).
+fn event_type_str_matches(event: &TimelineEvent, type_str: &str) -> bool {
+    format!("{:?}", event.event_type) == type_str
+}
+
+/// Match artifact source by display string (e.g. `"MFT"`, `"Event Log"`).
+fn source_str_matches(event: &TimelineEvent, source_str: &str) -> bool {
+    format!("{}", event.source) == source_str
+}
+
+/// Check whether an `EntityRef` matches the role string (`"path"`, `"process"`, etc.).
+fn entity_role_matches(entity: &EntityRef, role: &str) -> bool {
+    matches!(
+        (entity, role),
+        (EntityRef::FilePath(_), "path")
+            | (EntityRef::Process(_), "process")
+            | (EntityRef::User(_), "user")
+            | (EntityRef::Ip(_), "ip")
+    )
+}
+
+/// Canonical string key for an entity ref (mirrors `EntityIndex::entity_key`).
+fn entity_key(entity: &EntityRef) -> String {
+    match entity {
+        EntityRef::FilePath(p) => format!("path:{p}"),
+        EntityRef::Process(n) => format!("proc:{n}"),
+        EntityRef::User(u) => format!("user:{u}"),
+        EntityRef::Ip(a) => format!("ip:{a}"),
+    }
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -536,30 +702,34 @@ mod tests {
 
     #[test]
     fn timestomping_mft_born_after_modify() {
-        // Classic timestomping: attacker zeroed the $STANDARD_INFORMATION born time
-        // but forgot to also zero the $FILE_NAME born time, OR the modify time
-        // predates the born time (logically impossible without manipulation).
-        // Rule: FileCreate (born) timestamp > FileModify timestamp for same file entity.
+        // Classic timestomping: attacker modified $STANDARD_INFORMATION timestamps,
+        // leaving the born time (FileCreate) LATER than the modify time (FileModify).
+        // This is logically impossible without timestamp manipulation.
+        //
+        // Rule anchors on FileCreate (born time) and compares it with FileModify:
+        //   direction="after" fires when anchor(born=500s) > compare(modify=100s)
         let rule = TemporalRule {
             id: "temporal.timestomping-born-after-modify".into(),
             title: "File born time later than modify time — timestomping indicator".into(),
             severity: "high".into(),
             description: None,
-            within_seconds: i64::MAX / NS, // effectively unlimited window
-            anchor: EventTypeFilter::new("FileModify").with_source("MFT"),
+            within_seconds: 86400, // 24-hour window
+            anchor: EventTypeFilter::new("FileCreate").with_source("MFT"),
             sequence: vec![],
             absent: vec![],
             discrepancy: vec![DiscrepancyClause {
                 entity_role: "path".into(),
-                compare_event_type: "FileCreate".into(),
+                compare_event_type: "FileModify".into(),
                 compare_source: "MFT".into(),
                 min_delta_seconds: 1,
-                direction: "after".into(), // anchor(modify) should be AFTER compare(create),
-                                           // but we're detecting when it's BEFORE — contradiction
+                // "after": fires when anchor.timestamp > compare.timestamp
+                // i.e. born time (anchor) is AFTER modify time (compare) — contradiction
+                direction: "after".into(),
             }],
         };
 
         let path = "C:\\Windows\\System32\\legit.dll";
+        // FileModify at T=100s — the earlier modify timestamp
         let modify = ev_path(
             100 * NS,
             EventType::FileModify,
@@ -567,7 +737,7 @@ mod tests {
             "legit.dll modified",
             path,
         );
-        // Born time is LATER than modify time — logically impossible without timestomping
+        // Born time at T=500s — LATER than modify, which is physically impossible
         let born = ev_path(
             500 * NS,
             EventType::FileCreate,
@@ -576,13 +746,15 @@ mod tests {
             path,
         );
 
+        // Anchor is born (FileCreate=500s); compare is modify (FileModify=100s).
+        // direction="after" fires because anchor(500s) > compare(100s) + 1s.
         let events = vec![modify, born];
         let findings = evaluate_temporal(&rule, &events);
 
         assert_eq!(
             findings.len(),
             1,
-            "born time later than modify time is a timestomping finding"
+            "born time (500s) later than modify time (100s) is a timestomping finding"
         );
     }
 }
