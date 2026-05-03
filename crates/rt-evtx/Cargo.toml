@@ -9,8 +9,6 @@ repository.workspace = true
 
 [dependencies]
 winevt-core    = { workspace = true }
-winevt-session = { workspace = true }
-winevt-analyze = { workspace = true }
 evtx           = { workspace = true }
 anyhow         = { workspace = true }
 serde          = { workspace = true }

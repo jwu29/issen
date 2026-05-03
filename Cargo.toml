@@ -78,9 +78,6 @@ rt-evtx          = { path = "crates/rt-evtx" }
 
 # winevt-forensic crates (path dependencies into sibling workspace)
 winevt-core     = { path = "../winevt-forensic/crates/winevt-core" }
-winevt-session  = { path = "../winevt-forensic/crates/winevt-session" }
-winevt-handlers = { path = "../winevt-forensic/crates/winevt-handlers" }
-winevt-analyze  = { path = "../winevt-forensic/crates/winevt-analyze" }
 
 # Memory forensic crates (path dependencies into sibling workspace)
 memf-core      = { path = "../memory-forensic/crates/memf-core" }
