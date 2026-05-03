@@ -19,6 +19,8 @@ members = [
     "crates/parsers/rt-parser-lnk",
     "crates/parsers/rt-parser-linux",
     "crates/parsers/rt-parser-macos",
+    "crates/parsers/rt-parser-amcache",
+    "crates/parsers/rt-parser-shimcache",
     "crates/rt-report",
     "crates/rt-cli",
     "crates/rt-navigator",

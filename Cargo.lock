@@ -6954,6 +6954,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "rt-parser-amcache"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "inventory",
+ "notatin",
+ "rt-core",
+ "rt-plugin-sdk",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "rt-parser-evtx"
 version = "0.1.0"
 dependencies = [
@@ -7027,6 +7041,20 @@ dependencies = [
 
 [[package]]
 name = "rt-parser-registry"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "inventory",
+ "notatin",
+ "rt-core",
+ "rt-plugin-sdk",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "rt-parser-shimcache"
 version = "0.1.0"
 dependencies = [
  "anyhow",
