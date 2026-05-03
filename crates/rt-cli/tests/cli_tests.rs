@@ -2350,3 +2350,85 @@ fn feed_attack_flow_bad_cache_dir_exits_nonzero() {
         .assert()
         .failure();
 }
+
+// ── Phase 5A: rt pivot subcommand ────────────────────────────────────────────
+
+/// `rt pivot --help` must exit 0 and list the three sub-subcommands.
+#[test]
+fn pivot_help_exits_success() {
+    rt_cmd()
+        .args(["pivot", "--help"])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("sync")
+                .and(predicate::str::contains("rules"))
+                .and(predicate::str::contains("eval")),
+        );
+}
+
+/// `rt pivot sync --help` must exit 0 and mention --cache-dir.
+#[test]
+fn pivot_sync_help_exits_success() {
+    rt_cmd()
+        .args(["pivot", "sync", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("cache-dir"));
+}
+
+/// `rt pivot rules` must list bundled rules including the xmrig rule.
+#[test]
+fn pivot_rules_shows_bundled_rules() {
+    rt_cmd()
+        .args(["pivot", "rules"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("pivot.miner.xmrig-process"));
+}
+
+/// `rt pivot eval <empty-json>` must exit 0 and print "No findings" (or empty output).
+#[test]
+fn pivot_eval_empty_evidence_no_findings() {
+    let dir = TempDir::new().expect("tmpdir");
+    let evidence_file = dir.path().join("evidence.json");
+    std::fs::write(&evidence_file, b"[]").expect("write evidence file");
+
+    rt_cmd()
+        .args(["pivot", "eval", evidence_file.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("No findings")
+                .or(predicate::str::is_empty()),
+        );
+}
+
+/// `rt pivot eval` with xmrig ProcessName evidence must emit a finding for the xmrig rule.
+#[test]
+fn pivot_eval_matching_evidence_emits_finding() {
+    let dir = TempDir::new().expect("tmpdir");
+    let evidence_file = dir.path().join("evidence.json");
+
+    // Build an Evidence JSON array matching the xmrig-process rule:
+    // kind = ProcessName, value contains "xmrig"
+    let json = r#"[
+        {
+            "id": "ev-1",
+            "source": "Artifact",
+            "kind": "ProcessName",
+            "value": "xmrig",
+            "subject": null,
+            "timestamp_ns": null,
+            "confidence": 90,
+            "attrs": {}
+        }
+    ]"#;
+    std::fs::write(&evidence_file, json).expect("write evidence file");
+
+    rt_cmd()
+        .args(["pivot", "eval", evidence_file.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("pivot.miner.xmrig-process"));
+}
