@@ -2,7 +2,7 @@ pub mod analyze;
 pub mod session;
 
 pub use analyze::EvtxAnalysisSummary;
-pub use session::EvtxSessionSummary;
+pub use session::{EvtxSessionSummary, LateralMovementFinding};
 
 use std::path::{Path, PathBuf};
 
@@ -41,7 +41,7 @@ fn walk_dir(dir: &Path, out: &mut Vec<PathBuf>) {
 pub fn analyse_evtx_sessions(evtx_files: &[PathBuf]) -> anyhow::Result<EvtxSessionSummary> {
     use evtx::{EvtxParser, ParserSettings};
     use winevt_core::EvtxEvent;
-    use winevt_session::{correlate_sessions, extract_process_events, find_lateral_movement, link_processes_to_sessions};
+    use crate::session::{correlate_sessions, extract_process_events, find_lateral_movement, link_processes_to_sessions};
     use winevt_analyze::{frequency_analysis, FrequencyKey};
 
     let settings = ParserSettings::default()
@@ -85,7 +85,7 @@ pub fn analyse_evtx_sessions(evtx_files: &[PathBuf]) -> anyhow::Result<EvtxSessi
     let session_count = sessions_vec.len();
     let lateral_movement_count = lateral.len();
 
-    Ok(EvtxSessionSummary {
+    Ok(crate::session::EvtxSessionSummary {
         session_count,
         lateral_movement_count,
         sessions: sessions_vec,
