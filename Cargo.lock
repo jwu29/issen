@@ -2790,6 +2790,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "forensic-pivot"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+]
+
+[[package]]
 name = "forensicnomicon"
 version = "0.1.0"
 

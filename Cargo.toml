@@ -32,6 +32,7 @@ members = [
     "crates/rt-remote-io",
     "crates/rt-browser",
     "crates/rt-evtx",
+    "crates/forensic-pivot",
     "xtask",
 ]
 
