@@ -2132,3 +2132,108 @@ fn analyse_synthetic_fixture_shows_hidden_pid() {
         .success()
         .stdout(predicate::str::contains("977"));
 }
+
+// ── WS-10 Phase 3: rt supertimeline ──────────────────────────────────────────
+
+/// `rt supertimeline --help` must succeed and mention the collection argument.
+#[test]
+fn supertimeline_command_exists_with_collection_arg() {
+    rt_cmd()
+        .args(["supertimeline", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("COLLECTION"));
+}
+
+/// `rt supertimeline <collection> --format jsonl` must emit valid JSON Lines.
+/// Each output line must be a valid JSON object.
+#[test]
+fn supertimeline_jsonl_output_is_valid() {
+    let dir = TempDir::new().expect("tmpdir");
+    let archive = build_synthetic_uac_fixture(dir.path());
+
+    let output = rt_cmd()
+        .args([
+            "supertimeline",
+            archive.to_str().unwrap(),
+            "--format",
+            "jsonl",
+        ])
+        .output()
+        .expect("supertimeline command should run");
+
+    assert!(output.status.success(), "supertimeline --format jsonl must exit 0");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // Every non-empty line must be a valid JSON object.
+    for line in stdout.lines().filter(|l| !l.trim().is_empty()) {
+        serde_json::from_str::<serde_json::Value>(line)
+            .unwrap_or_else(|e| panic!("invalid JSON line: {e}\n  line: {line}"));
+    }
+}
+
+/// `rt supertimeline <collection> --format csv` must emit CSV with the
+/// standard supertimeline headers on the first line.
+#[test]
+fn supertimeline_csv_output_has_correct_headers() {
+    let dir = TempDir::new().expect("tmpdir");
+    let archive = build_synthetic_uac_fixture(dir.path());
+
+    let output = rt_cmd()
+        .args([
+            "supertimeline",
+            archive.to_str().unwrap(),
+            "--format",
+            "csv",
+        ])
+        .output()
+        .expect("supertimeline command should run");
+
+    assert!(output.status.success(), "supertimeline --format csv must exit 0");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let first_line = stdout.lines().next().unwrap_or("");
+    assert!(
+        first_line.contains("timestamp") && first_line.contains("event_type"),
+        "CSV header must contain 'timestamp' and 'event_type', got: {first_line}"
+    );
+}
+
+/// `rt supertimeline <collection>` default (narrative) output must contain
+/// at least one non-empty line of narrative text.
+#[test]
+fn supertimeline_narrative_output_is_non_empty() {
+    let dir = TempDir::new().expect("tmpdir");
+    let archive = build_synthetic_uac_fixture(dir.path());
+
+    rt_cmd()
+        .args(["supertimeline", archive.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::is_empty().not());
+}
+
+/// `rt supertimeline` with an empty directory must exit 0 and not panic.
+#[test]
+fn supertimeline_with_no_parsers_returns_empty_gracefully() {
+    let dir = TempDir::new().expect("tmpdir");
+    // Pass the bare tempdir (no files inside) as the collection.
+    rt_cmd()
+        .args(["supertimeline", dir.path().to_str().unwrap()])
+        .assert()
+        .success();
+}
+
+/// When the collection contains evidence consistent with temporal discrepancy
+/// patterns, `rt supertimeline` must include a TEMPORAL FINDINGS section.
+#[test]
+fn supertimeline_temporal_findings_appear_in_output() {
+    let dir = TempDir::new().expect("tmpdir");
+    let archive = build_synthetic_uac_fixture(dir.path());
+
+    rt_cmd()
+        .args(["supertimeline", archive.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("TEMPORAL"));
+}
