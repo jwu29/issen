@@ -27,7 +27,16 @@ impl EntityIndex {
     /// Events with no `entity_refs` are silently skipped.
     #[must_use]
     pub fn build(events: &[TimelineEvent]) -> Self {
-        todo!("implement EntityIndex::build")
+        let mut inner: HashMap<String, Vec<usize>> = HashMap::new();
+        for (idx, event) in events.iter().enumerate() {
+            for entity in &event.entity_refs {
+                inner
+                    .entry(Self::entity_key(entity))
+                    .or_default()
+                    .push(idx);
+            }
+        }
+        Self { inner }
     }
 
     /// Return all event indices for a given entity key.
@@ -59,7 +68,14 @@ pub fn temporal_join<'a>(
     events: &'a [TimelineEvent],
     within_ns: i64,
 ) -> Vec<&'a TimelineEvent> {
-    todo!("implement temporal_join")
+    events
+        .iter()
+        .filter(|e| {
+            // Exclude the anchor itself
+            e.record_hash != anchor.record_hash
+                && (e.timestamp_ns - anchor.timestamp_ns).abs() <= within_ns
+        })
+        .collect()
 }
 
 /// Returns `true` when **no** event with `event_type` appears in `events`
@@ -75,15 +91,28 @@ pub fn absence_detection(
     event_type: &EventType,
     within_ns: i64,
 ) -> bool {
-    todo!("implement absence_detection")
+    // Returns true when the event_type is ABSENT in the window
+    !events.iter().any(|e| {
+        e.record_hash != anchor.record_hash
+            && &e.event_type == event_type
+            && (e.timestamp_ns - anchor.timestamp_ns).abs() <= within_ns
+    })
 }
 
 /// Remove duplicate events: if two events share the same `record_hash`,
 /// keep only the first occurrence (preserves original ordering).
 #[must_use]
 pub fn deduplicate(events: Vec<TimelineEvent>) -> Vec<TimelineEvent> {
-    todo!("implement deduplicate")
+    let mut seen = std::collections::HashSet::new();
+    events
+        .into_iter()
+        .filter(|e| seen.insert(e.record_hash.clone()))
+        .collect()
 }
+
+/// Windows FILETIME epoch offset in 100-nanosecond units
+/// (number of 100-ns intervals between 1601-01-01 and 1970-01-01).
+const FILETIME_EPOCH_OFFSET: u64 = 116_444_736_000_000_000;
 
 /// Convert a Windows FILETIME (100-nanosecond intervals since 1601-01-01)
 /// to a Unix nanosecond timestamp (since 1970-01-01).
@@ -91,7 +120,12 @@ pub fn deduplicate(events: Vec<TimelineEvent>) -> Vec<TimelineEvent> {
 /// Returns `None` for zero values or timestamps before the Unix epoch.
 #[must_use]
 pub fn filetime_to_utc_ns(filetime: u64) -> Option<i64> {
-    todo!("implement filetime_to_utc_ns")
+    if filetime == 0 || filetime < FILETIME_EPOCH_OFFSET {
+        return None;
+    }
+    let unix_100ns = filetime - FILETIME_EPOCH_OFFSET;
+    // Multiply by 100 to convert from 100-ns units to nanoseconds
+    i64::try_from(unix_100ns.checked_mul(100)?).ok()
 }
 
 #[cfg(test)]
