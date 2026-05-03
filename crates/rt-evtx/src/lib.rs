@@ -239,6 +239,8 @@ fn parse_logon_id(s: &str) -> Option<u64> {
     }
 }
 
+pub mod handlers;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -312,5 +314,34 @@ mod tests {
         };
         assert_eq!(summary.rare_processes.len(), 1);
         assert_eq!(summary.rare_processes[0], "suspicious.exe");
+    }
+
+    // ── handlers module tests (Phase 1 RED) ──────────────────────────────
+    mod handler_tests {
+        use crate::handlers::{all_handlers, EventHandler};
+
+        #[test]
+        fn all_handlers_returns_12_handlers() {
+            let handlers = all_handlers();
+            assert_eq!(handlers.len(), 12, "expected exactly 12 handlers");
+        }
+
+        #[test]
+        fn handler_for_4624_exists() {
+            let handlers = all_handlers();
+            let found = handlers
+                .iter()
+                .any(|h| h.handles(4624, "Security"));
+            assert!(found, "expected a handler that handles event 4624");
+        }
+
+        #[test]
+        fn handler_for_1116_defender_exists() {
+            let handlers = all_handlers();
+            let found = handlers
+                .iter()
+                .any(|h| h.handles(1116, "Microsoft-Windows-Windows Defender/Operational"));
+            assert!(found, "expected a handler that handles event 1116 (Defender)");
+        }
     }
 }
