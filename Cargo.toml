@@ -61,6 +61,7 @@ rt-remote-access = { path = "crates/rt-remote-access" }
 rt-mft-tree      = { path = "crates/rt-mft-tree" }
 rt-unpack        = { path = "crates/rt-unpack" }
 rt-mem          = { path = "crates/rt-mem" }
+rt-browser      = { path = "crates/rt-browser" }
 rt-correlation   = { path = "crates/rt-correlation" }
 rt-remote-io     = { path = "crates/rt-remote-io" }
 
@@ -73,6 +74,9 @@ memf-windows   = { path = "../memory-forensic/crates/memf-windows" }
 memf-strings   = { path = "../memory-forensic/crates/memf-strings" }
 memf-correlate = { path = "../memory-forensic/crates/memf-correlate" }
 forensic-hashdb = { path = "../memory-forensic/crates/forensic-hashdb" }
+browser-core    = { path = "../browser-forensic/crates/browser-core" }
+browser-chrome  = { path = "../browser-forensic/crates/browser-chrome" }
+browser-firefox = { path = "../browser-forensic/crates/browser-firefox" }
 
 # External dependencies
 duckdb       = { version = "1", features = ["bundled"] }
