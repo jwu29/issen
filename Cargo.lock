@@ -6890,18 +6890,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rt-parser-browser"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "inventory",
- "rt-core",
- "rusqlite",
- "serde_json",
- "tempfile",
-]
-
-[[package]]
 name = "rt-parser-evtx"
 version = "0.1.0"
 dependencies = [
