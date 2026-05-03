@@ -318,7 +318,7 @@ mod tests {
 
     // ── handlers module tests (Phase 1 RED) ──────────────────────────────
     mod handler_tests {
-        use crate::handlers::{all_handlers, EventHandler};
+        use crate::handlers::all_handlers;
 
         #[test]
         fn all_handlers_returns_12_handlers() {
