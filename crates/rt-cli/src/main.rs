@@ -261,6 +261,12 @@ pub enum FeedAction {
         /// Feed identifier (e.g. "cisa-kev").
         id: String,
     },
+    /// Download the CTID Attack Flow v3.0.0 corpus zip and cache locally.
+    AttackFlow {
+        /// Directory to cache the corpus zip (default: ~/.local/share/rapidtriage/attack-flow).
+        #[arg(long)]
+        cache_dir: Option<std::path::PathBuf>,
+    },
 }
 
 impl FeedAction {
@@ -270,6 +276,9 @@ impl FeedAction {
             Self::List => commands::feed::FeedAction::List,
             Self::Update => commands::feed::FeedAction::Update,
             Self::Info { id } => commands::feed::FeedAction::Info { id: id.clone() },
+            Self::AttackFlow { cache_dir } => commands::feed::FeedAction::AttackFlow {
+                cache_dir: cache_dir.clone(),
+            },
         }
     }
 }

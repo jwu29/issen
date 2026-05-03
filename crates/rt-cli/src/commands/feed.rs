@@ -9,6 +9,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 
+use rt_correlation::attack_flow::download_attack_flow_corpus_zip;
 use rt_signatures::feeds::config::FeedRegistry;
 use rt_signatures::feeds::downloader::{download_all_feeds, DownloadStatus};
 use rt_signatures::feeds::fetcher::FeedCache;
@@ -24,6 +25,7 @@ pub fn run(action: &FeedAction) -> Result<()> {
         FeedAction::List => run_list(&registry, &cache),
         FeedAction::Update => run_update(&registry, &cache),
         FeedAction::Info { id } => run_info(&registry, &cache, id),
+        FeedAction::AttackFlow { cache_dir: dir } => run_attack_flow(dir.as_deref()),
     }
 }
 
@@ -36,6 +38,8 @@ pub enum FeedAction {
     Update,
     /// Show details for a specific feed.
     Info { id: String },
+    /// Download the CTID Attack Flow v3.0.0 corpus zip.
+    AttackFlow { cache_dir: Option<std::path::PathBuf> },
 }
 
 /// List all configured feeds with their status.
@@ -159,6 +163,24 @@ fn run_info(registry: &FeedRegistry, cache: &FeedCache, id: &str) -> Result<()> 
         println!("  Cached:          no");
     }
 
+    Ok(())
+}
+
+/// Download the CTID Attack Flow corpus zip.
+fn run_attack_flow(cache_dir: Option<&Path>) -> Result<()> {
+    let dir = if let Some(d) = cache_dir {
+        d.to_path_buf()
+    } else {
+        dirs_or_fallback()
+            .unwrap_or_else(|| std::path::PathBuf::from(".rapidtriage"))
+            .join("attack-flow")
+    };
+    std::fs::create_dir_all(&dir)
+        .with_context(|| format!("cannot create cache dir: {}", dir.display()))?;
+    println!("Downloading Attack Flow corpus → {}", dir.display());
+    let dest = download_attack_flow_corpus_zip(&dir)?;
+    println!("  Saved: {}", dest.display());
+    println!("  Done.");
     Ok(())
 }
 
