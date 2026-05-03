@@ -892,4 +892,102 @@ clauses:
         assert!(matches!(rule.assertion_level, AssertionLevel::Observed),
             "confirmed-xmrig rule must use Observed assertion level");
     }
+
+    // ── Phase 2: SRUM correlation rules ──────────────────────────────────────
+
+    #[test]
+    fn srum_exfil_candidate_rule_is_bundled() {
+        let dir = bundled_rule_dir();
+        let rules = load_rule_pack(&dir).expect("load bundled rules");
+        assert!(
+            rules.iter().any(|r| r.id == "srum.exfil-candidate"),
+            "srum.exfil-candidate rule must be bundled"
+        );
+    }
+
+    #[test]
+    fn srum_exfil_candidate_rule_has_high_severity() {
+        let dir = bundled_rule_dir();
+        let rules = load_rule_pack(&dir).expect("load bundled rules");
+        let rule = rules.iter()
+            .find(|r| r.id == "srum.exfil-candidate")
+            .expect("srum.exfil-candidate rule must exist");
+        assert_eq!(rule.severity, "high", "srum.exfil-candidate must have high severity");
+        assert!(
+            matches!(rule.assertion_level, AssertionLevel::Inferred),
+            "srum.exfil-candidate must use Inferred assertion level"
+        );
+    }
+
+    #[test]
+    fn srum_c2_beacon_rule_is_bundled() {
+        let dir = bundled_rule_dir();
+        let rules = load_rule_pack(&dir).expect("load bundled rules");
+        assert!(
+            rules.iter().any(|r| r.id == "srum.c2-beacon"),
+            "srum.c2-beacon rule must be bundled"
+        );
+    }
+
+    #[test]
+    fn srum_c2_beacon_rule_has_high_severity_and_correlated_level() {
+        let dir = bundled_rule_dir();
+        let rules = load_rule_pack(&dir).expect("load bundled rules");
+        let rule = rules.iter()
+            .find(|r| r.id == "srum.c2-beacon")
+            .expect("srum.c2-beacon rule must exist");
+        assert_eq!(rule.severity, "high", "srum.c2-beacon must have high severity");
+        assert!(
+            matches!(rule.assertion_level, AssertionLevel::Correlated),
+            "srum.c2-beacon must use Correlated assertion level"
+        );
+    }
+
+    #[test]
+    fn srum_background_miner_rule_is_bundled() {
+        let dir = bundled_rule_dir();
+        let rules = load_rule_pack(&dir).expect("load bundled rules");
+        assert!(
+            rules.iter().any(|r| r.id == "srum.background-miner"),
+            "srum.background-miner rule must be bundled"
+        );
+    }
+
+    #[test]
+    fn srum_background_miner_rule_has_high_severity_and_correlated_level() {
+        let dir = bundled_rule_dir();
+        let rules = load_rule_pack(&dir).expect("load bundled rules");
+        let rule = rules.iter()
+            .find(|r| r.id == "srum.background-miner")
+            .expect("srum.background-miner rule must exist");
+        assert_eq!(rule.severity, "high", "srum.background-miner must have high severity");
+        assert!(
+            matches!(rule.assertion_level, AssertionLevel::Correlated),
+            "srum.background-miner must use Correlated assertion level"
+        );
+    }
+
+    #[test]
+    fn srum_stealth_process_rule_is_bundled() {
+        let dir = bundled_rule_dir();
+        let rules = load_rule_pack(&dir).expect("load bundled rules");
+        assert!(
+            rules.iter().any(|r| r.id == "srum.stealth-process"),
+            "srum.stealth-process rule must be bundled"
+        );
+    }
+
+    #[test]
+    fn srum_stealth_process_rule_has_critical_severity_and_correlated_level() {
+        let dir = bundled_rule_dir();
+        let rules = load_rule_pack(&dir).expect("load bundled rules");
+        let rule = rules.iter()
+            .find(|r| r.id == "srum.stealth-process")
+            .expect("srum.stealth-process rule must exist");
+        assert_eq!(rule.severity, "critical", "srum.stealth-process must have critical severity");
+        assert!(
+            matches!(rule.assertion_level, AssertionLevel::Correlated),
+            "srum.stealth-process must use Correlated assertion level"
+        );
+    }
 }
