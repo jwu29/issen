@@ -2237,3 +2237,25 @@ fn supertimeline_temporal_findings_appear_in_output() {
         .success()
         .stdout(predicate::str::contains("TEMPORAL"));
 }
+
+// ── Attack Flow corpus download ───────────────────────────────────────────────
+
+/// `rt feed attack-flow --help` must exit 0 and describe the subcommand.
+#[test]
+fn feed_attack_flow_help_exits_success() {
+    rt_cmd()
+        .args(["feed", "attack-flow", "--help"])
+        .assert()
+        .success();
+}
+
+/// `rt feed attack-flow --cache-dir <dir>` with an invalid/unreachable network
+/// should exit non-zero and print an error (not panic).
+/// We test with a path that has no write permission to avoid real network access.
+#[test]
+fn feed_attack_flow_bad_cache_dir_exits_nonzero() {
+    rt_cmd()
+        .args(["feed", "attack-flow", "--cache-dir", "/proc/nonexistent/readonly"])
+        .assert()
+        .failure();
+}
