@@ -4,6 +4,7 @@
 pub use browser_core::{ArtifactKind, BrowserEvent, BrowserFamily, detect_browser};
 pub use browser_chrome::parse_history as parse_chrome_history;
 pub use browser_firefox::parse_history as parse_firefox_history;
+pub use browser_safari::parse_history as parse_safari_history;
 
 use anyhow::Result;
 use std::path::Path;
@@ -20,6 +21,7 @@ pub fn parse_browser_history(path: &Path) -> Result<Vec<BrowserEvent>> {
     match detect_browser(path) {
         Some(BrowserFamily::Chromium) => parse_chrome_history(path),
         Some(BrowserFamily::Firefox) => parse_firefox_history(path),
+        Some(BrowserFamily::Safari) => parse_safari_history(path),
         None => anyhow::bail!(
             "cannot detect browser family from path: {}",
             path.display()

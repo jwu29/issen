@@ -91,6 +91,7 @@ forensic-hashdb = { path = "../memory-forensic/crates/forensic-hashdb" }
 browser-core    = { path = "../browser-forensic/crates/browser-core" }
 browser-chrome  = { path = "../browser-forensic/crates/browser-chrome" }
 browser-firefox = { path = "../browser-forensic/crates/browser-firefox" }
+browser-safari  = { path = "../browser-forensic/crates/browser-safari" }
 
 # External dependencies
 duckdb       = { version = "1", features = ["bundled"] }
@@ -164,3 +165,6 @@ unsafe_code = "deny"
 all = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
 unwrap_used = "deny"
+
+[patch.crates-io]
+notatin = { path = "vendor/notatin" }
