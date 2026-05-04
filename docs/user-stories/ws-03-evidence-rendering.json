@@ -1,0 +1,16 @@
+{
+  "id": "ws-03",
+  "title": "Human-Readable Evidence Rendering",
+  "crate": "rt-correlation",
+  "priority": 30,
+  "passes": true,
+  "description": "Add evidence rendering layer in rt-correlation. Each Evidence value renders to a human-readable line based on its kind/source/attrs. Findings carry rendered evidence strings.",
+  "acceptance_criteria": [
+    "render_evidence_line(ev: &Evidence) -> String function exists in rt-correlation::render",
+    "Rootkit evidence renders as: ld_preload /lib/x86_64-linux-gnu/libymv.so.3",
+    "Process evidence renders as: PID 977 top [thread: libuv-worker]",
+    "Network evidence renders as: 127.0.0.1:59182 -> 127.0.0.1:3333 [ESTABLISHED]",
+    "Finding::evidence_rendered is populated by engine after correlation",
+    "cargo test -p rt-correlation passes"
+  ]
+}

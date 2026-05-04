@@ -1,0 +1,15 @@
+{
+  "id": "ws-01",
+  "title": "Evidence Truth Model",
+  "crate": "rt-correlation",
+  "priority": 10,
+  "passes": true,
+  "description": "Extend rt-correlation::model::Finding with summary, explanation, confidence, assertion_level (Observed/Correlated/Inferred), and evidence_rendered fields. Update correlation engine outputs and CLI rendering.",
+  "acceptance_criteria": [
+    "AssertionLevel enum exists with Observed, Correlated, Inferred variants",
+    "Finding struct has: summary: String, explanation: String, confidence: u8, assertion_level: AssertionLevel, evidence_rendered: Vec<String>",
+    "Rule YAML schema supports assertion_level, default_confidence, summary_template, explanation_template fields",
+    "All existing bundled rules load without error after schema extension",
+    "cargo test -p rt-correlation passes with new fields"
+  ]
+}

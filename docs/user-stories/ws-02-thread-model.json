@@ -1,0 +1,15 @@
+{
+  "id": "ws-02",
+  "title": "Hidden Process Thread Model",
+  "crate": "rt-parser-uac",
+  "priority": 20,
+  "passes": true,
+  "description": "Add all_thread_names field to the UAC process parser. process_name remains main thread (tid==pid). thread_names remains non-main-thread names only. all_thread_names contains both main + non-main thread names.",
+  "acceptance_criteria": [
+    "ParsedProcess struct has all_thread_names: Vec<String> field",
+    "all_thread_names includes both the main process name and all non-main thread names",
+    "Existing process_name and thread_names fields are unchanged",
+    "Test: all_thread_names for a process with main=top and thread=libuv-worker contains both",
+    "cargo test -p rt-parser-uac passes"
+  ]
+}

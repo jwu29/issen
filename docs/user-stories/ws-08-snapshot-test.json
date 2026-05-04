@@ -1,0 +1,15 @@
+{
+  "id": "ws-08",
+  "title": "Snapshot Integration Test for rt analyse",
+  "crate": "rt-cli",
+  "priority": 80,
+  "passes": true,
+  "description": "Add a stable integration test that runs rt analyse against a synthetic fixture and captures/asserts the key output sections. Ensures no regression in narrative output.",
+  "acceptance_criteria": [
+    "Integration test build_synthetic_uac_fixture() creates a minimal tar.gz with: chkrootkit/etc_ld_so_preload.txt, memory_dump/output-sockstat, live_response/process/hidden_pids, live_response/process/top_-b_-n1.txt",
+    "Test asserts: HIDDEN PROCESSES section present, NETWORK CONNECTIONS section present, CORRELATION FINDINGS section present",
+    "Test asserts calibrated language: no 'readdir' or 'getdents' hook claims in output",
+    "Test asserts: PID 977 appears in output",
+    "cargo test -p rt-cli passes"
+  ]
+}

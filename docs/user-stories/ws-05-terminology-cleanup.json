@@ -1,0 +1,14 @@
+{
+  "id": "ws-05",
+  "title": "Terminology Cleanup — PIVOT → CORRELATION",
+  "crate": "rt-cli",
+  "priority": 50,
+  "passes": true,
+  "description": "Rename all user-visible 'PIVOT FINDINGS' labels to 'CORRELATION FINDINGS'. Rename evaluate_pivot function/module to evaluate_correlation. Remove stale pivot wording from CLI output.",
+  "acceptance_criteria": [
+    "rt analyse output section header is 'CORRELATION FINDINGS' not 'PIVOT FINDINGS'",
+    "No user-visible string in CLI output contains 'PIVOT FINDINGS'",
+    "Integration test asserts CORRELATION FINDINGS appears in rt analyse output",
+    "cargo test --workspace passes"
+  ]
+}
