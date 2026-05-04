@@ -1,0 +1,54 @@
+site_name: RapidTriage
+site_url: https://securityronin.github.io/rapidtriage/
+repo_url: https://github.com/SecurityRonin/rapidtriage
+repo_name: SecurityRonin/rapidtriage
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: red
+      accent: deep orange
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: red
+      accent: deep orange
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - content.code.copy
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - search.highlight
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Privacy Policy: privacy.md
+  - Terms of Service: terms.md
+
+plugins:
+  - search
+
+# Raw HTML files in docs/ (e.g. architecture-diagram.html) are copied
+# to site/ as-is by MkDocs and can be linked directly from markdown.
+# use_directory_urls must be false so relative links like
+# architecture-diagram.html resolve correctly.
+use_directory_urls: false
