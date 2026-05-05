@@ -1059,4 +1059,81 @@ clauses:
             "failed-preload-then-success must have confidence >= 65, got {}",
             rule.default_confidence);
     }
+
+    // ── Batch 1: time_of_day classifier ──────────────────────────────────────
+
+    // 2024-03-15 14:30:00 UTC = Friday 14:30 (within working hours)
+    const FRIDAY_2PM_NS: i64 = 1_710_509_400_000_000_000;
+    // 2024-03-16 02:00:00 UTC = Saturday 02:00 (weekend + outside hours)
+    const SATURDAY_2AM_NS: i64 = 1_710_547_200_000_000_000;
+    // 2024-03-18 08:30:00 UTC = Monday 08:30 (before working hours)
+    const MONDAY_830AM_NS: i64 = 1_710_757_800_000_000_000;
+    // 2024-03-18 18:00:00 UTC = Monday 18:00 (after working hours)
+    const MONDAY_6PM_NS: i64 = 1_710_799_200_000_000_000;
+
+    #[test]
+    fn friday_2pm_is_within_working_hours() {
+        use crate::time_of_day::is_outside_working_hours;
+        assert!(!is_outside_working_hours(FRIDAY_2PM_NS));
+    }
+
+    #[test]
+    fn saturday_is_weekend() {
+        use crate::time_of_day::is_weekend;
+        assert!(is_weekend(SATURDAY_2AM_NS));
+    }
+
+    #[test]
+    fn saturday_is_outside_working_hours() {
+        use crate::time_of_day::is_outside_working_hours;
+        assert!(is_outside_working_hours(SATURDAY_2AM_NS));
+    }
+
+    #[test]
+    fn monday_830am_is_before_working_hours() {
+        use crate::time_of_day::is_outside_working_hours;
+        assert!(is_outside_working_hours(MONDAY_830AM_NS));
+    }
+
+    #[test]
+    fn monday_6pm_is_after_working_hours() {
+        use crate::time_of_day::is_outside_working_hours;
+        assert!(is_outside_working_hours(MONDAY_6PM_NS));
+    }
+
+    #[test]
+    fn hour_of_day_friday_2pm() {
+        use crate::time_of_day::hour_of_day;
+        assert_eq!(hour_of_day(FRIDAY_2PM_NS), 14);
+    }
+
+    #[test]
+    fn classify_weekend_returns_weekend_variant() {
+        use crate::time_of_day::{TimeAnomaly, classify_time_anomaly};
+        assert!(matches!(classify_time_anomaly(SATURDAY_2AM_NS), TimeAnomaly::Weekend { .. }));
+    }
+
+    #[test]
+    fn classify_after_hours_returns_outside_variant() {
+        use crate::time_of_day::{TimeAnomaly, classify_time_anomaly};
+        assert!(matches!(
+            classify_time_anomaly(MONDAY_6PM_NS),
+            TimeAnomaly::OutsideWorkingHours { .. }
+        ));
+    }
+
+    #[test]
+    fn classify_working_hours_returns_none() {
+        use crate::time_of_day::{TimeAnomaly, classify_time_anomaly};
+        assert_eq!(classify_time_anomaly(FRIDAY_2PM_NS), TimeAnomaly::None);
+    }
+
+    #[test]
+    fn after_hours_rule_is_bundled() {
+        let rules = load_rule_pack(&bundled_rule_dir()).expect("load bundled rules");
+        assert!(
+            rules.iter().any(|r| r.id == "temporal.after-hours-access"),
+            "expected temporal.after-hours-access in bundled rules"
+        );
+    }
 }
