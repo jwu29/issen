@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 anyhow = { workspace = true }
 rt-core = { path = "../../rt-core" }
+serde = { workspace = true }
 serde_json = { workspace = true }
 inventory = { workspace = true }
 

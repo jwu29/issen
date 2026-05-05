@@ -11,6 +11,7 @@
     clippy::unnecessary_literal_bound
 )]
 
+pub mod drive_type;
 pub mod parser;
 
 use std::path::Path;
