@@ -990,4 +990,73 @@ clauses:
             "srum.stealth-process must use Correlated assertion level"
         );
     }
+
+    // ── Father rootkit temporal correlation rules ─────────────────────────────
+
+    #[test]
+    fn sshd_restart_after_preload_rule_is_bundled() {
+        let dir = bundled_rule_dir();
+        let rules = load_rule_pack(&dir).expect("load bundled rules");
+        assert!(
+            rules.iter().any(|r| r.id == "temporal.sshd-restart-after-preload"),
+            "temporal.sshd-restart-after-preload must be bundled"
+        );
+    }
+
+    #[test]
+    fn sshd_restart_after_preload_rule_has_critical_severity_and_high_confidence() {
+        let dir = bundled_rule_dir();
+        let rules = load_rule_pack(&dir).expect("load bundled rules");
+        let rule = rules.iter()
+            .find(|r| r.id == "temporal.sshd-restart-after-preload")
+            .expect("temporal.sshd-restart-after-preload must exist");
+        assert_eq!(rule.severity, "critical",
+            "sshd-restart-after-preload must have critical severity");
+        assert!(rule.default_confidence >= 80,
+            "sshd-restart-after-preload must have confidence >= 80, got {}",
+            rule.default_confidence);
+    }
+
+    #[test]
+    fn kit_deleted_after_deployment_rule_is_bundled() {
+        let dir = bundled_rule_dir();
+        let rules = load_rule_pack(&dir).expect("load bundled rules");
+        assert!(
+            rules.iter().any(|r| r.id == "temporal.kit-deleted-after-deployment"),
+            "temporal.kit-deleted-after-deployment must be bundled"
+        );
+    }
+
+    #[test]
+    fn kit_deleted_after_deployment_rule_has_high_severity() {
+        let dir = bundled_rule_dir();
+        let rules = load_rule_pack(&dir).expect("load bundled rules");
+        let rule = rules.iter()
+            .find(|r| r.id == "temporal.kit-deleted-after-deployment")
+            .expect("temporal.kit-deleted-after-deployment must exist");
+        assert_eq!(rule.severity, "high",
+            "kit-deleted-after-deployment must have high severity");
+    }
+
+    #[test]
+    fn failed_preload_then_success_rule_is_bundled() {
+        let dir = bundled_rule_dir();
+        let rules = load_rule_pack(&dir).expect("load bundled rules");
+        assert!(
+            rules.iter().any(|r| r.id == "temporal.failed-preload-then-success"),
+            "temporal.failed-preload-then-success must be bundled"
+        );
+    }
+
+    #[test]
+    fn failed_preload_then_success_rule_has_sufficient_confidence() {
+        let dir = bundled_rule_dir();
+        let rules = load_rule_pack(&dir).expect("load bundled rules");
+        let rule = rules.iter()
+            .find(|r| r.id == "temporal.failed-preload-then-success")
+            .expect("temporal.failed-preload-then-success must exist");
+        assert!(rule.default_confidence >= 65,
+            "failed-preload-then-success must have confidence >= 65, got {}",
+            rule.default_confidence);
+    }
 }
