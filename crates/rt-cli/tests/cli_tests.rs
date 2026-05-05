@@ -2477,3 +2477,101 @@ fn pivot_eval_matching_evidence_emits_finding() {
         .success()
         .stdout(predicate::str::contains("pivot.miner.xmrig-process"));
 }
+
+// ── Batch 2: DriveBreakdown unit tests ───────────────────────────────────────
+
+#[cfg(test)]
+mod drive_breakdown_tests {
+    use rt_cli::commands::analyse::{DriveBreakdown, drive_breakdown};
+    use rt_core::artifacts::types::ArtifactType;
+    use rt_core::timeline::event::{EventType, TimelineEvent};
+
+    fn make_event(tags: &[&str]) -> TimelineEvent {
+        let mut e = TimelineEvent::new(
+            0,
+            "1970-01-01T00:00:00Z".to_string(),
+            EventType::FileCreate,
+            ArtifactType::Lnk,
+            "test/path".to_string(),
+            "test event".to_string(),
+            "test-evidence".to_string(),
+        );
+        for tag in tags {
+            e.tags.push((*tag).to_string());
+        }
+        e
+    }
+
+    #[test]
+    fn drive_breakdown_counts_removable_correctly() {
+        let events = vec![
+            make_event(&["drive_type:removable"]),
+            make_event(&["drive_type:removable"]),
+            make_event(&["drive_type:fixed"]),
+        ];
+        let bd = drive_breakdown(&events);
+        assert_eq!(bd.removable, 2);
+        assert_eq!(bd.fixed, 1);
+    }
+
+    #[test]
+    fn drive_breakdown_total_is_sum() {
+        let events = vec![
+            make_event(&["drive_type:fixed"]),
+            make_event(&["drive_type:removable"]),
+            make_event(&["drive_type:network"]),
+            make_event(&[]),
+        ];
+        let bd = drive_breakdown(&events);
+        assert_eq!(bd.total(), 4);
+    }
+
+    #[test]
+    fn drive_breakdown_has_removable_true_when_nonzero() {
+        let events = vec![make_event(&["drive_type:removable"])];
+        let bd = drive_breakdown(&events);
+        assert!(bd.has_removable());
+    }
+
+    #[test]
+    fn drive_breakdown_has_removable_false_when_zero() {
+        let events = vec![make_event(&["drive_type:fixed"])];
+        let bd = drive_breakdown(&events);
+        assert!(!bd.has_removable());
+    }
+
+    #[test]
+    fn drive_breakdown_render_contains_removable_line() {
+        let b = DriveBreakdown { fixed: 1, removable: 2, network: 0, unknown: 0 };
+        let rendered = b.render();
+        assert!(rendered.contains("Removable"), "render must contain 'Removable'");
+        assert!(rendered.contains('2'), "render must contain the count 2");
+    }
+
+    #[test]
+    fn drive_breakdown_render_flags_removable_when_present() {
+        let b = DriveBreakdown { fixed: 0, removable: 5, network: 0, unknown: 0 };
+        let rendered = b.render();
+        assert!(
+            rendered.contains("exfiltration") || rendered.contains('\u{2190}'),
+            "render must flag exfiltration risk when removable > 0"
+        );
+    }
+
+    #[test]
+    fn drive_breakdown_unknown_counts_events_without_drive_type_tag() {
+        let events = vec![
+            make_event(&["some_other_tag"]),
+            make_event(&[]),
+        ];
+        let bd = drive_breakdown(&events);
+        assert_eq!(bd.unknown, 2);
+    }
+
+    #[test]
+    fn drive_breakdown_has_network_true_when_nonzero() {
+        let events = vec![make_event(&["drive_type:network"])];
+        let bd = drive_breakdown(&events);
+        assert!(bd.has_network());
+    }
+}
