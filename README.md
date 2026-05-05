@@ -1,6 +1,6 @@
 # RapidTriage
 
-[![Stars](https://img.shields.io/github/stars/SecurityRonin/rapidtriage?style=for-the-badge)](https://github.com/SecurityRonin/rapidtriage/stargazers) [![License](https://img.shields.io/badge/license-Apache--2.0-blue?style=for-the-badge)](LICENSE) [![Build](https://img.shields.io/badge/build-passing-brightgreen?style=for-the-badge)]() [![Rust](https://img.shields.io/badge/rust-1.80+-orange?style=for-the-badge&logo=rust)](https://www.rust-lang.org) [![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-lightgrey?style=for-the-badge)]() [![Sponsor](https://img.shields.io/badge/sponsor-h4x0r-ff69b4?style=for-the-badge&logo=github-sponsors)](https://github.com/sponsors/h4x0r)
+[![Stars](https://img.shields.io/github/stars/SecurityRonin/rapidtriage?style=flat-square)](https://github.com/SecurityRonin/rapidtriage/stargazers) [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE) [![CI](https://github.com/SecurityRonin/rapidtriage/actions/workflows/ci.yml/badge.svg)](https://github.com/SecurityRonin/rapidtriage/actions/workflows/ci.yml) [![Rust 1.80+](https://img.shields.io/badge/rust-1.80%2B-orange.svg)](https://www.rust-lang.org) [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-blue.svg)](#install) [![Sponsor](https://img.shields.io/badge/sponsor-h4x0r-ff69b4.svg?logo=github-sponsors)](https://github.com/sponsors/h4x0r)
 
 **One command. One output. The full attack narrative.**
 
@@ -21,6 +21,20 @@ A rootkit hiding a crypto miner behind an SSH tunnel. Found automatically. Zero 
 ---
 
 ## How it works
+
+RapidTriage ingests evidence from three independent paths, then correlates across all of them:
+
+```
+Disk image (E01/raw)          Memory dump (LiME/WinPMEM)     Log stream (EVTX/Zeek/CloudTrail)
+  ewf → ext4fs / NTFS           memf-format → memf-hw           winevt-forensic / zeek-forensic
+  name → inode → block          PID → EPROCESS → VA → PA        timestamp → record → field
+         ↓                              ↓                                ↓
+  browser-forensic          browser-forensic (carve)         browser-forensic (events)
+  srum-forensic                 srum-forensic                    srum-forensic
+  winevt-forensic               ...                              winevt-forensic
+         ↓                              ↓                                ↓
+                    RapidTriage — correlation engine — TimelineEvent
+```
 
 - **Ingests** UAC live response collections, Volatility sockstat output, EVTX logs, and memory dumps — simultaneously.
 - **Correlates** evidence across sources using the Pivot engine: a network connection isn't a finding on its own; combined with a hidden PID and a loaded rootkit library, it is.
@@ -86,9 +100,12 @@ rt report case.duckdb --output report.html
 | Category | Formats / Sources |
 |---|---|
 | **Collection formats** | UAC `.tar.gz`, Velociraptor, KAPE triage zip |
+| **Disk images** | E01/EWF, raw DD, split images |
+| **Filesystems** | ext4, NTFS [planned], APFS [planned] |
 | **Memory formats** | LiME, AVML, WinPMEM, crash dump (DMP), Hibernation (hiberfil.sys) |
+| **Log streams** | EVTX, Zeek `conn.log`, Suricata EVE, systemd journal [planned], Apple Unified Log [planned], CloudTrail [planned] |
 | **Detection types** | YARA rules, Sigma rules, STIX 2.1 indicators, hash IOCs, Suricata rules |
-| **Artifact sources** | EVTX, registry hives, MFT, USN Journal, Prefetch, LNK shortcuts |
+| **Artifact sources** | EVTX, registry hives, MFT, USN Journal, Prefetch, LNK shortcuts, browser history, SRUM |
 | **Network analysis** | Volatility sockstat, Zeek logs, Suricata EVE, pcap |
 | **Remote evidence** | 48 URI schemes — S3, GCS, Azure, SFTP, HDFS, OneDrive, Google Drive, Redis, PostgreSQL, IPFS, and more ([full list →](https://securityronin.github.io/rapidtriage/)) |
 | **Output formats** | Terminal (colour-coded), JSON, HTML report, PDF, STIX 2.1 Attack Flow, AFB (Attack Flow Builder), DOT/PNG (Graphviz), Mermaid, CSV, bodyfile, DuckDB timeline |
@@ -98,6 +115,60 @@ rt report case.duckdb --output report.html
 | **VSS awareness** | Enumerates Volume Shadow Copies in evidence trees; `is_vss_path` guard prevents double-counting |
 | **Time-skew detection** | Flags timestamp divergence > 5 min across sources for the same artifact — anti-forensics signal |
 | **Event clustering** | Groups evidence by PID, user, or path for focused correlation queries |
+
+---
+
+## Ecosystem
+
+RapidTriage is the thin correlation layer on top of a family of deep forensic libraries. Each library is independently usable in your own tooling.
+
+| Crate | Layer | Description |
+|---|---|---|
+| [forensicnomicon](https://github.com/SecurityRonin/forensicnomicon) | Knowledge | Zero-dep compile-time artifact specs, magic bytes, format constants |
+| [ewf](https://github.com/SecurityRonin/ewf) | Container | E01/EWF → raw sector stream with hash verification |
+| [ext4fs-forensic](https://github.com/SecurityRonin/ext4fs-forensic) | Filesystem | ext4 sector stream → files by path (name → inode → block) |
+| [4n6mount](https://github.com/SecurityRonin/4n6mount) | Filesystem | FUSE bridge — makes any container+filesystem pair look like a normal path |
+| [memory-forensic](https://github.com/SecurityRonin/memory-forensic) | Container + Paging + OS Structure | WinPMEM/LiME/hiberfil → page stream → VA→PA → EPROCESS/VAD/DPAPI |
+| [browser-forensic](https://github.com/SecurityRonin/browser-forensic) | Parser | Chrome/Firefox/Safari history, cookies, downloads, bookmarks, session data |
+| [winevt-forensic](https://github.com/SecurityRonin/winevt-forensic) | Log Format + Parser | EVTX binary seek + BinXML decode → typed Windows EventRecord |
+| [srum-forensic](https://github.com/SecurityRonin/srum-forensic) | Parser | ESE/JET Blue page walk → SRUM network/process/energy usage records |
+
+<details>
+<summary>Full layer hierarchy</summary>
+
+```
+KNOWLEDGE
+  forensicnomicon        zero-dep, compile-time artifact specs, format constants
+
+CONTAINER              decode a raw source format → addressable data stream
+  ewf                  E01/EWF → raw sector stream
+  memf-format          memory dumps (WinPMEM, LiME, hiberfil.sys) → raw page stream
+
+  Three parallel paths from CONTAINER — each with its own address space:
+
+  ┌── Disk path ────────────┐  ┌── Memory path ───────────┐  ┌── Log path ─────────────┐
+  │ navigate by: path       │  │ navigate by: PID         │  │ navigate by: timestamp  │
+  │ name → inode → block    │  │ PID → EPROCESS → VA → PA │  │   or record number      │
+  │                         │  │                          │  │ seek → boundary → field  │
+  FILESYSTEM               │  PAGING                     │  LOG FORMAT                │
+    ext4fs-forensic        │    memf-hw   VA→PA           │    winevt-forensic  EVTX   │
+    ntfs-forensic [plan]   │    PML4/PAE/AArch64          │    journal-forensic [plan] │
+    apfs-forensic [plan]   │  OS STRUCTURE                │    tracev3-forensic [plan] │
+    4n6mount  FUSE bridge  │    memf-windows EPROCESS,    │    zeek-forensic    [plan] │
+                           │    VAD, DPAPI, DKOM          │    cloudtrail-src   [plan] │
+                           │    memf-linux [planned]      │                            │
+  └─────────────────────────┘  └──────────────────────────┘  └────────────────────────┘
+
+PARSER                   interpret artifact records → forensic meaning
+  browser-forensic       browser artifact files / SQLite pages → BrowserEvent
+  winevt-forensic        EVTX records → EventRecord
+  srum-forensic          ESE page bytes → SrumRecord
+
+ORCHESTRATION
+  RapidTriage            wires all layers, cross-artifact correlation, CLI
+```
+
+</details>
 
 ---
 
@@ -287,3 +358,18 @@ rt ingest --source gdrive://1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms
 
 ---
 
+## Acknowledgements
+
+**Hal Pomeranz** whose forensic Linux training materials documented ext4 inode/block internals that inform the filesystem layer design.
+
+**Yogesh Khatri** (@SwiftForensics) whose [srum-dump](https://github.com/MarkBaggett/srum-dump) Python tool proved the forensic value of SRUM data and documented the ESE table schemas.
+
+**Jared Atkinson** and the [hayabusa](https://github.com/Yamato-Security/hayabusa) / **Yamato Security** team for pioneering fast, rule-based EVTX triage in Rust and demonstrating the performance ceiling the ecosystem should target.
+
+The [Volatility Foundation](https://github.com/volatilityfoundation/volatility3) for open-sourcing memory forensics algorithms and kernel structure offsets that inform the memory path design.
+
+The [Plaso](https://github.com/log2timeline/plaso) / log2timeline team for proving the value of super-timelines and establishing the artifact-to-timeline ingestion model that RapidTriage builds on.
+
+---
+
+[Privacy Policy](https://securityronin.github.io/rapidtriage/privacy/) · [Terms of Service](https://securityronin.github.io/rapidtriage/terms/) · © 2026 Security Ronin Ltd.
