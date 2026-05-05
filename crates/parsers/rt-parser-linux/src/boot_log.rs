@@ -56,22 +56,34 @@ fn make_event(
 /// Returns `true` if `line` is an ld.so preload error line.
 #[must_use]
 pub fn is_ld_so_preload_error(line: &str) -> bool {
-    todo!("implement is_ld_so_preload_error")
+    line.contains("ERROR: ld.so:") && line.contains("cannot be preloaded")
 }
 
 /// Extracts the .so path from an ld.so preload error line.
 ///
+/// The path is enclosed in single-quotes after the `object ` keyword.
 /// Returns `None` if the line is not an ld.so preload error or if no path
 /// can be extracted.
 #[must_use]
 pub fn extract_preload_path(line: &str) -> Option<&str> {
-    todo!("implement extract_preload_path")
+    if !is_ld_so_preload_error(line) {
+        return None;
+    }
+    // Pattern: object '/path/to/lib.so' from ...
+    let after_object = line.find("object '")? + "object '".len();
+    let rest = &line[after_object..];
+    let end = rest.find('\'')?;
+    Some(&rest[..end])
 }
 
 /// Returns `true` if `line` indicates sshd was started, stopped, or restarted.
 #[must_use]
 pub fn is_sshd_restart(line: &str) -> bool {
-    todo!("implement is_sshd_restart")
+    let has_sshd = line.contains("sshd");
+    let has_action = line.contains("Starting ")
+        || line.contains("Stopping ")
+        || line.contains("Restarting ");
+    has_sshd && has_action
 }
 
 /// Parse `/var/log/boot.log` content and return [`TimelineEvent`]s.
@@ -81,7 +93,50 @@ pub fn is_sshd_restart(line: &str) -> bool {
 /// - `EventType::Other("SshdRestart")` for sshd start/stop/restart lines
 #[must_use]
 pub fn parse_boot_log(content: &str, source_id: &str) -> Vec<TimelineEvent> {
-    todo!("implement parse_boot_log")
+    let mut events = Vec::new();
+
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+
+        // Try to parse syslog timestamp prefix: "MMM DD HH:MM:SS hostname ..."
+        // Split to extract timestamp tokens if present.
+        let tokens: Vec<&str> = line.splitn(6, ' ').collect();
+        let timestamp_ns = if tokens.len() >= 3 {
+            parse_syslog_ts(tokens[0], tokens[1], tokens[2])
+        } else {
+            0
+        };
+
+        if is_ld_so_preload_error(line) {
+            let path_desc = extract_preload_path(line)
+                .map(|p| format!("ld.so preload error: {p}"))
+                .unwrap_or_else(|| "ld.so preload error (path unknown)".to_string());
+            let ev = make_event(
+                timestamp_ns,
+                EventType::Other("LdPreloadError".to_string()),
+                "/var/log/boot.log",
+                &path_desc,
+                source_id,
+                HashMap::new(),
+            );
+            events.push(ev);
+        } else if is_sshd_restart(line) {
+            let ev = make_event(
+                timestamp_ns,
+                EventType::Other("SshdRestart".to_string()),
+                "/var/log/boot.log",
+                line,
+                source_id,
+                HashMap::new(),
+            );
+            events.push(ev);
+        }
+    }
+
+    events
 }
 
 #[cfg(test)]

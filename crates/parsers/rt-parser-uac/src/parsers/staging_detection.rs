@@ -18,7 +18,10 @@
 /// Staging areas: `/dev/shm`, `/run/shm` (and their root entries themselves).
 #[must_use]
 pub fn is_staging_path(path: &str) -> bool {
-    todo!("implement is_staging_path")
+    path.starts_with("/dev/shm/")
+        || path.starts_with("/run/shm/")
+        || path == "/dev/shm"
+        || path == "/run/shm"
 }
 
 /// Returns a human-readable label for the staging area containing `path`.
@@ -26,7 +29,13 @@ pub fn is_staging_path(path: &str) -> bool {
 /// Returns `"unknown"` if the path is not under a known staging area.
 #[must_use]
 pub fn staging_area_label(path: &str) -> &'static str {
-    todo!("implement staging_area_label")
+    if path.starts_with("/dev/shm/") || path == "/dev/shm" {
+        "/dev/shm"
+    } else if path.starts_with("/run/shm/") || path == "/run/shm" {
+        "/run/shm"
+    } else {
+        "unknown"
+    }
 }
 
 /// Returns `true` if `/run/utmp` (or a UAC-collected equivalent) is present
@@ -36,14 +45,16 @@ pub fn staging_area_label(path: &str) -> &'static str {
 /// path separator as underscore: `run_utmp`. Either form counts.
 #[must_use]
 pub fn check_utmp_present(collected_files: &[&str]) -> bool {
-    todo!("implement check_utmp_present")
+    collected_files
+        .iter()
+        .any(|f| f.contains("run/utmp") || f.contains("run_utmp"))
 }
 
 /// Returns `true` when `/run/utmp` is **absent** from the collection —
 /// indicating a likely anti-forensic wipe of active session records.
 #[must_use]
 pub fn utmp_absent_is_antiforensic(collected_files: &[&str]) -> bool {
-    todo!("implement utmp_absent_is_antiforensic")
+    !check_utmp_present(collected_files)
 }
 
 #[cfg(test)]
