@@ -3,8 +3,13 @@
 //! Timestamps outside Mon–Fri 09:00–17:00 UTC are considered anomalous in
 //! corporate environments and may indicate insider threat / after-hours
 //! exfiltration activity.
+//!
+//! Threshold constants are sourced from
+//! [`forensicnomicon::heuristics`] so the window definition lives in one place
+//! across all crates.
 
 use chrono::{DateTime, Datelike, Timelike, Utc};
+use forensicnomicon::heuristics::{WORKING_HOURS_END, WORKING_HOURS_START};
 
 fn ns_to_dt(timestamp_ns: i64) -> DateTime<Utc> {
     let secs = timestamp_ns.div_euclid(1_000_000_000);
@@ -81,8 +86,9 @@ pub fn classify_time_anomaly(timestamp_ns: i64) -> TimeAnomaly {
         return TimeAnomaly::Weekend { weekday: wd };
     }
 
-    // Outside 09:00–17:00 on a weekday
-    if !(9..17).contains(&hr) {
+    // Outside working hours on a weekday (constants from forensicnomicon::heuristics)
+    #[allow(clippy::cast_possible_truncation)]
+    if !(WORKING_HOURS_START..WORKING_HOURS_END).contains(&u32::from(hr)) {
         return TimeAnomaly::OutsideWorkingHours { hour: hr, weekday: wd };
     }
 
