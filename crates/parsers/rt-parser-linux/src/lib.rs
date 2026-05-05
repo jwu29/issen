@@ -13,6 +13,7 @@
 
 pub mod auth_log;
 pub mod bash_history;
+pub mod boot_log;
 pub mod cron;
 pub mod syslog;
 

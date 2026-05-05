@@ -13,6 +13,7 @@ pub mod packages;
 pub mod process;
 pub mod rootkit;
 pub mod shadow;
+pub mod staging_detection;
 pub mod storage;
 pub mod system;
 
