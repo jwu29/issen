@@ -112,8 +112,7 @@ pub fn parse_boot_log(content: &str, source_id: &str) -> Vec<TimelineEvent> {
 
         if is_ld_so_preload_error(line) {
             let path_desc = extract_preload_path(line)
-                .map(|p| format!("ld.so preload error: {p}"))
-                .unwrap_or_else(|| "ld.so preload error (path unknown)".to_string());
+                .map_or_else(|| "ld.so preload error (path unknown)".to_string(), |p| format!("ld.so preload error: {p}"));
             let ev = make_event(
                 timestamp_ns,
                 EventType::Other("LdPreloadError".to_string()),

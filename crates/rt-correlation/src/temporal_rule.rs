@@ -35,7 +35,7 @@ pub struct EventTypeFilter {
 }
 
 impl EventTypeFilter {
-    /// Convenience constructor: event_type only.
+    /// Convenience constructor: `event_type` only.
     #[must_use]
     pub fn new(event_type: impl Into<String>) -> Self {
         Self {
@@ -79,7 +79,7 @@ impl EventTypeFilter {
 ///   file → classic timestomping.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DiscrepancyClause {
-    /// EntityRef role to join on: `"path"`, `"process"`, `"user"`, `"ip"`.
+    /// `EntityRef` role to join on: `"path"`, `"process"`, `"user"`, `"ip"`.
     pub entity_role: String,
     /// Event type in the compare source to look for.
     pub compare_event_type: String,
@@ -142,7 +142,7 @@ pub struct DiscrepancyDetail {
     pub anchor_timestamp_ns: i64,
     pub compare_source: String,
     pub compare_timestamp_ns: i64,
-    /// |compare_timestamp_ns - anchor_timestamp_ns|
+    /// `|compare_timestamp_ns - anchor_timestamp_ns|`
     pub delta_ns: i64,
 }
 
@@ -211,7 +211,17 @@ pub fn evaluate_temporal(rule: &TemporalRule, events: &[TimelineEvent]) -> Vec<T
         }
 
         // 3. Discrepancy clauses: if any are defined, at least one must fire.
-        if !rule.discrepancy.is_empty() {
+        if rule.discrepancy.is_empty() {
+            // No discrepancy clauses — fire based on sequence + absent alone.
+            findings.push(TemporalFinding {
+                rule_id: rule.id.clone(),
+                title: rule.title.clone(),
+                severity: rule.severity.clone(),
+                anchor_record_hash: anchor.record_hash.clone(),
+                matched_record_hashes: matched_hashes,
+                discrepancy: None,
+            });
+        } else {
             let mut found_discrepancy: Option<DiscrepancyDetail> = None;
 
             'outer: for clause in &rule.discrepancy {
@@ -274,16 +284,6 @@ pub fn evaluate_temporal(rule: &TemporalRule, events: &[TimelineEvent]) -> Vec<T
                 matched_record_hashes: matched_hashes,
                 discrepancy: found_discrepancy,
             });
-        } else {
-            // No discrepancy clauses — fire based on sequence + absent alone.
-            findings.push(TemporalFinding {
-                rule_id: rule.id.clone(),
-                title: rule.title.clone(),
-                severity: rule.severity.clone(),
-                anchor_record_hash: anchor.record_hash.clone(),
-                matched_record_hashes: matched_hashes,
-                discrepancy: None,
-            });
         }
     }
 
@@ -310,7 +310,7 @@ fn filter_matches(event: &TimelineEvent, filter: &EventTypeFilter) -> bool {
     true
 }
 
-/// Match event_type by display string (e.g. `"ProcessExec"`, `"FileCreate"`).
+/// Match `event_type` by display string (e.g. `"ProcessExec"`, `"FileCreate"`).
 fn event_type_str_matches(event: &TimelineEvent, type_str: &str) -> bool {
     format!("{:?}", event.event_type) == type_str
 }
