@@ -1,6 +1,17 @@
 pub mod analyze;
 pub mod session;
 
+// Timeline Reconstruction & Correlation
+pub mod timeline;
+pub mod export;
+pub mod process_tree;
+pub mod logon_chain;
+pub mod boot_cycle;
+pub mod gap_inference;
+pub mod mft_correlation;
+pub mod usn_correlation;
+pub mod exec_join;
+
 pub use analyze::EvtxAnalysisSummary;
 pub use session::{EvtxSessionSummary, LateralMovementFinding};
 
@@ -260,7 +271,7 @@ mod tests {
         let dir = TempDir::new().expect("tmpdir");
         std::fs::write(dir.path().join("Security.evtx"), b"").expect("write file");
         let result = find_evtx_files(dir.path());
-        asseissen_eq!(result.len(), 1, "expected 1 evtx file, got {}", result.len());
+        assert_eq!(result.len(), 1, "expected 1 evtx file, got {}", result.len());
     }
 
     #[test]
@@ -269,7 +280,7 @@ mod tests {
         std::fs::write(dir.path().join("system.log"), b"").expect("write log");
         std::fs::write(dir.path().join("Security.evtx"), b"").expect("write evtx");
         let result = find_evtx_files(dir.path());
-        asseissen_eq!(result.len(), 1, "should only find .evtx files");
+        assert_eq!(result.len(), 1, "should only find .evtx files");
         assert!(
             result[0].extension().map(|e| e == "evtx").unwrap_or(false),
             "found file has wrong extension"
@@ -292,7 +303,7 @@ mod tests {
             session_count: 3,
             ..Default::default()
         };
-        asseissen_eq!(summary.session_count, 3);
+        assert_eq!(summary.session_count, 3);
     }
 
     #[test]
@@ -301,7 +312,7 @@ mod tests {
             lateral_movement_count: 2,
             ..Default::default()
         };
-        asseissen_eq!(summary.lateral_movement_count, 2);
+        assert_eq!(summary.lateral_movement_count, 2);
     }
 
     // ── EvtxAnalysisSummary struct tests ──────────────────────────────────
@@ -312,8 +323,8 @@ mod tests {
             rare_processes: vec!["suspicious.exe".to_string()],
             ..Default::default()
         };
-        asseissen_eq!(summary.rare_processes.len(), 1);
-        asseissen_eq!(summary.rare_processes[0], "suspicious.exe");
+        assert_eq!(summary.rare_processes.len(), 1);
+        assert_eq!(summary.rare_processes[0], "suspicious.exe");
     }
 
     // ── analyze module tests (Phase 3 RED) ───────────────────────────────
@@ -354,8 +365,8 @@ mod tests {
                 count: 1,
                 events: vec![100],
             };
-            asseissen_eq!(anomaly.key, "suspicious.exe");
-            asseissen_eq!(anomaly.count, 1);
+            assert_eq!(anomaly.key, "suspicious.exe");
+            assert_eq!(anomaly.count, 1);
         }
 
         #[test]
@@ -367,8 +378,8 @@ mod tests {
                 make_event(4688, vec![("CommandLine", "dir")], 400),
             ];
             let anomalies = frequency_analysis(&events, FrequencyKey::CommandLine, 2);
-            asseissen_eq!(anomalies.len(), 1);
-            asseissen_eq!(anomalies[0].key, "whoami");
+            assert_eq!(anomalies.len(), 1);
+            assert_eq!(anomalies[0].key, "whoami");
         }
 
         #[test]
@@ -406,8 +417,8 @@ mod tests {
                 },
             ];
             let pivot = pivot_sessions_by_src_ip(&sessions);
-            asseissen_eq!(pivot.len(), 1);
-            asseissen_eq!(pivot["10.0.0.1"].len(), 2);
+            assert_eq!(pivot.len(), 1);
+            assert_eq!(pivot["10.0.0.1"].len(), 2);
         }
     }
 
@@ -444,7 +455,7 @@ mod tests {
         fn correlate_sessions_from_evtx_events() {
             let events = vec![make_logon(0x1234)];
             let sessions = correlate_sessions(&events);
-            asseissen_eq!(sessions.len(), 1);
+            assert_eq!(sessions.len(), 1);
             assert!(sessions.contains_key(&0x1234));
         }
 
@@ -455,7 +466,7 @@ mod tests {
                 sessions: vec![0x1234],
                 reason: "test".into(),
             };
-            asseissen_eq!(finding.src_ip, "10.0.0.1");
+            assert_eq!(finding.src_ip, "10.0.0.1");
         }
 
         #[test]
@@ -496,7 +507,7 @@ mod tests {
         #[test]
         fn all_handlers_returns_12_handlers() {
             let handlers = all_handlers();
-            asseissen_eq!(handlers.len(), 12, "expected exactly 12 handlers");
+            assert_eq!(handlers.len(), 12, "expected exactly 12 handlers");
         }
 
         #[test]
