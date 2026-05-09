@@ -1,6 +1,25 @@
 //! Detection use cases: 16 TTP detectors operating on parsed EvtxEvent slices.
 
+use forensicnomicon::heuristics::evtx::{
+    AMSI_BYPASS_PATTERNS, ARCHIVER_PROCESS_NAMES, BITS_CLIENT_CHANNEL, DEFENDER_CHANNEL,
+    DEFENDER_TAMPER_PATTERNS, EID_BITS_TRANSFER_START, EID_DIRECTORY_SERVICE_ACCESS,
+    EID_KERBEROS_TGS_REQUEST, EID_KERBEROS_TGT_REQUEST, EID_LOG_CLEARED,
+    EID_PROCESS_CREATE, EID_PS_SCRIPT_BLOCK, EID_SERVICE_INSTALLED,
+    EID_SERVICE_INSTALLED_SECURITY, EID_SMB_SHARE_ACCESS, EID_SYSMON_DNS_QUERY,
+    EID_SYSMON_FILE_CREATE, EID_SYSMON_PROCESS_ACCESS, EID_SYSMON_PROCESS_CREATE,
+    EID_TASK_COMPLETED, EID_TASK_DELETED, EID_TASK_LAUNCHED, EID_TASK_REGISTERED,
+    EID_TASK_UPDATED, EID_WMI_FILTER_TRIGGERED, EID_DEFENDER_REALTIME_DISABLED,
+    EID_DEFENDER_CONFIG_CHANGED, EID_LOGON,
+    GUID_DS_REPLICATION_GET_CHANGES, GUID_DS_REPLICATION_GET_CHANGES_ALL,
+    GUID_DS_REPLICATION_FILTERED, LSASS_DUMP_ACCESS_MASKS, LSASS_IMAGE_NAME,
+    PSEXEC_SERVICE_PATTERNS, SYSMON_CHANNEL, SYSMON_FIELD_GRANTED_ACCESS,
+    SYSMON_FIELD_IMAGE, SYSMON_FIELD_TARGET_IMAGE, TASKSCHEDULER_CHANNEL,
+    WMI_ACTIVITY_CHANNEL,
+};
+use forensicnomicon::lolbins::is_lolbas_windows;
 use winevt_core::EvtxEvent;
+
+use crate::net_correlation::shannon_entropy;
 
 /// Confidence level of a detection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -21,23 +40,491 @@ pub struct Detection {
     pub description: String,
 }
 
-pub fn detect_kerberoasting(events: &[EvtxEvent]) -> Vec<Detection> { todo!() }
-pub fn detect_asrep_roasting(events: &[EvtxEvent]) -> Vec<Detection> { todo!() }
-pub fn detect_dcsync(events: &[EvtxEvent]) -> Vec<Detection> { todo!() }
-pub fn detect_lsass_access(events: &[EvtxEvent]) -> Vec<Detection> { todo!() }
-pub fn detect_psexec(events: &[EvtxEvent]) -> Vec<Detection> { todo!() }
-pub fn detect_scheduled_task_abuse(events: &[EvtxEvent]) -> Vec<Detection> { todo!() }
-pub fn detect_service_persistence(events: &[EvtxEvent]) -> Vec<Detection> { todo!() }
-pub fn detect_wmi_subscription(events: &[EvtxEvent]) -> Vec<Detection> { todo!() }
-pub fn detect_lolbas(events: &[EvtxEvent]) -> Vec<Detection> { todo!() }
-pub fn detect_amsi_bypass(events: &[EvtxEvent]) -> Vec<Detection> { todo!() }
-pub fn detect_defender_tampering(events: &[EvtxEvent]) -> Vec<Detection> { todo!() }
-pub fn detect_smb_lateral_movement(events: &[EvtxEvent]) -> Vec<Detection> { todo!() }
-pub fn detect_pass_the_hash(events: &[EvtxEvent]) -> Vec<Detection> { todo!() }
-pub fn detect_bits_persistence(events: &[EvtxEvent]) -> Vec<Detection> { todo!() }
-pub fn detect_compression_staging(events: &[EvtxEvent]) -> Vec<Detection> { todo!() }
-pub fn detect_dns_cloud_exfil(events: &[EvtxEvent]) -> Vec<Detection> { todo!() }
-pub fn run_all_detectors(events: &[EvtxEvent]) -> Vec<Detection> { todo!() }
+/// Detect Kerberoasting: EID 4769 with RC4 encryption type (0x17).
+pub fn detect_kerberoasting(events: &[EvtxEvent]) -> Vec<Detection> {
+    events
+        .iter()
+        .filter(|e| e.event_id == EID_KERBEROS_TGS_REQUEST)
+        .filter(|e| {
+            e.data.get("TicketEncryptionType")
+                .map(|t| t.trim().to_lowercase() == "0x17")
+                .unwrap_or(false)
+        })
+        .filter(|e| {
+            // Skip machine accounts (end with $)
+            !e.data.get("TargetUserName")
+                .map(|u| u.ends_with('$'))
+                .unwrap_or(false)
+        })
+        .map(|e| Detection {
+            technique: "Kerberoasting",
+            mitre_technique_id: "T1558.003",
+            tactic: "credential-access",
+            confidence: Confidence::High,
+            evidence: vec![e.clone()],
+            description: format!(
+                "RC4 (0x17) TGS request for service '{}'",
+                e.data.get("ServiceName").map(String::as_str).unwrap_or("?")
+            ),
+        })
+        .collect()
+}
+
+/// Detect AS-REP Roasting: EID 4768 with PreAuthType = 0.
+pub fn detect_asrep_roasting(events: &[EvtxEvent]) -> Vec<Detection> {
+    events
+        .iter()
+        .filter(|e| e.event_id == EID_KERBEROS_TGT_REQUEST)
+        .filter(|e| {
+            e.data.get("PreAuthType")
+                .map(|t| t.trim() == "0")
+                .unwrap_or(false)
+        })
+        .map(|e| Detection {
+            technique: "AS-REP Roasting",
+            mitre_technique_id: "T1558.004",
+            tactic: "credential-access",
+            confidence: Confidence::High,
+            evidence: vec![e.clone()],
+            description: format!(
+                "Pre-authentication disabled for '{}'",
+                e.data.get("TargetUserName").map(String::as_str).unwrap_or("?")
+            ),
+        })
+        .collect()
+}
+
+const DCSYNC_GUIDS: &[&str] = &[
+    GUID_DS_REPLICATION_GET_CHANGES,
+    GUID_DS_REPLICATION_GET_CHANGES_ALL,
+    GUID_DS_REPLICATION_FILTERED,
+];
+
+/// Detect DCSync: EID 4662 with DS-Replication GUIDs.
+pub fn detect_dcsync(events: &[EvtxEvent]) -> Vec<Detection> {
+    events
+        .iter()
+        .filter(|e| e.event_id == EID_DIRECTORY_SERVICE_ACCESS)
+        .filter(|e| {
+            if let Some(props) = e.data.get("Properties") {
+                let props_lc = props.to_lowercase();
+                DCSYNC_GUIDS.iter().any(|g| props_lc.contains(&g.to_lowercase()))
+            } else {
+                false
+            }
+        })
+        .map(|e| Detection {
+            technique: "DCSync",
+            mitre_technique_id: "T1003.006",
+            tactic: "credential-access",
+            confidence: Confidence::High,
+            evidence: vec![e.clone()],
+            description: format!(
+                "DS-Replication GUID seen for account '{}'",
+                e.data.get("SubjectUserName").map(String::as_str).unwrap_or("?")
+            ),
+        })
+        .collect()
+}
+
+fn parse_access_mask(s: &str) -> Option<u32> {
+    let s = s.trim();
+    if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
+        u32::from_str_radix(hex, 16).ok()
+    } else {
+        s.parse().ok()
+    }
+}
+
+/// Detect LSASS credential access: Sysmon EID 10 with suspicious GrantedAccess masks.
+pub fn detect_lsass_access(events: &[EvtxEvent]) -> Vec<Detection> {
+    events
+        .iter()
+        .filter(|e| e.event_id == EID_SYSMON_PROCESS_ACCESS && e.channel == SYSMON_CHANNEL)
+        .filter(|e| {
+            e.data.get(SYSMON_FIELD_TARGET_IMAGE)
+                .map(|img| img.to_lowercase().ends_with(LSASS_IMAGE_NAME))
+                .unwrap_or(false)
+        })
+        .filter(|e| {
+            e.data.get(SYSMON_FIELD_GRANTED_ACCESS)
+                .and_then(|m| parse_access_mask(m))
+                .map(|mask| LSASS_DUMP_ACCESS_MASKS.contains(&mask))
+                .unwrap_or(false)
+        })
+        .map(|e| Detection {
+            technique: "LSASS Memory Dump",
+            mitre_technique_id: "T1003.001",
+            tactic: "credential-access",
+            confidence: Confidence::High,
+            evidence: vec![e.clone()],
+            description: format!(
+                "LSASS accessed with mask {} from '{}'",
+                e.data.get(SYSMON_FIELD_GRANTED_ACCESS).map(String::as_str).unwrap_or("?"),
+                e.data.get("SourceImage").map(String::as_str).unwrap_or("?")
+            ),
+        })
+        .collect()
+}
+
+/// Detect PsExec: EID 7045 with PSEXESVC/PAExec service name patterns.
+pub fn detect_psexec(events: &[EvtxEvent]) -> Vec<Detection> {
+    events
+        .iter()
+        .filter(|e| e.event_id == EID_SERVICE_INSTALLED)
+        .filter(|e| {
+            e.data.get("ServiceName")
+                .map(|n| PSEXEC_SERVICE_PATTERNS.iter().any(|p| n.contains(p)))
+                .unwrap_or(false)
+        })
+        .map(|e| Detection {
+            technique: "PsExec / Remote Execution Service",
+            mitre_technique_id: "T1569.002",
+            tactic: "execution",
+            confidence: Confidence::High,
+            evidence: vec![e.clone()],
+            description: format!(
+                "PsExec-pattern service '{}' installed",
+                e.data.get("ServiceName").map(String::as_str).unwrap_or("?")
+            ),
+        })
+        .collect()
+}
+
+const TASK_EIDS: &[u32] = &[
+    EID_TASK_REGISTERED, EID_TASK_UPDATED, EID_TASK_DELETED,
+    EID_TASK_LAUNCHED, EID_TASK_COMPLETED,
+];
+
+/// Detect scheduled task abuse: TaskScheduler EID 106/140/141/200/201.
+pub fn detect_scheduled_task_abuse(events: &[EvtxEvent]) -> Vec<Detection> {
+    events
+        .iter()
+        .filter(|e| e.channel == TASKSCHEDULER_CHANNEL && TASK_EIDS.contains(&e.event_id))
+        .map(|e| Detection {
+            technique: "Scheduled Task",
+            mitre_technique_id: "T1053.005",
+            tactic: "persistence",
+            confidence: Confidence::Medium,
+            evidence: vec![e.clone()],
+            description: format!(
+                "Scheduled task activity (EID {}) for '{}'",
+                e.event_id,
+                e.data.get("TaskName").map(String::as_str).unwrap_or("?")
+            ),
+        })
+        .collect()
+}
+
+/// Detect service-based persistence: EID 7045 (System) or EID 4697 (Security).
+pub fn detect_service_persistence(events: &[EvtxEvent]) -> Vec<Detection> {
+    events
+        .iter()
+        .filter(|e| e.event_id == EID_SERVICE_INSTALLED || e.event_id == EID_SERVICE_INSTALLED_SECURITY)
+        .filter(|e| {
+            // Skip PsExec patterns — handled by detect_psexec
+            !e.data.get("ServiceName")
+                .map(|n| PSEXEC_SERVICE_PATTERNS.iter().any(|p| n.contains(p)))
+                .unwrap_or(false)
+        })
+        .map(|e| Detection {
+            technique: "Service Persistence",
+            mitre_technique_id: "T1543.003",
+            tactic: "persistence",
+            confidence: Confidence::Medium,
+            evidence: vec![e.clone()],
+            description: format!(
+                "Service '{}' installed (EID {})",
+                e.data.get("ServiceName").map(String::as_str).unwrap_or("?"),
+                e.event_id
+            ),
+        })
+        .collect()
+}
+
+/// Detect WMI subscription persistence: WMI-Activity EID 5860/5861.
+pub fn detect_wmi_subscription(events: &[EvtxEvent]) -> Vec<Detection> {
+    events
+        .iter()
+        .filter(|e| e.channel == WMI_ACTIVITY_CHANNEL)
+        .filter(|e| e.event_id == EID_WMI_FILTER_TRIGGERED || e.event_id == 5860)
+        .map(|e| Detection {
+            technique: "WMI Event Subscription",
+            mitre_technique_id: "T1546.003",
+            tactic: "persistence",
+            confidence: Confidence::High,
+            evidence: vec![e.clone()],
+            description: format!(
+                "WMI subscription event (EID {}) — consumer: {}",
+                e.event_id,
+                e.data.get("Consumer").map(String::as_str).unwrap_or("?")
+            ),
+        })
+        .collect()
+}
+
+fn extract_image_basename(ev: &EvtxEvent) -> Option<String> {
+    let path = if ev.event_id == EID_SYSMON_PROCESS_CREATE && ev.channel == SYSMON_CHANNEL {
+        ev.data.get(SYSMON_FIELD_IMAGE)?.as_str()
+    } else if ev.event_id == EID_PROCESS_CREATE {
+        ev.data.get("NewProcessName")?.as_str()
+    } else {
+        return None;
+    };
+    Some(
+        path.rsplit(|c| c == '\\' || c == '/')
+            .next()
+            .unwrap_or(path)
+            .to_lowercase(),
+    )
+}
+
+/// Detect LOLBAS execution: EID 4688 / Sysmon EID 1 with process in LOLBAS list.
+pub fn detect_lolbas(events: &[EvtxEvent]) -> Vec<Detection> {
+    events
+        .iter()
+        .filter_map(|e| {
+            let basename = extract_image_basename(e)?;
+            if is_lolbas_windows(&basename) {
+                Some(Detection {
+                    technique: "LOLBAS Execution",
+                    mitre_technique_id: "T1218",
+                    tactic: "defense-evasion",
+                    confidence: Confidence::Medium,
+                    evidence: vec![e.clone()],
+                    description: format!("LOLBAS binary '{}' executed", basename),
+                })
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+/// Detect AMSI bypass: PS EID 4104 script blocks containing bypass patterns.
+pub fn detect_amsi_bypass(events: &[EvtxEvent]) -> Vec<Detection> {
+    events
+        .iter()
+        .filter(|e| e.event_id == EID_PS_SCRIPT_BLOCK)
+        .filter_map(|e| {
+            let script = e.data.get("ScriptBlockText")?;
+            let pattern = AMSI_BYPASS_PATTERNS.iter()
+                .find(|&&p| script.to_lowercase().contains(&p.to_lowercase()))?;
+            Some(Detection {
+                technique: "AMSI Bypass",
+                mitre_technique_id: "T1562.001",
+                tactic: "defense-evasion",
+                confidence: Confidence::High,
+                evidence: vec![e.clone()],
+                description: format!("AMSI bypass pattern '{}' in script block", pattern),
+            })
+        })
+        .collect()
+}
+
+/// Detect Defender tampering: EID 5001/5007 or PS 4104 with Defender tamper patterns.
+pub fn detect_defender_tampering(events: &[EvtxEvent]) -> Vec<Detection> {
+    events
+        .iter()
+        .filter(|e| {
+            let is_defender_event = e.channel == DEFENDER_CHANNEL
+                && (e.event_id == EID_DEFENDER_REALTIME_DISABLED || e.event_id == EID_DEFENDER_CONFIG_CHANGED);
+            let is_ps_tamper = e.event_id == EID_PS_SCRIPT_BLOCK
+                && e.data.get("ScriptBlockText")
+                    .map(|s| DEFENDER_TAMPER_PATTERNS.iter().any(|p| s.contains(p)))
+                    .unwrap_or(false);
+            is_defender_event || is_ps_tamper
+        })
+        .map(|e| Detection {
+            technique: "Defender Tampering",
+            mitre_technique_id: "T1562.001",
+            tactic: "defense-evasion",
+            confidence: Confidence::High,
+            evidence: vec![e.clone()],
+            description: format!("Defender tampered via EID {}", e.event_id),
+        })
+        .collect()
+}
+
+/// Detect SMB lateral movement: EID 4624 LogonType=3 paired with EID 5140/5145 (same LogonId window).
+pub fn detect_smb_lateral_movement(events: &[EvtxEvent]) -> Vec<Detection> {
+    use std::collections::HashSet;
+
+    // Collect LogonIds from Type-3 logons with a source IP
+    let type3_ids: HashSet<u64> = events.iter()
+        .filter(|e| {
+            e.event_id == EID_LOGON
+                && e.data.get("LogonType").map(|t| t == "3").unwrap_or(false)
+                && e.data.get("IpAddress").map(|ip| !ip.is_empty() && ip != "-").unwrap_or(false)
+        })
+        .filter_map(|e| {
+            e.logon_id.or_else(|| {
+                e.data.get("TargetLogonId")
+                    .and_then(|s| parse_logon_id(s))
+            })
+        })
+        .collect();
+
+    // Find SMB share access events whose LogonId matches a Type-3 logon
+    events.iter()
+        .filter(|e| e.event_id == EID_SMB_SHARE_ACCESS || e.event_id == 5145)
+        .filter_map(|e| {
+            let lid = e.logon_id.or_else(|| {
+                e.data.get("SubjectLogonId").and_then(|s| parse_logon_id(s))
+            })?;
+            if type3_ids.contains(&lid) {
+                Some(Detection {
+                    technique: "SMB Lateral Movement",
+                    mitre_technique_id: "T1021.002",
+                    tactic: "lateral-movement",
+                    confidence: Confidence::High,
+                    evidence: vec![e.clone()],
+                    description: format!(
+                        "SMB share '{}' accessed via Type-3 logon (LogonId 0x{lid:x})",
+                        e.data.get("ShareName").map(String::as_str).unwrap_or("?")
+                    ),
+                })
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+fn parse_logon_id(s: &str) -> Option<u64> {
+    let s = s.trim();
+    if s.is_empty() || s == "-" { return None; }
+    if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
+        u64::from_str_radix(hex, 16).ok()
+    } else {
+        s.parse().ok()
+    }
+}
+
+/// Detect Pass-the-Hash: EID 4624 with LogonType=9 and NTLM authentication.
+pub fn detect_pass_the_hash(events: &[EvtxEvent]) -> Vec<Detection> {
+    events
+        .iter()
+        .filter(|e| {
+            e.event_id == EID_LOGON
+                && e.data.get("LogonType").map(|t| t == "9").unwrap_or(false)
+                && e.data.get("AuthenticationPackageName")
+                    .map(|pkg| pkg.to_uppercase().contains("NTLM"))
+                    .unwrap_or(false)
+        })
+        .map(|e| Detection {
+            technique: "Pass-the-Hash",
+            mitre_technique_id: "T1550.002",
+            tactic: "lateral-movement",
+            confidence: Confidence::High,
+            evidence: vec![e.clone()],
+            description: format!(
+                "LogonType=9 NTLM logon for '{}'",
+                e.data.get("TargetUserName").map(String::as_str).unwrap_or("?")
+            ),
+        })
+        .collect()
+}
+
+/// Detect BITS persistence: BITS-Client EID 59/60 with HTTP/HTTPS URLs.
+pub fn detect_bits_persistence(events: &[EvtxEvent]) -> Vec<Detection> {
+    events
+        .iter()
+        .filter(|e| e.channel == BITS_CLIENT_CHANNEL)
+        .filter(|e| e.event_id == EID_BITS_TRANSFER_START || e.event_id == 60)
+        .filter(|e| {
+            // Flag transfers with external (http/https) URLs
+            e.data.values().any(|v| {
+                let lc = v.to_lowercase();
+                lc.starts_with("http://") || lc.starts_with("https://") || lc.starts_with("ftp://")
+            })
+        })
+        .map(|e| Detection {
+            technique: "BITS Persistence",
+            mitre_technique_id: "T1197",
+            tactic: "persistence",
+            confidence: Confidence::Medium,
+            evidence: vec![e.clone()],
+            description: format!("BITS transfer (EID {}) to external URL", e.event_id),
+        })
+        .collect()
+}
+
+/// Detect compression/staging: Sysmon EID 1 with archiver process basenames.
+pub fn detect_compression_staging(events: &[EvtxEvent]) -> Vec<Detection> {
+    events
+        .iter()
+        .filter(|e| e.event_id == EID_SYSMON_PROCESS_CREATE && e.channel == SYSMON_CHANNEL)
+        .filter_map(|e| {
+            let image = e.data.get(SYSMON_FIELD_IMAGE)?;
+            let basename = image.rsplit(|c| c == '\\' || c == '/').next().unwrap_or(image.as_str()).to_lowercase();
+            if ARCHIVER_PROCESS_NAMES.iter().any(|a| basename == *a) {
+                Some(Detection {
+                    technique: "Data Compression / Staging",
+                    mitre_technique_id: "T1560.001",
+                    tactic: "collection",
+                    confidence: Confidence::Medium,
+                    evidence: vec![e.clone()],
+                    description: format!("Archiver '{}' executed", basename),
+                })
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+const DNS_EXFIL_ENTROPY_THRESHOLD: f64 = 3.5;
+
+/// Detect DNS/cloud exfiltration: Sysmon EID 22 with high-entropy subdomain.
+pub fn detect_dns_cloud_exfil(events: &[EvtxEvent]) -> Vec<Detection> {
+    events
+        .iter()
+        .filter(|e| e.event_id == EID_SYSMON_DNS_QUERY && e.channel == SYSMON_CHANNEL)
+        .filter_map(|e| {
+            let qname = e.data.get("QueryName")?;
+            // Score entropy on the leftmost (subdomain) label
+            let subdomain = qname.split('.').next().unwrap_or(qname);
+            let entropy = shannon_entropy(subdomain);
+            if entropy >= DNS_EXFIL_ENTROPY_THRESHOLD {
+                Some(Detection {
+                    technique: "DNS Exfiltration",
+                    mitre_technique_id: "T1048.003",
+                    tactic: "exfiltration",
+                    confidence: Confidence::Medium,
+                    evidence: vec![e.clone()],
+                    description: format!(
+                        "High-entropy DNS query '{qname}' (entropy={entropy:.2})"
+                    ),
+                })
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+/// Run all 16 detectors and aggregate results.
+pub fn run_all_detectors(events: &[EvtxEvent]) -> Vec<Detection> {
+    let mut results = Vec::new();
+    results.extend(detect_kerberoasting(events));
+    results.extend(detect_asrep_roasting(events));
+    results.extend(detect_dcsync(events));
+    results.extend(detect_lsass_access(events));
+    results.extend(detect_psexec(events));
+    results.extend(detect_scheduled_task_abuse(events));
+    results.extend(detect_service_persistence(events));
+    results.extend(detect_wmi_subscription(events));
+    results.extend(detect_lolbas(events));
+    results.extend(detect_amsi_bypass(events));
+    results.extend(detect_defender_tampering(events));
+    results.extend(detect_smb_lateral_movement(events));
+    results.extend(detect_pass_the_hash(events));
+    results.extend(detect_bits_persistence(events));
+    results.extend(detect_compression_staging(events));
+    results.extend(detect_dns_cloud_exfil(events));
+    results
+}
 
 #[cfg(test)]
 mod tests {

@@ -5,39 +5,45 @@ use crate::logon_chain::LogonChain;
 use std::collections::HashMap;
 
 /// Serialize a `ProcessTree` to a Mermaid `graph TD` diagram string.
-///
-/// Each node is labeled `"<key>: <image_basename>"`.
-/// Edges connect parent → child via `parent_key`.
 pub fn process_tree_to_mermaid(tree: &ProcessTree) -> String {
-    todo!()
+    let mut lines = vec!["graph TD".to_string()];
+    for (key, node) in tree.nodes() {
+        let label = format!("{}: {}", key, node.image);
+        let safe_key = key.replace(['{', '}', '-'], "_");
+        lines.push(format!("    {}[\"{}\"]\n", safe_key, label.replace('"', "'")));
+        if let Some(parent) = &node.parent_key {
+            let safe_parent = parent.replace(['{', '}', '-'], "_");
+            lines.push(format!("    {} --> {}", safe_parent, safe_key));
+        }
+    }
+    lines.join("\n")
 }
 
 /// Serialize a map of `LogonChain`s to a Mermaid `graph LR` diagram string.
-///
-/// Each logon session is a node labeled `"<logon_id>"`.
-/// Privilege escalations (chains with `has_special_privileges()`) are highlighted.
 pub fn logon_chains_to_mermaid(chains: &HashMap<u64, LogonChain>) -> String {
-    todo!()
+    let mut lines = vec!["graph LR".to_string()];
+    for (logon_id, chain) in chains {
+        let has_priv = chain.has_special_privileges();
+        let label = if has_priv {
+            format!("0x{logon_id:X} [PRIV]")
+        } else {
+            format!("0x{logon_id:X}")
+        };
+        lines.push(format!("    N{logon_id}[\"{label}\"]"));
+    }
+    lines.join("\n")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::process_tree::{ProcessTree, ProcessNode};
+    use crate::process_tree::ProcessTree;
     use crate::logon_chain::LogonChain;
-    use std::collections::HashMap;
-
-    fn empty_process_tree() -> ProcessTree {
-        ProcessTree::default()
-    }
 
     #[test]
     fn process_tree_empty_produces_mermaid_header() {
-        let output = process_tree_to_mermaid(&empty_process_tree());
-        assert!(
-            output.contains("graph") || output.contains("flowchart"),
-            "output should contain a Mermaid graph directive, got: {output}"
-        );
+        let output = process_tree_to_mermaid(&ProcessTree::default());
+        assert!(output.contains("graph") || output.contains("flowchart"));
     }
 
     #[test]
@@ -48,51 +54,24 @@ mod tests {
         data.insert("ProcessGuid".into(), "{AAAA}".into());
         data.insert("ParentProcessGuid".into(), "".into());
         data.insert("CommandLine".into(), "cmd.exe".into());
-        let ev = EvtxEvent {
-            event_id: 1,
-            channel: "Microsoft-Windows-Sysmon/Operational".into(),
-            timestamp_ns: 1_000_000_000,
-            computer: "WS01".into(),
-            user_sid: None,
-            logon_id: None,
-            process_id: Some(1234),
-            thread_id: None,
-            data,
-        };
+        let ev = EvtxEvent { event_id: 1, channel: "Microsoft-Windows-Sysmon/Operational".into(), timestamp_ns: 1_000_000_000, computer: "WS01".into(), user_sid: None, logon_id: None, process_id: Some(1234), thread_id: None, data };
         let tree = ProcessTree::from_events(&[ev]);
         let output = process_tree_to_mermaid(&tree);
-        assert!(
-            output.contains("cmd.exe") || output.contains("AAAA"),
-            "process node info should appear in Mermaid output, got: {output}"
-        );
+        assert!(output.contains("cmd.exe") || output.contains("AAAA"));
     }
 
     #[test]
     fn logon_chains_empty_produces_mermaid_header() {
         let chains: HashMap<u64, LogonChain> = HashMap::new();
         let output = logon_chains_to_mermaid(&chains);
-        assert!(
-            output.contains("graph") || output.contains("flowchart"),
-            "output should contain a Mermaid graph directive"
-        );
+        assert!(output.contains("graph") || output.contains("flowchart"));
     }
 
     #[test]
     fn logon_chains_single_chain_appears_in_output() {
         let mut chains = HashMap::new();
-        let chain = LogonChain {
-            logon_id: 0xABCD,
-            logon_time_ns: Some(1_000_000_000),
-            privilege_time_ns: Some(2_000_000_000),
-            process_pids: vec![1234],
-            logoff_time_ns: None,
-            is_orphaned: true,
-        };
-        chains.insert(0xABCD, chain);
+        chains.insert(0xABCD_u64, LogonChain { logon_id: 0xABCD, logon_time_ns: Some(1_000_000_000), privilege_time_ns: Some(2_000_000_000), process_pids: vec![1234], logoff_time_ns: None, is_orphaned: true });
         let output = logon_chains_to_mermaid(&chains);
-        assert!(
-            output.contains("ABCD") || output.contains("43981"),
-            "logon_id should appear in Mermaid output (hex or decimal)"
-        );
+        assert!(output.contains("ABCD") || output.contains("43981"));
     }
 }
