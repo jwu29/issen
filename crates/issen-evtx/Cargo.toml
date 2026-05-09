@@ -8,12 +8,15 @@ description = "Windows Event Log integration layer for Issen"
 repository.workspace = true
 
 [dependencies]
+forensicnomicon = { workspace = true }
 winevt-core    = { workspace = true }
 evtx           = { workspace = true }
 anyhow         = { workspace = true }
 serde          = { workspace = true }
 serde_json     = { workspace = true }
 chrono         = { workspace = true }
+rusqlite       = { workspace = true }
+schemars       = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

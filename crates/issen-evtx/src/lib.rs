@@ -12,6 +12,18 @@ pub mod mft_correlation;
 pub mod usn_correlation;
 pub mod exec_join;
 
+// Detection & Anti-Forensics
+pub mod detections;
+pub mod anti_forensics;
+pub mod net_correlation;
+pub mod diff;
+
+// Output formats
+pub mod output;
+
+// Cloud log ingest
+pub mod cloud_ingest;
+
 pub use analyze::EvtxAnalysisSummary;
 pub use session::{EvtxSessionSummary, LateralMovementFinding};
 

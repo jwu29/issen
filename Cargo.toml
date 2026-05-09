@@ -1,38 +1,38 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/rt-correlation",
-    "crates/rt-core",
-    "crates/rt-fswalker",
-    "crates/rt-plugin-sdk",
-    "crates/rt-timeline",
-    "crates/rt-ewf",
-    "crates/rt-shrinkpath",
-    "crates/rt-signatures",
-    "crates/rt-remote-access",
-    "crates/parsers/rt-parser-mft",
-    "crates/parsers/rt-parser-evtx",
-    "crates/parsers/rt-parser-velociraptor",
-    "crates/parsers/rt-parser-uac",
-    "crates/parsers/rt-parser-registry",
-    "crates/parsers/rt-parser-prefetch",
-    "crates/parsers/rt-parser-lnk",
-    "crates/parsers/rt-parser-linux",
-    "crates/parsers/rt-parser-macos",
-    "crates/parsers/rt-parser-amcache",
-    "crates/parsers/rt-parser-shimcache",
-    "crates/parsers/rt-parser-shellbags",
-    "crates/parsers/rt-parser-setupapi",
-    "crates/parsers/rt-parser-srum",
-    "crates/rt-report",
-    "crates/rt-cli",
-    "crates/rt-navigator",
-    "crates/rt-mft-tree",
-    "crates/rt-unpack",
-    "crates/rt-mem",
-    "crates/rt-remote-io",
-    "crates/rt-browser",
-    "crates/rt-evtx",
+    "crates/issen-correlation",
+    "crates/issen-core",
+    "crates/issen-fswalker",
+    "crates/issen-plugin-sdk",
+    "crates/issen-timeline",
+    "crates/issen-ewf",
+    "crates/issen-shrinkpath",
+    "crates/issen-signatures",
+    "crates/issen-remote-access",
+    "crates/parsers/issen-parser-mft",
+    "crates/parsers/issen-parser-evtx",
+    "crates/parsers/issen-parser-velociraptor",
+    "crates/parsers/issen-parser-uac",
+    "crates/parsers/issen-parser-registry",
+    "crates/parsers/issen-parser-prefetch",
+    "crates/parsers/issen-parser-lnk",
+    "crates/parsers/issen-parser-linux",
+    "crates/parsers/issen-parser-macos",
+    "crates/parsers/issen-parser-amcache",
+    "crates/parsers/issen-parser-shimcache",
+    "crates/parsers/issen-parser-shellbags",
+    "crates/parsers/issen-parser-setupapi",
+    "crates/parsers/issen-parser-srum",
+    "crates/issen-report",
+    "crates/issen-cli",
+    "crates/issen-navigator",
+    "crates/issen-mft-tree",
+    "crates/issen-unpack",
+    "crates/issen-mem",
+    "crates/issen-remote-io",
+    "crates/issen-browser",
+    "crates/issen-evtx",
     "crates/forensic-pivot",
     "xtask",
 ]
@@ -41,40 +41,40 @@ members = [
 edition = "2021"
 rust-version = "1.80"
 license = "Apache-2.0"
-repository = "https://github.com/SecurityRonin/rapidtriage"
-authors = ["RapidTriage Contributors"]
+repository = "https://github.com/SecurityRonin/issen"
+authors = ["Issen Contributors"]
 
 [workspace.dependencies]
 # Internal crates (path dependencies)
 forensicnomicon  = { path = "../forensicnomicon" }
 forensic-pivot   = { path = "crates/forensic-pivot" }
-rt-core       = { path = "crates/rt-core" }
-rt-fswalker   = { path = "crates/rt-fswalker" }
-rt-plugin-sdk = { path = "crates/rt-plugin-sdk" }
-rt-timeline   = { path = "crates/rt-timeline" }
-rt-ewf        = { path = "crates/rt-ewf" }
-rt-shrinkpath = { path = "crates/rt-shrinkpath" }
-rt-parser-mft     = { path = "crates/parsers/rt-parser-mft" }
-rt-parser-evtx    = { path = "crates/parsers/rt-parser-evtx" }
-rt-parser-velociraptor = { path = "crates/parsers/rt-parser-velociraptor" }
-rt-parser-uac          = { path = "crates/parsers/rt-parser-uac" }
-rt-parser-registry     = { path = "crates/parsers/rt-parser-registry" }
-rt-parser-prefetch     = { path = "crates/parsers/rt-parser-prefetch" }
-rt-parser-lnk          = { path = "crates/parsers/rt-parser-lnk" }
-rt-parser-linux        = { path = "crates/parsers/rt-parser-linux" }
-rt-parser-macos        = { path = "crates/parsers/rt-parser-macos" }
-rt-parser-shellbags    = { path = "crates/parsers/rt-parser-shellbags" }
-rt-parser-setupapi     = { path = "crates/parsers/rt-parser-setupapi" }
-rt-report         = { path = "crates/rt-report" }
-rt-signatures = { path = "crates/rt-signatures" }
-rt-remote-access = { path = "crates/rt-remote-access" }
-rt-mft-tree      = { path = "crates/rt-mft-tree" }
-rt-unpack        = { path = "crates/rt-unpack" }
-rt-mem          = { path = "crates/rt-mem" }
-rt-browser      = { path = "crates/rt-browser" }
-rt-correlation   = { path = "crates/rt-correlation" }
-rt-remote-io     = { path = "crates/rt-remote-io" }
-rt-evtx          = { path = "crates/rt-evtx" }
+issen-core       = { path = "crates/issen-core" }
+issen-fswalker   = { path = "crates/issen-fswalker" }
+issen-plugin-sdk = { path = "crates/issen-plugin-sdk" }
+issen-timeline   = { path = "crates/issen-timeline" }
+issen-ewf        = { path = "crates/issen-ewf" }
+issen-shrinkpath = { path = "crates/issen-shrinkpath" }
+issen-parser-mft     = { path = "crates/parsers/issen-parser-mft" }
+issen-parser-evtx    = { path = "crates/parsers/issen-parser-evtx" }
+issen-parser-velociraptor = { path = "crates/parsers/issen-parser-velociraptor" }
+issen-parser-uac          = { path = "crates/parsers/issen-parser-uac" }
+issen-parser-registry     = { path = "crates/parsers/issen-parser-registry" }
+issen-parser-prefetch     = { path = "crates/parsers/issen-parser-prefetch" }
+issen-parser-lnk          = { path = "crates/parsers/issen-parser-lnk" }
+issen-parser-linux        = { path = "crates/parsers/issen-parser-linux" }
+issen-parser-macos        = { path = "crates/parsers/issen-parser-macos" }
+issen-parser-shellbags    = { path = "crates/parsers/issen-parser-shellbags" }
+issen-parser-setupapi     = { path = "crates/parsers/issen-parser-setupapi" }
+issen-report         = { path = "crates/issen-report" }
+issen-signatures = { path = "crates/issen-signatures" }
+issen-remote-access = { path = "crates/issen-remote-access" }
+issen-mft-tree      = { path = "crates/issen-mft-tree" }
+issen-unpack        = { path = "crates/issen-unpack" }
+issen-mem          = { path = "crates/issen-mem" }
+issen-browser      = { path = "crates/issen-browser" }
+issen-correlation   = { path = "crates/issen-correlation" }
+issen-remote-io     = { path = "crates/issen-remote-io" }
+issen-evtx          = { path = "crates/issen-evtx" }
 
 # winevt-forensic crates (path dependencies into sibling workspace)
 winevt-core     = { path = "../winevt-forensic/crates/winevt-core" }
@@ -126,6 +126,7 @@ csv          = "1"
 ipnet        = "2"
 md-5         = "0.10"
 regex        = "1"
+schemars     = { version = "0.8", features = ["derive"] }
 zip          = "2"
 percent-encoding = "2"
 flate2       = "1"
