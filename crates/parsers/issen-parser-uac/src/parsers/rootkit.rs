@@ -216,14 +216,80 @@ pub fn check_kernel_taint(content: &str) -> Vec<RootkitFinding> {
     findings
 }
 
+/// Returns the compiled PAM credential staging regex (lazily initialised).
+fn pam_cred_regex() -> &'static regex::Regex {
+    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    RE.get_or_init(|| regex::Regex::new(r"^\d+:\d+:\w+:[^\n]+").unwrap())
+}
+
 /// Scan temp-like directories for PAM hook credential staging files.
 ///
 /// Any file whose content contains a line matching the structural pattern
 /// `^\d+:\d+:\w+:[^\n]+` (UID:counter:fieldname:value) is flagged as a
 /// PAM credential staging artifact. This pattern matches Father rootkit's
 /// exact format AND variants that rename the field or the output file.
-pub fn scan_pam_credential_staging(_root: &std::path::Path) -> Vec<RootkitFinding> {
-    vec![]
+pub fn scan_pam_credential_staging(root: &std::path::Path) -> Vec<RootkitFinding> {
+    const SCAN_DIRS: &[&str] = &[
+        "live_response/tmp",
+        "tmp",
+        "live_response/var/tmp",
+        "var/tmp",
+        "live_response/dev/shm",
+        "dev/shm",
+        "live_response/run",
+        "run",
+    ];
+
+    let re = pam_cred_regex();
+    let mut findings = Vec::new();
+
+    for dir_rel in SCAN_DIRS {
+        let dir_path = root.join(dir_rel);
+        if !dir_path.is_dir() {
+            continue;
+        }
+
+        // Walk all regular files in this directory (non-recursive depth-1 is
+        // insufficient for some rootkits; use read_dir for flat scan but also
+        // recurse via a simple stack to handle nested dirs like dev/shm/sub/).
+        let mut stack = vec![dir_path];
+        while let Some(current) = stack.pop() {
+            let entries = match std::fs::read_dir(&current) {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let meta = match entry.metadata() {
+                    Ok(m) => m,
+                    Err(_) => continue,
+                };
+                if meta.is_dir() {
+                    stack.push(path);
+                } else if meta.is_file() {
+                    let content = match std::fs::read_to_string(&path) {
+                        Ok(c) => c,
+                        Err(_) => continue,
+                    };
+                    let matched_count = content.lines().filter(|l| re.is_match(l)).count();
+                    if matched_count > 0 {
+                        findings.push(RootkitFinding {
+                            severity: RootkitSeverity::Critical,
+                            check: "pam_credential_staging".to_string(),
+                            description: format!(
+                                "PAM hook credential staging file: {} ({} credential line(s) captured)",
+                                path.display(),
+                                matched_count
+                            ),
+                            evidence: path.to_string_lossy().into_owned(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    findings
 }
 
 /// Scan all rootkit-relevant artifacts from a UAC collection root.
@@ -257,6 +323,9 @@ pub fn scan_rootkit_indicators(root: &std::path::Path) -> Vec<RootkitFinding> {
     if let Ok(content) = std::fs::read_to_string(&env_path) {
         findings.extend(check_env_injection(&content));
     }
+
+    // PAM credential staging files in temp directories
+    findings.extend(scan_pam_credential_staging(root));
 
     findings
 }
