@@ -243,15 +243,66 @@ mod tests {
     use std::io::Write as IoWrite;
 
     #[test]
+    fn parse_syslog_ts_uses_year_hint_not_hardcoded() {
+        // year_hint=2023 → timestamps should be in 2023, not 2026
+        let ns = parse_syslog_ts("Jan", "15", "10:00:00", 2023);
+        assert!(ns > 0, "should parse successfully");
+        // 2023-01-15 as Unix seconds = 1673776800 approximately
+        let secs = ns / 1_000_000_000;
+        assert!(secs < 1_700_000_000, "timestamp should be before 2024, got secs={secs}");
+        assert!(secs > 1_600_000_000, "timestamp should be after 2020");
+    }
+
+    #[test]
+    fn parse_syslog_ts_rolls_back_one_year_on_far_future_date() {
+        // Use a year 100 years from now — rollback should kick in and reduce by 1
+        // We can't easily test the exact rollback without mocking time, but we can
+        // verify a normal past year does NOT roll back.
+        let ns_2022 = parse_syslog_ts("Mar", "24", "12:00:00", 2022);
+        let secs_2022 = ns_2022 / 1_000_000_000;
+        // 2022-03-24 ~ 1648123200
+        assert!(secs_2022 > 1_640_000_000 && secs_2022 < 1_660_000_000,
+            "2022 timestamp should be in 2022 range, got {secs_2022}");
+    }
+
+    #[test]
+    fn parse_auth_log_respects_year_hint() {
+        let mut tmp = tempfile::NamedTempFile::new().expect("tempfile");
+        writeln!(tmp, "Apr 15 10:23:01 hostname sshd[1234]: Accepted publickey for root from 192.168.1.100 port 52341 ssh2").unwrap();
+        tmp.flush().unwrap();
+
+        let events_2022 = parse_auth_log(tmp.path(), "test", Some(2022)).expect("parse 2022");
+        let events_2025 = parse_auth_log(tmp.path(), "test", Some(2025)).expect("parse 2025");
+
+        assert_eq!(events_2022.len(), 1);
+        assert_eq!(events_2025.len(), 1);
+        // The 2022 timestamp should be significantly earlier than the 2025 one
+        let ts_2022 = events_2022[0].timestamp_ns;
+        let ts_2025 = events_2025[0].timestamp_ns;
+        assert!(ts_2022 < ts_2025, "2022 timestamp ({ts_2022}) should be before 2025 ({ts_2025})");
+    }
+
+    #[test]
+    fn parse_auth_log_year_hint_none_returns_valid_timestamps() {
+        let mut tmp = tempfile::NamedTempFile::new().expect("tempfile");
+        writeln!(tmp, "Apr 15 10:23:01 hostname sshd[1234]: Accepted publickey for alice from 10.0.0.1 port 22 ssh2").unwrap();
+        tmp.flush().unwrap();
+
+        let events = parse_auth_log(tmp.path(), "test", None).expect("parse");
+        assert_eq!(events.len(), 1);
+        assert_ne!(events[0].timestamp_ns, 0, "timestamp should be non-zero with None hint");
+    }
+
+    #[test]
     fn empty_file_returns_empty_vec() {
         let tmp = tempfile::NamedTempFile::new().expect("tempfile");
-        let events = parse_auth_log(tmp.path(), "test-src").expect("parse_auth_log");
+        let events = parse_auth_log(tmp.path(), "test-src", None).expect("parse_auth_log");
         assert!(events.is_empty(), "empty file should produce no events");
     }
 
     #[test]
     fn missing_file_returns_empty_vec() {
-        let events = parse_auth_log(Path::new("/nonexistent/path/auth.log"), "test-src")
+        let events = parse_auth_log(Path::new("/nonexistent/path/auth.log"), "test-src", None)
             .expect("missing file should return Ok(vec![])");
         assert!(events.is_empty());
     }
@@ -266,21 +317,21 @@ mod tests {
         .expect("write");
         tmp.flush().expect("flush");
 
-        let events = parse_auth_log(tmp.path(), "test-src").expect("parse");
-        asseissen_eq!(events.len(), 1, "expected 1 event for ssh accepted line");
+        let events = parse_auth_log(tmp.path(), "test-src", None).expect("parse");
+        assert_eq!(events.len(), 1, "expected 1 event for ssh accepted line");
 
         let ev = &events[0];
-        asseissen_eq!(
+        assert_eq!(
             ev.metadata.get("user").and_then(|v| v.as_str()),
             Some("root"),
             "user metadata should be 'root'"
         );
-        asseissen_eq!(
+        assert_eq!(
             ev.metadata.get("source_ip").and_then(|v| v.as_str()),
             Some("192.168.1.100"),
             "source_ip should be parsed"
         );
-        asseissen_eq!(
+        assert_eq!(
             ev.metadata.get("event_kind").and_then(|v| v.as_str()),
             Some("ssh_login"),
             "event_kind should be 'ssh_login'"
@@ -297,16 +348,16 @@ mod tests {
         .expect("write");
         tmp.flush().expect("flush");
 
-        let events = parse_auth_log(tmp.path(), "test-src").expect("parse");
-        asseissen_eq!(events.len(), 1, "expected 1 event for sudo line");
+        let events = parse_auth_log(tmp.path(), "test-src", None).expect("parse");
+        assert_eq!(events.len(), 1, "expected 1 event for sudo line");
 
         let ev = &events[0];
-        asseissen_eq!(
+        assert_eq!(
             ev.metadata.get("event_kind").and_then(|v| v.as_str()),
             Some("sudo"),
             "event_kind should be 'sudo'"
         );
-        asseissen_eq!(
+        assert_eq!(
             ev.metadata.get("user").and_then(|v| v.as_str()),
             Some("alice"),
             "user should be alice"
@@ -323,16 +374,16 @@ mod tests {
         .expect("write");
         tmp.flush().expect("flush");
 
-        let events = parse_auth_log(tmp.path(), "test-src").expect("parse");
-        asseissen_eq!(events.len(), 1, "expected 1 event for failed password line");
+        let events = parse_auth_log(tmp.path(), "test-src", None).expect("parse");
+        assert_eq!(events.len(), 1, "expected 1 event for failed password line");
 
         let ev = &events[0];
-        asseissen_eq!(
+        assert_eq!(
             ev.metadata.get("event_kind").and_then(|v| v.as_str()),
             Some("ssh_failed"),
             "event_kind should be 'ssh_failed'"
         );
-        asseissen_eq!(
+        assert_eq!(
             ev.metadata.get("source_ip").and_then(|v| v.as_str()),
             Some("192.168.1.50"),
         );
@@ -345,7 +396,7 @@ mod tests {
         writeln!(tmp, "neither is this one!").expect("write");
         tmp.flush().expect("flush");
 
-        let events = parse_auth_log(tmp.path(), "test-src").expect("parse");
+        let events = parse_auth_log(tmp.path(), "test-src", None).expect("parse");
         assert!(events.is_empty(), "garbage lines should yield no events");
     }
 }

@@ -180,7 +180,7 @@ Apr 15 10:01:10 myhost systemd[1]: Restarting OpenBSD Secure Shell server sshd\n
     #[test]
     fn extract_preload_path_returns_so_path() {
         let line = "ERROR: ld.so: object '/usr/lib/x86_64-linux-gnu/libymv.so.3' from /etc/ld.so.preload cannot be preloaded (wrong ELF class: ELFCLASS32)";
-        asseissen_eq!(
+        assert_eq!(
             extract_preload_path(line),
             Some("/usr/lib/x86_64-linux-gnu/libymv.so.3")
         );
@@ -188,13 +188,13 @@ Apr 15 10:01:10 myhost systemd[1]: Restarting OpenBSD Secure Shell server sshd\n
 
     #[test]
     fn extract_preload_path_returns_none_for_non_error() {
-        asseissen_eq!(extract_preload_path("Starting SSH daemon"), None);
+        assert_eq!(extract_preload_path("Starting SSH daemon"), None);
     }
 
     #[test]
     fn extract_preload_path_handles_shoissen_path() {
         let line = "ERROR: ld.so: object '/lib/evil.so' from /etc/ld.so.preload cannot be preloaded";
-        asseissen_eq!(extract_preload_path(line), Some("/lib/evil.so"));
+        assert_eq!(extract_preload_path(line), Some("/lib/evil.so"));
     }
 
     // ── is_sshd_restart ───────────────────────────────────────────────────
@@ -234,7 +234,7 @@ Apr 15 10:01:10 myhost systemd[1]: Restarting OpenBSD Secure Shell server sshd\n
 
     #[test]
     fn parse_boot_log_emits_ld_preload_event() {
-        let events = parse_boot_log(SAMPLE_BOOT_LOG, "boot_log");
+        let events = parse_boot_log(SAMPLE_BOOT_LOG, "boot_log", None);
         let ld_events: Vec<_> = events
             .iter()
             .filter(|e| matches!(&e.event_type, EventType::Other(s) if s == "LdPreloadError"))
@@ -247,7 +247,7 @@ Apr 15 10:01:10 myhost systemd[1]: Restarting OpenBSD Secure Shell server sshd\n
 
     #[test]
     fn parse_boot_log_events_have_source_id() {
-        let events = parse_boot_log(SAMPLE_BOOT_LOG, "boot_log");
+        let events = parse_boot_log(SAMPLE_BOOT_LOG, "boot_log", None);
         assert!(!events.is_empty(), "expected events from sample log");
         for ev in &events {
             assert!(
@@ -260,7 +260,7 @@ Apr 15 10:01:10 myhost systemd[1]: Restarting OpenBSD Secure Shell server sshd\n
 
     #[test]
     fn parse_boot_log_ld_preload_description_contains_path() {
-        let events = parse_boot_log(SAMPLE_BOOT_LOG, "boot_log");
+        let events = parse_boot_log(SAMPLE_BOOT_LOG, "boot_log", None);
         let ld_events: Vec<_> = events
             .iter()
             .filter(|e| matches!(&e.event_type, EventType::Other(s) if s == "LdPreloadError"))
@@ -275,7 +275,7 @@ Apr 15 10:01:10 myhost systemd[1]: Restarting OpenBSD Secure Shell server sshd\n
 
     #[test]
     fn parse_boot_log_emits_sshd_restaissen_event() {
-        let events = parse_boot_log(SAMPLE_BOOT_LOG, "boot_log");
+        let events = parse_boot_log(SAMPLE_BOOT_LOG, "boot_log", None);
         let sshd_events: Vec<_> = events
             .iter()
             .filter(|e| matches!(&e.event_type, EventType::Other(s) if s == "SshdRestart"))
@@ -288,7 +288,19 @@ Apr 15 10:01:10 myhost systemd[1]: Restarting OpenBSD Secure Shell server sshd\n
 
     #[test]
     fn parse_boot_log_empty_input_returns_empty() {
-        let events = parse_boot_log("", "boot_log");
+        let events = parse_boot_log("", "boot_log", None);
         assert!(events.is_empty());
+    }
+
+    #[test]
+    fn parse_boot_log_year_hint_2022_gives_earlier_timestamp() {
+        let content = "Apr 15 10:01:00 myhost systemd[1]: Starting OpenBSD Secure Shell server sshd...\n";
+        let ev_2022 = parse_boot_log(content, "test", Some(2022));
+        let ev_2025 = parse_boot_log(content, "test", Some(2025));
+        // Both should have events (sshd start line)
+        assert!(!ev_2022.is_empty() && !ev_2025.is_empty(), "should produce events");
+        // 2022 timestamp should be earlier
+        assert!(ev_2022[0].timestamp_ns < ev_2025[0].timestamp_ns,
+            "2022 ts should be before 2025 ts");
     }
 }
