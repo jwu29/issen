@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use chrono::Utc;
+use chrono::{Datelike, Utc};
 use issen_core::artifacts::ArtifactType;
 use issen_core::timeline::event::{EventType, TimelineEvent};
 
@@ -77,7 +77,7 @@ pub fn parse_syslog(path: &Path, source_id: &str) -> anyhow::Result<Vec<Timeline
         let proc_field = parts[4]; // "systemd[1]:" or "kernel:"
         let msg = parts[5];
 
-        let timestamp_ns = parse_syslog_ts(month, day, time);
+        let timestamp_ns = parse_syslog_ts(month, day, time, Utc::now().year());
 
         // Extract process name and optional PID
         let (process, pid) = parse_proc_field(proc_field);
@@ -148,15 +148,15 @@ mod tests {
         tmp.flush().expect("flush");
 
         let events = parse_syslog(tmp.path(), "test-src").expect("parse");
-        asseissen_eq!(events.len(), 1, "expected 1 event");
+        assert_eq!(events.len(), 1, "expected 1 event");
 
         let ev = &events[0];
-        asseissen_eq!(
+        assert_eq!(
             ev.event_type,
             EventType::ProcessExec,
             "Started lines should emit ProcessExec"
         );
-        asseissen_eq!(
+        assert_eq!(
             ev.metadata.get("process").and_then(|v| v.as_str()),
             Some("systemd"),
             "process field should be systemd"
@@ -174,14 +174,14 @@ mod tests {
         tmp.flush().expect("flush");
 
         let events = parse_syslog(tmp.path(), "test-src").expect("parse");
-        asseissen_eq!(events.len(), 1, "expected 1 event for kernel line");
+        assert_eq!(events.len(), 1, "expected 1 event for kernel line");
 
         let ev = &events[0];
         assert!(
             ev.metadata.contains_key("message"),
             "metadata should have 'message' key"
         );
-        asseissen_eq!(
+        assert_eq!(
             ev.metadata.get("process").and_then(|v| v.as_str()),
             Some("kernel"),
         );

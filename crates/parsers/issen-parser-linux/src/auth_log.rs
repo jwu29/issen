@@ -3,13 +3,18 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use chrono::{NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
+use chrono::{Datelike, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
 use issen_core::artifacts::ArtifactType;
 use issen_core::timeline::event::{EventType, TimelineEvent};
 
 /// Parse the `"Apr 15 10:23:01"` prefix common to syslog-format files.
 /// Returns nanoseconds since the Unix epoch, or 0 on any parse failure.
-pub(crate) fn parse_syslog_ts(month: &str, day: &str, time: &str) -> i64 {
+///
+/// `year_hint` is the calendar year to use when no year appears in the log
+/// line. If the resulting timestamp is more than 30 days in the future
+/// relative to `Utc::now()`, the function subtracts one year and retries
+/// (handles December logs read in January).
+pub(crate) fn parse_syslog_ts(month: &str, day: &str, time: &str, year_hint: i32) -> i64 {
     let month_num = match month {
         "Jan" => 1,
         "Feb" => 2,
@@ -39,17 +44,25 @@ pub(crate) fn parse_syslog_ts(month: &str, day: &str, time: &str) -> i64 {
     if hour > 23 || min > 59 || sec > 59 {
         return 0;
     }
-    let Some(date) = NaiveDate::from_ymd_opt(2026, month_num, day_num) else {
+    let Some(date) = NaiveDate::from_ymd_opt(year_hint, month_num, day_num) else {
         return 0;
     };
     let Some(time_of_day) = NaiveTime::from_hms_opt(hour, min, sec) else {
         return 0;
     };
     let dt = NaiveDateTime::new(date, time_of_day);
-    match Utc.from_local_datetime(&dt).single() {
+    let result_ns = match Utc.from_local_datetime(&dt).single() {
         Some(utc_dt) => utc_dt.timestamp_nanos_opt().unwrap_or(0),
-        None => 0,
+        None => return 0,
+    };
+    // Year-boundary rollback: if result is more than 30 days in the future,
+    // subtract one year and retry (handles Dec logs read in Jan).
+    let now_ns = Utc::now().timestamp_nanos_opt().unwrap_or(0);
+    let thirty_days_ns = 30_i64 * 86_400 * 1_000_000_000;
+    if result_ns > now_ns + thirty_days_ns && year_hint > 1970 {
+        return parse_syslog_ts(month, day, time, year_hint - 1);
     }
+    result_ns
 }
 
 fn ts_display(timestamp_ns: i64) -> String {
@@ -95,16 +108,21 @@ fn make_event(
 
 /// Parse an auth.log file at `path` and return [`TimelineEvent`]s.
 ///
+/// `year_hint` supplies the calendar year for syslog timestamps (which carry
+/// no year field). Pass `None` to use the current year. Pass `Some(y)` to
+/// force a specific year (useful when analysing old evidence).
+///
 /// # Errors
 /// Returns `Err` only on unexpected I/O failures. Missing files and
 /// unparseable lines are silently skipped (returns `Ok(vec![])`).
-pub fn parse_auth_log(path: &Path, source_id: &str) -> anyhow::Result<Vec<TimelineEvent>> {
+pub fn parse_auth_log(path: &Path, source_id: &str, year_hint: Option<i32>) -> anyhow::Result<Vec<TimelineEvent>> {
     let content = match std::fs::read_to_string(path) {
         Ok(c) => c,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(vec![]),
         Err(e) => return Err(e.into()),
     };
 
+    let year = year_hint.unwrap_or_else(|| Utc::now().year());
     let path_str = path.to_string_lossy().into_owned();
     let mut events = Vec::new();
 
@@ -123,7 +141,7 @@ pub fn parse_auth_log(path: &Path, source_id: &str) -> anyhow::Result<Vec<Timeli
         // parts[3] = hostname, parts[4] = process[pid]:, parts[5] = rest
         let msg = parts[5];
 
-        let timestamp_ns = parse_syslog_ts(month, day, time);
+        let timestamp_ns = parse_syslog_ts(month, day, time, year);
 
         // Detect sshd: Accepted publickey/password for <user> from <ip>
         if parts[4].starts_with("sshd[") || parts[4] == "sshd:" {

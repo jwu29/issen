@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use chrono::Utc;
+use chrono::{Datelike, Utc};
 use issen_core::artifacts::ArtifactType;
 use issen_core::timeline::event::{EventType, TimelineEvent};
 
@@ -84,7 +84,7 @@ pub fn parse_cron_log(path: &Path, source_id: &str) -> anyhow::Result<Vec<Timeli
             continue;
         }
 
-        let timestamp_ns = parse_syslog_ts(month, day, time);
+        let timestamp_ns = parse_syslog_ts(month, day, time, Utc::now().year());
 
         // Extract user: "(root) CMD (...)" → "root"
         let user = msg.strip_prefix('(').and_then(|s| s.split(')').next());
@@ -135,19 +135,19 @@ mod tests {
         tmp.flush().expect("flush");
 
         let events = parse_cron_log(tmp.path(), "test-src").expect("parse");
-        asseissen_eq!(events.len(), 1, "expected 1 event for CRON CMD line");
+        assert_eq!(events.len(), 1, "expected 1 event for CRON CMD line");
 
         let ev = &events[0];
-        asseissen_eq!(
+        assert_eq!(
             ev.event_type,
             EventType::ProcessExec,
             "should be ProcessExec"
         );
-        asseissen_eq!(
+        assert_eq!(
             ev.metadata.get("user").and_then(|v| v.as_str()),
             Some("root"),
         );
-        asseissen_eq!(
+        assert_eq!(
             ev.metadata.get("command").and_then(|v| v.as_str()),
             Some("run-parts /etc/cron.daily"),
         );
@@ -164,14 +164,14 @@ mod tests {
         tmp.flush().expect("flush");
 
         let events = parse_cron_log(tmp.path(), "test-src").expect("parse");
-        asseissen_eq!(events.len(), 1);
+        assert_eq!(events.len(), 1);
 
         let ev = &events[0];
-        asseissen_eq!(
+        assert_eq!(
             ev.metadata.get("user").and_then(|v| v.as_str()),
             Some("alice"),
         );
-        asseissen_eq!(
+        assert_eq!(
             ev.metadata.get("command").and_then(|v| v.as_str()),
             Some("/home/alice/backup.sh"),
         );

@@ -11,6 +11,7 @@
 
 use std::collections::HashMap;
 
+use chrono::{Datelike, Utc};
 use issen_core::artifacts::ArtifactType;
 use issen_core::timeline::event::{EventType, TimelineEvent};
 
@@ -88,11 +89,15 @@ pub fn is_sshd_restart(line: &str) -> bool {
 
 /// Parse `/var/log/boot.log` content and return [`TimelineEvent`]s.
 ///
+/// `year_hint` supplies the calendar year for syslog timestamps (which carry
+/// no year field). Pass `None` to use the current year.
+///
 /// Emits:
 /// - `EventType::Other("LdPreloadError")` for ld.so preload failure lines
 /// - `EventType::Other("SshdRestart")` for sshd start/stop/restart lines
 #[must_use]
-pub fn parse_boot_log(content: &str, source_id: &str) -> Vec<TimelineEvent> {
+pub fn parse_boot_log(content: &str, source_id: &str, year_hint: Option<i32>) -> Vec<TimelineEvent> {
+    let year = year_hint.unwrap_or_else(|| Utc::now().year());
     let mut events = Vec::new();
 
     for line in content.lines() {
@@ -105,7 +110,7 @@ pub fn parse_boot_log(content: &str, source_id: &str) -> Vec<TimelineEvent> {
         // Split to extract timestamp tokens if present.
         let tokens: Vec<&str> = line.splitn(6, ' ').collect();
         let timestamp_ns = if tokens.len() >= 3 {
-            parse_syslog_ts(tokens[0], tokens[1], tokens[2])
+            parse_syslog_ts(tokens[0], tokens[1], tokens[2], year)
         } else {
             0
         };
