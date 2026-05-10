@@ -5,49 +5,119 @@ use std::path::PathBuf;
 /// address spaces.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HybridPath {
-    /// A Windows NTFS path (no WSL equivalent because it is not a standard drive letter).
+    /// A Windows NTFS path with no standard drive letter (UNC, etc.).
     Windows(PathBuf),
-    /// A native WSL Linux path (no Windows equivalent — not under /mnt/<drive>/).
+    /// A native WSL Linux path — not under /mnt/<drive>/.
     Wsl(PathBuf),
-    /// A DrvFs path: accessible as both a Windows drive path and /mnt/<drive>/... in WSL.
+    /// A DrvFs path: simultaneously accessible as a Windows drive path and /mnt/<drive>/... in WSL.
     DrvFs { windows: PathBuf, wsl: PathBuf },
 }
 
 impl HybridPath {
     /// Construct from a WSL absolute path string.
-    pub fn from_wsl_str(_s: &str) -> Self {
-        todo!("implement from_wsl_str")
+    ///
+    /// `/mnt/<drive>/...` → `DrvFs`; everything else → `Wsl`.
+    pub fn from_wsl_str(s: &str) -> Self {
+        if let Some(rest) = s.strip_prefix("/mnt/") {
+            // rest must have at least a single-char drive and a separator
+            let mut chars = rest.chars();
+            let drive = match chars.next() {
+                Some(c) if c.is_ascii_alphabetic() => c,
+                _ => return Self::Wsl(PathBuf::from(s)),
+            };
+            match chars.next() {
+                // /mnt/<drive>/ or /mnt/<drive> followed by end
+                Some('/') | None => {
+                    let after_drive = &rest[drive.len_utf8()..]; // starts with '/' or empty
+                    let after_slash = after_drive.trim_start_matches('/');
+                    let win_rest = after_slash.replace('/', "\\");
+                    let win_path = if win_rest.is_empty() {
+                        PathBuf::from(format!("{}:\\", drive.to_ascii_uppercase()))
+                    } else {
+                        PathBuf::from(format!("{}:\\{}", drive.to_ascii_uppercase(), win_rest))
+                    };
+                    Self::DrvFs { windows: win_path, wsl: PathBuf::from(s) }
+                }
+                _ => Self::Wsl(PathBuf::from(s)),
+            }
+        } else {
+            Self::Wsl(PathBuf::from(s))
+        }
     }
 
     /// Construct from a Windows absolute path string.
-    pub fn from_windows_str(_s: &str) -> Self {
-        todo!("implement from_windows_str")
+    ///
+    /// `<Drive>:\...` → `DrvFs`; UNC/other → `Windows`.
+    pub fn from_windows_str(s: &str) -> Self {
+        let bytes = s.as_bytes();
+        if bytes.len() >= 3
+            && bytes[0].is_ascii_alphabetic()
+            && bytes[1] == b':'
+            && (bytes[2] == b'\\' || bytes[2] == b'/')
+        {
+            let drive = (bytes[0] as char).to_ascii_lowercase();
+            let rest = &s[3..];
+            let wsl_rest = rest.replace('\\', "/");
+            let wsl_path = if wsl_rest.is_empty() {
+                PathBuf::from(format!("/mnt/{drive}/"))
+            } else {
+                PathBuf::from(format!("/mnt/{drive}/{wsl_rest}"))
+            };
+            Self::DrvFs { windows: PathBuf::from(s), wsl: wsl_path }
+        } else {
+            Self::Windows(PathBuf::from(s))
+        }
     }
 
-    /// Returns `true` if this is a DrvFs path (accessible from both Windows and WSL).
+    /// Returns `true` if this is a DrvFs path.
     pub fn is_drvfs(&self) -> bool {
-        todo!("implement is_drvfs")
+        matches!(self, Self::DrvFs { .. })
     }
 
     /// Returns the Windows path form if available.
     pub fn windows_path(&self) -> Option<&PathBuf> {
-        todo!("implement windows_path")
+        match self {
+            Self::Windows(p) | Self::DrvFs { windows: p, .. } => Some(p),
+            Self::Wsl(_) => None,
+        }
     }
 
     /// Returns the WSL path form if available.
     pub fn wsl_path(&self) -> Option<&PathBuf> {
-        todo!("implement wsl_path")
+        match self {
+            Self::Wsl(p) | Self::DrvFs { wsl: p, .. } => Some(p),
+            Self::Windows(_) => None,
+        }
     }
 
-    /// Returns `true` if `other` refers to the same file as `self`.
-    /// Two DrvFs paths are the same file if their canonical forms match.
+    /// Canonical key for equality comparison (case-folded Windows path string).
+    fn canonical_key(&self) -> Option<String> {
+        match self {
+            Self::DrvFs { windows, .. } => {
+                Some(windows.to_string_lossy().to_ascii_uppercase())
+            }
+            Self::Windows(p) => Some(p.to_string_lossy().to_ascii_uppercase()),
+            Self::Wsl(p) => Some(p.to_string_lossy().into_owned()),
+        }
+    }
+
+    /// Returns `true` if `other` refers to the same file.
     pub fn same_file(&self, other: &HybridPath) -> bool {
-        todo!("implement same_file")
+        match (self.canonical_key(), other.canonical_key()) {
+            (Some(a), Some(b)) => a == b,
+            _ => false,
+        }
     }
 }
 
 impl fmt::Display for HybridPath {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        todo!("implement Display")
+        match self {
+            Self::Windows(p) => write!(f, "{}", p.display()),
+            Self::Wsl(p) => write!(f, "{}", p.display()),
+            Self::DrvFs { windows, wsl } => {
+                write!(f, "{} (WSL: {})", windows.display(), wsl.display())
+            }
+        }
     }
 }
