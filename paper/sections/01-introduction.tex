@@ -46,10 +46,26 @@ sequence number through chunked records. Live-query evidence is reached by
 dispatching a query to an endpoint and paginating result rows.
 Content-addressed evidence is reached by following hashes through a Merkle
 DAG. These are not five flavors of the same operation; they are five
-fundamentally different ways of locating bytes. The address space dictates
-what dependency a parser must take on its source, what trust an investigator
-can place in the captured evidence, and whether two investigations can be
-joined.
+fundamentally different ways of locating bytes -- each with distinct
+dependency, trust, and durability properties. Table~\ref{tab:glance}
+gives the map.
+
+\begin{table}[h]
+\centering\small
+\begin{tabular}{@{}p{0.06\columnwidth}p{0.38\columnwidth}p{0.44\columnwidth}@{}}
+\toprule
+& \textbf{Navigation step} & \textbf{Key property} \\
+\midrule
+\src{P} & name $\to$ inode $\to$ block & durable by acquisition \\
+\src{M} & PID $\to$ EPROCESS $\to$ VA $\to$ PA & volatile; instantaneous snapshot \\
+\src{L} & timestamp $\to$ record boundary & append-only; durable by acquisition \\
+\src{Q} & (endpoint, query) $\to$ result rows & produced, not stored; durable by transmission \\
+\src{C} & hash $\to$ blob $\to$ Merkle DAG & immutable; intrinsically durable \\
+\bottomrule
+\end{tabular}
+\caption{Five navigation primitives at a glance.}
+\label{tab:glance}
+\end{table}
 
 We propose a taxonomy of five \emph{navigation primitives} and show that
 classification by navigation primitive yields properties that artifact-type

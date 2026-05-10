@@ -1,6 +1,33 @@
 \section{The Navigation-Primitive Taxonomy}
 \label{sec:taxonomy}
 
+Table~\ref{tab:comparison} shows the five primitives. In brief:
+\src{P} walks a filesystem tree (name~$\to$~inode~$\to$~block);
+\src{M} walks a kernel object graph (PID~$\to$~EPROCESS~$\to$~VA~$\to$~PA);
+\src{L} seeks a record stream by timestamp or cursor;
+\src{Q} dispatches a query to an endpoint and receives result rows that did
+not exist before the query was issued;
+\src{C} follows cryptographic hashes through a Merkle DAG where the address
+\emph{is} the hash of the content.
+The formal definitions below make these distinctions precise.
+
+\begin{table*}[!t]
+\centering
+\caption{The Five Navigation Primitives}
+\label{tab:comparison}
+\begin{tabular}{@{}p{0.06\textwidth}p{0.18\textwidth}p{0.20\textwidth}p{0.20\textwidth}p{0.10\textwidth}p{0.14\textwidth}@{}}
+\toprule
+\textbf{Type} & \textbf{Address space} & \textbf{Traversal operation} & \textbf{Canonical tools} & \textbf{Mutability} & \textbf{Attacker durability} \\
+\midrule
+\src{P} & path / inode / block & directory walk; inode lookup; block read & TSK, Autopsy, ewf, ext4fs-forensic & mutable on host & by acquisition \\
+\src{M} & (PID, VA) $\to$ PA & process-list walk; page-table walk & Volatility, Rekall, memf-* & mutable on host (DKOM) & by acquisition \\
+\src{L} & timestamp / cursor & seek to record boundary; field decode & Plaso, EvtxECmd, winevt-forensic & append-only by intent & by acquisition \\
+\src{Q} & (endpoint, query, cursor) & query dispatch; cursor pagination & Velociraptor, OSQuery, WMI & N/A (produced, not stored) & by transmission \\
+\src{C} & cryptographic hash & hash $\to$ blob; reference following & git, Sigstore, OCI, IPFS & immutable by construction & intrinsic \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
 \subsection{Formal Foundations}
 
 We treat byte sequences, denoted $\Bstar = \{0,1,\ldots,255\}^{*}$, as the
@@ -163,34 +190,6 @@ in-toto links~\cite{torresarias2019intoto}.
 yields a new address rather than altering the artifact at the original
 address (Section~\ref{sec:properties}). Enables \emph{hash-pivot}:
 simultaneous query of all known CAS stores by a single hash.
-
-\subsection{Comparison}
-
-Table~\ref{tab:comparison} compares the five primitives along the dimensions
-that determine architectural and epistemological consequences.
-
-\begin{table*}[!t]
-\centering
-\caption{Comparison of the Five Navigation Primitives}
-\label{tab:comparison}
-\begin{tabular}{@{}p{0.06\textwidth}p{0.18\textwidth}p{0.20\textwidth}p{0.20\textwidth}p{0.10\textwidth}p{0.14\textwidth}@{}}
-\toprule
-\textbf{Type} & \textbf{Address space} & \textbf{Traversal operation} & \textbf{Canonical tools} & \textbf{Mutability} & \textbf{Attacker durability} \\
-\midrule
-\src{P} & path / inode / block & directory walk; inode lookup; block read & TSK, Autopsy, ewf, ext4fs-forensic & mutable on host & by acquisition \\
-\src{M} & (PID, VA) $\to$ PA & process-list walk; page-table walk & Volatility, Rekall, memf-* & mutable on host (DKOM) & by acquisition \\
-\src{L} & timestamp / cursor & seek to record boundary; field decode & Plaso, EvtxECmd, winevt-forensic & append-only by intent & by acquisition \\
-\src{Q} & (endpoint, query, cursor) & query dispatch; cursor pagination & Velociraptor, OSQuery, WMI & N/A (produced, not stored) & by transmission \\
-\src{C} & cryptographic hash & hash $\to$ blob; reference following & git, Sigstore, OCI, IPFS & immutable by construction & intrinsic \\
-\bottomrule
-\end{tabular}
-\end{table*}
-
-The mutability and durability columns mark the dimensions along which
-\src{Q} and \src{C} most clearly diverge from the disk-memory-log triad.
-We defer the proofs to Section~\ref{sec:properties}, where the durability
-of each primitive is formalized as Definition~\ref{def:durable},
-Proposition~\ref{prop:q-durability}, and Proposition~\ref{prop:c-durability}.
 
 \subsection{Layer Hierarchy}
 
