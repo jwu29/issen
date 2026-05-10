@@ -34,6 +34,7 @@ members = [
     "crates/issen-browser",
     "crates/issen-evtx",
     "crates/forensic-pivot",
+    "crates/issen-wsl",
     "xtask",
 ]
 
@@ -75,6 +76,7 @@ issen-browser      = { path = "crates/issen-browser" }
 issen-correlation   = { path = "crates/issen-correlation" }
 issen-remote-io     = { path = "crates/issen-remote-io" }
 issen-evtx          = { path = "crates/issen-evtx" }
+issen-wsl           = { path = "crates/issen-wsl" }
 
 # winevt-forensic crates (path dependencies into sibling workspace)
 winevt-core     = { path = "../winevt-forensic/crates/winevt-core" }
