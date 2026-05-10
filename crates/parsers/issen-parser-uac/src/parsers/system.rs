@@ -137,7 +137,7 @@ pub fn parse_last_output(content: &str) -> Vec<LoginRecord> {
         let duration = fields
             .iter()
             .find(|f| f.starts_with('('))
-            .map(|f| f.trim_staissen_matches('(').trim_end_matches(')').to_string());
+            .map(|f| f.trim_start_matches('(').trim_end_matches(')').to_string());
 
         results.push(LoginRecord {
             user,
@@ -204,7 +204,7 @@ pub fn parse_system_profile(root: &std::path::Path) -> SystemProfile {
         // Enrich platform: "VirtualBox (oracle)" → "VirtualBox 7.1.8 (oracle)"
         if let Some(ref mut platform) = profile.platform {
             if let Some(paren_pos) = platform.find(" (") {
-                platform.inseissen_str(paren_pos, &format!(" {version}"));
+                platform.insert_str(paren_pos, &format!(" {version}"));
             } else {
                 platform.push_str(&format!(" {version}"));
             }
@@ -400,7 +400,7 @@ pub fn parse_mount_atime(content: &str) -> Option<String> {
         // Look for root filesystem: "on / type"
         if parts.len() >= 6 && parts[1] == "on" && parts[2] == "/" && parts[3] == "type" {
             let opts = parts.get(5).unwrap_or(&"");
-            let opts = opts.trim_staissen_matches('(').trim_end_matches(')');
+            let opts = opts.trim_start_matches('(').trim_end_matches(')');
             if opts.contains("noatime") {
                 return Some("noatime".to_string());
             } else if opts.contains("relatime") {
@@ -551,7 +551,7 @@ pub fn collect_user_locales(root: &std::path::Path) -> Vec<(String, String)> {
         }
     }
 
-    results.soissen_by(|a, b| a.0.cmp(&b.0));
+    results.sort_by(|a, b| a.0.cmp(&b.0));
     results
 }
 
@@ -638,7 +638,7 @@ pub fn parse_storage_devices(
                 continue;
             }
             let name = fields[0]
-                .trim_staissen_matches(|c: char| "|-`".contains(c))
+                .trim_start_matches(|c: char| "|-`".contains(c))
                 .to_string();
             let size = fields[3].to_string();
 
@@ -819,11 +819,11 @@ mod tests {
                         \n\
                         wtmp begins Mon Mar 24 00:00:00 2026\n";
         let records = parse_last_output(content);
-        asseissen_eq!(records.len(), 2);
-        asseissen_eq!(records[0].user, "root");
-        asseissen_eq!(records[0].terminal, "pts/0");
-        asseissen_eq!(records[0].source, "10.0.0.5");
-        asseissen_eq!(records[1].user, "admin");
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].user, "root");
+        assert_eq!(records[0].terminal, "pts/0");
+        assert_eq!(records[0].source, "10.0.0.5");
+        assert_eq!(records[1].user, "admin");
     }
 
     #[test]
@@ -840,7 +840,7 @@ mod tests {
         std::fs::write(dir.path().join("uname_-a.txt"), "Linux testhost 5.15.0\n").expect("write");
 
         let info = parse_system_info(dir.path());
-        asseissen_eq!(info.hostname.as_deref(), Some("testhost"));
+        assert_eq!(info.hostname.as_deref(), Some("testhost"));
         assert!(info.uname.as_ref().expect("uname").contains("Linux"));
         assert!(info.uptime.is_none());
     }
@@ -866,17 +866,17 @@ mod tests {
                         Hardware Model: VirtualBox\n";
         let mut profile = SystemProfile::default();
         parse_hostnamectl(content, &mut profile);
-        asseissen_eq!(profile.hostname.as_deref(), Some("vbox"));
-        asseissen_eq!(
+        assert_eq!(profile.hostname.as_deref(), Some("vbox"));
+        assert_eq!(
             profile.os_name.as_deref(),
             Some("Debian GNU/Linux 13 (trixie)")
         );
-        asseissen_eq!(
+        assert_eq!(
             profile.kernel.as_deref(),
             Some("Linux 6.12.74+deb13+1-amd64")
         );
-        asseissen_eq!(profile.architecture.as_deref(), Some("x86-64"));
-        asseissen_eq!(profile.platform.as_deref(), Some("VirtualBox (oracle)"));
+        assert_eq!(profile.architecture.as_deref(), Some("x86-64"));
+        assert_eq!(profile.platform.as_deref(), Some("VirtualBox (oracle)"));
     }
 
     #[test]
@@ -886,8 +886,8 @@ mod tests {
                         Operating System: Ubuntu 22.04 LTS\n";
         let mut profile = SystemProfile::default();
         parse_hostnamectl(content, &mut profile);
-        asseissen_eq!(profile.hostname.as_deref(), Some("server01"));
-        asseissen_eq!(profile.platform.as_deref(), Some("Physical"));
+        assert_eq!(profile.hostname.as_deref(), Some("server01"));
+        assert_eq!(profile.platform.as_deref(), Some("Physical"));
     }
 
     #[test]
@@ -896,12 +896,12 @@ mod tests {
                         Time zone: America/New_York (EDT, -0400)\n\
                         System clock synchronized: yes\n";
         let tz = parse_timedatectl_timezone(content);
-        asseissen_eq!(tz.as_deref(), Some("America/New_York (EDT, -0400)"));
+        assert_eq!(tz.as_deref(), Some("America/New_York (EDT, -0400)"));
     }
 
     #[test]
     fn test_parse_timedatectl_no_timezone() {
-        asseissen_eq!(parse_timedatectl_timezone("no relevant data"), None);
+        assert_eq!(parse_timedatectl_timezone("no relevant data"), None);
     }
 
     #[test]
@@ -912,7 +912,7 @@ mod tests {
                         inet 192.168.4.22/22 brd 192.168.7.255 scope global\n\
                         inet 10.0.0.5/24 brd 10.0.0.255 scope global\n";
         let addrs = parse_ip_addresses(content);
-        asseissen_eq!(addrs, vec!["192.168.4.22", "10.0.0.5"]);
+        assert_eq!(addrs, vec!["192.168.4.22", "10.0.0.5"]);
     }
 
     #[test]
@@ -924,12 +924,12 @@ mod tests {
     #[test]
     fn test_parse_locale_conf() {
         let content = "#  File generated by update-locale\nLANG=\"en_US.UTF-8\"\n";
-        asseissen_eq!(parse_locale_conf(content).as_deref(), Some("en_US.UTF-8"));
+        assert_eq!(parse_locale_conf(content).as_deref(), Some("en_US.UTF-8"));
     }
 
     #[test]
     fn test_parse_locale_conf_unquoted() {
-        asseissen_eq!(
+        assert_eq!(
             parse_locale_conf("LANG=C.UTF-8\n").as_deref(),
             Some("C.UTF-8")
         );
@@ -937,26 +937,26 @@ mod tests {
 
     #[test]
     fn test_parse_locale_conf_empty() {
-        asseissen_eq!(parse_locale_conf("# comment only\n"), None);
+        assert_eq!(parse_locale_conf("# comment only\n"), None);
     }
 
     #[test]
     fn test_parse_mount_atime_relatime() {
         let content = "/dev/sda1 on / type ext4 (rw,relatime,errors=remount-ro)\n\
                         tmpfs on /tmp type tmpfs (rw,nosuid,nodev)\n";
-        asseissen_eq!(parse_mount_atime(content).as_deref(), Some("relatime"));
+        assert_eq!(parse_mount_atime(content).as_deref(), Some("relatime"));
     }
 
     #[test]
     fn test_parse_mount_atime_noatime() {
         let content = "/dev/nvme0n1p2 on / type btrfs (rw,noatime,compress=zstd)\n";
-        asseissen_eq!(parse_mount_atime(content).as_deref(), Some("noatime"));
+        assert_eq!(parse_mount_atime(content).as_deref(), Some("noatime"));
     }
 
     #[test]
     fn test_parse_mount_atime_default() {
         let content = "/dev/sda1 on / type ext4 (rw,errors=remount-ro)\n";
-        asseissen_eq!(
+        assert_eq!(
             parse_mount_atime(content).as_deref(),
             Some("atime (default)")
         );
@@ -965,7 +965,7 @@ mod tests {
     #[test]
     fn test_parse_mount_no_root() {
         let content = "tmpfs on /tmp type tmpfs (rw,nosuid)\n";
-        asseissen_eq!(parse_mount_atime(content), None);
+        assert_eq!(parse_mount_atime(content), None);
     }
 
     #[test]
@@ -1023,19 +1023,19 @@ mod tests {
         .expect("write");
 
         let profile = parse_system_profile(root);
-        asseissen_eq!(profile.hostname.as_deref(), Some("testbox"));
-        asseissen_eq!(profile.fqdn.as_deref(), Some("testbox.lab.local"));
-        asseissen_eq!(profile.os_name.as_deref(), Some("Ubuntu 22.04 LTS"));
-        asseissen_eq!(profile.kernel.as_deref(), Some("Linux 5.15.0-generic"));
-        asseissen_eq!(profile.architecture.as_deref(), Some("x86-64"));
-        asseissen_eq!(profile.platform.as_deref(), Some("Physical"));
-        asseissen_eq!(
+        assert_eq!(profile.hostname.as_deref(), Some("testbox"));
+        assert_eq!(profile.fqdn.as_deref(), Some("testbox.lab.local"));
+        assert_eq!(profile.os_name.as_deref(), Some("Ubuntu 22.04 LTS"));
+        assert_eq!(profile.kernel.as_deref(), Some("Linux 5.15.0-generic"));
+        assert_eq!(profile.architecture.as_deref(), Some("x86-64"));
+        assert_eq!(profile.platform.as_deref(), Some("Physical"));
+        assert_eq!(
             profile.timezone.as_deref(),
             Some("Europe/London (BST, +0100)")
         );
-        asseissen_eq!(profile.ip_addresses, vec!["10.1.2.3"]);
-        asseissen_eq!(profile.locale.as_deref(), Some("en_GB.UTF-8"));
-        asseissen_eq!(profile.atime_policy.as_deref(), Some("noatime"));
+        assert_eq!(profile.ip_addresses, vec!["10.1.2.3"]);
+        assert_eq!(profile.locale.as_deref(), Some("en_GB.UTF-8"));
+        assert_eq!(profile.atime_policy.as_deref(), Some("noatime"));
         assert!(profile.uptime.is_some());
     }
 
@@ -1065,33 +1065,33 @@ mod tests {
                total        used        free      shared  buff/cache   available
 Mem:         8138104     2931872     4967944        6580      553244     5206232
 Swap:        1127420        3352     1124068";
-        asseissen_eq!(parse_free_ram(content), Some(8138104));
+        assert_eq!(parse_free_ram(content), Some(8138104));
     }
 
     #[test]
     fn free_ram_tab_separated() {
         // Some systems use tabs instead of spaces
         let content = "Mem:\t32879668\t8000000\t20000000\t100000\t4000000\t24000000\n";
-        asseissen_eq!(parse_free_ram(content), Some(32879668));
+        assert_eq!(parse_free_ram(content), Some(32879668));
     }
 
     #[test]
     fn free_ram_no_mem_line() {
         // Header only, no Mem: line — should return None
         let content = "               total        used        free\n";
-        asseissen_eq!(parse_free_ram(content), None);
+        assert_eq!(parse_free_ram(content), None);
     }
 
     #[test]
     fn free_ram_empty_input() {
-        asseissen_eq!(parse_free_ram(""), None);
+        assert_eq!(parse_free_ram(""), None);
     }
 
     #[test]
     fn free_ram_mem_line_no_value() {
         // Mem: line present but no numeric value after it
         let content = "Mem:\n";
-        asseissen_eq!(parse_free_ram(content), None);
+        assert_eq!(parse_free_ram(content), None);
     }
 
     #[test]
@@ -1099,14 +1099,14 @@ Swap:        1127420        3352     1124068";
         // `free -h` produces "Mem:  7.8Gi  2.8Gi  4.7Gi ..."
         // This should return None — we only parse kibibyte values
         let content = "Mem:           7.8Gi       2.8Gi       4.7Gi\n";
-        asseissen_eq!(parse_free_ram(content), None);
+        assert_eq!(parse_free_ram(content), None);
     }
 
     #[test]
     fn free_ram_large_server() {
         // 512 GB server — test u64 range
         let content = "Mem:       536870912   100000000   400000000\n";
-        asseissen_eq!(parse_free_ram(content), Some(536870912));
+        assert_eq!(parse_free_ram(content), Some(536870912));
     }
 
     // --- format_ram_kb: contract ---
@@ -1117,37 +1117,37 @@ Swap:        1127420        3352     1124068";
     #[test]
     fn format_ram_zero() {
         // Edge case: 0 KB
-        asseissen_eq!(format_ram_kb(0), "0 MB");
+        assert_eq!(format_ram_kb(0), "0 MB");
     }
 
     #[test]
     fn format_ram_sub_gib() {
         // 512 MiB = 524288 KiB — should show MB
-        asseissen_eq!(format_ram_kb(524288), "512 MB");
+        assert_eq!(format_ram_kb(524288), "512 MB");
     }
 
     #[test]
     fn format_ram_exactly_one_gib() {
         // 1048576 KiB = 1.0 GiB — should show "1.0 GB" (< 10, 1 decimal)
-        asseissen_eq!(format_ram_kb(1048576), "1.0 GB");
+        assert_eq!(format_ram_kb(1048576), "1.0 GB");
     }
 
     #[test]
     fn format_ram_fractional_gib() {
         // 8138104 KiB ≈ 7.76 GiB — should show "7.8 GB"
-        asseissen_eq!(format_ram_kb(8138104), "7.8 GB");
+        assert_eq!(format_ram_kb(8138104), "7.8 GB");
     }
 
     #[test]
     fn format_ram_large_integer_gib() {
         // 16 GiB = 16777216 KiB — should show "16 GB" (>= 10, no decimal)
-        asseissen_eq!(format_ram_kb(16777216), "16 GB");
+        assert_eq!(format_ram_kb(16777216), "16 GB");
     }
 
     #[test]
     fn format_ram_32g() {
         // 32879668 KiB ≈ 31.35 GiB — should show "31 GB"
-        asseissen_eq!(format_ram_kb(32879668), "31 GB");
+        assert_eq!(format_ram_kb(32879668), "31 GB");
     }
 
     #[test]
@@ -1175,7 +1175,7 @@ Swap:        1127420        3352     1124068";
             interface: StorageInterface::Sata,
             ..StorageDevice::default()
         };
-        asseissen_eq!(infer_media_type(&dev), MediaType::Optical);
+        assert_eq!(infer_media_type(&dev), MediaType::Optical);
     }
 
     #[test]
@@ -1186,7 +1186,7 @@ Swap:        1127420        3352     1124068";
             model: "Some Unknown Drive".to_string(),
             ..StorageDevice::default()
         };
-        asseissen_eq!(infer_media_type(&dev), MediaType::Ssd);
+        assert_eq!(infer_media_type(&dev), MediaType::Ssd);
     }
 
     #[test]
@@ -1197,7 +1197,7 @@ Swap:        1127420        3352     1124068";
             model: "Samsung SSD 860 EVO".to_string(),
             ..StorageDevice::default()
         };
-        asseissen_eq!(infer_media_type(&dev), MediaType::Ssd);
+        assert_eq!(infer_media_type(&dev), MediaType::Ssd);
     }
 
     #[test]
@@ -1208,7 +1208,7 @@ Swap:        1127420        3352     1124068";
             model: "Intel Solid State Drive".to_string(),
             ..StorageDevice::default()
         };
-        asseissen_eq!(infer_media_type(&dev), MediaType::Ssd);
+        assert_eq!(infer_media_type(&dev), MediaType::Ssd);
     }
 
     #[test]
@@ -1220,7 +1220,7 @@ Swap:        1127420        3352     1124068";
             model: "VBOX HARDDISK".to_string(),
             ..StorageDevice::default()
         };
-        asseissen_eq!(infer_media_type(&dev), MediaType::Hdd);
+        assert_eq!(infer_media_type(&dev), MediaType::Hdd);
     }
 
     #[test]
@@ -1232,7 +1232,7 @@ Swap:        1127420        3352     1124068";
             model: "WDC WD10EZEX".to_string(),
             ..StorageDevice::default()
         };
-        asseissen_eq!(infer_media_type(&dev), MediaType::Hdd);
+        assert_eq!(infer_media_type(&dev), MediaType::Hdd);
     }
 
     #[test]
@@ -1244,7 +1244,7 @@ Swap:        1127420        3352     1124068";
             model: String::new(),
             ..StorageDevice::default()
         };
-        asseissen_eq!(infer_media_type(&dev), MediaType::Unknown);
+        assert_eq!(infer_media_type(&dev), MediaType::Unknown);
     }
 
     #[test]
@@ -1258,25 +1258,25 @@ Swap:        1127420        3352     1124068";
             ..StorageDevice::default()
         };
         // USB with no model info → Unknown (can't determine media type)
-        asseissen_eq!(infer_media_type(&dev), MediaType::Unknown);
+        assert_eq!(infer_media_type(&dev), MediaType::Unknown);
     }
 
     // --- Display impls: contract ---
 
     #[test]
     fn display_storage_interface() {
-        asseissen_eq!(StorageInterface::Sata.to_string(), "SATA");
-        asseissen_eq!(StorageInterface::Nvme.to_string(), "NVMe");
-        asseissen_eq!(StorageInterface::Usb.to_string(), "USB");
-        asseissen_eq!(StorageInterface::Unknown.to_string(), "");
+        assert_eq!(StorageInterface::Sata.to_string(), "SATA");
+        assert_eq!(StorageInterface::Nvme.to_string(), "NVMe");
+        assert_eq!(StorageInterface::Usb.to_string(), "USB");
+        assert_eq!(StorageInterface::Unknown.to_string(), "");
     }
 
     #[test]
     fn display_media_type() {
-        asseissen_eq!(MediaType::Ssd.to_string(), "SSD");
-        asseissen_eq!(MediaType::Hdd.to_string(), "HDD");
-        asseissen_eq!(MediaType::Optical.to_string(), "Optical");
-        asseissen_eq!(MediaType::Unknown.to_string(), "");
+        assert_eq!(MediaType::Ssd.to_string(), "SSD");
+        assert_eq!(MediaType::Hdd.to_string(), "HDD");
+        assert_eq!(MediaType::Optical.to_string(), "Optical");
+        assert_eq!(MediaType::Unknown.to_string(), "");
     }
 
     // --- parse_storage_devices: contract ---
@@ -1301,17 +1301,17 @@ Swap:        1127420        3352     1124068";
                        lrwxrwxrwx 1 root root 10 Mar 24 19:18 ata-VBOX_HARDDISK_VB5541180d-part1 -> ../../sda1\n";
 
         let devices = parse_storage_devices(Some(lsblk), Some(fdisk), Some(devdisk));
-        asseissen_eq!(devices.len(), 2, "should find sda + sr0, not partitions");
+        assert_eq!(devices.len(), 2, "should find sda + sr0, not partitions");
 
-        asseissen_eq!(devices[0].name, "sda");
-        asseissen_eq!(devices[0].size, "20G");
-        asseissen_eq!(devices[0].model, "VBOX HARDDISK");
-        asseissen_eq!(devices[0].interface, StorageInterface::Sata);
-        asseissen_eq!(devices[0].media_type, MediaType::Hdd);
+        assert_eq!(devices[0].name, "sda");
+        assert_eq!(devices[0].size, "20G");
+        assert_eq!(devices[0].model, "VBOX HARDDISK");
+        assert_eq!(devices[0].interface, StorageInterface::Sata);
+        assert_eq!(devices[0].media_type, MediaType::Hdd);
 
-        asseissen_eq!(devices[1].name, "sr0");
-        asseissen_eq!(devices[1].device_type, "rom");
-        asseissen_eq!(devices[1].media_type, MediaType::Optical);
+        assert_eq!(devices[1].name, "sr0");
+        assert_eq!(devices[1].device_type, "rom");
+        assert_eq!(devices[1].media_type, MediaType::Optical);
     }
 
     #[test]
@@ -1328,11 +1328,11 @@ Swap:        1127420        3352     1124068";
                        lrwxrwxrwx 1 root root 15 Mar 24 10:00 nvme-Samsung_970_EVO_Plus-part1 -> ../../nvme0n1p1\n";
 
         let devices = parse_storage_devices(Some(lsblk), Some(fdisk), Some(devdisk));
-        asseissen_eq!(devices.len(), 1);
-        asseissen_eq!(devices[0].name, "nvme0n1");
-        asseissen_eq!(devices[0].interface, StorageInterface::Nvme);
-        asseissen_eq!(devices[0].media_type, MediaType::Ssd);
-        asseissen_eq!(devices[0].model, "Samsung 970 EVO Plus");
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].name, "nvme0n1");
+        assert_eq!(devices[0].interface, StorageInterface::Nvme);
+        assert_eq!(devices[0].media_type, MediaType::Ssd);
+        assert_eq!(devices[0].model, "Samsung 970 EVO Plus");
     }
 
     #[test]
@@ -1346,9 +1346,9 @@ Swap:        1127420        3352     1124068";
                        lrwxrwxrwx 1 root root  9 Mar 24 10:00 ata-Samsung_SSD_860_EVO -> ../../sda\n";
 
         let devices = parse_storage_devices(Some(lsblk), Some(fdisk), Some(devdisk));
-        asseissen_eq!(devices.len(), 1);
-        asseissen_eq!(devices[0].interface, StorageInterface::Sata);
-        asseissen_eq!(devices[0].media_type, MediaType::Ssd);
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].interface, StorageInterface::Sata);
+        assert_eq!(devices[0].media_type, MediaType::Ssd);
     }
 
     #[test]
@@ -1357,11 +1357,11 @@ Swap:        1127420        3352     1124068";
         let lsblk = "NAME   MAJ:MIN RM  SIZE RO TYPE MOUNTPOINTS\n\
                       sda      8:0    0  100G  0 disk \n";
         let devices = parse_storage_devices(Some(lsblk), None, None);
-        asseissen_eq!(devices.len(), 1);
-        asseissen_eq!(devices[0].name, "sda");
-        asseissen_eq!(devices[0].model, "");
-        asseissen_eq!(devices[0].interface, StorageInterface::Unknown);
-        asseissen_eq!(devices[0].media_type, MediaType::Unknown);
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].name, "sda");
+        assert_eq!(devices[0].model, "");
+        assert_eq!(devices[0].interface, StorageInterface::Unknown);
+        assert_eq!(devices[0].media_type, MediaType::Unknown);
     }
 
     #[test]
@@ -1376,8 +1376,8 @@ Swap:        1127420        3352     1124068";
         let devdisk = "/dev/disk/by-id:\n\
                        lrwxrwxrwx 1 root root 9 Mar 24 10:00 usb-SanDisk_Cruzer_1234 -> ../../sdb\n";
         let devices = parse_storage_devices(Some(lsblk), None, Some(devdisk));
-        asseissen_eq!(devices.len(), 1);
-        asseissen_eq!(devices[0].interface, StorageInterface::Usb);
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].interface, StorageInterface::Usb);
     }
 
     #[test]
@@ -1388,10 +1388,10 @@ Swap:        1127420        3352     1124068";
                       sdb           8:16   0     2T  0 disk \n\
                       nvme0n1     259:0    0   256G  0 disk \n";
         let devices = parse_storage_devices(Some(lsblk), None, None);
-        asseissen_eq!(devices.len(), 3);
-        asseissen_eq!(devices[0].name, "sda");
-        asseissen_eq!(devices[1].name, "sdb");
-        asseissen_eq!(devices[2].name, "nvme0n1");
+        assert_eq!(devices.len(), 3);
+        assert_eq!(devices[0].name, "sda");
+        assert_eq!(devices[1].name, "sdb");
+        assert_eq!(devices[2].name, "nvme0n1");
     }
 
     #[test]
@@ -1406,8 +1406,8 @@ Swap:        1127420        3352     1124068";
                      Disk /dev/sdb: 1 TiB\n\
                      Disk model: Seagate Barracuda\n";
         let devices = parse_storage_devices(Some(lsblk), Some(fdisk), None);
-        asseissen_eq!(devices[0].model, "WDC WD5003ABYZ");
-        asseissen_eq!(devices[1].model, "Seagate Barracuda");
+        assert_eq!(devices[0].model, "WDC WD5003ABYZ");
+        assert_eq!(devices[1].model, "Seagate Barracuda");
     }
 
     // --- format_storage_device: contract ---
@@ -1425,7 +1425,7 @@ Swap:        1127420        3352     1124068";
             interface: StorageInterface::Sata,
             media_type: MediaType::Hdd,
         };
-        asseissen_eq!(
+        assert_eq!(
             format_storage_device(&dev),
             "sda: 20G HDD (SATA) — VBOX HARDDISK"
         );
@@ -1441,7 +1441,7 @@ Swap:        1127420        3352     1124068";
             interface: StorageInterface::Nvme,
             media_type: MediaType::Ssd,
         };
-        asseissen_eq!(
+        assert_eq!(
             format_storage_device(&dev),
             "nvme0n1: 500G SSD (NVMe) — Samsung 970 EVO Plus"
         );
@@ -1457,7 +1457,7 @@ Swap:        1127420        3352     1124068";
             interface: StorageInterface::Sata,
             media_type: MediaType::Optical,
         };
-        asseissen_eq!(format_storage_device(&dev), "sr0: 1024M Optical (SATA)");
+        assert_eq!(format_storage_device(&dev), "sr0: 1024M Optical (SATA)");
     }
 
     #[test]
@@ -1472,7 +1472,7 @@ Swap:        1127420        3352     1124068";
             media_type: MediaType::Unknown,
         };
         // Should just show "sda: 100G" with no trailing garbage
-        asseissen_eq!(format_storage_device(&dev), "sda: 100G");
+        assert_eq!(format_storage_device(&dev), "sda: 100G");
     }
 
     #[test]
@@ -1485,21 +1485,21 @@ Swap:        1127420        3352     1124068";
             interface: StorageInterface::Usb,
             media_type: MediaType::Unknown,
         };
-        asseissen_eq!(format_storage_device(&dev), "sdb: 32G (USB)");
+        assert_eq!(format_storage_device(&dev), "sdb: 32G (USB)");
     }
 
     // --- OS version enrichment tests ---
 
     #[test]
     fn test_parse_os_version_debian() {
-        asseissen_eq!(parse_os_version("13.4\n").as_deref(), Some("13.4"));
+        assert_eq!(parse_os_version("13.4\n").as_deref(), Some("13.4"));
     }
 
     #[test]
     fn test_parse_os_version_ubuntu() {
         // Ubuntu uses a codename like "jammy" in debian_version
         // but has VERSION_ID in os-release
-        asseissen_eq!(
+        assert_eq!(
             parse_os_version("trixie/sid\n").as_deref(),
             Some("trixie/sid")
         );
@@ -1507,13 +1507,13 @@ Swap:        1127420        3352     1124068";
 
     #[test]
     fn test_parse_os_version_empty() {
-        asseissen_eq!(parse_os_version(""), None);
-        asseissen_eq!(parse_os_version("  \n"), None);
+        assert_eq!(parse_os_version(""), None);
+        assert_eq!(parse_os_version("  \n"), None);
     }
 
     #[test]
     fn test_enrich_os_name_with_version() {
-        asseissen_eq!(
+        assert_eq!(
             enrich_os_name_with_version("Debian GNU/Linux 13 (trixie)", "13.4"),
             "Debian GNU/Linux 13.4 (trixie)"
         );
@@ -1521,7 +1521,7 @@ Swap:        1127420        3352     1124068";
 
     #[test]
     fn test_enrich_os_name_with_version_ubuntu() {
-        asseissen_eq!(
+        assert_eq!(
             enrich_os_name_with_version("Ubuntu 22.04.3 LTS", "22.04"),
             "Ubuntu 22.04.3 LTS" // already has point release, don't change
         );
@@ -1530,7 +1530,7 @@ Swap:        1127420        3352     1124068";
     #[test]
     fn test_enrich_os_name_with_version_no_match() {
         // If os_name doesn't contain a bare major version, return as-is
-        asseissen_eq!(
+        assert_eq!(
             enrich_os_name_with_version("Arch Linux", "rolling"),
             "Arch Linux"
         );
@@ -1542,14 +1542,14 @@ Swap:        1127420        3352     1124068";
     fn test_parse_user_locale_overrides_expoissen_lang() {
         let content = "# some config\nexport LANG=ja_JP.UTF-8\nexport PATH=/usr/bin\n";
         let locales = parse_shell_locale_overrides(content);
-        asseissen_eq!(locales, vec!["ja_JP.UTF-8".to_string()]);
+        assert_eq!(locales, vec!["ja_JP.UTF-8".to_string()]);
     }
 
     #[test]
     fn test_parse_user_locale_overrides_lc_all() {
         let content = "export LC_ALL=C\n";
         let locales = parse_shell_locale_overrides(content);
-        asseissen_eq!(locales, vec!["C".to_string()]);
+        assert_eq!(locales, vec!["C".to_string()]);
     }
 
     #[test]
@@ -1564,7 +1564,7 @@ Swap:        1127420        3352     1124068";
     fn test_parse_user_locale_overrides_multiple() {
         let content = "export LANG=de_DE.UTF-8\nexport LC_ALL=C\n";
         let locales = parse_shell_locale_overrides(content);
-        asseissen_eq!(locales, vec!["de_DE.UTF-8".to_string(), "C".to_string()]);
+        assert_eq!(locales, vec!["de_DE.UTF-8".to_string(), "C".to_string()]);
     }
 
     #[test]
@@ -1592,9 +1592,9 @@ Swap:        1127420        3352     1124068";
         std::fs::write(admin_home.join(".bashrc"), "export LANG=zh_CN.UTF-8\n").expect("write");
 
         let overrides = collect_user_locales(root);
-        asseissen_eq!(overrides.len(), 1);
-        asseissen_eq!(overrides[0].0, "admin");
-        asseissen_eq!(overrides[0].1, "zh_CN.UTF-8");
+        assert_eq!(overrides.len(), 1);
+        assert_eq!(overrides[0].0, "admin");
+        assert_eq!(overrides[0].1, "zh_CN.UTF-8");
     }
 
     #[test]
@@ -1607,9 +1607,9 @@ Swap:        1127420        3352     1124068";
         std::fs::write(root_home.join(".zshrc"), "export LC_ALL=C.UTF-8\n").expect("write");
 
         let overrides = collect_user_locales(root);
-        asseissen_eq!(overrides.len(), 1);
-        asseissen_eq!(overrides[0].0, "root");
-        asseissen_eq!(overrides[0].1, "C.UTF-8");
+        assert_eq!(overrides.len(), 1);
+        assert_eq!(overrides[0].0, "root");
+        assert_eq!(overrides[0].1, "C.UTF-8");
     }
 
     #[test]
@@ -1626,7 +1626,7 @@ Swap:        1127420        3352     1124068";
         let content = "[    2.448144] systemd[1]: Hostname set to <vbox>.\n\
                         [    3.359994] vboxguest: host-version: 7.1.8r168469 0x8000000f\n\
                         [    4.000000] some other line\n";
-        asseissen_eq!(
+        assert_eq!(
             parse_vm_version_from_dmesg(content).as_deref(),
             Some("7.1.8")
         );
@@ -1635,7 +1635,7 @@ Swap:        1127420        3352     1124068";
     #[test]
     fn test_parse_vm_version_from_dmesg_no_vbox() {
         let content = "[    0.000000] Linux version 6.12\n[    1.000000] ACPI loaded\n";
-        asseissen_eq!(parse_vm_version_from_dmesg(content), None);
+        assert_eq!(parse_vm_version_from_dmesg(content), None);
     }
 
     #[test]
@@ -1644,7 +1644,7 @@ Swap:        1127420        3352     1124068";
                         OEM Strings\n\
                         \tString 1: vboxVer_7.1.8\n\
                         \tString 2: vboxRev_168469\n";
-        asseissen_eq!(
+        assert_eq!(
             parse_vm_version_from_dmidecode(content).as_deref(),
             Some("7.1.8")
         );
@@ -1653,14 +1653,14 @@ Swap:        1127420        3352     1124068";
     #[test]
     fn test_parse_vm_version_from_dmidecode_no_vbox() {
         let content = "Handle 0x0001\n\tManufacturer: Dell Inc.\n";
-        asseissen_eq!(parse_vm_version_from_dmidecode(content), None);
+        assert_eq!(parse_vm_version_from_dmidecode(content), None);
     }
 
     #[test]
     fn test_parse_vm_version_from_dmidecode_vmware() {
         // VMware doesn't use vboxVer_ format
         let content = "Handle 0x0001\n\tProduct Name: VMware Virtual Platform\n";
-        asseissen_eq!(parse_vm_version_from_dmidecode(content), None);
+        assert_eq!(parse_vm_version_from_dmidecode(content), None);
     }
 
     #[test]
@@ -1686,7 +1686,7 @@ Swap:        1127420        3352     1124068";
         .expect("write");
 
         let profile = parse_system_profile(root);
-        asseissen_eq!(
+        assert_eq!(
             profile.platform.as_deref(),
             Some("VirtualBox 7.1.8 (oracle)")
         );

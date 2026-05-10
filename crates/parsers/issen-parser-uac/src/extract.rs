@@ -94,7 +94,7 @@ fn parse_uac_metadata(uac_log: &str, archive_path: &Path) -> CollectionMetadata 
     let hostname = extract_hostname_from_filename(archive_path);
 
     let collection_time = uac_log.lines().next().and_then(|line| {
-        let ts_str = line.trim_staissen_matches('[').split(']').next()?;
+        let ts_str = line.trim_start_matches('[').split(']').next()?;
         chrono::NaiveDateTime::parse_from_str(ts_str, "%Y-%m-%d %H:%M:%S")
             .ok()
             .map(|dt| dt.and_utc())
@@ -140,7 +140,7 @@ mod tests {
 
     #[test]
     fn test_extract_hostname_from_filename() {
-        asseissen_eq!(
+        assert_eq!(
             extract_hostname_from_filename(Path::new("uac-vbox-linux-20260324193807.tar.gz")),
             Some("vbox-linux".into())
         );
@@ -148,7 +148,7 @@ mod tests {
 
     #[test]
     fn test_extract_hostname_non_uac() {
-        asseissen_eq!(
+        assert_eq!(
             extract_hostname_from_filename(Path::new("random-archive.tar.gz")),
             None
         );
@@ -158,9 +158,9 @@ mod tests {
     fn test_parse_uac_metadata_linux() {
         let log = "[2026-03-24 19:38:07] UAC 2.9.0 started on Linux";
         let meta = parse_uac_metadata(log, Path::new("uac-host-20260324193807.tar.gz"));
-        asseissen_eq!(meta.hostname.as_deref(), Some("host"));
+        assert_eq!(meta.hostname.as_deref(), Some("host"));
         assert!(meta.collection_time.is_some());
-        asseissen_eq!(meta.os_type, OsType::Linux);
+        assert_eq!(meta.os_type, OsType::Linux);
     }
 
     #[test]
@@ -212,9 +212,9 @@ mod tests {
 
         let (entries, meta) = extract_uac(&tar_gz_path, &dest).expect("extract");
 
-        asseissen_eq!(entries.len(), 2);
-        asseissen_eq!(meta.hostname.as_deref(), Some("testhost"));
-        asseissen_eq!(meta.os_type, OsType::Linux);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(meta.hostname.as_deref(), Some("testhost"));
+        assert_eq!(meta.os_type, OsType::Linux);
         assert!(dest.join("uac.log").exists());
         assert!(dest.join("bodyfile/bodyfile.txt").exists());
     }
@@ -268,9 +268,9 @@ mod tests {
 
         let (entries, meta) = extract_uac(&tar_gz_path, &dest).expect("extract");
 
-        asseissen_eq!(entries.len(), 3);
-        asseissen_eq!(meta.hostname.as_deref(), Some("noprefix"));
-        asseissen_eq!(meta.os_type, OsType::Linux);
+        assert_eq!(entries.len(), 3);
+        assert_eq!(meta.hostname.as_deref(), Some("noprefix"));
+        assert_eq!(meta.os_type, OsType::Linux);
 
         // Critical: directory structure must be preserved
         assert!(

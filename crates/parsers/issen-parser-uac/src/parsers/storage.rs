@@ -20,7 +20,7 @@ pub fn parse_mount_output(content: &str) -> Vec<MountInfo> {
                 return None;
             }
             let options = parts.get(5).map_or(String::new(), |o| {
-                o.trim_staissen_matches('(').trim_end_matches(')').to_string()
+                o.trim_start_matches('(').trim_end_matches(')').to_string()
             });
             Some(MountInfo {
                 device: parts[0].to_string(),
@@ -54,9 +54,9 @@ mod tests {
         let content = "/dev/sda1 on / type ext4 (rw,relatime)\n\
                         tmpfs on /tmp type tmpfs (rw,nosuid)\n";
         let mounts = parse_mount_output(content);
-        asseissen_eq!(mounts.len(), 2);
-        asseissen_eq!(mounts[0].device, "/dev/sda1");
-        asseissen_eq!(mounts[0].mount_point, "/");
-        asseissen_eq!(mounts[0].fs_type, "ext4");
+        assert_eq!(mounts.len(), 2);
+        assert_eq!(mounts[0].device, "/dev/sda1");
+        assert_eq!(mounts[0].mount_point, "/");
+        assert_eq!(mounts[0].fs_type, "ext4");
     }
 }

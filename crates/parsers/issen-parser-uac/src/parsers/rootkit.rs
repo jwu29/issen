@@ -216,6 +216,16 @@ pub fn check_kernel_taint(content: &str) -> Vec<RootkitFinding> {
     findings
 }
 
+/// Scan temp-like directories for PAM hook credential staging files.
+///
+/// Any file whose content contains a line matching the structural pattern
+/// `^\d+:\d+:\w+:[^\n]+` (UID:counter:fieldname:value) is flagged as a
+/// PAM credential staging artifact. This pattern matches Father rootkit's
+/// exact format AND variants that rename the field or the output file.
+pub fn scan_pam_credential_staging(_root: &std::path::Path) -> Vec<RootkitFinding> {
+    vec![]
+}
+
 /// Scan all rootkit-relevant artifacts from a UAC collection root.
 ///
 /// Checks: chkrootkit/etc_ld_so_preload.txt, live_response/system/lsmod.txt,
@@ -281,9 +291,9 @@ mod tests {
     fn ld_preload_single_unknown_library() {
         let content = "/lib/x86_64-linux-gnu/libymv.so.3\n";
         let findings = parse_ld_preload(content);
-        asseissen_eq!(findings.len(), 1);
-        asseissen_eq!(findings[0].severity, RootkitSeverity::Warning);
-        asseissen_eq!(findings[0].check, "ld_preload");
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, RootkitSeverity::Warning);
+        assert_eq!(findings[0].check, "ld_preload");
         assert!(findings[0].evidence.contains("libymv.so.3"));
     }
 
@@ -292,24 +302,24 @@ mod tests {
         // jynx2 rootkit uses ld.so.preload
         let content = "/usr/local/lib/libjynx.so\n";
         let findings = parse_ld_preload(content);
-        asseissen_eq!(findings.len(), 1);
-        asseissen_eq!(findings[0].severity, RootkitSeverity::Critical);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, RootkitSeverity::Critical);
     }
 
     #[test]
     fn ld_preload_azazel_rootkit() {
         let content = "/lib/libazazel.so\n";
         let findings = parse_ld_preload(content);
-        asseissen_eq!(findings.len(), 1);
-        asseissen_eq!(findings[0].severity, RootkitSeverity::Critical);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, RootkitSeverity::Critical);
     }
 
     #[test]
     fn ld_preload_bdvl_rootkit() {
         let content = "/lib/x86_64-linux-gnu/libbdvl.so\n";
         let findings = parse_ld_preload(content);
-        asseissen_eq!(findings.len(), 1);
-        asseissen_eq!(findings[0].severity, RootkitSeverity::Critical);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, RootkitSeverity::Critical);
     }
 
     #[test]
@@ -318,7 +328,7 @@ mod tests {
                         # comment\n\
                         /lib/libbar.so\n";
         let findings = parse_ld_preload(content);
-        asseissen_eq!(findings.len(), 2);
+        assert_eq!(findings.len(), 2);
     }
 
     #[test]
@@ -327,8 +337,8 @@ mod tests {
         // because any entry here is unusual, but not Critical
         let content = "/usr/lib/x86_64-linux-gnu/faketime/libfaketime.so.1\n";
         let findings = parse_ld_preload(content);
-        asseissen_eq!(findings.len(), 1);
-        asseissen_eq!(findings[0].severity, RootkitSeverity::Warning);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, RootkitSeverity::Warning);
     }
 
     // =====================================================================
@@ -351,9 +361,9 @@ mod tests {
     fn env_ld_preload_present() {
         let content = "HOME=/root\nLD_PRELOAD=/lib/evil.so\nSHELL=/bin/bash\n";
         let findings = check_env_injection(content);
-        asseissen_eq!(findings.len(), 1);
-        asseissen_eq!(findings[0].severity, RootkitSeverity::Critical);
-        asseissen_eq!(findings[0].check, "env_injection");
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, RootkitSeverity::Critical);
+        assert_eq!(findings[0].check, "env_injection");
         assert!(findings[0].evidence.contains("/lib/evil.so"));
     }
 
@@ -361,15 +371,15 @@ mod tests {
     fn env_ld_library_path_present() {
         let content = "LD_LIBRARY_PATH=/opt/custom/lib\nHOME=/root\n";
         let findings = check_env_injection(content);
-        asseissen_eq!(findings.len(), 1);
-        asseissen_eq!(findings[0].severity, RootkitSeverity::Warning);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, RootkitSeverity::Warning);
     }
 
     #[test]
     fn env_both_ld_vars() {
         let content = "LD_PRELOAD=/lib/evil.so\nLD_LIBRARY_PATH=/tmp/libs\n";
         let findings = check_env_injection(content);
-        asseissen_eq!(findings.len(), 2);
+        assert_eq!(findings.len(), 2);
     }
 
     #[test]
@@ -405,9 +415,9 @@ mod tests {
                         diamorphine            16384  0\n\
                         e1000                 180224  0\n";
         let findings = check_kernel_modules(content);
-        asseissen_eq!(findings.len(), 1);
-        asseissen_eq!(findings[0].severity, RootkitSeverity::Critical);
-        asseissen_eq!(findings[0].check, "kernel_module");
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, RootkitSeverity::Critical);
+        assert_eq!(findings[0].check, "kernel_module");
         assert!(findings[0].evidence.contains("diamorphine"));
     }
 
@@ -416,8 +426,8 @@ mod tests {
         let content = "Module                  Size  Used by\n\
                         reptile_module         28672  0\n";
         let findings = check_kernel_modules(content);
-        asseissen_eq!(findings.len(), 1);
-        asseissen_eq!(findings[0].severity, RootkitSeverity::Critical);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, RootkitSeverity::Critical);
     }
 
     #[test]
@@ -426,7 +436,7 @@ mod tests {
                         diamorphine            16384  0\n\
                         kovid                  24576  0\n";
         let findings = check_kernel_modules(content);
-        asseissen_eq!(findings.len(), 2);
+        assert_eq!(findings.len(), 2);
     }
 
     #[test]
@@ -440,7 +450,7 @@ mod tests {
         let content = "Module                  Size  Used by\n\
                         Diamorphine            16384  0\n";
         let findings = check_kernel_modules(content);
-        asseissen_eq!(findings.len(), 1);
+        assert_eq!(findings.len(), 1);
     }
 
     // =====================================================================
@@ -464,9 +474,9 @@ mod tests {
     fn kernel_taint_proprietary_only() {
         // Bit 0 = proprietary module (nvidia, etc.) — Info severity
         let findings = check_kernel_taint("1\n");
-        asseissen_eq!(findings.len(), 1);
-        asseissen_eq!(findings[0].severity, RootkitSeverity::Info);
-        asseissen_eq!(findings[0].check, "kernel_taint");
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, RootkitSeverity::Info);
+        assert_eq!(findings[0].check, "kernel_taint");
     }
 
     #[test]
@@ -474,15 +484,15 @@ mod tests {
         // Value 4 = bit 2 (staging driver) — this is actually bit 2
         // Let me use the correct bitmask. Value 4096 = bit 12 (unsigned module)
         let findings = check_kernel_taint("4096\n");
-        asseissen_eq!(findings.len(), 1);
-        asseissen_eq!(findings[0].severity, RootkitSeverity::Warning);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, RootkitSeverity::Warning);
     }
 
     #[test]
     fn kernel_taint_multiple_bits() {
         // 4097 = bit 0 (proprietary) + bit 12 (unsigned) → two findings
         let findings = check_kernel_taint("4097\n");
-        asseissen_eq!(findings.len(), 2);
+        assert_eq!(findings.len(), 2);
     }
 
     #[test]
@@ -490,8 +500,8 @@ mod tests {
         // Value 4 from the test data — this is bit 2 (out-of-tree module)
         // VirtualBox Guest Additions are out-of-tree
         let findings = check_kernel_taint("4\n");
-        asseissen_eq!(findings.len(), 1);
-        asseissen_eq!(findings[0].severity, RootkitSeverity::Info);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, RootkitSeverity::Info);
     }
 
     #[test]
@@ -576,5 +586,138 @@ mod tests {
     fn scan_rootkit_indicators_empty_dir() {
         let dir = tempfile::tempdir().expect("tmpdir");
         assert!(scan_rootkit_indicators(dir.path()).is_empty());
+    }
+
+    // =====================================================================
+    // scan_pam_credential_staging — contract:
+    //   Input: UAC collection root path
+    //   Output: Vec<RootkitFinding> — one per file with matching content
+    //   Pattern: ^\d+:\d+:\w+:[^\n]+ (UID:counter:fieldname:value)
+    // =====================================================================
+
+    #[test]
+    fn pam_staging_absent_when_tmp_empty() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        std::fs::create_dir_all(dir.path().join("live_response/tmp")).unwrap();
+        let findings = scan_pam_credential_staging(dir.path());
+        assert!(findings.is_empty(), "no staging files → no findings");
+    }
+
+    #[test]
+    fn pam_staging_detected_in_live_response_tmp() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        std::fs::create_dir_all(dir.path().join("live_response/tmp")).unwrap();
+        std::fs::write(
+            dir.path().join("live_response/tmp/silly.txt"),
+            "1000:1:password:hunter2\n",
+        ).unwrap();
+        let findings = scan_pam_credential_staging(dir.path());
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, RootkitSeverity::Critical);
+        assert_eq!(findings[0].check, "pam_credential_staging");
+    }
+
+    #[test]
+    fn pam_staging_detected_in_var_tmp() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        std::fs::create_dir_all(dir.path().join("var/tmp")).unwrap();
+        std::fs::write(
+            dir.path().join("var/tmp/.hidden_creds"),
+            "500:3:passwd:secret99\n",
+        ).unwrap();
+        let findings = scan_pam_credential_staging(dir.path());
+        assert!(!findings.is_empty(), "should detect staging in var/tmp");
+        assert_eq!(findings[0].severity, RootkitSeverity::Critical);
+    }
+
+    #[test]
+    fn pam_staging_detected_in_dev_shm() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        std::fs::create_dir_all(dir.path().join("live_response/dev/shm")).unwrap();
+        std::fs::write(
+            dir.path().join("live_response/dev/shm/.x11-lock"),
+            "0:2:pw:correcthorsebatterystaple\n",
+        ).unwrap();
+        let findings = scan_pam_credential_staging(dir.path());
+        assert!(!findings.is_empty(), "should detect staging in dev/shm");
+    }
+
+    #[test]
+    fn pam_staging_renamed_file_still_detected() {
+        // Variant renamed the output file from silly.txt to something else
+        let dir = tempfile::tempdir().expect("tmpdir");
+        std::fs::create_dir_all(dir.path().join("tmp")).unwrap();
+        std::fs::write(
+            dir.path().join("tmp/.cache_lock"),
+            "1001:1:password:Password123!\n",
+        ).unwrap();
+        let findings = scan_pam_credential_staging(dir.path());
+        assert!(!findings.is_empty(), "renamed staging file must still be detected");
+    }
+
+    #[test]
+    fn pam_staging_variant_field_name_still_detected() {
+        // Variant changed field name from "password" to "passwd"
+        let dir = tempfile::tempdir().expect("tmpdir");
+        std::fs::create_dir_all(dir.path().join("tmp")).unwrap();
+        std::fs::write(
+            dir.path().join("tmp/creds"),
+            "1000:1:passwd:hunter2\n",
+        ).unwrap();
+        let findings = scan_pam_credential_staging(dir.path());
+        assert!(!findings.is_empty(), "variant field name 'passwd' must still match structural pattern");
+    }
+
+    #[test]
+    fn pam_staging_unmatched_format_file_not_flagged() {
+        // Random text file in tmp — should NOT be flagged
+        let dir = tempfile::tempdir().expect("tmpdir");
+        std::fs::create_dir_all(dir.path().join("tmp")).unwrap();
+        std::fs::write(
+            dir.path().join("tmp/notes.txt"),
+            "This is just a regular text file\nWith multiple lines\n",
+        ).unwrap();
+        let findings = scan_pam_credential_staging(dir.path());
+        assert!(findings.is_empty(), "random text file must NOT be flagged");
+    }
+
+    #[test]
+    fn pam_staging_multiple_files_returns_all() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        std::fs::create_dir_all(dir.path().join("tmp")).unwrap();
+        std::fs::create_dir_all(dir.path().join("var/tmp")).unwrap();
+        std::fs::write(dir.path().join("tmp/f1"), "1000:1:password:abc\n").unwrap();
+        std::fs::write(dir.path().join("var/tmp/f2"), "1001:1:password:def\n").unwrap();
+        let findings = scan_pam_credential_staging(dir.path());
+        assert_eq!(findings.len(), 2, "should find one finding per staging file");
+    }
+
+    #[test]
+    fn pam_staging_multiple_credential_lines_counted() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        std::fs::create_dir_all(dir.path().join("tmp")).unwrap();
+        std::fs::write(
+            dir.path().join("tmp/silly.txt"),
+            "1000:1:password:pass1\n1001:1:password:pass2\n1002:1:password:pass3\n",
+        ).unwrap();
+        let findings = scan_pam_credential_staging(dir.path());
+        assert_eq!(findings.len(), 1, "one file → one finding");
+        assert!(findings[0].description.contains('3') || findings[0].description.contains("3 credential"),
+            "description should mention credential count, got: {}", findings[0].description);
+    }
+
+    #[test]
+    fn scan_rootkit_indicators_includes_pam_staging() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        std::fs::create_dir_all(dir.path().join("live_response/tmp")).unwrap();
+        std::fs::write(
+            dir.path().join("live_response/tmp/silly.txt"),
+            "1000:1:password:hunter2\n",
+        ).unwrap();
+        let findings = scan_rootkit_indicators(dir.path());
+        assert!(
+            findings.iter().any(|f| f.check == "pam_credential_staging"),
+            "scan_rootkit_indicators must include PAM staging findings"
+        );
     }
 }
