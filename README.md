@@ -1,13 +1,13 @@
-# RapidTriage
+# Issen
 
-[![Stars](https://img.shields.io/github/stars/SecurityRonin/rapidtriage?style=flat-square)](https://github.com/SecurityRonin/rapidtriage/stargazers) [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE) [![CI](https://github.com/SecurityRonin/rapidtriage/actions/workflows/ci.yml/badge.svg)](https://github.com/SecurityRonin/rapidtriage/actions/workflows/ci.yml) [![Rust 1.80+](https://img.shields.io/badge/rust-1.80%2B-orange.svg)](https://www.rust-lang.org) [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-blue.svg)](#install) [![Sponsor](https://img.shields.io/badge/sponsor-h4x0r-ff69b4.svg?logo=github-sponsors)](https://github.com/sponsors/h4x0r)
+[![Stars](https://img.shields.io/github/stars/SecurityRonin/issen?style=flat-square)](https://github.com/SecurityRonin/issen/stargazers) [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE) [![CI](https://github.com/SecurityRonin/issen/actions/workflows/ci.yml/badge.svg)](https://github.com/SecurityRonin/issen/actions/workflows/ci.yml) [![Rust 1.80+](https://img.shields.io/badge/rust-1.80%2B-orange.svg)](https://www.rust-lang.org) [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-blue.svg)](#install) [![Sponsor](https://img.shields.io/badge/sponsor-h4x0r-ff69b4.svg?logo=github-sponsors)](https://github.com/sponsors/h4x0r)
 
 **One command. One output. The full attack narrative.**
 
 ---
 
 ```
-$ rt analyse collection.tar.gz
+$ issen analyse collection.tar.gz
 
 [CRITICAL] Rootkit concealed miner activity
   Rule    : correlation.miner.rootkit-concealment
@@ -22,25 +22,63 @@ A rootkit hiding a crypto miner behind an SSH tunnel. Found automatically. Zero 
 
 ## How it works
 
-RapidTriage ingests evidence from three independent paths, then correlates across all of them:
+Issen ingests evidence from five independent source types, then correlates across all of them:
 
-```
-Disk image (E01/raw)          Memory dump (LiME/WinPMEM)     Log stream (EVTX/Zeek/CloudTrail)
-  ewf → ext4fs / NTFS           memf-format → memf-hw           winevt-forensic / zeek-forensic
-  name → inode → block          PID → EPROCESS → VA → PA        timestamp → record → field
-         ↓                              ↓                                ↓
-  browser-forensic          browser-forensic (carve)         browser-forensic (events)
-  srum-forensic                 srum-forensic                    srum-forensic
-  winevt-forensic               ...                              winevt-forensic
-         ↓                              ↓                                ↓
-                    RapidTriage — correlation engine — TimelineEvent
+```mermaid
+flowchart TD
+    K["forensicnomicon · KNOWLEDGE\nzero-dep compile-time format constants"]
+
+    subgraph P["[P] Persistent Storage · name → inode → block"]
+        P1["ewf\nCONTAINER"] --> P2["ext4fs-forensic\nFILESYSTEM"] --> P3["browser-forensic · srum-forensic · mft\nPARSER"]
+    end
+
+    subgraph M["[M] Memory · PID → EPROCESS → VA → PA"]
+        M1["memf-format\nCONTAINER"] --> M2["memf-hw · memf-windows\nPAGING + OS STRUCTURE"] --> M3["memf-strings · memf-carve\nPARSER"]
+    end
+
+    subgraph L["[L] Log · timestamp → record → field"]
+        L1["winevt-forensic · journal-forensic\nLOG FORMAT + PARSER"]
+    end
+
+    subgraph Q["[Q] Live Query · (endpoint, query, cursor) → rows"]
+        Q1["live system\nQUERY ENDPOINT"] --> Q2["issen-remote-access · velociraptor-parser\nQUERY ENGINE + PARSER"]
+    end
+
+    subgraph C["[C] Content-Addressed · hash → blob → content graph"]
+        C1["git · OCI registry · IPFS\nCAS STORE"] --> C2["cas-forensic · git-forensic\nGRAPH NAVIGATION + PARSER"]
+    end
+
+    O["Issen · ORCHESTRATION\nTimelineEvent · issen-correlation · forensic-pivot"]
+
+    K --> P & M & L & Q & C
+    P3 --> O
+    M3 --> O
+    L1 --> O
+    Q2 --> O
+    C2 --> O
 ```
 
-- **Ingests** UAC live response collections, Volatility sockstat output, EVTX logs, and memory dumps — simultaneously.
-- **Correlates** evidence across sources using the Pivot engine: a network connection isn't a finding on its own; combined with a hidden PID and a loaded rootkit library, it is.
+Open [architecture.html](architecture.html) in a browser for the full interactive diagram.
+
+- **Ingests** UAC live response collections, Velociraptor query results, EVTX logs, memory dumps, git repositories, and OCI registries — simultaneously.
+- **Correlates** evidence across all five source types using the Pivot engine: a network connection isn't a finding on its own; combined with a hidden PID, a loaded rootkit library, and a supply-chain hash match, it is.
 - **Outputs** a structured Finding with severity, rule name, and the full evidence chain — ready for your report.
 
 No Python env. No dependency hell. One static binary.
+
+### The five source types
+
+| ID | Source | Navigation primitive | What it captures |
+|---|---|---|---|
+| **[P]** | Persistent Storage | `name → inode → block` | Disk images (E01/raw), filesystems, file artifacts |
+| **[M]** | Memory | `PID → EPROCESS → VA → PA` | RAM dumps, hiberfil.sys, live-at-time process state |
+| **[L]** | Log | `timestamp → record → field` | EVTX, journal, tracev3, CloudTrail, Zeek/Suricata |
+| **[Q]** | Live Query | `(endpoint, query, cursor) → rows` | Ephemeral state an attacker cannot retroactively destroy |
+| **[C]** | Content-Addressed | `hash → blob → content graph` | Supply chain provenance, Merkle DAG traversal |
+
+**[Q] Live Query** differs fundamentally from the other sources: the data is *produced* by a query rather than *retrieved* from storage. Once captured, the result set is attacker-durable — no subsequent disk wipe changes what `velociraptor collect` saw at query time. The query itself becomes part of the evidence chain.
+
+**[C] Content-Addressed** gives every artifact a globally-unique, tamper-evident identity: its hash. Issen can pivot from a malicious binary hash across git commits, OCI image layers, and Sigstore transparency log entries to answer "which systems ran this exact blob, when, and where did it come from?"
 
 ---
 
@@ -48,16 +86,16 @@ No Python env. No dependency hell. One static binary.
 
 ```bash
 # Requires Rust 1.80+
-cargo install --git https://github.com/SecurityRonin/rapidtriage rt-cli
+cargo install --git https://github.com/SecurityRonin/issen issen
 
 # Verify
-rt --version
+issen --version
 ```
 
 ## First command
 
 ```bash
-rt analyse collection.tar.gz
+issen analyse collection.tar.gz
 ```
 
 That's it. Everything else is optional.
@@ -68,29 +106,29 @@ That's it. Everything else is optional.
 
 ```bash
 # Parse artifacts into a DuckDB timeline and scan for IOCs
-rt ingest evidence/ --output case.duckdb --scan
+issen ingest evidence/ --output case.duckdb --scan
 
 # Query the timeline
-rt timeline case.duckdb --flagged --min-severity high
+issen timeline case.duckdb --flagged --min-severity high
 
 # Export timeline as CSV or bodyfile
-rt timeline case.duckdb --format csv
-rt timeline case.duckdb --format bodyfile
+issen timeline case.duckdb --format csv
+issen timeline case.duckdb --format bodyfile
 
 # Analyse a physical memory dump (LiME, AVML, crash dump)
-rt memf dump.lime --command all
+issen memf dump.lime --command all
 
 # Detect remote access tools (LOLRMM-based)
-rt remote-access evidence/
+issen remote-access evidence/
 
 # Scan files against YARA/Sigma/hash/STIX signatures
-rt scan evidence/ --auto-feeds
+issen scan evidence/ --auto-feeds
 
 # Update threat intel feeds (YARA, Sigma, STIX, Zeek, Suricata)
-rt feed update
+issen feed update
 
 # Generate HTML report from a timeline database
-rt report case.duckdb --output report.html
+issen report case.duckdb --output report.html
 ```
 
 ---
@@ -104,10 +142,12 @@ rt report case.duckdb --output report.html
 | **Filesystems** | ext4, NTFS [planned], APFS [planned] |
 | **Memory formats** | LiME, AVML, WinPMEM, crash dump (DMP), Hibernation (hiberfil.sys) |
 | **Log streams** | EVTX, Zeek `conn.log`, Suricata EVE, systemd journal [planned], Apple Unified Log [planned], CloudTrail [planned] |
+| **Live query** | Velociraptor VQL, WMI/WQL [planned], OSQuery SQL [planned] |
+| **Content-addressed** | git repositories, OCI image registries, IPFS [planned], Sigstore transparency log [planned] |
 | **Detection types** | YARA rules, Sigma rules, STIX 2.1 indicators, hash IOCs, Suricata rules |
 | **Artifact sources** | EVTX, registry hives, MFT, USN Journal, Prefetch, LNK shortcuts, browser history, SRUM |
 | **Network analysis** | Volatility sockstat, Zeek logs, Suricata EVE, pcap |
-| **Remote evidence** | 48 URI schemes — S3, GCS, Azure, SFTP, HDFS, OneDrive, Google Drive, Redis, PostgreSQL, IPFS, and more ([full list →](https://securityronin.github.io/rapidtriage/)) |
+| **Remote evidence** | 48 URI schemes — S3, GCS, Azure, SFTP, HDFS, OneDrive, Google Drive, Redis, PostgreSQL, IPFS, and more ([full list →](https://securityronin.github.io/issen/)) |
 | **Output formats** | Terminal (colour-coded), JSON, HTML report, PDF, STIX 2.1 Attack Flow, AFB (Attack Flow Builder), DOT/PNG (Graphviz), Mermaid, CSV, bodyfile, DuckDB timeline |
 | **RAT detection** | LOLRMM rule set (400+ tools) |
 | **Attack Flow ingestion** | CTID Attack Flow v3.0.0 corpus — parse STIX bundles → correlation rules via BFS DAG traversal |
@@ -120,18 +160,22 @@ rt report case.duckdb --output report.html
 
 ## Ecosystem
 
-RapidTriage is the thin correlation layer on top of a family of deep forensic libraries. Each library is independently usable in your own tooling.
+Issen is the thin correlation layer on top of a family of deep forensic libraries. Each library is independently usable in your own tooling.
 
-| Crate | Layer | Description |
-|---|---|---|
-| [forensicnomicon](https://github.com/SecurityRonin/forensicnomicon) | Knowledge | Zero-dep compile-time artifact specs, magic bytes, format constants |
-| [ewf](https://github.com/SecurityRonin/ewf) | Container | E01/EWF → raw sector stream with hash verification |
-| [ext4fs-forensic](https://github.com/SecurityRonin/ext4fs-forensic) | Filesystem | ext4 sector stream → files by path (name → inode → block) |
-| [4n6mount](https://github.com/SecurityRonin/4n6mount) | Filesystem | FUSE bridge — makes any container+filesystem pair look like a normal path |
-| [memory-forensic](https://github.com/SecurityRonin/memory-forensic) | Container + Paging + OS Structure | WinPMEM/LiME/hiberfil → page stream → VA→PA → EPROCESS/VAD/DPAPI |
-| [browser-forensic](https://github.com/SecurityRonin/browser-forensic) | Parser | Chrome/Firefox/Safari history, cookies, downloads, bookmarks, session data |
-| [winevt-forensic](https://github.com/SecurityRonin/winevt-forensic) | Log Format + Parser | EVTX binary seek + BinXML decode → typed Windows EventRecord |
-| [srum-forensic](https://github.com/SecurityRonin/srum-forensic) | Parser | ESE/JET Blue page walk → SRUM network/process/energy usage records |
+| Crate | Source | Layer | Description |
+|---|---|---|---|
+| [forensicnomicon](https://github.com/SecurityRonin/forensicnomicon) | all | Knowledge | Zero-dep compile-time artifact specs, magic bytes, format constants |
+| [ewf](https://github.com/SecurityRonin/ewf) | [P] | Container | E01/EWF → raw sector stream with hash verification |
+| [ext4fs-forensic](https://github.com/SecurityRonin/ext4fs-forensic) | [P] | Filesystem | ext4 sector stream → files by path (name → inode → block) |
+| [4n6mount](https://github.com/SecurityRonin/4n6mount) | [P] | Filesystem | FUSE bridge — makes any container+filesystem pair look like a normal path |
+| [memory-forensic](https://github.com/SecurityRonin/memory-forensic) | [M] | Container + Paging + OS Structure | WinPMEM/LiME/hiberfil → page stream → VA→PA → EPROCESS/VAD/DPAPI |
+| [winevt-forensic](https://github.com/SecurityRonin/winevt-forensic) | [L] | Log Format + Parser | EVTX binary seek + BinXML decode → typed Windows EventRecord |
+| [browser-forensic](https://github.com/SecurityRonin/browser-forensic) | [P][M] | Parser | Chrome/Firefox/Safari history, cookies, downloads, bookmarks, session data |
+| [srum-forensic](https://github.com/SecurityRonin/srum-forensic) | [P][L] | Parser | ESE/JET Blue page walk → SRUM network/process/energy usage records |
+| issen-remote-access | [Q] | Query Engine | Live query dispatcher — Velociraptor VQL, LOLRMM 400+ tool definitions |
+| cas-forensic [planned] | [C] | CAS + Graph | git/OCI/IPFS hash-addressed object store → Merkle DAG navigation |
+| git-forensic [planned] | [C] | Graph + Parser | git commit/blob/tree forensics → supply chain provenance |
+| sigstore-forensic [planned] | [C] | Graph + Parser | Sigstore transparency log entries → artifact signing chain |
 
 <details>
 <summary>Full layer hierarchy</summary>
@@ -143,21 +187,34 @@ KNOWLEDGE
 CONTAINER              decode a raw source format → addressable data stream
   ewf                  E01/EWF → raw sector stream
   memf-format          memory dumps (WinPMEM, LiME, hiberfil.sys) → raw page stream
+  (log containers are integrated within each log-format crate)
 
-  Three parallel paths from CONTAINER — each with its own address space:
+Five parallel paths from CONTAINER — each with its own address space
+and navigation primitive:
 
-  ┌── Disk path ────────────┐  ┌── Memory path ───────────┐  ┌── Log path ─────────────┐
-  │ navigate by: path       │  │ navigate by: PID         │  │ navigate by: timestamp  │
-  │ name → inode → block    │  │ PID → EPROCESS → VA → PA │  │   or record number      │
-  │                         │  │                          │  │ seek → boundary → field  │
-  FILESYSTEM               │  PAGING                     │  LOG FORMAT                │
-    ext4fs-forensic        │    memf-hw   VA→PA           │    winevt-forensic  EVTX   │
-    ntfs-forensic [plan]   │    PML4/PAE/AArch64          │    journal-forensic [plan] │
-    apfs-forensic [plan]   │  OS STRUCTURE                │    tracev3-forensic [plan] │
-    4n6mount  FUSE bridge  │    memf-windows EPROCESS,    │    zeek-forensic    [plan] │
-                           │    VAD, DPAPI, DKOM          │    cloudtrail-src   [plan] │
-                           │    memf-linux [planned]      │                            │
-  └─────────────────────────┘  └──────────────────────────┘  └────────────────────────┘
+[P] Persistent Storage        [M] Memory              [L] Log
+  navigate by: path             navigate by: PID        navigate by: timestamp
+  name → inode → block          PID → EPROCESS          timestamp → record → field
+                                → VA → PA
+
+  FILESYSTEM                    PAGING                  LOG FORMAT
+    ext4fs-forensic               memf-hw                 winevt-forensic (EVTX)
+    ntfs-forensic [planned]       PML4/PAE/AArch64        journal-forensic [planned]
+    apfs-forensic [planned]       OS STRUCTURE            tracev3-forensic [planned]
+    4n6mount (FUSE bridge)          memf-windows            zeek-forensic [planned]
+                                    EPROCESS, VAD           cloudtrail-src [planned]
+                                    DPAPI, DKOM
+                                    memf-linux [planned]
+
+[Q] Live Query                [C] Content-Addressed
+  navigate by: query            navigate by: hash
+  (endpoint, query, cursor)     hash → blob → content graph
+  → result rows
+
+  QUERY ENGINE                  GRAPH NAVIGATION
+    issen-remote-access           cas-forensic
+    velociraptor-parser           git-forensic [planned]
+    WQL / OSQuery [planned]       sigstore-forensic [planned]
 
 PARSER                   interpret artifact records → forensic meaning
   browser-forensic       browser artifact files / SQLite pages → BrowserEvent
@@ -165,7 +222,7 @@ PARSER                   interpret artifact records → forensic meaning
   srum-forensic          ESE page bytes → SrumRecord
 
 ORCHESTRATION
-  RapidTriage            wires all layers, cross-artifact correlation, CLI
+  Issen            wires all five paths, cross-artifact correlation, CLI
 ```
 
 </details>
@@ -178,31 +235,26 @@ ORCHESTRATION
 <summary>Crate layout</summary>
 
 ```
-rt-cli                      # The rt binary — commands and arg parsing
-rt-core                     # Shared types, plugin traits, error types
-rt-plugin-sdk               # Compile-time parser registration via inventory
-rt-timeline                 # DuckDB (primary) + SQLite export timeline store
-rt-fswalker                 # Parallel filesystem walk via rayon; SHA-256 integrity; VSS awareness
-rt-unpack                   # Collection format detection (UAC tar.gz, Velociraptor, KAPE)
-rt-remote-io                # Remote storage I/O — 48 URI schemes via OpenDAL (S3, GCS, Azure, SFTP, HDFS, GDrive, …)
-rt-signatures               # YARA-X, Sigma/Tau-Engine, Hash/Network/STIX/Suricata IOCs, feed sync
-rt-correlation              # Pivot engine: YAML rules, Attack Flow STIX ingestion, zeek-intel, time-skew, clustering
-rt-remote-access            # LOLRMM 400+ tool definitions, RMM/RAT detection
-rt-mem                      # Memory forensics bridge (memf-* sibling workspace)
-rt-report                   # HTML/PDF/STIX/AFB/Mermaid/DOT+PNG report generation
-rt-mft-tree                 # MFT heuristic analysis
-rt-navigator                # Interactive TUI navigation
-rt-shrinkpath               # Path abbreviation utilities
-rt-ewf                      # EWF/E01 forensic image support
-rt-parser-mft               # NTFS MFT + USN Journal parser
-rt-parser-evtx              # Windows Event Log parser
-rt-parser-uac               # UAC collection format parser
-rt-parser-velociraptor      # Velociraptor collection parser
-rt-parser-usnjrnl           # USN Journal parser
-rt-parser-registry          # Windows registry hive parser (notatin)
-rt-parser-prefetch          # Windows Prefetch parser
-rt-parser-lnk               # LNK shortcut / Jump List parser
-xtask                       # Build automation
+issen-cli                   # The issen binary — commands and arg parsing
+issen-core                  # Shared types, plugin traits, error types
+issen-timeline              # DuckDB (primary) + SQLite export timeline store
+issen-fswalker              # Parallel filesystem walk via rayon; SHA-256 integrity; VSS awareness
+issen-unpack                # Collection format detection (UAC tar.gz, Velociraptor, KAPE)
+issen-remote-io             # Remote storage I/O — 48 URI schemes via OpenDAL (S3, GCS, Azure, SFTP, …)
+issen-signatures            # YARA-X, Sigma/Tau-Engine, Hash/Network/STIX/Suricata IOCs, feed sync
+issen-correlation           # Pivot engine: YAML rules, Attack Flow STIX ingestion, zeek-intel, time-skew, clustering
+issen-remote-access         # LOLRMM 400+ tool definitions, RMM/RAT detection; Velociraptor VQL dispatcher
+issen-mem                   # Memory forensics bridge (memf-* sibling workspace)
+issen-report                # HTML/PDF/STIX/AFB/Mermaid/DOT+PNG report generation
+issen-mft-tree              # MFT heuristic analysis
+issen-navigator             # Interactive TUI navigation
+issen-ewf                   # EWF/E01 forensic image support
+issen-evtx                  # Windows Event Log bridge
+parsers/issen-parser-mft    # NTFS MFT + USN Journal parser
+parsers/issen-parser-evtx   # Windows Event Log parser
+parsers/issen-parser-uac    # UAC collection format parser
+parsers/issen-parser-velociraptor  # Velociraptor collection parser
+forensic-pivot              # Sigma/Suricata/STIX rule pivoting
 ```
 
 Each crate is independently testable and versioned. The CLI wires them together; you can also use the crates as a library in your own tooling.
@@ -213,7 +265,7 @@ Each crate is independently testable and versioned. The CLI wires them together;
 
 ## Correlation Rules
 
-Most tools find indicators. RapidTriage finds **attack patterns** by joining evidence across sources automatically.
+Most tools find indicators. Issen finds **attack patterns** by joining evidence across sources automatically.
 
 A Correlation Rule looks like this:
 
@@ -233,20 +285,20 @@ clauses:
     required_tag: mining_pool
 ```
 
-Rules are YAML files in `~/.config/rapidtriage/rules/`. Ship your own. Share with your team.
+Rules are YAML files in `~/.config/issen/rules/`. Ship your own. Share with your team.
 
-The bundled rule set ships with rules covering miners, rootkits, SSH tunnels, LD_PRELOAD persistence, hidden processes, and LOLRMM RATs. Custom rules compose with the built-ins — one `rt analyse` call evaluates all of them.
+The bundled rule set ships with rules covering miners, rootkits, SSH tunnels, LD_PRELOAD persistence, hidden processes, and LOLRMM RATs. Custom rules compose with the built-ins — one `issen analyse` call evaluates all of them.
 
 ### Attack Flow STIX ingestion
 
-The correlation engine also ingests CTID Attack Flow v3.0.0 corpus bundles (STIX 2.1 JSON). Each bundle is parsed into an `AttackFlowBundle` and converted to a `CorrelationRule` via BFS traversal of the `effect_refs` DAG. Every `attack-action` with a `technique_id` becomes a rule clause with `required_tag: "technique:<ID>"`. The bundled corpus is downloaded with `rt feed update`.
+The correlation engine also ingests CTID Attack Flow v3.0.0 corpus bundles (STIX 2.1 JSON). Each bundle is parsed into an `AttackFlowBundle` and converted to a `CorrelationRule` via BFS traversal of the `effect_refs` DAG. Every `attack-action` with a `technique_id` becomes a rule clause with `required_tag: "technique:<ID>"`. The bundled corpus is downloaded with `issen feed update`.
 
 ```bash
 # Fetch and index the Attack Flow corpus
-rt feed update
+issen feed update
 
 # The engine will evaluate Attack Flow rules alongside your YAML rules
-rt analyse collection.tar.gz
+issen analyse collection.tar.gz
 ```
 
 <details>
@@ -261,11 +313,11 @@ Hard-coded detections age badly. Threat actors change port numbers, rename binar
 ## Demo
 
 ```
-$ rt analyse collection-WIN10-CORP-20260401.zip
+$ issen analyse collection-WIN10-CORP-20260401.zip
 
-╔══════════════════════════════════════════════════════════╗
-║  RapidTriage — Collection Analysis                       ║
-╚══════════════════════════════════════════════════════════╝
++===========================================================+
+|  Issen — Collection Analysis                              |
++===========================================================+
 
   Collection : collection-WIN10-CORP-20260401.zip
   Host       : WIN10-CORP
@@ -315,14 +367,14 @@ $ rt analyse collection-WIN10-CORP-20260401.zip
 |                         ImagePath: C:\ProgramData\Temp\Support\anydesk.exe --service
 |                         Account: LocalSystem | Type: user mode (0x10)
 |  2026-03-28T09:17:03Z  [EVTX Security 5156] Outbound TCP — anydesk.exe (PID 6284)
-|                         → 194.36.28.117:7070
+|                         -> 194.36.28.117:7070
 
 +- CORRELATION FINDINGS ──────────────────────────────────
 |
 |  [CRITICAL] LOLRMM with non-vendor C2 infrastructure
 |    Rule    : remote-access.lolrmm.custom-c2
 |    Evidence: AnyDesk outside vendor path (C:\ProgramData\Temp\Support\)
-|              Outbound → 194.36.28.117 (AS 208323, not AnyDesk relay ASN)
+|              Outbound -> 194.36.28.117 (AS 208323, not AnyDesk relay ASN)
 |              MFT entry + EVTX 7045 + EVTX 5156 + Registry Run key
 |    MITRE   : T1219, T1543.003
 |
@@ -341,20 +393,20 @@ The correlation engine flagged AnyDesk installed under `C:\ProgramData\Temp\Supp
 
 ## Remote evidence — wherever it lives
 
-Evidence doesn't wait on an FTP download. Point `rt ingest` at the source:
+Evidence doesn't wait on an FTP download. Point `issen ingest` at the source:
 
 ```bash
 # Evidence uploaded to S3 after cloud acquisition
-rt ingest --source s3://dfir-bucket/cases/2026-04-19/collection.tar.gz
+issen ingest --source s3://dfir-bucket/cases/2026-04-19/collection.tar.gz
 
 # Analyst workstation via SFTP — no staging required
-rt ingest --source sftp://analyst@10.0.1.5/evidence/
+issen ingest --source sftp://analyst@10.0.1.5/evidence/
 
 # Google Drive share from the client
-rt ingest --source gdrive://1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms
+issen ingest --source gdrive://1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms
 ```
 
-48 URI schemes supported: object storage (S3, GCS, Azure, B2), cloud drives (OneDrive, Dropbox, Google Drive), SFTP, HDFS, IPFS, Redis, PostgreSQL, and more. Same command regardless of backend. [Full reference →](https://securityronin.github.io/rapidtriage/rt_remote_io/)
+48 URI schemes supported: object storage (S3, GCS, Azure, B2), cloud drives (OneDrive, Dropbox, Google Drive), SFTP, HDFS, IPFS, Redis, PostgreSQL, and more. Same command regardless of backend. [Full reference →](https://securityronin.github.io/issen/issen_remote_io/)
 
 ---
 
@@ -368,8 +420,8 @@ rt ingest --source gdrive://1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms
 
 The [Volatility Foundation](https://github.com/volatilityfoundation/volatility3) for open-sourcing memory forensics algorithms and kernel structure offsets that inform the memory path design.
 
-The [Plaso](https://github.com/log2timeline/plaso) / log2timeline team for proving the value of super-timelines and establishing the artifact-to-timeline ingestion model that RapidTriage builds on.
+The [Plaso](https://github.com/log2timeline/plaso) / log2timeline team for proving the value of super-timelines and establishing the artifact-to-timeline ingestion model that Issen builds on.
 
 ---
 
-[Privacy Policy](https://securityronin.github.io/rapidtriage/privacy/) · [Terms of Service](https://securityronin.github.io/rapidtriage/terms/) · © 2026 Security Ronin Ltd.
+[Privacy Policy](https://securityronin.github.io/issen/privacy/) · [Terms of Service](https://securityronin.github.io/issen/terms/) · © 2026 Security Ronin Ltd.
