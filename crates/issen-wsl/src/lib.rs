@@ -1,4 +1,4 @@
-//! HybridScope: Windows+WSL forensic analysis.
+//! Windows+WSL forensic analysis (issen-wsl).
 //!
 //! Provides path normalization, timestamp calibration, WSL session linking,
 //! and forensic narrative pattern detection across the three address spaces
