@@ -15,6 +15,7 @@ pub mod auth_log;
 pub mod bash_history;
 pub mod boot_log;
 pub mod cron;
+pub mod fish_history;
 pub mod syslog;
 
 use std::path::Path;
