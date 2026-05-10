@@ -1,5 +1,6 @@
 pub mod analyze;
 pub mod session;
+pub mod wsl_events;
 
 // Timeline Reconstruction & Correlation
 pub mod timeline;
