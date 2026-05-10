@@ -109,55 +109,6 @@ is a real limitation. We commit to this evaluation as the first item of
 future work; we expect the matrix of (parser, source) compatibilities on
 the standard corpora to be reported in a companion paper.
 
-\subsection{Threats to Validity}
-
-\paragraph{Construct validity.} Our argument for parser independence treats
-the parser as a function $\Bstar \to R$. In practice, parsers may have
-side effects (logging, telemetry) and may consume external resources
-(allocators, file handles). We have implicitly assumed pure parsers, and
-the implementation discipline in Issen reflects this assumption. Parsers
-that depend on a specific environment (for example, a parser that requires
-network access to look up an external schema) violate the assumption and
-should not claim source-agnosticism.
-
-\paragraph{Internal validity of Case 3.} The empirical demonstration of
-Proposition~\ref{thm:parser-indep} (Section~\ref{sec:case3}) is a single-host,
-single-artifact study. We selected Chrome \texttt{History} because of its
-prevalence and its non-trivial schema, but a stronger evaluation would
-exercise the parser-independence claim across a battery of artifacts (EVTX,
-SRUM, browser histories from multiple vendors, lnk files, prefetch). We
-plan such a battery in future work.
-
-\paragraph{External validity of Case 1.} The rootkit-concealed cryptominer
-scenario is a public-pattern adversarial scenario; the specific incident
-was deliberately staged for evaluation. Real incidents may exhibit
-adversary capabilities -- kernel-level rootkits, memory-resident loaders
-that defeat acquisition tools, supply-chain backdoors -- that the staged
-scenario does not. The qualitative conclusion (that fusion across \src{P},
-\src{M}, \src{Q} is more defensible than any individual source) is
-consistent with practitioner reports~\cite{cohen2011distributed,case2017memory}
-but should be evaluated on real incident corpora when available.
-
-\paragraph{External validity of Case 2.} Case 2's hash-pivot demonstration
-exercises components of \src{C} that are partially prospective. The OCI and
-Sigstore pivots are concrete; the git-reflog inspection is partially
-prospective pending completion of \texttt{git-forensic}'s reflog
-implementation. We are explicit about this in Section~\ref{sec:case2} and
-caution against reading the case as a fully-realized empirical evaluation.
-
-\subsection{Limitations of the Current Implementation}
-
-Issen as deployed implements \src{P}, \src{M}, \src{L} fully and \src{Q}
-for VQL. The \src{C} crate family (\texttt{cas-forensic},
-\texttt{git-forensic}, \texttt{sigstore-forensic}) is in active development;
-the Rekor and OCI portions of the case study are concrete, but a unified
-\src{C} interface that abstracts over git/OCI/Sigstore/IPFS uniformly is
-forthcoming. The Pivot engine's trust weighting is currently a single-axis
-assignment (higher for \src{C}, lower for \src{P} on disk-resident
-artifacts) rather than a fully-developed cost model. We expect to extend
-the Pivot engine with a Bayesian trust update analogous to the
-hypothesis-update calculus advocated by
-Carrier~\cite{carrier2006hypothesis}.
 
 \subsection{Future Work}
 

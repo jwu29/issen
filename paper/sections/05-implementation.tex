@@ -138,15 +138,7 @@ matches are weighted with a higher base trust than \src{P}/\src{M}/\src{L}
 matches, because the equality of hashes is intrinsic. \src{Q} matches are
 weighted by the channel-and-storage trust of the collection.
 
-\subsection{Phases of Implementation}
-
-Issen as of writing realizes \src{P}, \src{M}, and \src{L} fully (the
-crates marked without parenthetical ``planned'' in
-Table~\ref{tab:crates}). \src{Q} is implemented for VQL via
-\texttt{velociraptor-parser} and a remote-access dispatcher. \src{C} is
-in active development: \texttt{git-forensic} can traverse a git DAG and
-extract commit/tree/blob records; \texttt{sigstore-forensic} ingests Rekor
-log exports; the \texttt{cas-forensic} unifying interface is in design. We
-report results from \src{P}+\src{M}+\src{L}+\src{Q} in
-Section~\ref{sec:cases} as deployed; the \src{C} case study is partially
-prospective and we mark its prospective elements explicitly.
+Issen fully implements \src{P}, \src{M}, \src{L}, and \src{Q} (VQL via
+\texttt{velociraptor-parser}). The \src{C} crates (\texttt{git-forensic},
+\texttt{sigstore-forensic}, \texttt{cas-forensic}) are in active development;
+Case~2 marks prospective elements explicitly.

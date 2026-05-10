@@ -6,10 +6,11 @@ evidence is not what the evidence is, but how it is addressed and
 traversed. We presented a taxonomy of five navigation primitives --
 persistent storage \src{P}, memory \src{M}, log \src{L}, live query
 \src{Q}, and content-addressed \src{C} -- and developed its formal
-consequences. We proved that parsers operating on byte sequences compose
-uniformly with all five primitives (Proposition~\ref{thm:parser-indep}); we
-derived from that theorem a layer-dependency rule that constrains how
-forensic software is to be organized (Proposition~\ref{thm:layer-rule}); we
+consequences. We named Parser Independence as an architectural principle -- parsers
+operating on byte sequences compose uniformly with all five primitives
+(Proposition~\ref{thm:parser-indep}) -- and derived from it a layer-dependency
+rule that constrains how forensic software is organized
+(Proposition~\ref{thm:layer-rule}); we
 formalized attacker-durability and characterized its distinct profiles
 across the primitives (Definition~\ref{def:durable},
 Propositions~\ref{prop:q-durability}~and~\ref{prop:c-durability},

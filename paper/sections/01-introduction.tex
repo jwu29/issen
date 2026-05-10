@@ -51,22 +51,12 @@ what dependency a parser must take on its source, what trust an investigator
 can place in the captured evidence, and whether two investigations can be
 joined.
 
-This paper develops the consequences of taking the address space seriously.
-We propose a taxonomy of five \emph{navigation primitives} -- the abstract
-addressing scheme of an evidence source -- and show that classification by
-navigation primitive yields properties that artifact-type classification
-cannot. We formalize evidence sources, prove that parsers can be made
-source-agnostic, characterize attacker-durability across the primitives, and
-show how the taxonomy translates directly into a layered software
-architecture. We instantiate the framework in \emph{Issen}, a Rust
-orchestration platform built around thirteen crates whose layer membership
-is derived mechanically from the taxonomy.
-
-Our position is not that artifact-type classification is wrong -- it is
-necessary for analyst-facing presentation -- but that it is insufficient as
-the foundation of forensic infrastructure. The two views are complementary:
-one tells the analyst what they are looking at; the other tells the engineer
-how to build something that can look at it from anywhere.
+We propose a taxonomy of five \emph{navigation primitives} and show that
+classification by navigation primitive yields properties that artifact-type
+classification cannot: parser reusability, attacker-durability profiles, and
+a layered architecture whose dependency rules are mechanically enforceable.
+We instantiate the framework in \emph{Issen}, a Rust platform of thirteen
+crates whose layer membership is derived from the taxonomy.
 
 \paragraph{Contributions.}
 We make five claims, each tied to the section that delivers it.
@@ -113,12 +103,3 @@ We make five claims, each tied to the section that delivers it.
     than mere absence of counterexamples.
 \end{enumerate}
 
-The remainder of the paper is organized as follows. Section~\ref{sec:bg}
-reviews existing process and evidence models and motivates the gap.
-Section~\ref{sec:taxonomy} develops the formal taxonomy.
-Section~\ref{sec:properties} establishes the central structural propositions.
-Section~\ref{sec:implementation} describes the Issen reference
-implementation. Section~\ref{sec:cases} presents the case studies.
-Section~\ref{sec:related} situates the work against prior literature.
-Section~\ref{sec:discussion} addresses completeness and threats to validity.
-Section~\ref{sec:conclusion} concludes.

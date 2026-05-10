@@ -1,12 +1,6 @@
 \section{The Navigation-Primitive Taxonomy}
 \label{sec:taxonomy}
 
-This section delivers Contribution~1 (the navigation-primitive criterion for
-source classification) and the formal apparatus underlying Contributions~2
-and~4. We give formal definitions of evidence sources and navigation
-primitives, instantiate the five primitives, and state the layer-dependency
-structure that follows from them.
-
 \subsection{Formal Foundations}
 
 We treat byte sequences, denoted $\Bstar = \{0,1,\ldots,255\}^{*}$, as the
@@ -72,22 +66,11 @@ under $\sim$ (Definition~\ref{def:nav-primitive}), \ie{}, they share a
 navigation primitive $\pi$.
 \end{definition}
 
-The bijection-plus-operation-correspondence formulation has the consequence
-that two sources are of the same type iff their addressing question
-``starting at $a$, where can I go and by what operation?'' is
-substitutable -- which is the precise sense in which they should be
-classified together. Equivalent classes under $\sim$ are exactly the
-``shapes of addressing'' that the taxonomy enumerates.
-
-Definition~\ref{def:source-type} is the engine of the taxonomy. It says, in
-effect: do not classify sources by what they contain, classify them by how
-they are addressed. Two sources with very different artifacts (\eg{}, an
-EVTX file and a syslog stream) belong to the same type if they share a
-navigation primitive (here, both \src{L}). Two sources with superficially
-similar artifacts may belong to different types: a Chrome \texttt{History}
-file on a mounted disk and the same file as recovered from carved memory
-pages are not the same source type, because their navigation primitives
-differ (\src{P} vs.\ \src{M}).
+Two sources are the same type iff their addressing question -- ``starting at
+$a$, where can I go and by what operation?'' -- is substitutable. An EVTX
+file and a syslog stream are both \src{L}. A Chrome \texttt{History} file on
+a mounted disk (\src{P}) and the same file recovered from carved memory (\src{M})
+are not the same type, despite being the same artifact.
 
 \subsection{The Five Primitives}
 

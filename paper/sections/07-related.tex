@@ -1,153 +1,61 @@
 \section{Related Work}
 \label{sec:related}
 
-We position the navigation-primitive taxonomy against five strands of prior
-work: digital-forensic process models, data-abstraction layer models,
-representation ontologies, source-specific tooling, and emerging
-supply-chain-forensic foundations. In each case our claim is one of
-extension or formalization, not displacement.
+\paragraph{Process models.}
+Carrier and Spafford~\cite{carrier2003getting} describe \emph{when} digital
+evidence is collected; ours describes \emph{how} it is reached. The
+hypothesis-based framework~\cite{carrier2006hypothesis} presupposes an
+investigator knows where to look; our taxonomy names the five address spaces
+where evidence can live. Beebe and Clark~\cite{beebe2005hierarchical},
+DFRWS~\cite{palmer2001roadmap}, and NIST SP 800-86~\cite{kent2006sp80086}
+provide procedural guidance that our taxonomy informs but does not replace.
 
-\subsection{Process Models}
+\paragraph{Data-abstraction layer models.}
+Carrier's data-abstraction model~\cite{carrier2005file} asks \emph{which
+abstraction level} an artifact inhabits (physical $\to$ volume $\to$
+filesystem $\to$ file). Our taxonomy asks \emph{which addressing mechanism}
+reaches bytes at any level. The two axes jointly span a 2-D classification
+space; TSK instantiates the (\src{P}, filesystem) cell. TSK has no
+analog for \src{M}, \src{Q}, or \src{C}; our taxonomy generalizes
+Carrier's layered insight to four addressing schemes that postdate TSK's
+design. Garfinkel's DFXML work~\cite{garfinkel2009automating} provides
+early evidence that even within \src{P} alone, absent a uniform addressing
+model, ad-hoc adapters proliferate.
 
-Carrier and Spafford~\cite{carrier2003getting} establish the Integrated
-Digital Investigation Process and, in the same paper, argue for the value
-of a \emph{physical} grounding: digital evidence has a physical substrate
-(a disk, a memory chip), and the investigation should respect that. The
-phases they articulate -- readiness, deployment, physical scene, digital
-scene, review -- describe the temporal arc of an investigation. Our work
-is orthogonal: we do not displace the phases; we observe that within the
-\emph{digital scene} phase, evidence has not just one underlying
-representation (their bytes-on-a-disk model) but at least five distinct
-addressing schemes, each of which has independent epistemological
-properties. Where Carrier and Spafford's model says \emph{when} digital
-evidence is collected, ours says \emph{how} it is reached.
+\paragraph{Representation ontologies.}
+CASE/UCO~\cite{caseuco2018,casey2017advancing} represents evidence
+\emph{after} parsing. Our taxonomy governs the architecture by which
+evidence is reached and parsed. A CASE/UCO record can carry a
+\texttt{source-type} attribute from our taxonomy, providing provenance that
+the representation alone does not encode.
 
-Carrier's later hypothesis-based framework~\cite{carrier2006hypothesis}
-provides the epistemic engine: every analytical claim is a hypothesis with
-a class of falsifying observations. Our taxonomy supplies a partial answer
-to a question the hypothesis framework leaves open: \emph{where, in
-principle, can falsifying observations live?} They live in the address
-spaces of the five primitives. The Q-Durability and C-Intrinsic-Durability
-properties (Section~\ref{sec:properties}) restrict the kinds of
-falsifications that an adversary can stage post-hoc.
+\paragraph{Source-specific tooling.}
+TSK/Autopsy~\cite{carrier2005file} (\src{P}), Volatility~\cite{ligh2014artmemory}
+(\src{M}), and Plaso~\cite{plaso} (\src{L}) each excel within one primitive.
+Our taxonomy provides the formal basis for composing them: all produce
+$\Bstar$, so a parser-of-record can accept input from any without
+modification.
 
-Beebe and Clark~\cite{beebe2005hierarchical} contribute the hierarchical
-objectives-based framework, which modulates the procedural decomposition by
-investigative goal. Our work is again complementary: a framework that
-selects analytical objectives benefits from a taxonomy that names the
-addressing modalities the objectives may need to reach. The DFRWS roadmap
-paper~\cite{palmer2001roadmap} and the NIST Special Publication
-800-86~\cite{kent2006sp80086} similarly provide procedural guidance that
-our taxonomy informs but does not replace.
+\paragraph{Live response.}
+Cohen, Bilby, and Garfinkel~\cite{cohen2011distributed} argued that
+live-query collection is the realistic alternative to full disk imaging at
+enterprise scale but did not formalize what live-query evidence \emph{is}.
+Our \src{Q} primitive and Proposition~\ref{prop:q-durability} supply that
+formalization: evidence produced by query execution, once transmitted,
+is durable against on-host adversarial action.
 
-\subsection{Data-Abstraction Layer Models}
+\paragraph{Content-addressed foundations.}
+in-toto~\cite{torresarias2019intoto}, Sigstore~\cite{newman2022sigstore},
+OCI~\cite{ociimagespec}, and IPFS~\cite{benet2014ipfs} established
+content-addressing as critical for supply-chain integrity. We incorporate
+\src{C} into the forensic taxonomy as a first-class peer, with explicit
+forensic semantics (Definition~\ref{def:hash-pivot}) and an intrinsic
+durability characterization (Proposition~\ref{prop:c-durability}).
 
-Carrier's data-abstraction model~\cite{carrier2005file} layers digital
-evidence into physical media, volume, file system, file content, and
-application abstraction levels. The model is foundational for understanding
-\emph{what abstraction level} a particular artifact inhabits. Our taxonomy
-is orthogonal: it asks \emph{which addressing mechanism} is required to
-reach the bytes at any given level. Carrier's vertical axis (which
-abstraction is being viewed) and our horizontal axis (which navigation
-primitive is in play) jointly span a 2-D classification space whose cells
-correspond to concrete forensic operations. For example, the cell
-(\src{P}, file-system level) is what \texttt{ext4fs-forensic} operates in;
-(\src{M}, application level) is what a memory carver targeting Chrome's
-heap operates in; (\src{C}, application level) is what
-\texttt{sigstore-forensic} targets.
-
-McKemmish's foundational definition of forensic computing~\cite{mckemmish1999forensic}
-identifies preservation, identification, extraction, documentation, and
-interpretation as the activities of the discipline. Forensic computing as
-characterized in 1999 addressed primarily \src{P} and \src{L}. We extend
-the discipline by formally admitting \src{M}, \src{Q}, and \src{C} as
-first-class source types -- not as variant flavors of disk evidence, but as
-sources whose addressing schemes and durability properties differ
-fundamentally.
-
-\subsection{Representation Ontologies}
-
-The Cyber-investigation Analysis Standard Expression (CASE), with its UCO
-(Unified Cyber-investigation Ontology) foundation~\cite{caseuco2018,casey2017advancing},
-provides a vocabulary for representing digital evidence in a sharable, tool-agnostic form.
-CASE/UCO operates at the \emph{representation} layer:
-once an artifact has been identified, parsed, and described, CASE provides
-the linguistic structure to communicate it. Our taxonomy operates at the
-\emph{infrastructure} layer: it is concerned with the architecture by which
-artifacts are reached and parsed in the first place. The two are
-complementary. A CASE/UCO record can carry an additional \emph{source-type}
-attribute populated from our taxonomy, which provides downstream consumers
-of CASE data with the trust-relevant provenance information that the
-representation alone does not encode.
-
-\subsection{Source-Specific Tooling and Frameworks}
-
-The Sleuth Kit and Autopsy~\cite{carrier2005file} are the canonical
-\src{P}-source toolkits, exposing a path-based filesystem navigation API
-over disk image containers. Volatility~\cite{ligh2014artmemory} and
-Volatility~3~\cite{volatility3}, together with Rekall~\cite{rekall2016},
-are the canonical \src{M}-source toolkits, with EPROCESS-walking and
-page-table-resolving APIs. Plaso/log2timeline~\cite{plaso} is the canonical
-\src{L}-source toolkit, normalizing dozens of log formats into a unified
-timeline schema. The work of Case and Richard~\cite{case2017memory}
-chronicled the maturation of memory forensics over the
-preceding decade. Garfinkel's earlier work on file-carving formalized
-recovery of artifacts whose filesystem metadata is missing or
-unreliable~\cite{garfinkel2007carving}.
-
-These tools and frameworks each excel within a single primitive. Our
-taxonomy provides the formal foundation for composing them: by
-recognizing that they all produce $\Bstar$ for parser consumption, an
-orchestrator can route artifacts to a parser-of-record without committing
-to a single tool's record schema. Issen's PARSER crates, for instance,
-accept input from a TSK-style mounted volume, a Volatility-style memory
-artifact extraction, or a Plaso-style log decode; the dispatch logic does
-not care which of those produced the bytes.
-
-\subsection{Live Response and Endpoint Telemetry}
-
-Cohen, Bilby, and Garfinkel~\cite{cohen2011distributed} described GRR Rapid
-Response, an enterprise live-response platform that influenced
-Velociraptor's later design~\cite{velociraptor}. Their argument was
-practical: at enterprise scale, full disk imaging of every potentially
-compromised host is infeasible, and live-query collection is the
-realistic alternative. They did not, however, propose a formal model of
-what live-query evidence \emph{is} or how it differs in kind from disk
-evidence. Our \src{Q} primitive and Proposition~\ref{prop:q-durability}
-formalize exactly that: live-query evidence is produced by query
-execution, not retrieved from storage; once captured and transmitted, it
-becomes attacker-durable in a sense disk evidence is not. The OSQuery
-project~\cite{osquery} extends the live-query paradigm to a cross-platform
-SQL surface; our taxonomy applies uniformly.
-
-\subsection{Supply-Chain and Content-Addressed Foundations}
-
-Torres-Arias \etal{}~\cite{torresarias2019intoto} introduce in-toto, a
-framework for end-to-end software supply-chain integrity that records each
-build step's input and output by hash. Newman \etal{}'s Sigstore
-work~\cite{newman2022sigstore} contributes a public transparency log
-(Rekor) for signing events, again addressed by hash. The Open Container
-Initiative's image specification~\cite{ociimagespec} establishes
-content-addressed image storage. IPFS~\cite{benet2014ipfs} generalizes
-content addressing to a peer-to-peer storage substrate.
-
-These projects established content-addressing as a critical primitive for
-software-integrity engineering. Our contribution is to incorporate
-content-addressing into the forensic source taxonomy as a peer of \src{P},
-\src{M}, \src{L}, and \src{Q}, with explicit forensic semantics
-(Definition~\ref{def:hash-pivot}) and a durability characterization
-(Proposition~\ref{prop:c-durability}). The forensic literature, as far as
-we are aware, has not previously elevated \src{C} to a first-class
-source type.
-
-\subsection{Closest Prior Work}
-
-The closest prior work is, perhaps surprisingly, Garfinkel's 2010
-agenda paper~\cite{garfinkel2010digital}. Garfinkel
-identifies cross-source correlation as a foundational unsolved problem and
-calls for ``a model that allows multiple sources of evidence to be combined
-in principled ways.'' Sixteen years on, the problem remains substantially
-unsolved at the formal level. Our taxonomy supplies the missing piece:
-classifying sources by navigation primitive yields the formally identified
-provenance attribute that a correlation engine needs in order to reason
-about trust and to apply the source-appropriate durability profile.
+\paragraph{Closest prior work.}
+Garfinkel's 2010 agenda~\cite{garfinkel2010digital} identified cross-source
+correlation as an open problem and called for ``a model that allows multiple
+sources of evidence to be combined in principled ways.'' Our taxonomy
+supplies the missing piece: the navigation-primitive tag is the formally
+identified provenance attribute a correlation engine needs to reason about
+trust and apply source-appropriate durability profiles.

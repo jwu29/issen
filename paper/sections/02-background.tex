@@ -18,15 +18,8 @@ Carrier's later dissertation~\cite{carrier2006hypothesis} formalized
 hypothesis testing as the epistemic core of digital investigation: every
 analytical claim is a hypothesis that must be falsifiable from the data.
 
-These models are silent on the question we ask. They describe \emph{when}
-evidence is acquired, \emph{who} performs the acquisition, and \emph{how} the
-chain of custody is preserved. They do not describe \emph{what kinds of
-addressing} a piece of evidence supports, or what the architectural
-consequences are. The hypothesis-based framework, in particular, presupposes
-that an investigator already knows where to look for evidence that might
-falsify a hypothesis. The taxonomy we develop is a precondition for that
-presupposition: an investigator cannot know where to look until the field
-has named what kinds of addressing are available.
+These models are silent on the question we ask: \emph{what kinds of addressing
+does a piece of evidence support, and what are the architectural consequences?}
 
 \subsection{The Three-Source Folk Model and Its Failure Modes}
 
@@ -52,51 +45,16 @@ property that the data did not exist before the query was issued and, once
 captured and transmitted, cannot be modified by an adversary regardless of
 subsequent on-host actions.
 
-The second development is the rise of \emph{content-addressed} ecosystems.
-Git~\cite{chacon2014progit}, Sigstore's transparency
-log~\cite{newman2022sigstore}, the in-toto framework~\cite{torresarias2019intoto},
-the Open Container Initiative image
-specification~\cite{ociimagespec}, and IPFS~\cite{benet2014ipfs} all share an
-addressing model in which an artifact's identity \emph{is} the cryptographic
-hash of its content, and references between artifacts are themselves hashes.
-The resulting Merkle DAG has a navigation discipline that maps cleanly onto
-none of disk, memory, or log: there is no path, no virtual address, no
-timestamp ordering. There is only the hash and the references that hashes
-encode. Software supply-chain attacks -- SolarWinds~\cite{cisa2021solarwinds},
-the \texttt{event-stream} npm compromise~\cite{ohm2020backstabber}, the
-\texttt{xz-utils} backdoor~\cite{cve2024xz} -- forced the forensic community
-to reckon with the fact that part of the evidence trail lives in
-content-addressed stores that no traditional triage tool understands.
-
-\subsection{Live Response and Endpoint Telemetry}
-
-The architecture of live-response systems makes the address-space question
-unavoidable. Velociraptor compiles a VQL expression at the
-investigator's console, ships the compiled query to the endpoint, executes
-it in the agent process, and streams typed result rows
-back~\cite{velociraptor}. The data observed -- which is to say, the rows --
-is determined by the query, not by the contents of any file. WMI/WQL on
-Windows~\cite{microsoft2023wmi} and OSQuery on
-Linux/macOS/Windows~\cite{osquery} share this discipline: the address space
-of the evidence is the space of well-formed queries crossed with cursor
-tokens. Treating these systems as ``just another log producer'' loses the
-key property that the evidence exists \emph{only} because the query was run,
-and that the act of running a query at time $t_0$ produces a record that no
-adversary acting at $t_1 > t_0$ on the host can alter.
-
-\subsection{Supply Chain Forensics and Content Addressing}
-
-The supply-chain context introduces a different kind of evidence with a
-different kind of guarantee. A package built by a CI/CD pipeline has a
-content hash; Sigstore's transparency log records the signing event with the
-hash and the signing identity; in-toto links record the build steps each
-with their input and output hashes~\cite{torresarias2019intoto,newman2022sigstore}.
-Investigating a suspicious binary discovered on a compromised endpoint thus
-becomes, in part, an exercise in following hashes -- from the binary on disk,
-to the OCI layer hash, to the Sigstore entry, to the in-toto link, to the
-git commit. Every step is the same operation: hash $\to$ blob $\to$
-content graph. This is a navigation primitive, and it has properties
-(notably immutability by construction) that the other primitives lack.
+The second development is \emph{content-addressed} ecosystems. Git,
+Sigstore's transparency log~\cite{newman2022sigstore}, in-toto~\cite{torresarias2019intoto},
+OCI image manifests~\cite{ociimagespec}, and IPFS~\cite{benet2014ipfs} all
+address artifacts by the cryptographic hash of their content; references between
+artifacts are themselves hashes. The resulting Merkle DAG has no path, no virtual
+address, no timestamp ordering -- only hash $\to$ blob $\to$ content graph.
+Supply-chain attacks (SolarWinds~\cite{cisa2021solarwinds},
+\texttt{xz-utils}~\cite{cve2024xz}) forced the forensic community to reckon
+with evidence trails that live entirely in content-addressed stores that no
+traditional triage tool addresses.
 
 \subsection{The Gap}
 
