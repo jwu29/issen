@@ -1,0 +1,145 @@
+\section{Background}
+\label{sec:bg}
+
+\subsection{Process Models and Their Silences}
+
+Digital forensic process models describe how an investigation should
+proceed, not what classes of evidence exist. The DFRWS framework first
+codified the seven-phase pipeline of identification, preservation,
+collection, examination, analysis, presentation, and decision~\cite{palmer2001roadmap}.
+Carrier and Spafford generalized this into a five-phase \emph{Integrated
+Digital Investigation Process} that explicitly aligns the digital phases
+with the physical-crime-scene phases that
+preceded them~\cite{carrier2003getting}. Beebe and Clark extended the
+emphasis on hierarchical objectives, arguing that procedural decomposition
+must respond to investigative
+objectives rather than artifact taxonomy~\cite{beebe2005hierarchical}.
+Carrier's later dissertation~\cite{carrier2006hypothesis} formalized
+hypothesis testing as the epistemic core of digital investigation: every
+analytical claim is a hypothesis that must be falsifiable from the data.
+
+These models are silent on the question we ask. They describe \emph{when}
+evidence is acquired, \emph{who} performs the acquisition, and \emph{how} the
+chain of custody is preserved. They do not describe \emph{what kinds of
+addressing} a piece of evidence supports, or what the architectural
+consequences are. The hypothesis-based framework, in particular, presupposes
+that an investigator already knows where to look for evidence that might
+falsify a hypothesis. The taxonomy we develop is a precondition for that
+presupposition: an investigator cannot know where to look until the field
+has named what kinds of addressing are available.
+
+\subsection{The Three-Source Folk Model and Its Failure Modes}
+
+The implicit, never-formalized folk model of forensic evidence partitions
+sources into three: \emph{disk}, \emph{memory}, and
+\emph{log}~\cite{kent2006sp80086,casey2011digital,carrier2005file}. Standard
+practitioner training and toolchains -- The Sleuth Kit and
+Autopsy~\cite{carrier2005file}, Volatility for memory analysis~\cite{ligh2014artmemory,case2017memory},
+and timeline tools such as Plaso/log2timeline~\cite{plaso} -- align with this
+partition. The folk model has served the field well for two decades but is
+breaking under the weight of two developments.
+
+The first is the rise of \emph{enterprise live response} and endpoint
+detection-and-response telemetry. When a Velociraptor agent~\cite{velociraptor}
+runs a VQL query and returns a result set of currently-open TCP connections,
+that result is not on a disk image; it is not yet in any log; it lives,
+briefly, only in the network packet that delivers it from the endpoint to
+the investigator. Cohen, Bilby, and Garfinkel argued in
+2011~\cite{cohen2011distributed} that this kind of capture is a fundamentally
+different forensic operation, but the field continued to treat the resulting
+data as ``just another log'' -- an analytical convenience that obscures the
+property that the data did not exist before the query was issued and, once
+captured and transmitted, cannot be modified by an adversary regardless of
+subsequent on-host actions.
+
+The second development is the rise of \emph{content-addressed} ecosystems.
+Git~\cite{chacon2014progit}, Sigstore's transparency
+log~\cite{newman2022sigstore}, the in-toto framework~\cite{torresarias2019intoto},
+the Open Container Initiative image
+specification~\cite{ociimagespec}, and IPFS~\cite{benet2014ipfs} all share an
+addressing model in which an artifact's identity \emph{is} the cryptographic
+hash of its content, and references between artifacts are themselves hashes.
+The resulting Merkle DAG has a navigation discipline that maps cleanly onto
+none of disk, memory, or log: there is no path, no virtual address, no
+timestamp ordering. There is only the hash and the references that hashes
+encode. Software supply-chain attacks -- SolarWinds~\cite{cisa2021solarwinds},
+the \texttt{event-stream} npm compromise~\cite{ohm2020backstabber}, the
+\texttt{xz-utils} backdoor~\cite{cve2024xz} -- forced the forensic community
+to reckon with the fact that part of the evidence trail lives in
+content-addressed stores that no traditional triage tool understands.
+
+\subsection{Live Response and Endpoint Telemetry}
+
+The architecture of live-response systems makes the address-space question
+unavoidable. Velociraptor compiles a VQL expression at the
+investigator's console, ships the compiled query to the endpoint, executes
+it in the agent process, and streams typed result rows
+back~\cite{velociraptor}. The data observed -- which is to say, the rows --
+is determined by the query, not by the contents of any file. WMI/WQL on
+Windows~\cite{microsoft2023wmi} and OSQuery on
+Linux/macOS/Windows~\cite{osquery} share this discipline: the address space
+of the evidence is the space of well-formed queries crossed with cursor
+tokens. Treating these systems as ``just another log producer'' loses the
+key property that the evidence exists \emph{only} because the query was run,
+and that the act of running a query at time $t_0$ produces a record that no
+adversary acting at $t_1 > t_0$ on the host can alter.
+
+\subsection{Supply Chain Forensics and Content Addressing}
+
+The supply-chain context introduces a different kind of evidence with a
+different kind of guarantee. A package built by a CI/CD pipeline has a
+content hash; Sigstore's transparency log records the signing event with the
+hash and the signing identity; in-toto links record the build steps each
+with their input and output hashes~\cite{torresarias2019intoto,newman2022sigstore}.
+Investigating a suspicious binary discovered on a compromised endpoint thus
+becomes, in part, an exercise in following hashes -- from the binary on disk,
+to the OCI layer hash, to the Sigstore entry, to the in-toto link, to the
+git commit. Every step is the same operation: hash $\to$ blob $\to$
+content graph. This is a navigation primitive, and it has properties
+(notably immutability by construction) that the other primitives lack.
+
+\subsection{The Gap}
+
+The literature provides three separate strands -- traditional disk and log
+forensics, memory forensics as it matured through Volatility and
+Rekall~\cite{ligh2014artmemory,case2017memory}, and emerging work in live
+response and supply-chain forensics -- that have not been unified by a
+common formal model.
+
+The closest representation-level effort is the CASE/UCO
+ontology~\cite{caseuco2018,casey2017advancing}, which provides a typed
+vocabulary for describing digital evidence \emph{after} it has been parsed.
+Our taxonomy is complementary, not competing: CASE/UCO is \emph{annotation}
+(the schema in which findings are exchanged), while the navigation-primitive
+taxonomy is \emph{architecture} (the addressing discipline by which findings
+are produced). A CASE/UCO record consumed by a downstream tool conveys the
+\emph{what}; a navigation-primitive tag (\eg{}, \texttt{nav-primitive: Q})
+conveys the \emph{how}, which CASE/UCO does not encode and which determines
+the trust profile and durability claims that the consumer can make.
+
+The closest infrastructure-level effort is Carrier's data-abstraction model
+and its concrete instantiation in The Sleuth Kit (TSK)~\cite{carrier2005file,tsk_repo}.
+TSK exposes \texttt{img\_*}, \texttt{vol\_*}, \texttt{fs\_*}, and \texttt{file\_*}
+APIs corresponding to a layered traversal: image $\to$ volume $\to$
+filesystem $\to$ file. This layering is foundational for \src{P} navigation
+specifically: TSK's \texttt{img\_} layer is what we generalize as CONTAINER,
+and TSK's \texttt{fs\_}/\texttt{file\_} layers together constitute the
+\src{P}-specialization of NAVIGATE in our framework. The crucial difference
+is that TSK's layering is \emph{specific} to disk evidence -- it has no
+analog of \texttt{img\_} for memory dumps, no analog of \texttt{vol\_} for
+log streams, no analog of \texttt{file\_} for hash-addressed blobs. Our
+taxonomy generalizes Carrier's layered insight to four other addressing
+schemes that did not exist in their current form when TSK was designed.
+
+Garfinkel's 2009 work on automating disk forensic processing with TSK, XML,
+and Python~\cite{garfinkel2009automating} provides early evidence that even
+within \src{P} alone the absence of a uniform addressing model forces
+ad-hoc adapters: Garfinkel's DFXML output exists precisely because tool-output
+schemas were not interoperable. The same problem at five-source scale
+motivates the present paper.
+
+Garfinkel's 2010 agenda~\cite{garfinkel2010digital} identified cross-source
+correlation as one of the key challenges of the coming decade; sixteen
+years later, the field has rich tooling for each source individually but no
+formal account of what ``cross-source'' means. We aim to provide that
+account.

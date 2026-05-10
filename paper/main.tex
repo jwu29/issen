@@ -1,0 +1,114 @@
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{amsthm}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{url}
+\usepackage{hyperref}
+\usepackage{microtype}
+
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\kern-.125emE\kern-.125emX}}
+
+% --- Theorem-like environments -----------------------------------------------
+\newtheorem{theorem}{Theorem}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem{lemma}[theorem]{Lemma}
+
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}
+\newtheorem{conjecture}[theorem]{Conjecture}
+
+% --- Macros ------------------------------------------------------------------
+\newcommand{\eg}{\emph{e.g.}}
+\newcommand{\ie}{\emph{i.e.}}
+\newcommand{\etal}{\emph{et~al.}}
+\newcommand{\etc}{\emph{etc.}}
+\newcommand{\src}[1]{\texttt{[#1]}}
+\newcommand{\Bstar}{\ensuremath{B^{*}}}
+
+\begin{document}
+
+\title{A Navigation-Primitive Taxonomy of Forensic Evidence Sources:\\
+Five Address Spaces and the Architecture of\\
+Cross-Source Digital Investigation}
+
+\author{\IEEEauthorblockN{Albert K.T. Hui}
+\IEEEauthorblockA{\textit{Security Ronin} \\
+albert@securityronin.com}}
+
+\maketitle
+
+\begin{abstract}
+Digital forensic frameworks classify evidence by \emph{artifact type} -- what
+the evidence \emph{is} -- not by the mechanism required to address and
+traverse it. This distinction is consequential: artifact-type classification
+does not determine layer dependencies, parser reusability, or
+epistemological properties such as attacker-durability. We propose to
+classify evidence sources by \emph{navigation primitive} -- the abstract
+addressing scheme by which the bytes of evidence are reached -- and show
+that exactly five primitives are sufficient to cover contemporary forensic
+practice: persistent storage \src{P}, memory \src{M}, log \src{L}, live
+query \src{Q}, and content-addressed \src{C}. We formalize evidence sources
+as triples $(A, f_{\text{nav}}, f_{\text{parse}})$ where $f_{\text{nav}}: A
+\rightharpoonup B^{*}$ is a navigation function valued in byte sequences and
+$f_{\text{parse}}: B^{*} \to R$ is a parser valued in records. From this
+definition we prove a \emph{Parser Independence} theorem: any two evidence
+sources with the same parser produce identical records on identical byte
+inputs, regardless of the navigation primitive that retrieved them; we
+further establish that the dependency rule (PARSER must not import NAVIGATE)
+is the contrapositive of this theorem and is thus a formal architectural
+constraint. We define \emph{attacker-durability} of captured evidence and
+prove that \src{Q} achieves durability by transmission to investigator
+storage (Proposition~\ref{prop:q-durability}) and that \src{C} achieves
+durability \emph{intrinsically} from collision-resistance of the addressing
+hash (Proposition~\ref{prop:c-durability}); we prove as a corollary that
+\src{C} is the unique source type whose durability requires no external
+trust anchor. We give a schema-conscious definition of the
+\emph{hash-pivot} operation that yields a typed-multiset join across CAS
+stores. The taxonomy is hash-agnostic: SHA-1, SHA-256, and future
+hash-function migrations are accommodated by a single collision-resistance
+parameter. We describe \emph{Issen}, a Rust reference implementation
+organized as thirteen crates across five layers (KNOWLEDGE, CONTAINER,
+NAVIGATE, PARSER, ORCHESTRATION) whose dependency rules are mechanically
+forced by the taxonomy. Four case studies evaluate the framework: a
+rootkit-concealed cryptominer requiring \src{P}+\src{M}+\src{Q} fusion; a
+supply-chain compromise resolved by hash-pivot through \src{C} stores; an
+empirical Parser Independence demonstration with byte-identical
+SHA-256 hashes of parser output across four navigation paths into the same
+Chrome \texttt{History} file; and a counterfactual case showing concretely
+how a \src{P}+\src{M}+\src{L}-only triage tool misses an
+\texttt{ld.so.preload} race that \src{Q} captures. The taxonomy supplies
+the missing formal foundation for cross-source correlation called for in
+Garfinkel's 2010 agenda.
+\end{abstract}
+
+\begin{IEEEkeywords}
+digital forensics, evidence taxonomy, memory forensics, content-addressed
+storage, supply chain forensics, live response, navigation primitive,
+parser independence
+\end{IEEEkeywords}
+
+\input{sections/01-introduction}
+\input{sections/02-background}
+\input{sections/03-taxonomy}
+\input{sections/04-properties}
+\input{sections/05-implementation}
+\input{sections/06-case-studies}
+\input{sections/07-related}
+\input{sections/08-discussion}
+\input{sections/09-conclusion}
+
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+\end{document}

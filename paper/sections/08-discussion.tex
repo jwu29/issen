@@ -1,0 +1,201 @@
+\section{Discussion}
+\label{sec:discussion}
+
+\subsection{Completeness of the Five Primitives}
+
+Section~\ref{sec:completeness-formal} states what we can prove and what we
+cannot. Theorem~\ref{thm:partial-complete} establishes partial completeness
+under the restriction that the navigation function be computable by a
+deterministic Turing machine accessing oracles drawn from five standard
+disciplines. Conjecture~\ref{conj:full-complete} states the open question:
+that forensic admissibility forces this oracle restriction. We frame the
+limits of what is shown: a sixth primitive, were one to be discovered,
+would be one whose address-space algebra cannot be simulated under the
+oracle disciplines (i)-(v). The candidate cases discussed in
+Section~\ref{sec:completeness-formal} (PCAP, blockchain, database tables,
+cloud audit logs, mobile extractions, stream-processing state) all reduce.
+Quantum-entangled storage is set aside because its non-cloning property
+falls outside the deterministic-Turing-machine model that
+Theorem~\ref{thm:partial-complete} assumes; whether quantum substrates
+admit forensic admissibility in the long run is a separate question.
+
+We are explicit that ``cannot construct a counterexample'' is a weaker
+claim than ``no counterexample exists.'' The progression we offer --
+oracle-restricted partial completeness theorem, a stated full-completeness
+conjecture, and a list of attempted reductions -- is the formal posture
+appropriate to the current state of the field. We invite future work to
+either prove Conjecture~\ref{conj:full-complete} under a precise
+formalization of forensic admissibility, or refute it by exhibiting a
+sixth primitive.
+
+\subsection{Hash-Agnosticism and Algorithmic Migration}
+
+Proposition~\ref{prop:c-durability} is parameterized in $\epsilon_H$, the
+collision-resistance bound of the hash function. The taxonomy is therefore
+hash-agnostic: any hash function with sufficient $\epsilon_H$ admits a
+\src{C}-source instantiation, and a deployment may use distinct hash
+functions for distinct stores without altering any other component of the
+framework. This matters operationally because the cryptographic ground is
+shifting. Git is migrating to
+SHA-256~\cite{git2020sha256} after demonstration of practical SHA-1
+collisions~\cite{stevens2017sha1,leurent2020sha1chosen}. OCI image
+descriptors specify SHA-256 (and admit SHA-512 and BLAKE3 as
+alternatives)~\cite{ociimagespec_digest}. The Sigstore ecosystem uses
+SHA-256 throughout. IPFS uses multihash, allowing future migration. A
+forensic implementation must be designed to (a) reject \src{C} stores
+whose hash is collision-broken at the deployment date (treating
+$\epsilon_H$ as effectively non-negligible), (b) record which hash
+function each \src{C}-source result used, so that retrospective
+re-evaluation under improved cryptanalytic assumptions remains possible,
+and (c) accommodate post-quantum hash candidates as they mature. The
+taxonomy itself requires no modification across these transitions, which
+is itself an architectural advantage.
+
+\subsection{Threats to Validity}
+
+\paragraph{Construct validity.} Our argument for parser independence treats
+the parser as a function $\Bstar \to R$. In practice, parsers may have
+side effects (logging, telemetry) and may consume external resources
+(allocators, file handles). We have implicitly assumed pure parsers, and
+the implementation discipline in Issen reflects this assumption. Parsers
+that depend on a specific environment (for example, a parser that requires
+network access to look up an external schema) violate the assumption and
+should not claim source-agnosticism. The Issen test discipline exercises
+parsers in offline mode to validate freedom from network and clock
+dependencies, but this discipline is not enforced by the type system; we
+view this as a candidate for future work in a Rust effect-system
+extension.
+
+\paragraph{Internal validity of Case 3 (parser-independence circularity).}
+The empirical demonstration of Theorem~\ref{thm:parser-indep}
+(Section~\ref{sec:case3}) uses Issen as the reference implementation, and
+Issen was designed to satisfy the theorem. This is a real threat to
+internal validity: the implementation was built to satisfy the theory, so
+the theory cannot be falsified by it without an independent implementation.
+We acknowledge this threat explicitly. A stronger evaluation -- which we
+propose as future work -- would re-implement Theorem~\ref{thm:parser-indep}'s
+required conditions in a forensic toolkit that was not designed with the
+taxonomy in mind (TSK, Volatility, Plaso) and report on the modifications
+required to satisfy parser independence. We hypothesize that the
+modifications would be substantial but tractable; the magnitude of
+required modification is itself a measure of how far from the theorem's
+discipline existing tools have drifted.
+
+\paragraph{External validity of Case 1.} The rootkit-concealed cryptominer
+scenario is a public-pattern adversarial scenario; the specific incident
+was deliberately staged for evaluation. Real incidents may exhibit
+adversary capabilities -- kernel-level rootkits, memory-resident loaders
+that defeat acquisition tools, supply-chain backdoors -- that the staged
+scenario does not. The qualitative conclusion (that fusion across \src{P},
+\src{M}, \src{Q} is more defensible than any individual source) is
+consistent with practitioner reports~\cite{cohen2011distributed,case2017memory}
+but should be evaluated on real incident corpora when available.
+
+\paragraph{External validity of Case 2.} Case 2's hash-pivot demonstration
+exercises components of \src{C} that are partially prospective. The OCI and
+Sigstore pivots are concrete; the git-reflog inspection is partially
+prospective pending completion of \texttt{git-forensic}'s reflog
+implementation. We are explicit about this in Section~\ref{sec:case2} and
+caution against reading the case as a fully-realized empirical evaluation.
+
+\paragraph{Empirical evaluation does not yet use standard corpora.} A
+significant external-validity limitation: we have not yet evaluated Issen
+or the parser library against the NIST CFTT
+images~\cite{nistcftt} or the
+Garfinkel et al.\ standardized forensic corpora~\cite{garfinkel2009corpora}.
+These corpora are the appropriate ground truth for a long-lived claim
+about parser-source compatibility, and their absence from our evaluation
+is a real limitation. We commit to this evaluation as the first item of
+future work; we expect the matrix of (parser, source) compatibilities on
+the standard corpora to be reported in a companion paper.
+
+\subsection{Threats to Validity}
+
+\paragraph{Construct validity.} Our argument for parser independence treats
+the parser as a function $\Bstar \to R$. In practice, parsers may have
+side effects (logging, telemetry) and may consume external resources
+(allocators, file handles). We have implicitly assumed pure parsers, and
+the implementation discipline in Issen reflects this assumption. Parsers
+that depend on a specific environment (for example, a parser that requires
+network access to look up an external schema) violate the assumption and
+should not claim source-agnosticism.
+
+\paragraph{Internal validity of Case 3.} The empirical demonstration of
+Theorem~\ref{thm:parser-indep} (Section~\ref{sec:case3}) is a single-host,
+single-artifact study. We selected Chrome \texttt{History} because of its
+prevalence and its non-trivial schema, but a stronger evaluation would
+exercise the parser-independence claim across a battery of artifacts (EVTX,
+SRUM, browser histories from multiple vendors, lnk files, prefetch). We
+plan such a battery in future work.
+
+\paragraph{External validity of Case 1.} The rootkit-concealed cryptominer
+scenario is a public-pattern adversarial scenario; the specific incident
+was deliberately staged for evaluation. Real incidents may exhibit
+adversary capabilities -- kernel-level rootkits, memory-resident loaders
+that defeat acquisition tools, supply-chain backdoors -- that the staged
+scenario does not. The qualitative conclusion (that fusion across \src{P},
+\src{M}, \src{Q} is more defensible than any individual source) is
+consistent with practitioner reports~\cite{cohen2011distributed,case2017memory}
+but should be evaluated on real incident corpora when available.
+
+\paragraph{External validity of Case 2.} Case 2's hash-pivot demonstration
+exercises components of \src{C} that are partially prospective. The OCI and
+Sigstore pivots are concrete; the git-reflog inspection is partially
+prospective pending completion of \texttt{git-forensic}'s reflog
+implementation. We are explicit about this in Section~\ref{sec:case2} and
+caution against reading the case as a fully-realized empirical evaluation.
+
+\subsection{Limitations of the Current Implementation}
+
+Issen as deployed implements \src{P}, \src{M}, \src{L} fully and \src{Q}
+for VQL. The \src{C} crate family (\texttt{cas-forensic},
+\texttt{git-forensic}, \texttt{sigstore-forensic}) is in active development;
+the Rekor and OCI portions of the case study are concrete, but a unified
+\src{C} interface that abstracts over git/OCI/Sigstore/IPFS uniformly is
+forthcoming. The Pivot engine's trust weighting is currently a single-axis
+assignment (higher for \src{C}, lower for \src{P} on disk-resident
+artifacts) rather than a fully-developed cost model. We expect to extend
+the Pivot engine with a Bayesian trust update analogous to the
+hypothesis-update calculus advocated by
+Carrier~\cite{carrier2006hypothesis}.
+
+\subsection{Future Work}
+
+Several directions extend this work.
+
+\paragraph{Formal completeness.} A formal completeness theorem -- if one
+exists -- would settle the question of whether new evidence sources can
+introduce primitives outside our taxonomy. The construction would likely
+proceed by characterizing the address-space algebras admissible to
+forensic evidence (deterministic enumerable structures with retrieval
+semantics) and showing that the five primitives partition the algebra
+class.
+
+\paragraph{Empirical evaluation on standard datasets.} The NIST Computer
+Forensic Reference Data Sets and DFRWS challenge corpora provide a basis
+for an empirical study of parser-independence at scale. We propose to
+evaluate Issen's parser library across the NIST CFTT-published images and
+report the matrix of (parser, source) compatibility.
+
+\paragraph{Full \src{C} implementation.} \texttt{cas-forensic},
+\texttt{git-forensic}, and \texttt{sigstore-forensic} are first priorities.
+The interface design must accommodate hash-function diversity (SHA-1
+legacy in git, SHA-256 in OCI and Sigstore, multihash in IPFS), and the
+trust model must downgrade SHA-1 stores explicitly given known collision
+attacks~\cite{stevens2017sha1}.
+
+\paragraph{Source-aware correlation algorithms.} The Pivot engine is a
+source-naive cross-product join over normalized timeline events with rule
+filtering. Source-aware algorithms -- \eg{}, those that explicitly account
+for the differing temporal granularities of \src{M} (instantaneous) versus
+\src{L} (linearly ordered) versus \src{Q} (query-batch ordered) versus
+\src{C} (no temporal axis at all) -- promise both better recall and better
+precision.
+
+\paragraph{Adversarial models.} The attacker-durability propositions
+(Propositions~\ref{prop:q-durability} and~\ref{prop:c-durability}) assume
+specific adversary capabilities (host-resident, channel-honest). A more
+complete model would parameterize the adversary's capability set and ask
+which durability claims hold under each. Compromised channels, compromised
+investigator storage, and compromised transparency logs all merit explicit
+adversarial models.

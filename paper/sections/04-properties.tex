@@ -1,0 +1,415 @@
+\section{Formal Properties}
+\label{sec:properties}
+
+This section delivers Contributions~2,~3, and~4. We prove a semantically
+strong Parser Independence theorem, derive the layer dependency rule from
+its contrapositive, formalize attacker-durability, characterize the distinct
+durability profiles of \src{Q} and \src{C}, and give a schema-conscious
+definition of hash-pivot.
+
+\subsection{Parser Independence}
+
+The theorem we want is not merely a type-checking observation. We need a
+\emph{semantic} claim: that two distinct navigation paths into the
+``same'' artifact yield the \emph{same} record under a fixed parser. We
+make this precise with the following theorem, which has two halves -- a
+syntactic well-typedness half, and a semantic equality half.
+
+\begin{theorem}[Parser Independence]
+\label{thm:parser-indep}
+Let $p : \Bstar \to R$ be a deterministic, side-effect-free parser, and let
+$S = (A, f_{\mathrm{nav}}, p)$ and $S' = (A', f'_{\mathrm{nav}}, p)$ be two
+evidence sources with possibly distinct navigation primitives $\pi$ and
+$\pi'$. Then:
+
+\smallskip
+\noindent\textbf{(I) Type composition.}
+Both compositions $p \circ f_{\mathrm{nav}}: A \rightharpoonup R$ and $p
+\circ f'_{\mathrm{nav}}: A' \rightharpoonup R$ are well-typed and yield
+records in $R$.
+
+\smallskip
+\noindent\textbf{(II) Semantic invariance.}
+For any addresses $a \in A$ and $a' \in A'$ with $f_{\mathrm{nav}}(a) =
+f'_{\mathrm{nav}}(a') = b \in \Bstar$ (\ie{}, the two navigation paths
+return identical bytes), $p(f_{\mathrm{nav}}(a)) = p(f'_{\mathrm{nav}}(a'))$
+as values in $R$. The equality holds bit-for-bit under any canonical
+serialization of $R$.
+\end{theorem}
+
+\begin{proof}
+\textbf{(I).} By Definition~\ref{def:source} the parser's domain is $\Bstar$,
+independent of $A$. Both $f_{\mathrm{nav}}: A \rightharpoonup \Bstar$ and
+$f'_{\mathrm{nav}}: A' \rightharpoonup \Bstar$ have codomain $\Bstar$,
+matching the domain of $p$. Composition in $\mathbf{PFn}$ is defined when
+the codomain of the inner function matches the domain of the outer; thus
+$p \circ f_{\mathrm{nav}}$ and $p \circ f'_{\mathrm{nav}}$ are both
+well-typed in $\mathbf{PFn}$. The construction does not reference $\pi$ or
+$\pi'$.
+
+\smallskip\noindent
+\textbf{(II).} By assumption, $p$ is deterministic and side-effect-free: $p$
+is mathematically a total function on its domain modulo the partiality
+inherited from $f_{\mathrm{nav}}$, with no implicit dependency on global
+state. Determinism implies $p(b) = p(b)$ for any fixed $b \in \Bstar$.
+Substituting $b = f_{\mathrm{nav}}(a) = f'_{\mathrm{nav}}(a')$ yields
+$p(f_{\mathrm{nav}}(a)) = p(b) = p(f'_{\mathrm{nav}}(a'))$. Bit-for-bit
+equality of canonical serializations follows because record canonicalization
+is itself a deterministic function of the record. \qedhere
+\end{proof}
+
+Half (I) is the syntactic content -- type composition -- which has been an
+implicit design principle in tools like TSK and Volatility but has not
+previously been stated formally for cross-source composition. Half (II) is
+the semantic content and is the load-bearing claim of the theorem: it says
+that for a properly written parser, four distinct navigation paths into
+the ``same'' bytes (\src{P}-live, \src{P}-image, \src{M}-carve, \src{Q}-pull
+of the Chrome \texttt{History} file in Section~\ref{sec:case3}) produce
+identical records, and -- because canonical serializations are
+deterministic -- identical SHA-256 hashes of those records. This converts
+Parser Independence from a folk principle into an empirically falsifiable
+prediction.
+
+\paragraph{Scope of the determinism assumption.} The theorem requires the
+parser to be free of nondeterminism (\eg{}, hash randomization of internal
+maps, system-clock-dependent fields) and free of externalized state (\eg{},
+no calls to schema-resolution services). These are standard
+``pure-function'' constraints; we discuss empirical compliance as a
+threat-to-validity (Section~\ref{sec:discussion}).
+
+\subsection{Layer Dependency Rule}
+
+The dependency rule is best understood not as an independent theorem but as
+the contrapositive of Theorem~\ref{thm:parser-indep}. We state it
+correspondingly. The structure is: \emph{if Parser Independence is required
+of a parser, then the parser must not depend on NAVIGATE.}
+
+\begin{theorem}[Layer Dependency Rule, Contrapositive Form]
+\label{thm:layer-rule}
+Let $p$ be a parser, and let $\Pi$ denote the set of navigation primitives
+that some deployment of $p$ may encounter. If $|\Pi| \geq 2$ and $p$ is
+required to satisfy Parser Independence (Theorem~\ref{thm:parser-indep})
+across $\Pi$, then $p$'s domain must equal $\Bstar$ -- equivalently, $p$
+must not import or otherwise depend on any NAVIGATE component specific to a
+particular $\pi \in \Pi$.
+\end{theorem}
+
+\begin{proof}
+Theorem~\ref{thm:parser-indep} states that semantic invariance holds for
+parsers $p : \Bstar \to R$. The hypothesis is unconditional in $\pi$: the
+domain of $p$ is $\Bstar$, not any $A_\pi$. Now suppose $p$ has domain
+$A_\pi$ for some particular $\pi$ -- equivalently, $p$ depends on a
+NAVIGATE component fixing the address space to $A_\pi$. Then $p$ is not a
+function on $\Bstar$, and Theorem~\ref{thm:parser-indep} does not apply to
+$p$. We must check that $p$ also \emph{cannot} satisfy Parser Independence
+under any alternative argument. Take $\pi' \neq \pi$ in $\Pi$ and a source
+$S' = (A', f'_{\mathrm{nav}}, p)$ of primitive $\pi'$. The domain of $p$
+contains addresses of type $A_\pi$ but not $A_\pi$-typed values produced
+through $f'_{\mathrm{nav}}$, which produces values in $\Bstar$ (or in
+$A'$). The composition $p \circ f'_{\mathrm{nav}}$ is therefore not even
+well-typed. Hence $p$ fails Type composition (Theorem~\ref{thm:parser-indep}.I)
+and \emph{a fortiori} fails Semantic invariance. The contrapositive
+direction is established without circularity: we have shown that the
+\emph{absence} of an unconditional-in-$\pi$ domain forces a type failure on
+some pair of primitives, not that a parser ``cannot be reused'' as a
+premise. \qedhere
+\end{proof}
+
+The contrapositive is the practitioner's rule of thumb: \emph{if your
+parser imports a navigation crate, it cannot satisfy Parser Independence
+across primitives, and you must accept that limitation explicitly}. In the
+Issen implementation (Section~\ref{sec:implementation}), this is enforced
+both by crate boundaries and by build-system rejection of cyclic or upward
+dependencies.
+
+\subsection{Attacker-Durability}
+
+\begin{definition}[Attacker-Durable Evidence]
+\label{def:durable}
+Let $e$ be an evidential artifact captured at time $t_0$, with content
+$\mathrm{content}(e)$. Let $\mathcal{A}$ be the set of actions available
+to an adversary $A$. We say $e$ is \emph{attacker-durable with respect to
+$A$} iff for every action $a \in \mathcal{A}$ taken at any time $t_1 > t_0$,
+$\mathrm{content}(e)$ is not altered by $a$.
+\end{definition}
+
+The definition is deliberately sharp: it asks only whether the content of
+the captured artifact can be altered after capture, and ignores whether the
+adversary can prevent the capture, prevent its disclosure, or fabricate
+alternative artifacts. (Those questions belong to a separate analysis of
+\emph{capture integrity} and are out of scope here.)
+
+For \src{P}, \src{M}, and \src{L}, durability with respect to a host-resident
+adversary is established by acquisition: once the bytes are off-host, on-host
+mutation cannot reach back. The interesting cases are \src{Q} and \src{C}.
+
+\paragraph{Threat-model preliminaries for Q.} Let $\mathcal{T}_{\mathrm{host}}$
+denote the set of attacker capabilities available to a host-resident
+adversary: arbitrary code execution under any user (including \texttt{root}
+or \texttt{SYSTEM}), modification of any disk-resident artifact,
+modification of any kernel data structure, modification of any memory
+page, denial of service. Let $\mathcal{T}_{\mathrm{net}}$ denote
+network-resident capabilities: passive observation, active
+man-in-the-middle modification of unauthenticated traffic, replay of
+captured packets. Let $\mathcal{T}_{\mathrm{inv}}$ denote attacker
+capabilities at the investigator side: physical access to investigator
+storage, write access to that storage, key compromise of the investigator's
+authentication. The Q-Durability claim is parameterized explicitly over
+which subset of $\{\mathcal{T}_{\mathrm{host}}, \mathcal{T}_{\mathrm{net}},
+\mathcal{T}_{\mathrm{inv}}\}$ is granted to the adversary.
+
+\begin{proposition}[Q-Durability under bounded adversary]
+\label{prop:q-durability}
+Let $r$ be a result-row sequence captured by an investigator-controlled
+collection at time $t_0$ via \src{Q} navigation, transmitted over channel
+$\chi$ to investigator-controlled storage $\Sigma$. Suppose the adversary
+possesses $\mathcal{T}_{\mathrm{host}}$ but not $\mathcal{T}_{\mathrm{net}}$
+on $\chi$ (specifically: $\chi$ provides authenticated, integrity-protected
+delivery -- \eg{}, mutually-authenticated TLS with a pinned certificate)
+and not $\mathcal{T}_{\mathrm{inv}}$ on $\Sigma$. Then $r$ is
+attacker-durable (Definition~\ref{def:durable}) against any host action at
+any $t_1 > t_0$.
+\end{proposition}
+
+\begin{proof}
+After $t_0$, $r$ resides on $\Sigma$. The adversary's capability set is
+$\mathcal{T}_{\mathrm{host}}$, which contains no operation whose codomain
+includes $\Sigma$: no host action can write to investigator-controlled
+storage that is not exposed through a host-reachable interface (and
+$\Sigma$ is not so exposed by hypothesis). The integrity property of
+$\chi$ (assumed by hypothesis) guarantees that what $\Sigma$ received
+equals what was transmitted at $t_0$. Therefore for any $a \in
+\mathcal{T}_{\mathrm{host}}$ at $t_1 > t_0$, $\mathrm{content}(r)$ on
+$\Sigma$ is unaffected by $a$. \qedhere
+\end{proof}
+
+\paragraph{Acknowledged hypothesis weight.}
+The hypotheses ``$\chi$ provides authenticated integrity-protected
+delivery'' and ``$\Sigma$ is not exposed to $\mathcal{T}_{\mathrm{inv}}$''
+are doing real work, and we acknowledge their weight explicitly. The
+proposition is a \emph{conditional} durability claim, not an absolute one.
+If the adversary additionally possesses $\mathcal{T}_{\mathrm{net}}$ on
+$\chi$ at the moment of transmission, the rows received may differ from
+the rows transmitted; the claim degrades to authenticity-of-delivery
+rather than authenticity-of-source. If the adversary possesses
+$\mathcal{T}_{\mathrm{inv}}$ on $\Sigma$, no source type achieves
+attacker-durability -- not \src{P}, \src{M}, \src{L}, \src{Q}, or even
+\src{C} (the adversary can simply destroy or substitute the artifact at
+the investigator's end). The boundary of the claim is therefore: \src{Q}
+durability is meaningful precisely when the adversary's foothold is
+host-local and the investigator's collection-and-storage infrastructure
+is not part of the adversary's attack surface. This is the operational
+regime in which live response is deployed; the proposition formalizes its
+soundness.
+
+The proposition formalizes a property that practitioners have understood
+informally for years~\cite{cohen2011distributed}: it is precisely why a
+Velociraptor sweep at the moment of incident detection is preferred over a
+post-hoc disk image when the adversary still has a foothold. The disk image
+captures whatever the adversary leaves behind; the live query captures the
+state \emph{at} the moment of capture, which the adversary can no longer
+alter.
+
+\begin{proposition}[C-Intrinsic-Durability]
+\label{prop:c-durability}
+Let $H : \Bstar \to \{0,1\}^n$ be a hash function and let $\epsilon_H$
+denote its collision-resistance bound, \ie{}, the maximum probability that
+a polynomial-time adversary outputs $b \neq b'$ with $H(b) = H(b')$
+(see~\cite{rogaway2004hash}). Let $b$ be a blob with $h = H(b)$ stored in a
+content-addressed store. Then the artifact addressed by $h$ is
+attacker-durable (Definition~\ref{def:durable}) with probability at least
+$1 - \epsilon_H$: any adversarial modification yielding $b'$ with $h =
+H(b')$ has probability at most $\epsilon_H$, and otherwise $H(b') \neq h$
+and the address $h$ continues to resolve to $b$.
+\end{proposition}
+
+\begin{proof}
+By the second-preimage-resistance reduction in~\cite{rogaway2004hash},
+producing $b' \neq b$ with $H(b') = H(b) = h$ has probability at most
+$\epsilon_H$ for any polynomial-time adversary. Conditioning on the
+non-collision event (probability $\geq 1 - \epsilon_H$), the address $h$
+of any correctly-implemented CAS lookup resolves only to a blob whose hash
+equals $h$, which under non-collision is $b$ alone. Therefore the artifact
+at $h$ remains $b$ with probability $\geq 1 - \epsilon_H$. \qedhere
+\end{proof}
+
+\paragraph{Hash-agnosticism of \src{C}.}
+The proposition is parameterized in $\epsilon_H$ alone; it is not
+specialized to any particular hash function. SHA-1
+($\epsilon_H$ no longer negligible against chosen-prefix
+attacks~\cite{stevens2017sha1,leurent2020sha1chosen}), SHA-256 (current
+default for OCI~\cite{ociimagespec_digest} and Sigstore), and the BLAKE3
+or post-quantum candidates likely to follow are all admitted. Git's
+ongoing migration to SHA-256~\cite{git2020sha256} is therefore
+accommodated within the same proposition by re-instantiating $\epsilon_H$.
+A practical implementation must reject or downgrade trust for stores using
+collision-broken hashes; the formal statement is robust because
+$\epsilon_H$ is exposed as a parameter rather than baked in.
+
+\begin{corollary}[\src{C} as Trust-Anchor-Free]
+\label{cor:c-anchor-free}
+\src{C} is the only source type whose attacker-durability requires no
+external trust anchor. \src{P}, \src{M}, and \src{L} require a trusted
+acquisition act and chain of custody. \src{Q} requires a trusted transmission
+channel and trusted investigator storage. \src{C} requires only the
+collision-resistance of the hash function, which is internal to the
+addressing scheme itself.
+\end{corollary}
+
+\begin{proof}[Proof sketch]
+The durability claims for \src{P}, \src{M}, \src{L} reference an
+acquisition-and-custody process that is external to the bytes themselves:
+without that process, the on-host adversary can mutate the source. The
+durability claim of \src{Q} (Proposition~\ref{prop:q-durability}) explicitly
+references the channel $\chi$ and investigator storage as trust anchors.
+The durability claim of \src{C} (Proposition~\ref{prop:c-durability})
+references only the hash function's collision-resistance, which is a
+property of the addressing scheme. \qedhere
+\end{proof}
+
+\subsection{Hash-Pivot}
+
+The intrinsic durability of \src{C} enables a forensic operation that has
+no analog in the other primitives. The naive definition would take a union
+of query results from heterogeneous stores; this is type-unsound, because
+each store returns metadata under its own schema (a Sigstore Rekor entry
+is not type-equal to an OCI manifest reference, which is not type-equal to
+a git commit reference). We give a schema-conscious definition.
+
+\begin{definition}[Hash-Pivot, schema-conscious]
+\label{def:hash-pivot}
+Let $\mathcal{C} = \{(C_1, \tau_1), (C_2, \tau_2), \ldots, (C_k, \tau_k)\}$
+be a finite collection of content-addressed stores together with their
+result-record \emph{schema tags}: each $\tau_i$ is a type label naming the
+metadata schema that $C_i$ returns (\eg{},
+\texttt{ociManifestRef}, \texttt{rekorEntry}, \texttt{gitCommitRef},
+\texttt{intotoLink}, \texttt{ipfsLink}). Let $M_{\tau_i}$ denote the typed
+record space associated with schema $\tau_i$. The
+\emph{schema-tagged query} is
+\[
+\mathrm{query}(C_i,\,h) \;:\; \{0,1\}^{n} \rightharpoonup \{(b, m, \tau_i)
+\mid b \in \Bstar,\, H(b) = h,\, m \in M_{\tau_i}\}.
+\]
+The \emph{hash-pivot} operation is the typed multiset (disjoint union)
+\[
+\mathrm{H\text{-}Pivot}(h)\;=\;\biguplus_{(C_i,\tau_i) \in \mathcal{C}}
+\mathrm{query}(C_i,\,h),
+\]
+where $\biguplus$ is the multiset disjoint union over the disjoint-tagged
+type $\biguplus_i \big(\Bstar \times M_{\tau_i} \times \{\tau_i\}\big)$.
+\end{definition}
+
+The disjoint union is mandatory: results from different store types are
+\emph{kept distinct} by their schema tag, allowing downstream consumers to
+dispatch on $\tau_i$ and reason about $m$ in its native schema. A common
+implementation pattern projects each tag-segregated component into a
+unifying ``provenance fragment'' record at orchestration time
+(Section~\ref{sec:implementation}), but this projection is application
+choice, not part of the definition.
+
+\smallskip
+The operation is forensically powerful for two reasons. First, the address
+$h$ commutes across stores: the same hash refers to the same content in
+every CAS by C-Intrinsic-Durability. Second, each $C_i$ that returns a
+result contributes a typed provenance fragment (build identity, signing
+identity, commit author, in-toto link), allowing the investigator to
+assemble a chain of provenance from a single starting hash without losing
+schema fidelity. Section~\ref{sec:case2} demonstrates a hash-pivot
+resolving a supply-chain compromise from a suspicious-binary discovery on
+disk.
+
+\subsection{Toward a Completeness Theorem}
+\label{sec:completeness-formal}
+
+A natural question is whether the five primitives are exhaustive. We frame
+the question in two parts: a partial-completeness theorem that we can prove
+under structural assumptions, and an open conjecture that fully would close
+the question.
+
+\begin{theorem}[Partial Completeness over Locally-Computable Oracles]
+\label{thm:partial-complete}
+Let $S = (A, f_{\mathrm{nav}}, f_{\mathrm{parse}})$ be an evidence source
+whose navigation function $f_{\mathrm{nav}}$ is computable by a
+deterministic Turing machine~\cite{sipser2012computation} accessing a
+finite set of oracles, each of which exposes one of the following access
+disciplines: (i) random-access reads against a finite linearly-addressed
+byte array, (ii) lookup against a virtual-to-physical page-table whose
+entries are encoded in a byte array of type (i), (iii) sequential-access
+reads against a linearly ordered cursor stream, (iv) request-response
+dispatch against an external endpoint with input \emph{query expression}
+and output \emph{result-row stream}, or (v) lookup by hash against a
+finite map from $\{0,1\}^n$ to byte arrays. Then $S$'s navigation primitive
+$\pi$ (Definition~\ref{def:nav-primitive}) is equivalent under $\sim$ to
+one of $\pi_{\mathrm{P}}, \pi_{\mathrm{M}}, \pi_{\mathrm{L}}, \pi_{\mathrm{Q}},
+\pi_{\mathrm{C}}$, depending on which oracle dominates the navigation.
+\end{theorem}
+
+\begin{proof}[Proof sketch]
+The five oracle disciplines are constructed precisely to encode the address
+algebra (Definition~\ref{def:addr-algebra}) of, respectively,
+\src{P}, \src{M}, \src{L}, \src{Q}, and \src{C}. A navigation function
+restricted to oracle (i) has address-space algebra equivalent to $A_P$
+under the bijection that identifies linearly-addressable bytes with block
+sequences. Likewise for the other four. A navigation function using
+multiple oracles can be decomposed into a primary oracle (the one whose
+address space dominates the partial-function-composition lattice in
+$\mathbf{PFn}$) and auxiliary oracles; the equivalence class of the
+composition is determined by the primary. Cases (i)-(v) are exhaustive
+under the hypothesis. \qedhere
+\end{proof}
+
+\begin{conjecture}[Full Completeness]
+\label{conj:full-complete}
+Every evidence source admissible to digital forensic practice -- where
+``admissible'' is defined as ``capable of being captured, transmitted, and
+re-examined under chain-of-custody discipline'' -- has navigation primitive
+equivalent under $\sim$ to one of $\pi_{\mathrm{P}}, \pi_{\mathrm{M}},
+\pi_{\mathrm{L}}, \pi_{\mathrm{Q}}, \pi_{\mathrm{C}}$.
+\end{conjecture}
+
+The partial-completeness theorem rules out evidence sources whose
+navigation functions are confined to the five oracle disciplines. The
+remaining gap to full completeness is the question whether forensic
+admissibility forces the oracle restriction; we conjecture that it does,
+but a proof would require a formalization of forensic admissibility that
+we leave to future work. We list illustrative cases and their reductions
+in support of the conjecture.
+
+\paragraph{Network packet captures.} PCAP and PCAP-NG~\cite{pcapng2024}
+present a stream of records keyed by capture timestamp; this reduces to
+\src{L} (oracle (iii)).
+
+\paragraph{Blockchain ledgers.} Each block's address is its hash; references
+between blocks and transactions are hashes; this is \src{C} (oracle (v)),
+with the genesis block as Merkle DAG root.
+
+\paragraph{Database tables.} Static row data on a disk is reached via
+\src{P}; live queries against a running database engine are \src{Q};
+the underlying B-tree pages on storage are \src{P}.
+
+\paragraph{Cloud audit logs.} CloudTrail and equivalent services expose a
+stream of records keyed by event timestamp and pagination cursor; this is
+\src{L}, with the optional \src{Q} layering when the investigator pulls via
+the audit-API rather than from an exported store.
+
+\paragraph{Mobile device extractions.} Decoded backups land on a host
+filesystem (\src{P}) once extracted; live agent queries against an unlocked
+device are \src{Q}.
+
+\paragraph{Stream-processing materialized state.} Continuous-query systems
+(Kafka Streams, Flink) maintain a running state that is neither persisted
+nor produced ad-hoc by an investigator query. We classify these as a
+\src{L}-input, \src{Q}-output composition: the underlying stream is \src{L}
+(oracle (iii)) and the investigator's snapshot of materialized state is
+\src{Q} (oracle (iv)).
+
+\paragraph{Quantum-entangled storage.} Theoretically interesting; not
+currently a practical evidence substrate; the oracle restriction in
+Theorem~\ref{thm:partial-complete} is over deterministic Turing machines
+and would need extension for a formal account.
+
+The remaining open question is whether Conjecture~\ref{conj:full-complete}
+holds against \emph{every} new computing paradigm: a sixth primitive, if
+one exists, would be one whose address-space algebra cannot be simulated
+under any of the five oracle disciplines. We discuss this further in
+Section~\ref{sec:discussion}.

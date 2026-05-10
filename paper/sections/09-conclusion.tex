@@ -1,0 +1,51 @@
+\section{Conclusion}
+\label{sec:conclusion}
+
+We have argued that the architecturally consequential dimension of forensic
+evidence is not what the evidence is, but how it is addressed and
+traversed. We presented a taxonomy of five navigation primitives --
+persistent storage \src{P}, memory \src{M}, log \src{L}, live query
+\src{Q}, and content-addressed \src{C} -- and developed its formal
+consequences. We proved that parsers operating on byte sequences compose
+uniformly with all five primitives (Theorem~\ref{thm:parser-indep}); we
+derived from that theorem a layer-dependency rule that constrains how
+forensic software is to be organized (Theorem~\ref{thm:layer-rule}); we
+formalized attacker-durability and characterized its distinct profiles
+across the primitives (Definition~\ref{def:durable},
+Propositions~\ref{prop:q-durability}~and~\ref{prop:c-durability},
+Corollary~\ref{cor:c-anchor-free}); and we presented Issen, a Rust
+reference implementation in which the layer rules are enforced at the
+crate boundary.
+
+The taxonomy provides the formal basis for a kind of cross-source
+correlation that has been an open challenge since Garfinkel's 2010
+agenda~\cite{garfinkel2010digital}. By distinguishing source types by
+navigation primitive rather than by artifact category, a correlation
+engine can route evidence to a parser-of-record that is independent of
+the source (Theorem~\ref{thm:parser-indep}), can apply source-appropriate
+trust weights (Propositions~\ref{prop:q-durability}~and~\ref{prop:c-durability},
+Corollary~\ref{cor:c-anchor-free}), and can pivot across sources -- in
+particular, can pivot across the cryptographic-hash address space of
+\src{C} (Definition~\ref{def:hash-pivot}) -- in a principled way.
+
+We have made specific architectural commitments: parsers must accept
+byte sequences and must not depend on navigation crates; live-query results
+must be transmitted off-host promptly to acquire durability; content-addressed
+artifacts can be trusted by hash equality without external chain-of-custody
+infrastructure. Each commitment follows from the formal properties; each
+has been instantiated in deployed code; each carries forensic
+consequences that artifact-type taxonomies do not capture.
+
+Several extensions remain. A formal completeness theorem for the five
+primitives is open. The \src{C} implementation in Issen is in development.
+Empirical evaluation across NIST and DFRWS standard datasets is planned.
+We expect future work in cross-source correlation algorithms and in
+adversarial-model parameterization to build on the foundations laid here.
+
+The premise of digital forensics has always been that evidence persists
+even when actors prefer it not to. The five primitives are five distinct
+modes by which that persistence is realized: by writing to disk, by
+residing in memory, by accumulating in logs, by being captured into
+investigator hands, by being identified with an unforgeable hash. Each
+mode has its own properties and its own discipline. The taxonomy is the
+field's formal acknowledgement of that plurality.

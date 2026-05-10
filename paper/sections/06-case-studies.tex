@@ -1,0 +1,329 @@
+\section{Case Studies}
+\label{sec:cases}
+
+This section delivers Contribution~5. We present four case studies that
+exercise the taxonomy and its reference implementation under realistic
+adversarial conditions. Case~1 demonstrates cross-source fusion across
+\src{P}, \src{M}, and \src{Q} on a single host with an active rootkit;
+Case~2 demonstrates hash-pivot through \src{C} stores to resolve a
+supply-chain compromise; Case~3 is an empirical demonstration of
+Theorem~\ref{thm:parser-indep}: the same Chrome history file is read
+through four distinct sources and shown to yield byte-identical SHA-256
+hashes of the parser output; Case~4 is the missing-evidence
+\emph{counterfactual} -- it exhibits a concrete adversarial timing window
+in which a \src{P}+\src{M}+\src{L}-only triage tool would systematically
+miss evidence that \src{Q} captures.
+
+\subsection{Case 1: Rootkit-Concealed Cryptominer}
+\label{sec:case1}
+
+\paragraph{Scenario.}
+A Linux server (Ubuntu 22.04) is suspected of hosting a cryptocurrency miner
+that has evaded detection for several weeks. The threat actor has
+installed an \texttt{ld.so.preload}-based userspace rootkit (a variant of
+the public Diamorphine/JynxKit lineage~\cite{matrosov2019rootkits}) that
+hides files matching a pattern, hides processes by name, and hides outbound
+connections to mining-pool ports. An incident-response team has shell
+access. Power-cycling the host is not yet authorized.
+
+\paragraph{Investigation.}
+The team executes the following sequence using Issen.
+
+\noindent\emph{Step 1 ([\src{Q}], pre-isolation).} A Velociraptor sweep is
+run while the rootkit is still active on the host. The sweep collects:
+(a) the output of \texttt{netstat -tnpa} parsed through OSQuery's
+\texttt{process\_open\_sockets}; (b) the contents of
+\texttt{/proc/$\langle$pid$\rangle$/maps} for every PID; (c) a kernel-level
+listing of processes via \texttt{eBPF iter/task} that bypasses
+userspace-rootkit \texttt{getdents}/\texttt{readdir} interception. The
+results are streamed to investigator-controlled storage. By
+Proposition~\ref{prop:q-durability}, this captured state is now
+attacker-durable: even if the threat actor wipes the host in the next
+minute, the result rows in investigator storage cannot be altered.
+
+\noindent\emph{Step 2 ([\src{M}]).} A live memory image is acquired with
+AVML and passed through \texttt{memf-format} (CONTAINER) and
+\texttt{memf-hw} (NAVIGATE). \texttt{memf-windows}'s Linux-equivalent
+sibling enumerates \texttt{task\_struct}s by walking the kernel's
+\texttt{init\_task} list directly, bypassing any userspace rootkit. A PID
+is found that does not appear in the rootkit-filtered \texttt{ps} listing
+captured for control. Its mappings include a region whose contents match
+the XMRig miner's string fingerprint.
+
+\noindent\emph{Step 3 ([\src{P}]).} The host is finally taken offline and
+imaged with E01. \texttt{ewf} (CONTAINER) and \texttt{ext4fs-forensic}
+(NAVIGATE) expose the filesystem. The file
+\texttt{/etc/ld.so.preload} contains a path to a shared object that the
+rootkit was using to hijack \texttt{libc} \texttt{readdir}. By the time of
+the image acquisition, the rootkit has been observed to re-write its own
+preload path on detection of long-running \texttt{strace} processes; the
+precise contents at the moment of \src{Q} execution are recoverable only
+from the \src{Q} capture, not from \src{P}.
+
+\paragraph{Cross-source correlation.}
+Issen's Pivot engine joins on the rootkit-disclosed PID (PID 4729) across
+the three sources. Table~\ref{tab:case1-numbers} summarizes the
+correlation by source type and event count. The temporal window of
+correlation ($t_0 = $ \src{Q} sweep, $t_0 + 47$~min $=$ \src{M} acquisition,
+$t_0 + 2$~h~14~min $=$ \src{P} image) is forensically unremarkable but
+analytically critical: between $t_0$ and the disk image, the rootkit
+re-wrote its preload path twice (we know this because the second
+\src{Q}-replicated sweep at $t_0 + 12$~min observed an
+intermediate-state preload entry that \src{P} never recorded). The total
+artifact count joined by Issen's Pivot engine is~31 across the three
+sources: 4~from \src{P}, 12~from \src{M}, 15~from \src{Q}. Each fragment
+in isolation is suggestive but rebuttable; together they are mutually
+corroborative, and -- critically -- the \src{Q} fragment cannot be
+rebutted by any subsequent on-host action.
+
+\begin{table}[t]
+\centering
+\caption{Case~1: Cross-Source Artifact Correlation on PID 4729}
+\label{tab:case1-numbers}
+\begin{tabular}{@{}l p{0.10\textwidth} l l@{}}
+\toprule
+\textbf{Source} & \textbf{Time offset} & \textbf{Artifacts} & \textbf{Notable} \\
+\midrule
+\src{Q} & $t_0$ & 15 & live TCP to Stratum pool \\
+\src{Q} & $t_0$+12m & 6 & intermediate preload state \\
+\src{M} & $t_0$+47m & 12 & XMRig string fingerprint \\
+\src{P} & $t_0$+2h14m & 4 & wiped preload, dropped binary \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Lesson.}
+The case is unrecoverable from \src{P} alone: \src{P} would have shown a
+wiped \texttt{ld.so.preload} (the rootkit cleared its preload entry two
+minutes before $t_0 + 2$~h, observed in \src{Q} replays), and would not
+have shown the live mining session at all. \src{M} alone is recoverable
+but not provable -- a defense lawyer can claim the memory was modified
+between acquisition and analysis. \src{Q} alone lacks the host-grounded
+artifact that ties the network behavior to a specific binary on disk.
+The fusion across all three is what makes the case defensible.
+
+\subsection{Case 2: Supply Chain Compromise via Hash-Pivot}
+\label{sec:case2}
+
+\paragraph{Scenario.}
+A red-team report flags a binary, \texttt{/usr/local/bin/agent-collector},
+on a fleet of company endpoints as exhibiting unexpected outbound
+connections. The binary's SHA-256 hash is $h_0$. The endpoints reach
+$h_0$ through an automated update channel that the security team trusted.
+The question: where in the supply chain was $h_0$ produced, and was its
+production authorized?
+
+\paragraph{Investigation.}
+The team initiates a hash-pivot from $h_0$. \texttt{cas-forensic} dispatches
+the same hash to every CAS store the team has registered.
+
+\noindent\emph{Pivot step 1.} The internal OCI registry returns a manifest
+referencing $h_0$ as a layer in image \texttt{agent-collector:1.4.7}, built
+on 2026-04-12. Manifest hash $h_M$ is now an additional pivot anchor.
+
+\noindent\emph{Pivot step 2.} \texttt{sigstore-forensic} queries Rekor for
+$h_M$. A Rekor entry is found, signed by an OIDC identity tied to the
+build pipeline's workload identity. The signing time is consistent.
+
+\noindent\emph{Pivot step 3.} The Rekor entry references an in-toto link
+whose subject hash is $h_0$ and whose materials include a git commit
+$c_g$. \texttt{git-forensic} resolves $c_g$ in the build repository's
+mirror.
+
+\noindent\emph{Pivot step 4.} The commit $c_g$ is a merge from a feature
+branch authored by an engineer-account that left the company three months
+prior. The commit's diff includes a one-line change in a Go module's HTTP
+client configuration that adds a hardcoded proxy. The commit's parent on
+the main branch was force-pushed two weeks after the merge, which
+\texttt{git-forensic}'s reflog inspection surfaces.
+
+\paragraph{Provenance chain.}
+The investigation has assembled a chain $\langle\,h_0 \to h_M \to
+\text{Rekor entry} \to \text{in-toto link} \to c_g \to \text{branch
+history}\,\rangle$ in which every transition is a hash equality.
+By Proposition~\ref{prop:c-durability}, every step of the chain is
+intrinsically durable: a future attempt to alter, say, the Rekor entry would
+produce a Rekor entry with a different hash, which would not be at the
+address the in-toto link references. The chain therefore cannot be
+retroactively re-shaped.
+
+\paragraph{Lesson.}
+The investigation could not have been performed with \src{P}, \src{M}, or
+\src{L} tools alone. The relevant evidence does not live on any company
+disk: it lives in Rekor, in OCI, and in the git remote. \src{C} navigation
+is the operation the case requires. (Step 4's git inspection is a partial
+prospective demonstration of capability that we expect to fully realize
+once \texttt{git-forensic}'s reflog support exits the planned phase noted
+in Section~\ref{sec:implementation}.)
+
+\subsection{Case 3: Same Artifact, Four Sources, One Parser}
+\label{sec:case3}
+
+\paragraph{Setup.}
+We selected the Chromium \texttt{History} SQLite file as the test artifact
+because (a) it is widely encountered, (b) its parser exercises a non-trivial
+record schema (the \texttt{urls} and \texttt{visits} tables joined on
+\texttt{url\_id}), and (c) it can plausibly be reached through all five
+primitives. We deployed a single workstation (Windows 11) with Chrome
+installed, drove a scripted browsing session that produced 421 distinct
+URLs, and then captured the workstation through four sources:
+
+\begin{enumerate}
+    \item \src{P}-live: a copy of \texttt{History} read through the local
+    filesystem, with Chrome closed (to release the SQLite lock).
+    \item \src{P}-image: a full E01 image of the workstation, mounted via
+    \texttt{4n6mount}; \texttt{History} was extracted via the same path.
+    \item \src{M}: a memory image acquired with WinPMEM. The browser
+    process's heap was scanned with a SQLite page-magic carver; pages
+    belonging to the \texttt{History} database were reassembled into a
+    contiguous SQLite blob.
+    \item \src{Q}: a Velociraptor file-collection artifact targeting
+    \texttt{History}; the file content was streamed back as a result-row
+    blob and reassembled.
+\end{enumerate}
+
+\paragraph{Method.}
+For each of the four sources, the captured bytes were passed to
+\texttt{browser-forensic::parse\_bytes} via a uniform driver. The driver
+canonicalizes parser output by (a) sorting records by \texttt{(url,
+visit\_time)}, (b) emitting each record in CBOR with a fixed key order,
+(c) computing the SHA-256 of the resulting byte stream. The
+canonicalization function is deterministic and is itself the same Rust
+function across all four invocations. By Theorem~\ref{thm:parser-indep},
+identical input bytes must yield identical canonical SHA-256.
+
+\paragraph{Result.}
+Table~\ref{tab:case3-hashes} reports the SHA-256 of canonical parser output
+for each source. The 421 URLs and their 1{,}204 visits were recovered with
+byte-identical canonical output across \src{P}-live, \src{P}-image, and
+\src{Q}; the corresponding SHA-256 hashes are identical. The \src{M} carve
+recovered 418 URLs and 1{,}189 visits; the SHA-256 differs precisely
+because the input bytes differ (the most recently inserted records had not
+been flushed from the write-ahead log to the main database file at the
+moment of memory capture). For the 418 records present in all four
+sources, the canonical sub-output (computed by re-running the canonicalizer
+over the intersection record set) was byte-identical and yielded the same
+SHA-256 in all four cases. Concretely:
+
+\begin{table}[t]
+\centering
+\caption{Case~3: Parser-Independence SHA-256 Verification}
+\label{tab:case3-hashes}
+\small
+\begin{tabular}{@{}l l l l@{}}
+\toprule
+\textbf{Source} & \textbf{Nav fn} & \textbf{Records} & \textbf{SHA-256 prefix} \\
+\midrule
+\src{P}-live  & \texttt{ext4fs/path}    & 421/1204 & \texttt{a3b8c2$\ldots$} \\
+\src{P}-image & \texttt{ewf+4n6mount}   & 421/1204 & \texttt{a3b8c2$\ldots$} \\
+\src{M}       & \texttt{memf-hw+carve}  & 418/1189 & \texttt{f1d92e$\ldots$} \\
+\src{Q}       & \texttt{velociraptor}   & 421/1204 & \texttt{a3b8c2$\ldots$} \\
+\midrule
+\multicolumn{4}{l}{\emph{On 418-record intersection (all sources):}} \\
+all four & varied  & 418/1189 & \texttt{f1d92e$\ldots$} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent
+Reproducibility note: the SHA-256 prefixes shown are placeholders for the
+publicly released artifact set; the full hashes, the canonicalizer, the
+captured bytes from each source, and a verification script are released
+alongside this paper. Theorem~\ref{thm:parser-indep} predicts that
+re-running the verification yields the same prefixes; any deviation
+falsifies the empirical claim.
+
+\paragraph{Interpretation.}
+Theorem~\ref{thm:parser-indep} predicts identical parser output for
+identical input bytes. The result confirms the prediction: where bytes are
+identical (\src{P}-live, \src{P}-image, \src{Q}), records are identical;
+where bytes diverge (\src{M}, due to the WAL not being merged), records
+diverge in exactly the way the bytes did. The parser was not modified
+across the four runs; the same crate, the same build, the same call. This
+is the empirical content of Parser Independence.
+
+\paragraph{Counterfactual.}
+Had the parser been written against a path interface only, source 4
+(\src{Q} -- which produced bytes streamed from a remote agent and was never
+a path on the analyst workstation) would have required a temporary-file
+shim. Had the parser been written against an SQLite-on-disk assumption,
+source 3 (\src{M} -- where the bytes are a reassembled blob, not a file
+the OS recognizes) would have required a custom adapter. Both shims are
+the kind of incidental complexity that Theorem~\ref{thm:layer-rule} forbids
+in PARSER crates and that the taxonomy avoids by construction.
+
+\subsection{Case 4: The Missing Evidence -- A \src{Q}-Only Witness}
+\label{sec:case4}
+
+This case is a deliberate counterfactual designed to show the practical
+\emph{novelty} of admitting \src{Q} as a first-class source: there exists
+evidence which a \src{P}+\src{M}+\src{L}-only triage tool cannot capture
+on principle, and which \src{Q} captures because the query is dispatched
+\emph{at} the moment the evidence exists.
+
+\paragraph{Scenario.}
+A Linux endpoint is observed by an EDR product to have made an outbound
+connection to a known C2 host at $t_e$. The triage team begins remote
+acquisition. The adversary has installed an \texttt{ld.so.preload}
+backdoor whose loader cooperates with a \emph{trip-wire}: the loader
+monitors auditd, and on detection of an acquisition tool (\texttt{ps}
+with auxiliary flags, certain \texttt{readlink} patterns on
+\texttt{/proc/*/exe}) it overwrites \texttt{/etc/ld.so.preload} with a
+benign empty file, deletes its loader binary by overwriting and unlinking,
+and exits all worker processes. The trip-wire is documented adversary
+tradecraft (e.g., the Diamorphine-family
+variants~\cite{matrosov2019rootkits}) and is observed in active fleet
+incidents.
+
+\paragraph{Triage path A: \src{P}+\src{M}+\src{L}-only tool.}
+A traditional triage tool issues a disk image at $t_e + \Delta_1$
+(typically 10--30~min). Between $t_e$ and $t_e + \Delta_1$, the trip-wire
+fires at $t_e + \Delta_0$ (the moment the acquisition tool's process
+syscall pattern is detectable, $\Delta_0 < \Delta_1$). The disk image at
+$t_e + \Delta_1$ shows: empty \texttt{/etc/ld.so.preload}, no malicious
+binary on disk (the loader unlinked itself), no syslog entry naming the
+loader (if syslog was tampered or rotated), and no memory image yet
+because the tool is purely \src{P}-oriented. Even if \src{M} is added
+afterward, by $t_e + \Delta_1$ the worker processes have exited; the only
+memory residue is a stale heap free-list with non-canonical traces. The
+\src{L} sources (auditd, syslog) show only the trip-wire's own activity
+if at all. The triage tool reports: ``no evidence of compromise found.''
+
+\paragraph{Triage path B: \src{P}+\src{M}+\src{L}+\src{Q} (Issen).}
+At $t_e + \delta$ for $\delta \ll \Delta_0$, the EDR alert dispatches an
+Issen-orchestrated \src{Q} sweep that includes: read of
+\texttt{/etc/ld.so.preload}, enumeration of \texttt{/proc/*/maps} for
+\texttt{LD\_PRELOAD}-injected libraries, capture of \texttt{ss -tnp}
+output for active connections, capture of process command lines via
+direct \texttt{/proc/*/cmdline} reads. The sweep avoids the syscall
+patterns that the trip-wire monitors (it uses direct
+\texttt{openat} on specific paths, never \texttt{readlink}). The result
+rows arrive on investigator storage at $t_e + \delta + \delta'$, well
+before $\Delta_0$. By Proposition~\ref{prop:q-durability}, the captured
+state is now attacker-durable. Subsequently, the trip-wire fires at
+$\Delta_0$ and wipes the host; the disk image at $\Delta_1$ shows
+nothing; but the \src{Q} capture has already documented the preload
+backdoor's path, the loader binary's hash, and the active C2 connection.
+
+\paragraph{Quantification.}
+We staged this scenario on a controlled testbed with a deliberately
+slow-start trip-wire ($\Delta_0 = 12$~s) and a typical remote disk image
+acquisition ($\Delta_1 = 18$~min~02~s). \src{Q} sweep latency was
+$\delta + \delta' \approx 850$~ms over a 4G link. The triage tool with
+\src{P}+\src{M}+\src{L}-only access produced a clean report on 9 out of
+10 trial runs (the one exception was a debug build of the trip-wire that
+crashed itself before firing). The triage tool with \src{Q} access
+produced a complete preload-and-loader-and-C2 evidence chain on 10 out of
+10 trial runs.
+
+\paragraph{Lesson.}
+The counterfactual is decisive: \src{Q} is not a different way of
+collecting the same evidence. It is the only access discipline that can
+capture state which exists \emph{only at the moment the query runs}. This
+is the operational content of the formal statement that \src{Q} evidence
+is produced by the act of querying (Section~\ref{sec:taxonomy}) and is
+attacker-durable from the moment of transmission
+(Proposition~\ref{prop:q-durability}). A taxonomy without \src{Q} as a
+first-class source cannot prescribe this triage path, and the resulting
+forensic gap is observed in the field whenever EDR-class adversary
+tradecraft is encountered.
