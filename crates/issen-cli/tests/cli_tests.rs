@@ -3,7 +3,7 @@ use predicates::prelude::*;
 use tempfile::TempDir;
 
 fn issen_cmd() -> Command {
-    Command::cargo_bin("rt").expect("binary rt should exist")
+    Command::cargo_bin("issen").expect("binary issen should exist")
 }
 
 #[test]
@@ -36,7 +36,7 @@ fn test_version_flag() {
         .arg("--version")
         .assert()
         .success()
-        .stdout(predicate::str::contains("rt"));
+        .stdout(predicate::str::contains("issen"));
 }
 
 #[test]

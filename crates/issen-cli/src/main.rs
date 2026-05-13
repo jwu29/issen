@@ -14,7 +14,7 @@ extern crate issen_parser_velociraptor;
 
 /// Issen — fast forensic triage for incident responders.
 #[derive(Parser, Debug)]
-#[command(name = "rt", version, about)]
+#[command(name = "issen", version, about)]
 pub struct Cli {
     /// Enable verbose/debug logging.
     #[arg(short, long, global = true)]

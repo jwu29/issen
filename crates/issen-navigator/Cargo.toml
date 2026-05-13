@@ -8,7 +8,7 @@ description = "MFT-based forensic file navigator for Issen"
 repository.workspace = true
 
 [lib]
-name = "rt_navigator"
+name = "issen_navigator"
 path = "src/lib.rs"
 
 [[bin]]
