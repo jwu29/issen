@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg viewBox="0 0 1120 438" xmlns="http://www.w3.org/2000/svg"
-     width="1120" height="438">
+<svg viewBox="0 0 1120 476" xmlns="http://www.w3.org/2000/svg"
+     width="1120" height="476">
   <defs>
     <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
       <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
@@ -13,8 +13,8 @@
     </marker>
   </defs>
 
-  <rect width="1120" height="438" fill="#020617"/>
-  <rect width="1120" height="438" fill="url(#grid)"/>
+  <rect width="1120" height="476" fill="#020617"/>
+  <rect width="1120" height="476" fill="url(#grid)"/>
 
   <!-- ════ ARROWS (behind all boxes) ════ -->
 
@@ -45,8 +45,8 @@
   <line x1="122" y1="274" x2="122" y2="280" stroke="#64748b" stroke-width="1.5" marker-end="url(#arr)"/>
   <line x1="340" y1="274" x2="340" y2="280" stroke="#64748b" stroke-width="1.5" marker-end="url(#arr)"/>
 
-  <!-- [H] → KNOWLEDGE -->
-  <line x1="560" y1="332" x2="560" y2="338" stroke="#fb923c" stroke-width="1.5" marker-end="url(#arr-orange)"/>
+  <!-- [H] → KNOWLEDGE (forensicnomicon) -->
+  <line x1="560" y1="390" x2="560" y2="396" stroke="#fb923c" stroke-width="1.5" marker-end="url(#arr-orange)"/>
 
   <!-- ════ ORCHESTRATION ════ -->
 
@@ -150,55 +150,60 @@
   <text x="776" y="248" fill="#475569" font-size="9"  font-style="italic" text-anchor="middle">no outer container</text>
   <text x="776" y="264" fill="#475569" font-size="7"  text-anchor="middle">[L] [Q] [C] — LOG FORMAT / QUERY ENGINE / GRAPH NAV are the entry points</text>
 
-  <!-- ════ [H] STATE-HISTORY STRIP  y=282, h=50, bottom=332 ════ -->
+  <!-- ════ [H] STATE-HISTORY STRIP  y=282, h=108, bottom=390 ════ -->
+  <!--      Outer strip contains both the implementations and state-history-forensic (the trait defs) -->
 
-  <rect x="12" y="282" width="1096" height="50" rx="6" fill="#0f172a"/>
-  <rect x="12" y="282" width="1096" height="50" rx="6"
+  <rect x="12" y="282" width="1096" height="108" rx="6" fill="#0f172a"/>
+  <rect x="12" y="282" width="1096" height="108" rx="6"
         fill="rgba(251,146,60,0.12)" stroke="#fb923c" stroke-width="1.5" stroke-dasharray="5,3"/>
   <text x="20" y="280" fill="#fb923c" font-size="8" font-weight="600">[H] STATE-HISTORY FUNCTOR — cross-cutting: not a 6th primitive, but a time-indexed lift of each existing one</text>
 
+  <!-- Implementations row -->
   <text x="560" y="304" fill="#fb923c" font-size="11" font-weight="600" text-anchor="middle">[P^H]  ·  [M^H]  ·  [L^H]  ·  [Q^H]  ·  [C^H] ≅ [C]</text>
-  <text x="560" y="322" fill="#64748b" font-size="8"  text-anchor="middle">vss-history · mem-history · log-history · query-history · CAS is the fixed point</text>
+  <text x="560" y="320" fill="#64748b" font-size="8"  text-anchor="middle">vss-history · mem-history · log-history · query-history · CAS is the fixed point</text>
 
-  <!-- ════ KNOWLEDGE  y=340, h=54, bottom=394 ════ -->
+  <!-- Separator -->
+  <line x1="24" y1="332" x2="1096" y2="332" stroke="#fb923c" stroke-width="0.5" opacity="0.4"/>
 
-  <!-- forensicnomicon -->
-  <rect x="12"  y="340" width="544" height="54" rx="6" fill="#0f172a"/>
-  <rect x="12"  y="340" width="544" height="54" rx="6"
+  <!-- state-history-forensic sub-box (trait definitions that all [H] implementations depend on) -->
+  <rect x="18" y="338" width="1090" height="44" rx="5" fill="#0f172a"/>
+  <rect x="18" y="338" width="1090" height="44" rx="5"
         fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1.5"/>
-  <text x="284" y="359" fill="white"   font-size="11" font-weight="600" text-anchor="middle">forensicnomicon</text>
-  <text x="284" y="374" fill="#fbbf24" font-size="8"  text-anchor="middle">magic bytes · format offsets · field schemas</text>
-  <text x="284" y="387" fill="#64748b" font-size="7"  text-anchor="middle">zero-dep · zero-I/O · compile-time format constants for all layers above</text>
+  <text x="563" y="356" fill="white"   font-size="11" font-weight="600" text-anchor="middle">state-history-forensic</text>
+  <text x="563" y="370" fill="#fbbf24" font-size="8"  text-anchor="middle">HistoricalSource · TemporalCohort&lt;H&gt; · ClockProvenance · ArtifactRef · EpochTag · MaterializationSafety</text>
+  <text x="563" y="378" fill="#64748b" font-size="7"  text-anchor="middle">zero-dep · KNOWLEDGE-tier trait/type definitions shared by all [H] implementations above</text>
 
-  <!-- state-history-forensic -->
-  <rect x="564" y="340" width="544" height="54" rx="6" fill="#0f172a"/>
-  <rect x="564" y="340" width="544" height="54" rx="6"
+  <!-- ════ KNOWLEDGE  y=398, h=44, bottom=442 ════ -->
+  <!--      Only forensicnomicon here — state-history-forensic lives inside [H] above -->
+
+  <rect x="12"  y="398" width="1096" height="44" rx="6" fill="#0f172a"/>
+  <rect x="12"  y="398" width="1096" height="44" rx="6"
         fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1.5"/>
-  <text x="836" y="359" fill="white"   font-size="11" font-weight="600" text-anchor="middle">state-history-forensic</text>
-  <text x="836" y="374" fill="#fbbf24" font-size="8"  text-anchor="middle">HistoricalSource · TemporalCohort&lt;H&gt; · ClockProvenance · ArtifactRef</text>
-  <text x="836" y="387" fill="#64748b" font-size="7"  text-anchor="middle">zero-dep · type/trait definitions shared by all [H] implementations</text>
+  <text x="20" y="396" fill="#fbbf24" font-size="8" font-weight="600">KNOWLEDGE</text>
+  <text x="560" y="417" fill="white"   font-size="11" font-weight="600" text-anchor="middle">forensicnomicon</text>
+  <text x="560" y="431" fill="#fbbf24" font-size="8"  text-anchor="middle">magic bytes · format offsets · ESE / EVTX / NTFS field schemas — zero-dep · zero-I/O · compile-time format constants</text>
 
-  <!-- ════ LEGEND  (below KNOWLEDGE which ends at y=394) ════ -->
+  <!-- ════ LEGEND  (below KNOWLEDGE which ends at y=442) ════ -->
 
-  <line x1="12" y1="406" x2="1108" y2="406" stroke="#1e293b" stroke-width="1"/>
-  <text x="12" y="420" fill="#64748b" font-size="8">LEGEND:</text>
+  <line x1="12" y1="454" x2="1108" y2="454" stroke="#1e293b" stroke-width="1"/>
+  <text x="12" y="468" fill="#64748b" font-size="8">LEGEND:</text>
 
-  <rect x="74"  y="411" width="11" height="11" rx="2" fill="rgba(136,19,55,0.4)"  stroke="#fb7185"  stroke-width="1"/>
-  <text x="91"  y="420" fill="#94a3b8" font-size="8">Orchestration</text>
+  <rect x="74"  y="459" width="11" height="11" rx="2" fill="rgba(136,19,55,0.4)"  stroke="#fb7185"  stroke-width="1"/>
+  <text x="91"  y="468" fill="#94a3b8" font-size="8">Orchestration</text>
 
-  <rect x="196" y="411" width="11" height="11" rx="2" fill="rgba(76,29,149,0.4)"  stroke="#a78bfa"  stroke-width="1"/>
-  <text x="213" y="420" fill="#94a3b8" font-size="8">Parser / OS Structure</text>
+  <rect x="196" y="459" width="11" height="11" rx="2" fill="rgba(76,29,149,0.4)"  stroke="#a78bfa"  stroke-width="1"/>
+  <text x="213" y="468" fill="#94a3b8" font-size="8">Parser / OS Structure</text>
 
-  <rect x="370" y="411" width="11" height="11" rx="2" fill="rgba(6,78,59,0.4)"    stroke="#34d399"  stroke-width="1"/>
-  <text x="387" y="420" fill="#94a3b8" font-size="8">Filesystem / Paging</text>
+  <rect x="370" y="459" width="11" height="11" rx="2" fill="rgba(6,78,59,0.4)"    stroke="#34d399"  stroke-width="1"/>
+  <text x="387" y="468" fill="#94a3b8" font-size="8">Filesystem / Paging</text>
 
-  <rect x="538" y="411" width="11" height="11" rx="2" fill="rgba(251,146,60,0.3)" stroke="#fb923c"  stroke-width="1"/>
-  <text x="555" y="420" fill="#94a3b8" font-size="8">Log Format / [H] State-History</text>
+  <rect x="538" y="459" width="11" height="11" rx="2" fill="rgba(251,146,60,0.3)" stroke="#fb923c"  stroke-width="1"/>
+  <text x="555" y="468" fill="#94a3b8" font-size="8">Log Format / [H] State-History</text>
 
-  <rect x="738" y="411" width="11" height="11" rx="2" fill="rgba(8,51,68,0.4)"    stroke="#22d3ee"  stroke-width="1"/>
-  <text x="755" y="420" fill="#94a3b8" font-size="8">Query Engine / Graph Nav</text>
+  <rect x="738" y="459" width="11" height="11" rx="2" fill="rgba(8,51,68,0.4)"    stroke="#22d3ee"  stroke-width="1"/>
+  <text x="755" y="468" fill="#94a3b8" font-size="8">Query Engine / Graph Nav</text>
 
-  <rect x="912" y="411" width="11" height="11" rx="2" fill="rgba(120,53,15,0.3)"  stroke="#fbbf24"  stroke-width="1"/>
-  <text x="929" y="420" fill="#94a3b8" font-size="8">Knowledge (zero-dep)</text>
+  <rect x="912" y="459" width="11" height="11" rx="2" fill="rgba(120,53,15,0.3)"  stroke="#fbbf24"  stroke-width="1"/>
+  <text x="929" y="468" fill="#94a3b8" font-size="8">Knowledge (zero-dep)</text>
 
 </svg>
