@@ -43,7 +43,7 @@
     <div class="pulse-dot"></div>
     <h1>Issen — System Architecture</h1>
   </div>
-  <p class="subtitle">5 navigation primitives &nbsp;·&nbsp; layered forensic stack &nbsp;·&nbsp; [H] state-history functor</p>
+  <p class="subtitle">5 navigation primitives &nbsp;·&nbsp; layered forensic stack &nbsp;·&nbsp; history layer</p>
 </div>
 
 <div class="diagram-card">
@@ -63,7 +63,7 @@
     legend sep:   y=544
     legend:       y=557
 -->
-<svg viewBox="0 0 1120 570" xmlns="http://www.w3.org/2000/svg"
+<svg viewBox="-20 0 1140 570" xmlns="http://www.w3.org/2000/svg"
      style="width:100%;height:auto;font-family:'Inter',system-ui,sans-serif;">
   <defs>
     <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
@@ -77,8 +77,15 @@
     </marker>
   </defs>
 
-  <rect width="1120" height="570" fill="#020617"/>
-  <rect width="1120" height="570" fill="url(#grid)"/>
+  <rect x="-20" width="1140" height="570" fill="#020617"/>
+  <rect x="-20" width="1140" height="570" fill="url(#grid)"/>
+
+  <!-- INGESTION LAYER — left-side bracket and label -->
+  <line x1="-14" y1="112" x2="-14" y2="320" stroke="#334155" stroke-width="0.75"/>
+  <line x1="-14" y1="112" x2="-8"  y2="112" stroke="#334155" stroke-width="0.75"/>
+  <line x1="-14" y1="320" x2="-8"  y2="320" stroke="#334155" stroke-width="0.75"/>
+  <text transform="rotate(-90, -17, 216)" x="-17" y="216"
+        fill="#64748b" font-size="8" font-weight="500" text-anchor="middle" letter-spacing="0.5">INGESTION LAYER</text>
 
   <!-- ════ ARROWS (drawn first, behind all boxes) ════ -->
 
@@ -217,7 +224,7 @@
   <rect x="12" y="348" width="1096" height="112" rx="8" fill="#0f172a"/>
   <rect x="12" y="348" width="1096" height="112" rx="8"
         fill="rgba(251,146,60,0.1)" stroke="#fb923c" stroke-width="1.5" stroke-dasharray="6,3"/>
-  <text x="20" y="346" fill="#fb923c" font-size="9" font-weight="600" letter-spacing="0.5">[H] STATE-HISTORY FUNCTOR — cross-cutting: a time-indexed lift of each primitive</text>
+  <text x="20" y="346" fill="#fb923c" font-size="9" font-weight="600" letter-spacing="0.5">HISTORY LAYER — [H] cross-cutting functor: a time-indexed lift of each primitive</text>
 
   <!-- Implementations -->
   <text x="560" y="372" fill="#fb923c" font-size="13" font-weight="600" text-anchor="middle">[P^H]  ·  [M^H]  ·  [L^H]  ·  [Q^H]  ·  [C^H] ≅ [C]</text>
@@ -256,7 +263,7 @@
   <text x="337" y="561" fill="#64748b" font-size="9">Filesystem / Paging</text>
 
   <rect x="484" y="552" width="11" height="11" rx="2" fill="rgba(251,146,60,0.3)" stroke="#fb923c"  stroke-width="1"/>
-  <text x="501" y="561" fill="#64748b" font-size="9">Log Format / [H]</text>
+  <text x="501" y="561" fill="#64748b" font-size="9">Log Format / History</text>
 
   <rect x="626" y="552" width="11" height="11" rx="2" fill="rgba(8,51,68,0.4)"    stroke="#22d3ee"  stroke-width="1"/>
   <text x="643" y="561" fill="#64748b" font-size="9">Query Engine / Graph Nav</text>
@@ -287,7 +294,7 @@
   <div class="card">
     <div class="card-header">
       <div class="card-dot dot-violet"></div>
-      <h3>[H] State-History Functor</h3>
+      <h3>History Layer</h3>
     </div>
     <ul>
       <li>• Cross-cutting — not a 6th primitive</li>
