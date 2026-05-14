@@ -36,41 +36,13 @@ A rootkit hiding a crypto miner behind an SSH tunnel. Found automatically. Zero 
 
 Issen ingests evidence from five independent source types, then correlates across all of them:
 
-```mermaid
-flowchart TD
-    K["forensicnomicon · KNOWLEDGE\nzero-dep compile-time format constants"]
+<a href="https://securityronin.github.io/issen/architecture-diagram.html">
+  <img src="assets/architecture.png"
+       alt="Issen architecture diagram — 5 navigation primitives with PARSER, NAVIGATION, CONTAINER, [H] State-History, and KNOWLEDGE layers"
+       width="100%"/>
+</a>
 
-    subgraph P["[P] Persistent Storage · name → inode → block"]
-        P1["ewf\nCONTAINER"] --> P2["ext4fs-forensic\nFILESYSTEM"] --> P3["browser-forensic · srum-forensic · mft\nPARSER"]
-    end
-
-    subgraph M["[M] Memory · PID → EPROCESS → VA → PA"]
-        M1["memf-format\nCONTAINER"] --> M2["memf-hw · memf-windows\nPAGING + OS STRUCTURE"] --> M3["memf-strings · memf-carve\nPARSER"]
-    end
-
-    subgraph L["[L] Log · timestamp → record → field"]
-        L1["winevt-forensic · journal-forensic\nLOG FORMAT + PARSER"]
-    end
-
-    subgraph Q["[Q] Live Query · (endpoint, query, cursor) → rows"]
-        Q1["live system\nQUERY ENDPOINT"] --> Q2["issen-remote-access · velociraptor-parser\nQUERY ENGINE + PARSER"]
-    end
-
-    subgraph C["[C] Content-Addressed · hash → blob → content graph"]
-        C1["git · OCI registry · IPFS\nCAS STORE"] --> C2["cas-forensic · git-forensic\nGRAPH NAVIGATION + PARSER"]
-    end
-
-    O["Issen · ORCHESTRATION\nTimelineEvent · issen-correlation · forensic-pivot"]
-
-    K --> P & M & L & Q & C
-    P3 --> O
-    M3 --> O
-    L1 --> O
-    Q2 --> O
-    C2 --> O
-```
-
-Open [architecture.html](architecture.html) in a browser for the full interactive diagram.
+*Click the diagram to open the [full interactive version](https://securityronin.github.io/issen/architecture-diagram.html).*
 
 - **Ingests** UAC live response collections, Velociraptor query results, EVTX logs, memory dumps, git repositories, and OCI registries — simultaneously.
 - **Correlates** evidence across all five source types using the Pivot engine: a network connection isn't a finding on its own; combined with a hidden PID, a loaded rootkit library, and a supply-chain hash match, it is.
