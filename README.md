@@ -1,6 +1,15 @@
-# Issen
+<p align="center">
+  <img src="assets/issen-banner.png" alt="Issen — fast forensic triage for incident responders" width="640" />
+</p>
 
-[![Stars](https://img.shields.io/github/stars/SecurityRonin/issen?style=flat-square)](https://github.com/SecurityRonin/issen/stargazers) [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE) [![CI](https://github.com/SecurityRonin/issen/actions/workflows/ci.yml/badge.svg)](https://github.com/SecurityRonin/issen/actions/workflows/ci.yml) [![Rust 1.80+](https://img.shields.io/badge/rust-1.80%2B-orange.svg)](https://www.rust-lang.org) [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-blue.svg)](#install) [![Sponsor](https://img.shields.io/badge/sponsor-h4x0r-ff69b4.svg?logo=github-sponsors)](https://github.com/sponsors/h4x0r)
+<p align="center">
+  <a href="https://github.com/SecurityRonin/issen/stargazers"><img src="https://img.shields.io/github/stars/SecurityRonin/issen?style=flat-square" alt="Stars"/></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License"/></a>
+  <a href="https://github.com/SecurityRonin/issen/actions/workflows/ci.yml"><img src="https://github.com/SecurityRonin/issen/actions/workflows/ci.yml/badge.svg" alt="CI"/></a>
+  <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/rust-1.80%2B-orange.svg" alt="Rust 1.80+"/></a>
+  <a href="#install"><img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-blue.svg" alt="Platform"/></a>
+  <a href="https://github.com/sponsors/h4x0r"><img src="https://img.shields.io/badge/sponsor-h4x0r-ff69b4.svg?logo=github-sponsors" alt="Sponsor"/></a>
+</p>
 
 **One command. One output. The full attack narrative.**
 

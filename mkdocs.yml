@@ -6,6 +6,8 @@ edit_uri: edit/main/docs/
 
 theme:
   name: material
+  logo: assets/issen-icon-128.png
+  favicon: assets/favicon.ico
   palette:
     - scheme: default
       primary: red
