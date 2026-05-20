@@ -123,7 +123,29 @@ pub fn link_processes_to_sessions<S: std::hash::BuildHasher>(
 /// `link_processes_to_sessions` will therefore be a no-op after this migration;
 /// the trade-off is documented in PLAN-winevt-extract-migration.md.
 pub fn extract_process_events(path: &Path) -> Vec<ProcessEvent> {
-    todo!("implement using winevt_extract::process_cmdlines — RED commit")
+    match winevt_extract::process_cmdlines(path) {
+        Ok(execs) => execs.into_iter().map(execution_to_process_event).collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
+/// Convert a `winevt_extract::ProcessExecution` into a `winevt_core::ProcessEvent`.
+///
+/// `ProcessExecution` does not carry `LogonId`; the field is set to `None`.
+fn execution_to_process_event(pe: winevt_extract::ProcessExecution) -> ProcessEvent {
+    let timestamp_ns = chrono::DateTime::parse_from_rfc3339(&pe.timestamp)
+        .ok()
+        .and_then(|dt| dt.timestamp_nanos_opt())
+        .unwrap_or(0);
+    ProcessEvent {
+        timestamp_ns,
+        process_id: pe.pid as u32,
+        parent_pid: if pe.parent_pid == 0 { None } else { Some(pe.parent_pid as u32) },
+        image_path: pe.image,
+        command_line: if pe.command_line.is_empty() { None } else { Some(pe.command_line) },
+        logon_id: None,
+        user: None,
+    }
 }
 
 /// Find sessions that had lateral movement indicators:
