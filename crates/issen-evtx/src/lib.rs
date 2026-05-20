@@ -94,9 +94,12 @@ pub fn analyse_evtx_sessions(evtx_files: &[PathBuf]) -> anyhow::Result<EvtxSessi
     // Correlate logon sessions
     let mut sessions_map = correlate_sessions(&all_events);
 
-    // Link process events to sessions
-    let process_events = extract_process_events(&all_events);
-    link_processes_to_sessions(&mut sessions_map, &process_events);
+    // Extract process events per-file via winevt_extract::process_cmdlines.
+    let mut all_process_events: Vec<winevt_core::ProcessEvent> = Vec::new();
+    for path in evtx_files {
+        all_process_events.extend(extract_process_events(path));
+    }
+    link_processes_to_sessions(&mut sessions_map, &all_process_events);
 
     // Run lateral movement detection
     let sessions_vec: Vec<_> = sessions_map.into_values().collect();
@@ -492,9 +495,8 @@ mod tests {
         }
 
         #[test]
-        fn extract_process_events_empty() {
-            let events: Vec<EvtxEvent> = vec![];
-            let procs = extract_process_events(&events);
+        fn extract_process_events_nonexistent_path_returns_empty() {
+            let procs = extract_process_events(std::path::Path::new("/nonexistent/Security.evtx"));
             assert!(procs.is_empty());
         }
 

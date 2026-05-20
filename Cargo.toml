@@ -80,6 +80,7 @@ issen-wsl           = { path = "crates/issen-wsl" }
 
 # winevt-forensic crates (path dependencies into sibling workspace)
 winevt-core     = { path = "../winevt-forensic/crates/winevt-core" }
+winevt-extract  = { path = "../winevt-forensic/crates/winevt-extract" }
 
 # Memory forensic crates (path dependencies into sibling workspace)
 memf-core      = { path = "../memory-forensic/crates/memf-core" }

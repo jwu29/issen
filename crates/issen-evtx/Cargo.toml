@@ -10,6 +10,7 @@ repository.workspace = true
 [dependencies]
 forensicnomicon = { workspace = true }
 winevt-core    = { workspace = true }
+winevt-extract = { workspace = true }
 evtx           = { workspace = true }
 anyhow         = { workspace = true }
 serde          = { workspace = true }

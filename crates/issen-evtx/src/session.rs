@@ -5,6 +5,8 @@
 //! This is the innovation that Events Ripper's sec4688.pl explicitly does NOT do.
 
 use std::collections::HashMap;
+use std::path::Path;
+
 use winevt_core::{EvtxEvent, LogonSession, ProcessEvent};
 
 /// Summary of session correlation results.
@@ -110,33 +112,18 @@ pub fn link_processes_to_sessions<S: std::hash::BuildHasher>(
     }
 }
 
-/// Extract all `ProcessEvent`s from `EvtxEvent`s where `event_id == 4688`.
-pub fn extract_process_events(events: &[EvtxEvent]) -> Vec<ProcessEvent> {
-    events
-        .iter()
-        .filter(|ev| ev.event_id == 4688)
-        .map(|ev| {
-            let image_path = ev
-                .data
-                .get("NewProcessName")
-                .cloned()
-                .unwrap_or_default();
-            let command_line = ev.data.get("CommandLine").cloned();
-            let parent_pid = ev.data.get("ProcessId").and_then(|s| {
-                let s = s.strip_prefix("0x").unwrap_or(s);
-                u32::from_str_radix(s, 16).ok()
-            });
-            ProcessEvent {
-                timestamp_ns: ev.timestamp_ns,
-                process_id: ev.process_id.unwrap_or(0),
-                parent_pid,
-                image_path,
-                command_line,
-                logon_id: ev.logon_id,
-                user: ev.data.get("SubjectUserName").cloned(),
-            }
-        })
-        .collect()
+/// Extract process-creation events from an EVTX file at `path`.
+///
+/// Delegates to `winevt_extract::process_cmdlines`, which handles EID 4688
+/// (Security audit) and Sysmon EID 1. Returns an empty vec on I/O or parse
+/// error so callers can treat missing/corrupt files as no-ops.
+///
+/// **Note:** `winevt_extract::ProcessExecution` does not carry `LogonId`, so
+/// the returned `ProcessEvent` structs will have `logon_id = None`.
+/// `link_processes_to_sessions` will therefore be a no-op after this migration;
+/// the trade-off is documented in PLAN-winevt-extract-migration.md.
+pub fn extract_process_events(path: &Path) -> Vec<ProcessEvent> {
+    todo!("implement using winevt_extract::process_cmdlines — RED commit")
 }
 
 /// Find sessions that had lateral movement indicators:
@@ -177,4 +164,79 @@ pub fn find_lateral_movement(sessions: &[LogonSession]) -> Vec<LateralMovementFi
 /// Detect orphaned sessions (logon without matching logoff).
 pub fn find_orphaned_sessions(sessions: &[LogonSession]) -> Vec<&LogonSession> {
     sessions.iter().filter(|s| s.is_orphaned).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn corpus_security_evtx() -> std::path::PathBuf {
+        // Sibling winevt-forensic corpus; available on dev machines, skipped in CI.
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../../winevt-forensic/tests/data/DFIRArtifactMuseum/BelkasoftCTF-InsiderThreat/Security.evtx")
+    }
+
+    #[test]
+    fn extract_process_events_nonexistent_path_returns_empty() {
+        let result = extract_process_events(Path::new("/nonexistent/Security.evtx"));
+        assert!(
+            result.is_empty(),
+            "non-existent path should return empty vec, got {}",
+            result.len()
+        );
+    }
+
+    #[test]
+    fn extract_process_events_non_evtx_path_returns_empty() {
+        let result = extract_process_events(Path::new("/tmp/not_an_evtx_file.txt"));
+        assert!(
+            result.is_empty(),
+            "non-EVTX path should return empty vec gracefully"
+        );
+    }
+
+    #[test]
+    fn extract_process_events_returns_process_events_with_image_path() {
+        let corpus = corpus_security_evtx();
+        if !corpus.exists() {
+            eprintln!("skip: corpus not found at {:?}", corpus);
+            return;
+        }
+        let procs = extract_process_events(&corpus);
+        // Security.evtx from an enterprise system must have EID 4688 events.
+        assert!(
+            !procs.is_empty(),
+            "expected ≥1 ProcessEvent from {:?}, got 0",
+            corpus
+        );
+        // Every returned event must have a non-empty image_path.
+        for p in &procs {
+            assert!(
+                !p.image_path.is_empty(),
+                "image_path must not be empty: {:?}",
+                p
+            );
+        }
+    }
+
+    #[test]
+    fn extract_process_events_result_has_no_logon_id() {
+        let corpus = corpus_security_evtx();
+        if !corpus.exists() {
+            eprintln!("skip: corpus not found at {:?}", corpus);
+            return;
+        }
+        let procs = extract_process_events(&corpus);
+        if procs.is_empty() {
+            return;
+        }
+        // ProcessExecution does not carry LogonId; linkage is acknowledged trade-off.
+        for p in &procs {
+            assert!(
+                p.logon_id.is_none(),
+                "expected logon_id=None after winevt_extract migration, got {:?}",
+                p.logon_id
+            );
+        }
+    }
 }
