@@ -274,6 +274,17 @@ pub trait ArtifactProvider: Send + Sync {
     fn scheduled_tasks(&self) -> Result<Vec<ScheduledTaskEntry>, ProviderError> {
         Err(ProviderError::NotAvailable)
     }
+
+    // -- Raw EVTX file paths ---------------------------------------------
+
+    /// Return the filesystem path to a named EVTX log file, if available.
+    ///
+    /// `log_name` is the bare log name (e.g. `"Security"`, `"System"`).
+    /// Returns `None` when the provider does not expose raw file paths.
+    /// Used to delegate to `winevt_extract` when a real file is accessible.
+    fn evtx_path(&self, _log_name: &str) -> Option<std::path::PathBuf> {
+        None
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -433,6 +444,7 @@ pub struct MockArtifactProvider {
     pub amcache: Vec<AmcacheEntry>,
     pub services: Vec<ServiceEntry>,
     pub scheduled_tasks: Vec<ScheduledTaskEntry>,
+    pub evtx_paths: HashMap<String, std::path::PathBuf>,
 }
 
 #[cfg(any(test, feature = "test-utils"))]
@@ -494,6 +506,16 @@ impl MockArtifactProvider {
     /// Add a scheduled task entry.
     pub fn add_scheduled_task(&mut self, entry: ScheduledTaskEntry) -> &mut Self {
         self.scheduled_tasks.push(entry);
+        self
+    }
+
+    /// Register a raw EVTX file path for a named log (e.g. `"Security"`).
+    pub fn add_evtx_path(
+        &mut self,
+        log_name: &str,
+        path: std::path::PathBuf,
+    ) -> &mut Self {
+        self.evtx_paths.insert(log_name.to_owned(), path);
         self
     }
 }
@@ -579,6 +601,10 @@ impl ArtifactProvider for MockArtifactProvider {
 
     fn scheduled_tasks(&self) -> Result<Vec<ScheduledTaskEntry>, ProviderError> {
         Ok(self.scheduled_tasks.clone())
+    }
+
+    fn evtx_path(&self, log_name: &str) -> Option<std::path::PathBuf> {
+        self.evtx_paths.get(log_name).cloned()
     }
 }
 

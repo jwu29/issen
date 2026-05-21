@@ -11,8 +11,9 @@ use crate::scanners::{CategoryScanner, ScanError};
 /// Detects:
 /// - **PsExec**: Event 7045 where `ServiceName` contains "PSEXESVC"
 /// - **WMI**: Event 5857 from provider "Microsoft-Windows-WMI-Activity"
-/// - **Kerberoasting**: Event 4769 where `TicketEncryptionType` == "0x17"
-///   (RC4) and `TargetUserName` does NOT end with "$"
+/// - **Kerberoasting / explicit-credential / NTLM**: EID 4648/4769/4776 via
+///   `winevt_extract::lateral_movement()` when the provider exposes a Security
+///   EVTX path; falls back to `event_log_search()` for EID 4769 RC4 only.
 pub struct LateralMovementScanner;
 
 impl LateralMovementScanner {
@@ -96,13 +97,118 @@ impl LateralMovementScanner {
         hits
     }
 
-    /// Scan for Kerberoasting indicators.
+    /// Extract lateral movement events from a Security EVTX file via winevt_extract.
     ///
-    /// Event 4769 (Kerberos Service Ticket Request) where
-    /// `TicketEncryptionType` == "0x17" (RC4) AND `TargetUserName` does NOT
-    /// end with "$" (i.e., not a machine account) is a strong Kerberoasting
-    /// indicator.
-    fn scan_kerberoasting(&self, provider: &dyn ArtifactProvider) -> Vec<RawArtifactHit> {
+    /// Returns grouped findings for EID 4648 (ExplicitCredentialLogon),
+    /// EID 4769 RC4 non-machine-account (Kerberoasting), and EID 4776 (NtlmAuth).
+    fn scan_lateral_movement_events(
+        &self,
+        provider: &dyn ArtifactProvider,
+    ) -> Result<Vec<Finding>, ScanError> {
+        let Some(path) = provider.evtx_path("Security") else {
+            // Fallback: legacy event_log_search for EID 4769 RC4 only.
+            return Ok(self.scan_kerberoasting_fallback(provider));
+        };
+
+        let events = winevt_extract::lateral_movement(&path)
+            .map_err(|e| ScanError::Internal(e.to_string()))?;
+
+        let mut explicit_hits: Vec<RawArtifactHit> = Vec::new();
+        let mut kerb_hits: Vec<RawArtifactHit> = Vec::new();
+        let mut ntlm_hits: Vec<RawArtifactHit> = Vec::new();
+
+        for ev in &events {
+            let ts_nanos = chrono::DateTime::parse_from_rfc3339(&ev.timestamp)
+                .ok()
+                .map(|dt| dt.timestamp_nanos_opt().unwrap_or(0));
+
+            match ev.event_id {
+                4648 => {
+                    let user = ev.source_user.as_deref().unwrap_or("-");
+                    let target = ev.target_user.as_deref().unwrap_or("-");
+                    let host = ev.target_host.as_deref().unwrap_or("-");
+                    explicit_hits.push(RawArtifactHit {
+                        artifact_type: HitArtifactType::EventLog,
+                        source_path: "Security".into(),
+                        value: format!(
+                            "Explicit credential logon: {user} → {target} @ {host}"
+                        ),
+                        timestamp: ts_nanos,
+                        context: HashMap::from([
+                            ("event_id".into(), "4648".into()),
+                            ("source_user".into(), user.to_owned()),
+                            ("target_user".into(), target.to_owned()),
+                            ("target_host".into(), host.to_owned()),
+                        ]),
+                    });
+                }
+                4769 => {
+                    // winevt_extract translates "0x17" → "RC4"
+                    let enc = ev.encryption_type.as_deref().unwrap_or("");
+                    let user = ev.source_user.as_deref().unwrap_or("");
+                    if enc == "RC4" && !user.ends_with('$') {
+                        let spn = ev.target_user.as_deref().unwrap_or("-");
+                        kerb_hits.push(RawArtifactHit {
+                            artifact_type: HitArtifactType::EventLog,
+                            source_path: "Security".into(),
+                            value: format!(
+                                "Kerberoasting: RC4 ticket for {user} (SPN: {spn})"
+                            ),
+                            timestamp: ts_nanos,
+                            context: HashMap::from([
+                                ("event_id".into(), "4769".into()),
+                                ("target_user".into(), user.to_owned()),
+                                ("encryption_type".into(), "RC4".into()),
+                                ("service_name".into(), spn.to_owned()),
+                            ]),
+                        });
+                    }
+                }
+                4776 => {
+                    let user = ev.source_user.as_deref().unwrap_or("-");
+                    let host = ev.target_host.as_deref().unwrap_or("-");
+                    ntlm_hits.push(RawArtifactHit {
+                        artifact_type: HitArtifactType::EventLog,
+                        source_path: "Security".into(),
+                        value: format!("NTLM auth attempt: {user} from {host}"),
+                        timestamp: ts_nanos,
+                        context: HashMap::from([
+                            ("event_id".into(), "4776".into()),
+                            ("source_user".into(), user.to_owned()),
+                            ("target_host".into(), host.to_owned()),
+                        ]),
+                    });
+                }
+                _ => {}
+            }
+        }
+
+        let mut findings = Vec::new();
+        for (hits, tool_name) in [
+            (explicit_hits, "ExplicitCredentialLogon"),
+            (kerb_hits, "Kerberoasting"),
+            (ntlm_hits, "NtlmAuth"),
+        ] {
+            if !hits.is_empty() {
+                let first_seen = hits.iter().filter_map(|h| h.timestamp).min();
+                let last_seen = hits.iter().filter_map(|h| h.timestamp).max();
+                findings.push(Finding {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    tool_name: tool_name.into(),
+                    category: RemoteAccessCategory::LateralMovement,
+                    artifacts: hits,
+                    first_seen,
+                    last_seen,
+                    detection_source: DetectionSource::CategoryScanner("lateral_movement".into()),
+                });
+            }
+        }
+
+        Ok(findings)
+    }
+
+    /// Fallback: detect Kerberoasting via event_log_search when no EVTX path is available.
+    fn scan_kerberoasting_fallback(&self, provider: &dyn ArtifactProvider) -> Vec<Finding> {
         let mut hits = Vec::new();
 
         let query = EventLogQuery {
@@ -125,7 +231,6 @@ impl LateralMovementScanner {
                     .map(String::as_str)
                     .unwrap_or("");
 
-                // RC4 encryption + non-machine account = Kerberoasting indicator
                 if enc_type == "0x17" && !target_user.ends_with('$') {
                     let service_name = event.data.get("ServiceName").cloned().unwrap_or_default();
                     hits.push(RawArtifactHit {
@@ -146,7 +251,20 @@ impl LateralMovementScanner {
             }
         }
 
-        hits
+        if hits.is_empty() {
+            return vec![];
+        }
+        let first_seen = hits.iter().filter_map(|h| h.timestamp).min();
+        let last_seen = hits.iter().filter_map(|h| h.timestamp).max();
+        vec![Finding {
+            id: uuid::Uuid::new_v4().to_string(),
+            tool_name: "Kerberoasting".into(),
+            category: RemoteAccessCategory::LateralMovement,
+            artifacts: hits,
+            first_seen,
+            last_seen,
+            detection_source: DetectionSource::CategoryScanner("lateral_movement".into()),
+        }]
     }
 }
 
@@ -164,7 +282,7 @@ impl CategoryScanner for LateralMovementScanner {
     fn scan(&self, provider: &dyn ArtifactProvider) -> Result<Vec<Finding>, ScanError> {
         let mut findings = Vec::new();
 
-        // Scan PsExec
+        // PsExec (EID 7045) — not in winevt-extract, keep event_log_search path
         let psexec_hits = self.scan_psexec(provider);
         if !psexec_hits.is_empty() {
             let first_seen = psexec_hits.iter().filter_map(|h| h.timestamp).min();
@@ -180,7 +298,7 @@ impl CategoryScanner for LateralMovementScanner {
             });
         }
 
-        // Scan WMI
+        // WMI (EID 5857) — keep event_log_search path
         let wmi_hits = self.scan_wmi(provider);
         if !wmi_hits.is_empty() {
             let first_seen = wmi_hits.iter().filter_map(|h| h.timestamp).min();
@@ -196,21 +314,8 @@ impl CategoryScanner for LateralMovementScanner {
             });
         }
 
-        // Scan Kerberoasting
-        let kerb_hits = self.scan_kerberoasting(provider);
-        if !kerb_hits.is_empty() {
-            let first_seen = kerb_hits.iter().filter_map(|h| h.timestamp).min();
-            let last_seen = kerb_hits.iter().filter_map(|h| h.timestamp).max();
-            findings.push(Finding {
-                id: uuid::Uuid::new_v4().to_string(),
-                tool_name: "Kerberoasting".into(),
-                category: RemoteAccessCategory::LateralMovement,
-                artifacts: kerb_hits,
-                first_seen,
-                last_seen,
-                detection_source: DetectionSource::CategoryScanner("lateral_movement".into()),
-            });
-        }
+        // EID 4648/4769/4776 — delegate to winevt_extract when path available
+        findings.extend(self.scan_lateral_movement_events(provider)?);
 
         Ok(findings)
     }

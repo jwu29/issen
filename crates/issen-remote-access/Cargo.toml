@@ -10,6 +10,7 @@ repository.workspace = true
 [dependencies]
 issen-core = { workspace = true }
 issen-timeline = { workspace = true }
+chrono = { workspace = true }
 duckdb = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
