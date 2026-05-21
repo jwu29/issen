@@ -271,4 +271,123 @@ mod tests {
         assert_eq!(result.len(), 1);
         assert!(!result[0].matched);
     }
+
+    // ── enrich_network_events_with_sessions tests (Step 5 RED) ───────────────
+
+    use issen_core::artifacts::ArtifactType;
+    use issen_core::timeline::event::{EntityRef, EventType, TimelineEvent};
+    use winevt_core::LogonSession;
+
+    fn make_network_event(logon_id: u64, src_ip: &str) -> TimelineEvent {
+        TimelineEvent::new(
+            1_700_000_000_000_000_000,
+            "2023-11-14T22:13:20Z".to_string(),
+            EventType::NetworkConnect,
+            ArtifactType::EventLog,
+            "Microsoft-Windows-Sysmon/Operational".to_string(),
+            "NetworkConnect".to_string(),
+            "evidence-001".to_string(),
+        )
+        .with_metadata("logon_id", serde_json::json!(logon_id))
+        .with_metadata("src_ip", serde_json::json!(src_ip))
+    }
+
+    fn make_net_session(logon_id: u64, session_src_ip: Option<&str>) -> LogonSession {
+        LogonSession {
+            logon_id,
+            logon_type: 3,
+            username: "alice".to_string(),
+            domain: "CORP".to_string(),
+            src_ip: session_src_ip.map(|s| s.to_string()),
+            logon_time_ns: 1_700_000_000_000_000_000,
+            logoff_time_ns: None,
+            duration_secs: None,
+            processes: Vec::new(),
+            is_orphaned: false,
+        }
+    }
+
+    #[test]
+    fn network_enrich_adds_session_entity_ref() {
+        let mut events = vec![make_network_event(0x59b61, "10.0.0.5")];
+        let mut sessions = std::collections::HashMap::new();
+        sessions.insert(0x59b61_u64, make_net_session(0x59b61, Some("10.0.0.50")));
+
+        enrich_network_events_with_sessions(&mut events, &sessions);
+
+        assert!(
+            events[0].entity_refs.contains(&EntityRef::Session(0x59b61)),
+            "Session entity ref must be added for matching logon_id"
+        );
+    }
+
+    #[test]
+    fn network_enrich_tags_session_ip_mismatch_when_ips_differ() {
+        let mut events = vec![make_network_event(0x59b61, "10.0.0.5")];
+        let mut sessions = std::collections::HashMap::new();
+        // session.src_ip differs from event's src_ip
+        sessions.insert(0x59b61_u64, make_net_session(0x59b61, Some("192.168.1.50")));
+
+        enrich_network_events_with_sessions(&mut events, &sessions);
+
+        assert!(
+            events[0].tags.iter().any(|t| t == "session_ip_mismatch"),
+            "session_ip_mismatch tag expected when src IPs differ, got {:?}",
+            events[0].tags
+        );
+    }
+
+    #[test]
+    fn network_enrich_no_mismatch_when_ips_same() {
+        let mut events = vec![make_network_event(0x59b61, "10.0.0.5")];
+        let mut sessions = std::collections::HashMap::new();
+        // session.src_ip matches event src_ip
+        sessions.insert(0x59b61_u64, make_net_session(0x59b61, Some("10.0.0.5")));
+
+        enrich_network_events_with_sessions(&mut events, &sessions);
+
+        assert!(
+            !events[0].tags.iter().any(|t| t == "session_ip_mismatch"),
+            "no session_ip_mismatch when IPs match, got {:?}",
+            events[0].tags
+        );
+    }
+
+    #[test]
+    fn network_enrich_no_mismatch_when_session_has_no_src_ip() {
+        let mut events = vec![make_network_event(0x59b61, "10.0.0.5")];
+        let mut sessions = std::collections::HashMap::new();
+        sessions.insert(0x59b61_u64, make_net_session(0x59b61, None));
+
+        enrich_network_events_with_sessions(&mut events, &sessions);
+
+        assert!(
+            !events[0].tags.iter().any(|t| t == "session_ip_mismatch"),
+            "no session_ip_mismatch when session has no src_ip"
+        );
+    }
+
+    #[test]
+    fn network_enrich_skips_non_network_events() {
+        let mut event = TimelineEvent::new(
+            1_700_000_000_000_000_000,
+            "2023-11-14T22:13:20Z".to_string(),
+            EventType::ProcessExec,
+            ArtifactType::EventLog,
+            "Security".to_string(),
+            "ProcessExec".to_string(),
+            "evidence-001".to_string(),
+        )
+        .with_metadata("logon_id", serde_json::json!(0x59b61_u64))
+        .with_metadata("src_ip", serde_json::json!("10.0.0.5"));
+
+        let original_refs = event.entity_refs.clone();
+        let mut events = vec![event];
+        let mut sessions = std::collections::HashMap::new();
+        sessions.insert(0x59b61_u64, make_net_session(0x59b61, Some("192.168.1.50")));
+
+        enrich_network_events_with_sessions(&mut events, &sessions);
+
+        assert_eq!(events[0].entity_refs, original_refs, "non-network events must not be modified");
+    }
 }
