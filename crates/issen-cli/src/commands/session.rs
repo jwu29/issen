@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use anyhow::Context;
 use issen_evtx::{find_evtx_files, session::EvtxSessionSummary};
-use winevt_core::logon_type_name;
+use winevt_core::{logon_type_name, LogonSession};
 
 /// Run session correlation against EVTX files from `dirs` and explicit `files`.
 ///
@@ -37,6 +37,11 @@ pub fn run(dirs: &[PathBuf], files: &[PathBuf], json: bool) -> anyhow::Result<()
     }
 
     Ok(())
+}
+
+/// Serialize a single `LogonSession` to a JSON object.
+pub(crate) fn session_to_json_value(s: &LogonSession) -> serde_json::Value {
+    todo!("implement session_to_json_value")
 }
 
 fn print_json(summary: &EvtxSessionSummary) -> anyhow::Result<()> {
@@ -117,3 +122,64 @@ fn print_summary(summary: &EvtxSessionSummary) {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_session(logon_type: u8, src_ip: Option<&str>) -> LogonSession {
+        LogonSession {
+            logon_id: 0x1234,
+            logon_type,
+            username: "user".into(),
+            domain: "DOMAIN".into(),
+            src_ip: src_ip.map(str::to_owned),
+            logon_time_ns: 0,
+            logoff_time_ns: None,
+            duration_secs: None,
+            processes: Vec::new(),
+            is_orphaned: false,
+        }
+    }
+
+    #[test]
+    fn rdp_type10_with_src_ip_emits_ip_address_provenance() {
+        let s = make_session(10, Some("10.10.10.13"));
+        let v = session_to_json_value(&s);
+        assert_eq!(
+            v["src_ip_source"].as_str(),
+            Some("IpAddress"),
+            "Type 10 must document src_ip came from IpAddress field"
+        );
+    }
+
+    #[test]
+    fn network_type3_with_src_ip_emits_workstation_name_provenance() {
+        let s = make_session(3, Some("DESKTOP-SOURCE"));
+        let v = session_to_json_value(&s);
+        assert_eq!(
+            v["src_ip_source"].as_str(),
+            Some("WorkstationName"),
+            "Type 3 must document src_ip came from WorkstationName field"
+        );
+    }
+
+    #[test]
+    fn session_without_src_ip_has_no_src_ip_source_field() {
+        let s = make_session(10, None);
+        let v = session_to_json_value(&s);
+        assert!(
+            v.get("src_ip_source").is_none(),
+            "no src_ip means no src_ip_source field"
+        );
+    }
+
+    #[test]
+    fn session_to_json_value_contains_core_fields() {
+        let s = make_session(3, None);
+        let v = session_to_json_value(&s);
+        assert!(v.get("logon_id").is_some());
+        assert!(v.get("logon_type").is_some());
+        assert!(v.get("logon_type_name").is_some());
+        assert!(v.get("username").is_some());
+    }
+}
