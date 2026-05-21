@@ -543,4 +543,29 @@ mod tests {
             assert!(found, "expected a handler that handles event 1116 (Defender)");
         }
     }
+
+    // ── parse_evtx_to_events tests (Step A RED) ──────────────────────────────
+    mod parse_evtx_tests {
+        use super::*;
+
+        #[test]
+        fn parse_evtx_to_events_empty_slice_returns_empty() {
+            let events = parse_evtx_to_events(&[]);
+            assert!(events.is_empty(), "empty input must return empty vec");
+        }
+
+        #[test]
+        fn parse_evtx_to_events_nonexistent_path_returns_empty() {
+            let paths = vec![PathBuf::from("/nonexistent/does_not_exist.evtx")];
+            let events = parse_evtx_to_events(&paths);
+            assert!(events.is_empty(), "non-existent path must return empty vec");
+        }
+
+        #[test]
+        fn parse_evtx_to_events_returns_vec_of_evtx_events() {
+            // Type-level check: must return Vec<EvtxEvent>
+            let events: Vec<winevt_core::EvtxEvent> = parse_evtx_to_events(&[]);
+            let _ = events; // compiles iff return type is correct
+        }
+    }
 }

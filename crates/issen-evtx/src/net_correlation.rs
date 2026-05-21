@@ -413,7 +413,7 @@ mod tests {
 
     #[test]
     fn network_enrich_skips_non_network_events() {
-        let mut event = TimelineEvent::new(
+        let event = TimelineEvent::new(
             1_700_000_000_000_000_000,
             "2023-11-14T22:13:20Z".to_string(),
             EventType::ProcessExec,
