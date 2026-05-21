@@ -22,6 +22,7 @@ quick-xml = "0.37"
 
 # Forensic artifact parsers
 notatin = "1.0"
+winevt-extract = { workspace = true }
 
 [features]
 test-utils = []

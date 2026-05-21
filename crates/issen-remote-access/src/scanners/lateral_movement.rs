@@ -343,4 +343,75 @@ mod tests {
             "machine accounts should not trigger Kerberoasting detection"
         );
     }
+
+    // ── winevt-extract delegation tests (RED: add_evtx_path not yet on MockArtifactProvider) ──
+
+    #[test]
+    fn lateral_movement_4648_detected_via_winevt_extract() {
+        use std::path::PathBuf;
+        // Corpus from sibling workspace; skip gracefully if absent.
+        let corpus = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+            "../../../winevt-forensic/tests/data/fox-it-danderspritz/post-Security.evtx",
+        );
+        if !corpus.exists() {
+            return;
+        }
+
+        let mut mock = MockArtifactProvider {
+            caps: vec![ProviderCapability::EventLogs],
+            ..MockArtifactProvider::default()
+        };
+        // add_evtx_path does not yet exist → compile error (RED state)
+        mock.add_evtx_path("Security", corpus);
+
+        let scanner = LateralMovementScanner::new();
+        let findings = scanner.scan(&mock).expect("scan should succeed");
+
+        // post-Security.evtx contains 1 EID 4648 explicit-credential logon
+        let lat = findings
+            .iter()
+            .find(|f| f.tool_name == "ExplicitCredentialLogon");
+        assert!(
+            lat.is_some(),
+            "expected ExplicitCredentialLogon finding from EID 4648 in corpus, got: {:?}",
+            findings
+                .iter()
+                .map(|f| f.tool_name.as_str())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(lat.unwrap().category, RemoteAccessCategory::LateralMovement);
+    }
+
+    #[test]
+    fn kerberoasting_event_log_search_fallback_works_without_evtx_path() {
+        // No evtx_path on provider → scanner must fall back to event_log_search.
+        // Verifies backward-compatibility of the fallback path.
+        let mut mock = MockArtifactProvider {
+            caps: vec![ProviderCapability::EventLogs],
+            ..MockArtifactProvider::default()
+        };
+        mock.add_event_log(EventLogEntry {
+            event_id: 4769,
+            provider_name: "Microsoft-Windows-Security-Auditing".into(),
+            log_file: "Security".into(),
+            timestamp: Some(1_700_000_000_000_000_000),
+            data: HashMap::from([
+                ("TicketEncryptionType".into(), "0x17".into()),
+                ("TargetUserName".into(), "svc_backup".into()),
+                (
+                    "ServiceName".into(),
+                    "backupSvc/server01.corp.local".into(),
+                ),
+            ]),
+        });
+
+        let scanner = LateralMovementScanner::new();
+        let findings = scanner.scan(&mock).expect("scan should succeed");
+        let kerb = findings.iter().find(|f| f.tool_name == "Kerberoasting");
+        assert!(
+            kerb.is_some(),
+            "expected Kerberoasting finding via event_log_search fallback"
+        );
+        assert!(kerb.unwrap().artifacts[0].value.contains("svc_backup"));
+    }
 }
