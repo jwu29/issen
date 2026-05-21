@@ -4,7 +4,7 @@
 //! Issen pipeline, enabling random-access reads over Microsoft VHDX virtual
 //! disk images.
 
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{Seek, SeekFrom};
 use std::path::Path;
 use std::sync::Mutex;
 
@@ -69,7 +69,12 @@ impl VhdxDataSource {
     /// Returns [`VhdxError`] if the file cannot be opened or is not a valid
     /// VHDX image. Differencing (parent-linked) disks are not supported.
     pub fn open(path: &Path) -> Result<Self, VhdxError> {
-        todo!("implement VhdxDataSource::open")
+        let reader = vhdx::VhdxReader::open(path)?;
+        let size = reader.virtual_disk_size();
+        Ok(Self {
+            reader: Mutex::new(reader),
+            size,
+        })
     }
 }
 
@@ -79,7 +84,17 @@ impl DataSource for VhdxDataSource {
     }
 
     fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<usize, RtError> {
-        todo!("implement VhdxDataSource::read_at")
+        let mut guard = self.reader.lock().expect("VhdxDataSource mutex poisoned");
+        guard.seek(SeekFrom::Start(offset)).map_err(RtError::Io)?;
+        let mut total = 0;
+        while total < buf.len() {
+            match std::io::Read::read(&mut *guard, &mut buf[total..]) {
+                Ok(0) => break,
+                Ok(n) => total += n,
+                Err(e) => return Err(RtError::Io(e)),
+            }
+        }
+        Ok(total)
     }
 }
 
