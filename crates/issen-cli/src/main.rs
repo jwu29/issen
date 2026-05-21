@@ -266,6 +266,29 @@ pub enum Commands {
         format: String,
     },
 
+    /// Rare-event frequency analysis over EVTX files (Events Ripper posh600 technique).
+    Frequency {
+        /// Directory to search recursively for .evtx files.
+        #[arg(long, value_name = "PATH", num_args = 1..)]
+        evtx_dir: Vec<PathBuf>,
+
+        /// Explicit .evtx file path (can be given multiple times).
+        #[arg(long, value_name = "FILE", num_args = 1..)]
+        evtx_file: Vec<PathBuf>,
+
+        /// Anomaly threshold: report entries seen at most this many times (default: 5).
+        #[arg(long, default_value = "5")]
+        cap: usize,
+
+        /// Field to group by: cmdline, image, user (default: image).
+        #[arg(long, default_value = "image")]
+        key: String,
+
+        /// Output JSON instead of a summary table.
+        #[arg(long)]
+        json: bool,
+    },
+
     /// List process creation events from one or more EVTX files.
     Processes {
         /// Directory to search recursively for .evtx files.
@@ -474,6 +497,14 @@ fn main() -> ExitCode {
         ),
         Commands::Srum { srudb_path, format } => {
             commands::srum::run(&srudb_path, &format)
+        }
+        Commands::Frequency { evtx_dir, evtx_file, cap, key, json } => {
+            match commands::frequency::parse_key(&key) {
+                Ok(freq_key) => {
+                    commands::frequency::run(&evtx_dir, &evtx_file, cap, freq_key, json)
+                }
+                Err(e) => Err(anyhow::anyhow!("{e}")),
+            }
         }
         Commands::Processes { evtx_dir, evtx_file, json, link_sessions } => {
             commands::processes::run(&evtx_dir, &evtx_file, json, link_sessions)
