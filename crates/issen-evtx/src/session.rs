@@ -7,6 +7,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
+use issen_core::timeline::event::{EntityRef, TimelineEvent};
 use winevt_core::{EvtxEvent, LogonSession, ProcessEvent};
 
 /// Summary of session correlation results.
@@ -186,6 +187,45 @@ pub fn find_lateral_movement(sessions: &[LogonSession]) -> Vec<LateralMovementFi
 /// Detect orphaned sessions (logon without matching logoff).
 pub fn find_orphaned_sessions(sessions: &[LogonSession]) -> Vec<&LogonSession> {
     sessions.iter().filter(|s| s.is_orphaned).collect()
+}
+
+/// Enrich timeline events by joining on `metadata["logon_id"]` against the session map.
+///
+/// For each event that carries a `logon_id` metadata key matching a known session:
+/// - Pushes `EntityRef::Session(logon_id)` onto `event.entity_refs`
+/// - Populates `session_username`, `session_domain`, `session_logon_type`, and
+///   `session_src_ip` (if present) into `event.metadata`
+/// - Adds a `session:<logon_type_name>` tag (e.g. `session:network` for type 3)
+/// - Adds `session:orphaned` tag if the session has no matching logoff
+///
+/// Events without a `logon_id` metadata field, or with an id not present in the map,
+/// are left untouched.
+pub fn enrich_timeline_events(
+    events: &mut [TimelineEvent],
+    sessions: &HashMap<u64, LogonSession>,
+) {
+    for event in events {
+        let logon_id = match event.metadata.get("logon_id").and_then(|v| v.as_u64()) {
+            Some(id) => id,
+            None => continue,
+        };
+        let session = match sessions.get(&logon_id) {
+            Some(s) => s,
+            None => continue,
+        };
+        event.entity_refs.push(EntityRef::Session(logon_id));
+        event.metadata.insert("session_username".into(), session.username.clone().into());
+        event.metadata.insert("session_domain".into(), session.domain.clone().into());
+        event.metadata.insert("session_logon_type".into(), session.logon_type.into());
+        if let Some(ip) = &session.src_ip {
+            event.metadata.insert("session_src_ip".into(), ip.clone().into());
+        }
+        if session.is_orphaned {
+            event.tags.push("session:orphaned".into());
+        }
+        let logon_type_name = winevt_core::logon_type_name(session.logon_type);
+        event.tags.push(format!("session:{}", logon_type_name.to_lowercase()));
+    }
 }
 
 #[cfg(test)]
