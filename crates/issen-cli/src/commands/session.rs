@@ -40,36 +40,42 @@ pub fn run(dirs: &[PathBuf], files: &[PathBuf], json: bool) -> anyhow::Result<()
 }
 
 /// Serialize a single `LogonSession` to a JSON object.
+///
+/// When `logon_type == 10` (RDP / RemoteInteractive) and `src_ip` is present,
+/// a `src_ip_source` field is emitted with value `"IpAddress"` to document that
+/// `WorkstationName` was intentionally ignored for this logon type (it contains
+/// the destination, not the source). For all other logon types with a `src_ip`,
+/// `src_ip_source` is `"WorkstationName"`.
 pub(crate) fn session_to_json_value(s: &LogonSession) -> serde_json::Value {
-    todo!("implement session_to_json_value")
+    let mut obj = serde_json::json!({
+        "logon_id": format!("0x{:x}", s.logon_id),
+        "username": s.username,
+        "domain": s.domain,
+        "logon_type": s.logon_type,
+        "logon_type_name": logon_type_name(s.logon_type),
+        "logon_time_ns": s.logon_time_ns,
+        "process_count": s.processes.len(),
+        "is_orphaned": s.is_orphaned,
+    });
+    if let Some(ip) = &s.src_ip {
+        obj["src_ip"] = serde_json::json!(ip);
+        let source = if s.logon_type == 10 { "IpAddress" } else { "WorkstationName" };
+        obj["src_ip_source"] = serde_json::json!(source);
+    }
+    if let Some(logoff_ns) = s.logoff_time_ns {
+        obj["logoff_time_ns"] = serde_json::json!(logoff_ns);
+    }
+    if let Some(dur) = s.duration_secs {
+        obj["duration_secs"] = serde_json::json!(dur);
+    }
+    obj
 }
 
 fn print_json(summary: &EvtxSessionSummary) -> anyhow::Result<()> {
     let sessions_json: Vec<serde_json::Value> = summary
         .sessions
         .iter()
-        .map(|s| {
-            let mut obj = serde_json::json!({
-                "logon_id": format!("0x{:x}", s.logon_id),
-                "username": s.username,
-                "domain": s.domain,
-                "logon_type": s.logon_type,
-                "logon_type_name": logon_type_name(s.logon_type),
-                "logon_time_ns": s.logon_time_ns,
-                "process_count": s.processes.len(),
-                "is_orphaned": s.is_orphaned,
-            });
-            if let Some(ip) = &s.src_ip {
-                obj["src_ip"] = serde_json::json!(ip);
-            }
-            if let Some(logoff_ns) = s.logoff_time_ns {
-                obj["logoff_time_ns"] = serde_json::json!(logoff_ns);
-            }
-            if let Some(dur) = s.duration_secs {
-                obj["duration_secs"] = serde_json::json!(dur);
-            }
-            obj
-        })
+        .map(session_to_json_value)
         .collect();
 
     let lateral_json: Vec<serde_json::Value> = summary
