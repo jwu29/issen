@@ -1582,6 +1582,7 @@ checksum = "d64e8af5551369d19cf50138de61f1c42074ab970f74e99be916646777f8fc87"
 dependencies = [
  "encode_unicode",
  "libc",
+ "unicode-width 0.2.0",
  "windows-sys 0.61.2",
 ]
 
@@ -2241,6 +2242,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "dialoguer"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "25f104b501bf2364e78d0d3974cbc774f738f5865306ed128e1e0d7499c0ad96"
+dependencies = [
+ "console 0.16.3",
+ "shell-words",
+ "tempfile",
+ "zeroize",
+]
+
+[[package]]
 name = "difflib"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2598,6 +2611,7 @@ name = "ese-core"
 version = "0.1.0"
 dependencies = [
  "memmap2",
+ "serde",
  "thiserror 2.0.18",
 ]
 
@@ -2664,17 +2678,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "775d27b3ad8889149c6b72e6101347a11b935b82049c40dd08fac06e777542c6"
 dependencies = [
  "ahash 0.8.12",
+ "anyhow",
  "bitflags 2.11.1",
  "bumpalo",
  "byteorder",
+ "clap",
  "crc32fast",
+ "dialoguer 0.12.0",
  "encoding",
+ "glob",
+ "goblin 0.10.5",
+ "indoc",
  "jiff",
  "log",
+ "rayon",
  "serde",
  "serde_json",
+ "simplelog",
  "skeptic",
  "sonic-rs",
+ "tempfile",
  "thiserror 2.0.18",
  "utf16-simd",
  "winstructs",
@@ -3248,6 +3271,17 @@ dependencies = [
  "log",
  "plain",
  "scroll 0.12.0",
+]
+
+[[package]]
+name = "goblin"
+version = "0.10.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "983a6aafb3b12d4c41ea78d39e189af4298ce747353945ff5105b54a056e5cd9"
+dependencies = [
+ "log",
+ "plain",
+ "scroll 0.13.0",
 ]
 
 [[package]]
@@ -4145,12 +4179,14 @@ dependencies = [
  "chrono",
  "evtx",
  "forensicnomicon",
+ "issen-core",
  "rusqlite",
  "schemars",
  "serde",
  "serde_json",
  "tempfile",
  "winevt-core",
+ "winevt-extract",
 ]
 
 [[package]]
@@ -4435,6 +4471,7 @@ dependencies = [
 name = "issen-remote-access"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "duckdb",
  "glob",
  "issen-core",
@@ -4448,6 +4485,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tracing",
  "uuid",
+ "winevt-extract",
 ]
 
 [[package]]
@@ -4539,6 +4577,19 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tracing",
+]
+
+[[package]]
+name = "issen-wsl"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "issen-core",
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -5230,7 +5281,7 @@ name = "memf-format"
 version = "0.1.0"
 dependencies = [
  "flate2",
- "goblin",
+ "goblin 0.9.3",
  "inventory",
  "lru 0.16.4",
  "memmap2",
@@ -5254,7 +5305,7 @@ name = "memf-linux"
 version = "0.1.0"
 dependencies = [
  "forensicnomicon",
- "goblin",
+ "goblin 0.9.3",
  "inventory",
  "memf-core",
  "memf-correlate",
@@ -5281,7 +5332,8 @@ dependencies = [
 name = "memf-symbols"
 version = "0.1.0"
 dependencies = [
- "goblin",
+ "goblin 0.9.3",
+ "memf-format",
  "pdb",
  "serde",
  "serde_json",
@@ -5294,6 +5346,7 @@ name = "memf-windows"
 version = "0.1.0"
 dependencies = [
  "forensicnomicon",
+ "goblin 0.9.3",
  "memf-core",
  "memf-correlate",
  "memf-dpapi",
@@ -5354,7 +5407,7 @@ dependencies = [
  "chrono",
  "clap",
  "csv",
- "dialoguer",
+ "dialoguer 0.10.4",
  "encoding",
  "indoc",
  "itertools 0.10.5",
@@ -7779,7 +7832,16 @@ version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ab8598aa408498679922eff7fa985c25d58a90771bd6be794434c5277eab1a6"
 dependencies = [
- "scroll_derive",
+ "scroll_derive 0.12.1",
+]
+
+[[package]]
+name = "scroll"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c1257cd4248b4132760d6524d6dda4e053bc648c9070b960929bf50cfb1e7add"
+dependencies = [
+ "scroll_derive 0.13.1",
 ]
 
 [[package]]
@@ -7787,6 +7849,17 @@ name = "scroll_derive"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1783eabc414609e28a5ba76aee5ddd52199f7107a0b24c2e9746a1ecc34a683d"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+]
+
+[[package]]
+name = "scroll_derive"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ed76efe62313ab6610570951494bdaa81568026e0318eaa55f167de70eeea67d"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -10503,7 +10576,22 @@ name = "winevt-core"
 version = "0.1.0"
 dependencies = [
  "crc32fast",
+ "forensicnomicon",
  "serde",
+]
+
+[[package]]
+name = "winevt-extract"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "evtx",
+ "forensicnomicon",
+ "jiff",
+ "regex",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

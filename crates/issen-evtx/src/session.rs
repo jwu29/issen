@@ -191,6 +191,135 @@ pub fn find_orphaned_sessions(sessions: &[LogonSession]) -> Vec<&LogonSession> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use issen_core::artifacts::ArtifactType;
+    use issen_core::timeline::event::{EntityRef, EventType, TimelineEvent};
+
+    // ── enrich_timeline_events tests (Step 3 RED) ───────────────────────────
+
+    fn make_event_with_logon_id(logon_id: u64) -> TimelineEvent {
+        TimelineEvent::new(
+            1_700_000_000_000_000_000,
+            "2023-11-14T22:13:20Z".to_string(),
+            EventType::LogonSuccess,
+            ArtifactType::EventLog,
+            "/test/Security.evtx".to_string(),
+            "Logon success".to_string(),
+            "evidence-001".to_string(),
+        )
+        .with_metadata("logon_id", serde_json::json!(logon_id))
+    }
+
+    fn make_event_no_logon_id() -> TimelineEvent {
+        TimelineEvent::new(
+            1_700_000_000_000_000_001,
+            "2023-11-14T22:13:20Z".to_string(),
+            EventType::FileCreate,
+            ArtifactType::EventLog,
+            "/test/System.evtx".to_string(),
+            "File created".to_string(),
+            "evidence-001".to_string(),
+        )
+    }
+
+    fn make_session(logon_id: u64, username: &str, domain: &str, logon_type: u8, src_ip: Option<&str>, is_orphaned: bool) -> LogonSession {
+        LogonSession {
+            logon_id,
+            logon_type,
+            username: username.to_string(),
+            domain: domain.to_string(),
+            src_ip: src_ip.map(|s| s.to_string()),
+            logon_time_ns: 1_700_000_000_000_000_000,
+            logoff_time_ns: None,
+            duration_secs: None,
+            processes: Vec::new(),
+            is_orphaned,
+        }
+    }
+
+    #[test]
+    fn enrich_pushes_session_entity_ref_on_matching_event() {
+        let mut events = vec![make_event_with_logon_id(0x59b61)];
+        let mut sessions = HashMap::new();
+        sessions.insert(0x59b61, make_session(0x59b61, "alice", "CORP", 3, Some("10.0.0.5"), false));
+
+        enrich_timeline_events(&mut events, &sessions);
+
+        assert!(
+            events[0].entity_refs.contains(&EntityRef::Session(0x59b61)),
+            "Session entity ref must be pushed for matching logon_id"
+        );
+    }
+
+    #[test]
+    fn enrich_populates_session_metadata() {
+        let mut events = vec![make_event_with_logon_id(0x59b61)];
+        let mut sessions = HashMap::new();
+        sessions.insert(0x59b61, make_session(0x59b61, "alice", "CORP", 3, Some("10.0.0.5"), false));
+
+        enrich_timeline_events(&mut events, &sessions);
+
+        let meta = &events[0].metadata;
+        assert_eq!(meta.get("session_username").and_then(|v| v.as_str()), Some("alice"));
+        assert_eq!(meta.get("session_domain").and_then(|v| v.as_str()), Some("CORP"));
+        assert_eq!(meta.get("session_logon_type").and_then(|v| v.as_u64()), Some(3));
+        assert_eq!(meta.get("session_src_ip").and_then(|v| v.as_str()), Some("10.0.0.5"));
+    }
+
+    #[test]
+    fn enrich_adds_logon_type_tag() {
+        let mut events = vec![make_event_with_logon_id(0x59b61)];
+        let mut sessions = HashMap::new();
+        sessions.insert(0x59b61, make_session(0x59b61, "alice", "CORP", 3, None, false));
+
+        enrich_timeline_events(&mut events, &sessions);
+
+        assert!(
+            events[0].tags.iter().any(|t| t == "session:network"),
+            "tag 'session:network' must be added for logon_type=3, got {:?}",
+            events[0].tags
+        );
+    }
+
+    #[test]
+    fn enrich_adds_orphaned_tag_for_orphaned_session() {
+        let mut events = vec![make_event_with_logon_id(0xABCD)];
+        let mut sessions = HashMap::new();
+        sessions.insert(0xABCD, make_session(0xABCD, "bob", "WORKGROUP", 2, None, true));
+
+        enrich_timeline_events(&mut events, &sessions);
+
+        assert!(
+            events[0].tags.iter().any(|t| t == "session:orphaned"),
+            "tag 'session:orphaned' must be added for orphaned session, got {:?}",
+            events[0].tags
+        );
+    }
+
+    #[test]
+    fn enrich_leaves_events_without_logon_id_unchanged() {
+        let mut events = vec![make_event_no_logon_id()];
+        let original_refs = events[0].entity_refs.clone();
+        let original_tags = events[0].tags.clone();
+        let mut sessions = HashMap::new();
+        sessions.insert(0x59b61, make_session(0x59b61, "alice", "CORP", 3, None, false));
+
+        enrich_timeline_events(&mut events, &sessions);
+
+        assert_eq!(events[0].entity_refs, original_refs, "entity_refs must not change for events with no logon_id");
+        assert_eq!(events[0].tags, original_tags, "tags must not change for events with no logon_id");
+    }
+
+    #[test]
+    fn enrich_skips_events_with_unknown_session_id() {
+        let mut events = vec![make_event_with_logon_id(0xDEAD)];
+        let mut sessions = HashMap::new();
+        // 0xDEAD not in sessions map
+        sessions.insert(0x1111, make_session(0x1111, "charlie", "DOM", 3, None, false));
+
+        enrich_timeline_events(&mut events, &sessions);
+
+        assert!(events[0].entity_refs.is_empty(), "no entity ref must be added when session not in map");
+    }
 
     fn corpus_security_evtx() -> std::path::PathBuf {
         // Sibling winevt-forensic corpus; available on dev machines, skipped in CI.
