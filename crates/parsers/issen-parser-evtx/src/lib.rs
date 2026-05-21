@@ -800,6 +800,87 @@ mod tests {
         assert!(event.hostname.is_none());
     }
 
+    // ── logon_id / logon_type extraction tests (Step 2 RED) ──────────────────
+
+    #[test]
+    fn test_record_to_event_4688_extracts_subject_logon_id() {
+        let data = serde_json::json!({
+            "Event": {
+                "System": {
+                    "EventID": 4688,
+                    "Channel": "Security",
+                    "Computer": "DC01"
+                },
+                "EventData": {
+                    "SubjectLogonId": "0x0000000000059b61",
+                    "NewProcessName": "C:\\Windows\\System32\\cmd.exe"
+                }
+            }
+        });
+        let event = record_to_event(1, 0, "2024-01-01T00:00:00Z", &data, "src");
+        assert_eq!(
+            event.metadata.get("logon_id"),
+            Some(&serde_json::json!(0x59b61_u64)),
+            "4688 must carry SubjectLogonId as logon_id"
+        );
+    }
+
+    #[test]
+    fn test_record_to_event_4624_extracts_target_logon_id_and_type() {
+        let data = serde_json::json!({
+            "Event": {
+                "System": { "EventID": 4624, "Channel": "Security" },
+                "EventData": {
+                    "TargetLogonId": "0x0000000000059b61",
+                    "LogonType": "3"
+                }
+            }
+        });
+        let event = record_to_event(2, 0, "2024-01-01T00:00:00Z", &data, "src");
+        assert_eq!(
+            event.metadata.get("logon_id"),
+            Some(&serde_json::json!(0x59b61_u64)),
+            "4624 must carry TargetLogonId as logon_id"
+        );
+        assert_eq!(
+            event.metadata.get("logon_type"),
+            Some(&serde_json::json!(3_u64)),
+            "4624 must carry LogonType as logon_type"
+        );
+    }
+
+    #[test]
+    fn test_record_to_event_4688_decimal_logon_id() {
+        // Some EVTX serialisers emit logon IDs as plain decimal strings.
+        let data = serde_json::json!({
+            "Event": {
+                "System": { "EventID": 4688 },
+                "EventData": { "SubjectLogonId": "367457" }
+            }
+        });
+        let event = record_to_event(3, 0, "2024-01-01T00:00:00Z", &data, "src");
+        assert_eq!(
+            event.metadata.get("logon_id"),
+            Some(&serde_json::json!(367457_u64)),
+            "decimal logon ID must parse correctly"
+        );
+    }
+
+    #[test]
+    fn test_record_to_event_no_logon_id_when_absent() {
+        let data = serde_json::json!({
+            "Event": {
+                "System": { "EventID": 4688 },
+                "EventData": { "NewProcessName": "C:\\cmd.exe" }
+            }
+        });
+        let event = record_to_event(4, 0, "2024-01-01T00:00:00Z", &data, "src");
+        assert!(
+            event.metadata.get("logon_id").is_none(),
+            "logon_id must not be inserted when absent from EventData"
+        );
+    }
+
     // -- parse() with invalid inputs ----------------------------------------
 
     #[test]
