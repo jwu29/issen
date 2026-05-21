@@ -124,6 +124,22 @@ fn timestamp_to_ns(seconds: i64, subsec_nanos: i32) -> i64 {
     result
 }
 
+/// Parse a Windows logon ID string into a u64.
+///
+/// Windows writes logon IDs as hex strings (`"0x0000000000059b61"`).
+/// Some EVTX serialisers emit plain decimal; both forms are handled.
+fn parse_logon_id(s: &str) -> Option<u64> {
+    let s = s.trim();
+    if s.is_empty() || s == "-" || s == "0x0000000000000000" {
+        return None;
+    }
+    if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
+        u64::from_str_radix(hex, 16).ok()
+    } else {
+        s.parse::<u64>().ok()
+    }
+}
+
 /// Extract a string value from a nested JSON path, returning an empty string
 /// if the path doesn't exist or isn't a string.
 fn json_str<'a>(data: &'a Value, keys: &[&str]) -> &'a str {
@@ -189,6 +205,37 @@ pub fn record_to_event(
     }
     if !computer.is_empty() {
         event = event.with_hostname(computer);
+    }
+
+    // Extract logon session ID for EID 4688 (ProcessExec) and 4624 (LogonSuccess).
+    let event_data = data.get("Event").and_then(|e| e.get("EventData"));
+    match event_id {
+        4688 => {
+            let lid_str = event_data
+                .and_then(|ed| ed.get("SubjectLogonId"))
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            if let Some(lid) = parse_logon_id(lid_str) {
+                event = event.with_metadata("logon_id", serde_json::json!(lid));
+            }
+        }
+        4624 => {
+            let lid_str = event_data
+                .and_then(|ed| ed.get("TargetLogonId"))
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            if let Some(lid) = parse_logon_id(lid_str) {
+                event = event.with_metadata("logon_id", serde_json::json!(lid));
+            }
+            let logon_type_str = event_data
+                .and_then(|ed| ed.get("LogonType"))
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            if let Ok(lt) = logon_type_str.parse::<u64>() {
+                event = event.with_metadata("logon_type", serde_json::json!(lt));
+            }
+        }
+        _ => {}
     }
 
     event
