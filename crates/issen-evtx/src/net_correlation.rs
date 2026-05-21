@@ -1,7 +1,10 @@
 //! Network correlation: PCAP time-window filter, DNS tunneling heuristics, Zeek conn-log join.
 
+use std::collections::HashMap;
+
 use forensicnomicon::heuristics::evtx::{EID_SYSMON_NETWORK_CONNECT, EID_SYSMON_DNS_QUERY, SYSMON_CHANNEL};
-use winevt_core::EvtxEvent;
+use issen_core::timeline::event::{EntityRef, EventType, TimelineEvent};
+use winevt_core::{EvtxEvent, LogonSession};
 
 /// A Zeek conn.log entry for correlation with Sysmon EID 3.
 #[derive(Debug, Clone)]
@@ -161,6 +164,47 @@ pub fn correlate_with_zeek(
             }
         })
         .collect()
+}
+
+/// Enrich `NetworkConnect` timeline events by joining on `metadata["logon_id"]`
+/// against the session map.
+///
+/// For each event with `event_type == NetworkConnect` that carries a `logon_id`
+/// matching a known session:
+/// - Pushes `EntityRef::Session(logon_id)` onto `event.entity_refs`
+/// - Adds `session_ip_mismatch` tag when `metadata["src_ip"]` differs from
+///   `session.src_ip` — signals potential IP-spoofing or NAT-traversal anomaly
+///
+/// Non-network events and events without a `logon_id` metadata field are
+/// left untouched.
+pub fn enrich_network_events_with_sessions(
+    events: &mut [TimelineEvent],
+    sessions: &HashMap<u64, LogonSession>,
+) {
+    for event in events {
+        if event.event_type != EventType::NetworkConnect {
+            continue;
+        }
+        let logon_id = match event.metadata.get("logon_id").and_then(|v| v.as_u64()) {
+            Some(id) => id,
+            None => continue,
+        };
+        let session = match sessions.get(&logon_id) {
+            Some(s) => s,
+            None => continue,
+        };
+        event.entity_refs.push(EntityRef::Session(logon_id));
+        if let Some(session_ip) = &session.src_ip {
+            let event_src_ip = event
+                .metadata
+                .get("src_ip")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if !event_src_ip.is_empty() && event_src_ip != session_ip.as_str() {
+                event.tags.push("session_ip_mismatch".into());
+            }
+        }
+    }
 }
 
 #[cfg(test)]
