@@ -328,6 +328,7 @@ fn entity_role_matches(entity: &EntityRef, role: &str) -> bool {
             | (EntityRef::Process(_), "process")
             | (EntityRef::User(_), "user")
             | (EntityRef::Ip(_), "ip")
+            | (EntityRef::Session(_), "session")
     )
 }
 
@@ -338,6 +339,7 @@ fn entity_key(entity: &EntityRef) -> String {
         EntityRef::Process(n) => format!("proc:{n}"),
         EntityRef::User(u) => format!("user:{u}"),
         EntityRef::Ip(a) => format!("ip:{a}"),
+        EntityRef::Session(id) => format!("session:0x{id:x}"),
     }
 }
 

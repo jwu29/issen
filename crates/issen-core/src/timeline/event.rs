@@ -45,9 +45,9 @@ impl std::fmt::Display for EventType {
     }
 }
 
-/// A typed reference to the entity (file, process, user, IP) that an event
-/// relates to. Used by `EntityIndex` and `temporal_join` to correlate events
-/// from different artifact sources that share the same entity.
+/// A typed reference to the entity (file, process, user, IP, or session) that
+/// an event relates to. Used by `EntityIndex` and `temporal_join` to correlate
+/// events from different artifact sources that share the same entity.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum EntityRef {
     /// A file system path (absolute or relative).
@@ -58,6 +58,20 @@ pub enum EntityRef {
     User(String),
     /// An IP address (v4 or v6).
     Ip(String),
+    /// A Windows logon session ID (the `LogonId` LUID from Security event log).
+    Session(u64),
+}
+
+impl std::fmt::Display for EntityRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::FilePath(s) => write!(f, "FilePath({s})"),
+            Self::Process(s) => write!(f, "Process({s})"),
+            Self::User(s) => write!(f, "User({s})"),
+            Self::Ip(s) => write!(f, "Ip({s})"),
+            Self::Session(id) => write!(f, "Session(0x{id:x})"),
+        }
+    }
 }
 
 /// A single event in the unified forensic timeline.

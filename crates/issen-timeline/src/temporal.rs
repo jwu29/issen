@@ -53,6 +53,7 @@ impl EntityIndex {
             EntityRef::Process(n) => format!("proc:{n}"),
             EntityRef::User(u) => format!("user:{u}"),
             EntityRef::Ip(a) => format!("ip:{a}"),
+            EntityRef::Session(id) => format!("session:0x{id:x}"),
         }
     }
 }
