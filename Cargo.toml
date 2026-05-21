@@ -33,6 +33,7 @@ members = [
     "crates/issen-remote-io",
     "crates/issen-browser",
     "crates/issen-evtx",
+    "crates/issen-dd",
     "crates/issen-vhdx",
     "crates/forensic-pivot",
     "crates/issen-wsl",
@@ -55,6 +56,7 @@ issen-fswalker   = { path = "crates/issen-fswalker" }
 issen-plugin-sdk = { path = "crates/issen-plugin-sdk" }
 issen-timeline   = { path = "crates/issen-timeline" }
 issen-ewf        = { path = "crates/issen-ewf" }
+issen-dd         = { path = "crates/issen-dd" }
 issen-vhdx       = { path = "crates/issen-vhdx" }
 issen-shrinkpath = { path = "crates/issen-shrinkpath" }
 issen-parser-mft     = { path = "crates/parsers/issen-parser-mft" }
@@ -142,6 +144,7 @@ usnjrnl-forensic = { path = "../usnjrnl-forensic", default-features = false }
 srum-parser      = { path = "../srum-forensic/crates/srum-parser" }
 srum-core        = { path = "../srum-forensic/crates/srum-core" }
 ewf          = "0.1"
+dd           = { path = "../dd/dd" }
 vhdx         = { path = "../vhdx/vhdx" }
 evtx         = { version = "0.11", default-features = false }
 mft          = "0.6"
