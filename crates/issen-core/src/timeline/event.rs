@@ -319,6 +319,47 @@ mod tests {
         assert_eq!(format!("{}", ArtifactType::EventLog), "Event Log");
     }
 
+    // ── EntityRef::Session tests (Step 1 RED) ────────────────────────────────
+
+    #[test]
+    fn entity_ref_session_serde_roundtrip() {
+        let r = EntityRef::Session(0xDEAD_BEEF_u64);
+        let json = serde_json::to_string(&r).expect("serialize Session");
+        let r2: EntityRef = serde_json::from_str(&json).expect("deserialize Session");
+        assert_eq!(r, r2);
+    }
+
+    #[test]
+    fn entity_ref_session_display_hex_lowercase() {
+        let r = EntityRef::Session(0xDEAD_BEEF_u64);
+        assert_eq!(format!("{r}"), "Session(0xdeadbeef)");
+    }
+
+    #[test]
+    fn entity_ref_session_display_zero() {
+        assert_eq!(format!("{}", EntityRef::Session(0_u64)), "Session(0x0)");
+    }
+
+    #[test]
+    fn entity_ref_session_debug_contains_value() {
+        let r = EntityRef::Session(42_u64);
+        assert!(format!("{r:?}").contains("42"));
+    }
+
+    #[test]
+    fn entity_ref_session_in_timeline_event() {
+        let event = sample_event().with_entity_ref(EntityRef::Session(0x59b61_u64));
+        assert_eq!(event.entity_refs, vec![EntityRef::Session(0x59b61)]);
+    }
+
+    #[test]
+    fn entity_ref_session_serde_in_event() {
+        let event = sample_event().with_entity_ref(EntityRef::Session(0xFFFF_u64));
+        let json = serde_json::to_string(&event).expect("serialize event");
+        let back: TimelineEvent = serde_json::from_str(&json).expect("deserialize event");
+        assert_eq!(back.entity_refs, vec![EntityRef::Session(0xFFFF)]);
+    }
+
     #[test]
     fn test_metadata_does_not_affect_hash() {
         let event1 = sample_event();
