@@ -4486,6 +4486,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "issen-qcow2"
+version = "0.1.0"
+dependencies = [
+ "issen-core",
+ "qcow2",
+ "tempfile",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "issen-remote-access"
 version = "0.1.0"
 dependencies = [
@@ -6956,6 +6966,13 @@ dependencies = [
  "cranelift-bitset",
  "log",
  "sptr",
+]
+
+[[package]]
+name = "qcow2"
+version = "0.1.0"
+dependencies = [
+ "thiserror 2.0.18",
 ]
 
 [[package]]
