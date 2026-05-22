@@ -4618,6 +4618,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "issen-vmdk"
+version = "0.1.0"
+dependencies = [
+ "issen-core",
+ "tempfile",
+ "thiserror 2.0.18",
+ "vmdk",
+]
+
+[[package]]
 name = "issen-wsl"
 version = "0.1.0"
 dependencies = [
@@ -9801,6 +9811,13 @@ dependencies = [
 
 [[package]]
 name = "vhdx"
+version = "0.1.0"
+dependencies = [
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "vmdk"
 version = "0.1.0"
 dependencies = [
  "thiserror 2.0.18",
