@@ -1,0 +1,23 @@
+[package]
+name = "issen-iso"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license = "Apache-2.0"
+description = "ISO 9660 optical disc image reader for the Issen forensic pipeline"
+repository.workspace = true
+
+[lib]
+name = "issen_iso"
+path = "src/lib.rs"
+
+[dependencies]
+issen-core = { workspace = true }
+hadris-iso = { workspace = true }
+thiserror  = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true
