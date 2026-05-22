@@ -52,7 +52,9 @@ impl std::fmt::Debug for Qcow2DataSource {
 impl Qcow2DataSource {
     /// Open a QCOW2 disk image (v2 or v3, no encryption, no backing file).
     pub fn open(path: &Path) -> Result<Self, Qcow2Error> {
-        todo!("implement Qcow2DataSource::open")
+        let reader = qcow2::Qcow2Reader::open(path)?;
+        let size = reader.virtual_disk_size();
+        Ok(Self { reader: Mutex::new(reader), size })
     }
 }
 
@@ -60,7 +62,16 @@ impl DataSource for Qcow2DataSource {
     fn len(&self) -> u64 { self.size }
 
     fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<usize, RtError> {
-        todo!("implement Qcow2DataSource::read_at")
+        let mut guard = self.reader.lock().expect("mutex poisoned");
+        guard.seek(SeekFrom::Start(offset)).map_err(RtError::Io)?;
+        let mut total = 0;
+        while total < buf.len() {
+            match guard.read(&mut buf[total..]).map_err(RtError::Io)? {
+                0 => break,
+                n => total += n,
+            }
+        }
+        Ok(total)
     }
 }
 
