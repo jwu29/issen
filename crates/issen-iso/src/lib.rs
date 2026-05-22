@@ -43,8 +43,19 @@ impl std::fmt::Debug for IsoDataSource {
 
 impl IsoDataSource {
     /// Open an ISO 9660 image, validating the format with `hadris-iso`.
+    ///
+    /// Opens the file twice: once for `hadris_iso` validation, once to keep
+    /// as a raw sector stream for [`DataSource::read_at`].
     pub fn open(path: &Path) -> Result<Self, IsoError> {
-        todo!("implement IsoDataSource::open")
+        // Validate: pass a File to hadris-iso; it consumes it.
+        let validate_file = File::open(path)?;
+        hadris_iso::sync::read::IsoImage::open(validate_file)
+            .map_err(|e| IsoError::InvalidIso(e.to_string()))?;
+
+        // Raw read handle for DataSource I/O.
+        let raw = File::open(path)?;
+        let size = raw.metadata()?.len();
+        Ok(Self { reader: Mutex::new(raw), size })
     }
 }
 
@@ -52,7 +63,16 @@ impl DataSource for IsoDataSource {
     fn len(&self) -> u64 { self.size }
 
     fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<usize, RtError> {
-        todo!("implement IsoDataSource::read_at")
+        let mut guard = self.reader.lock().expect("mutex poisoned");
+        guard.seek(SeekFrom::Start(offset)).map_err(RtError::Io)?;
+        let mut total = 0;
+        while total < buf.len() {
+            match guard.read(&mut buf[total..]).map_err(RtError::Io)? {
+                0 => break,
+                n => total += n,
+            }
+        }
+        Ok(total)
     }
 }
 
