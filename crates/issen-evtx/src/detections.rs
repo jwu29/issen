@@ -712,4 +712,187 @@ mod tests {
         ];
         assert!(run_all_detectors(&events).len() >= 2);
     }
+
+    // ── QWCrypt / RedCurl detection tests (RED) ──────────────────────────────
+
+    #[test]
+    fn byovd_zemana_driver_install_detected() {
+        let ev = vec![make_event(7045, "System",
+            vec![("ServiceName","ZemanaAntiMalware"),("ImagePath","C:\\Windows\\ZAM64.sys")],
+            1_000_000_000)];
+        let hits = detect_byovd_driver_install(&ev);
+        assert!(!hits.is_empty(), "Zemana driver install must be detected");
+        assert_eq!(hits[0].mitre_technique_id, "T1068");
+    }
+
+    #[test]
+    fn byovd_unknown_service_not_detected() {
+        let ev = vec![make_event(7045, "System",
+            vec![("ServiceName","VGAuthService"),("ImagePath","C:\\VMTools\\vmtools.dll")],
+            1_000)];
+        assert!(detect_byovd_driver_install(&ev).is_empty());
+    }
+
+    #[test]
+    fn byovd_empty_events() { assert!(detect_byovd_driver_install(&[]).is_empty()); }
+
+    #[test]
+    fn vss_deletion_detected_on_eid_8193() {
+        let ev = vec![make_event(8193, "Application",
+            vec![("Message","VSS error deleting shadow copy")],
+            1_000_000_000)];
+        let hits = detect_vss_deletion(&ev);
+        assert!(!hits.is_empty(), "VSS EID 8193 must be detected");
+        assert_eq!(hits[0].mitre_technique_id, "T1490");
+    }
+
+    #[test]
+    fn vss_deletion_detected_on_eid_524() {
+        let ev = vec![make_event(524, "Application",
+            vec![("Message","Volume Shadow Copy snapshot deleted")],
+            1_000_000_000)];
+        let hits = detect_vss_deletion(&ev);
+        assert!(!hits.is_empty(), "VSS EID 524 must be detected");
+    }
+
+    #[test]
+    fn vss_deletion_empty_events() { assert!(detect_vss_deletion(&[]).is_empty()); }
+
+    #[test]
+    fn hyperv_mass_state_change_detected_on_three_vms() {
+        let ns = 1_000_000_000_i64;
+        let ev = vec![
+            make_event(13002, "Microsoft-Windows-Hyper-V-VMMS/Admin",
+                vec![("VmName","VM-Alpha")], 10 * ns),
+            make_event(13002, "Microsoft-Windows-Hyper-V-VMMS/Admin",
+                vec![("VmName","VM-Beta")], 20 * ns),
+            make_event(13002, "Microsoft-Windows-Hyper-V-VMMS/Admin",
+                vec![("VmName","VM-Gamma")], 30 * ns),
+        ];
+        let hits = detect_hyperv_mass_state_change(&ev);
+        assert!(!hits.is_empty(), "3+ unique VMs stopping must trigger detection");
+        assert_eq!(hits[0].mitre_technique_id, "T1486");
+    }
+
+    #[test]
+    fn hyperv_single_vm_not_detected() {
+        let ev = vec![make_event(13002, "Microsoft-Windows-Hyper-V-VMMS/Admin",
+            vec![("VmName","VM-Alpha")], 1_000_000_000)];
+        assert!(detect_hyperv_mass_state_change(&ev).is_empty());
+    }
+
+    #[test]
+    fn hyperv_mass_state_change_empty_events() {
+        assert!(detect_hyperv_mass_state_change(&[]).is_empty());
+    }
+
+    #[test]
+    fn wmi_lateral_movement_detected_on_5858_remote() {
+        let ev = vec![make_event(5858, "Microsoft-Windows-WMI-Activity/Operational",
+            vec![("ClientMachine","\\\\VICTIM-PC"),("User","CORP\\attacker"),
+                 ("Operation","Provider::ExecQuery - root\\cimv2 : SELECT * FROM Win32_Process")],
+            1_000_000_000)];
+        let hits = detect_wmi_lateral_movement(&ev);
+        assert!(!hits.is_empty(), "Remote WMI failure must be detected");
+        assert_eq!(hits[0].mitre_technique_id, "T1047");
+    }
+
+    #[test]
+    fn wmi_lateral_movement_detected_on_5857_remote() {
+        let ev = vec![make_event(5857, "Microsoft-Windows-WMI-Activity/Operational",
+            vec![("ClientMachine","\\\\VICTIM-PC"),("User","CORP\\attacker")],
+            1_000_000_000)];
+        let hits = detect_wmi_lateral_movement(&ev);
+        assert!(!hits.is_empty(), "Remote WMI query must be detected");
+    }
+
+    #[test]
+    fn wmi_lateral_movement_local_not_detected() {
+        let ev = vec![make_event(5858, "Microsoft-Windows-WMI-Activity/Operational",
+            vec![("ClientMachine","localhost"),("User","NT AUTHORITY\\SYSTEM")],
+            1_000)];
+        assert!(detect_wmi_lateral_movement(&ev).is_empty());
+    }
+
+    #[test]
+    fn wmi_lateral_movement_empty_events() {
+        assert!(detect_wmi_lateral_movement(&[]).is_empty());
+    }
+
+    #[test]
+    fn qwcrypt_ps_stopvm_detected_in_script_block() {
+        let ev = vec![make_event(4104, "Microsoft-Windows-PowerShell/Operational",
+            vec![("ScriptBlockText","Stop-VM -Name 'VM-Alpha' -Force -TurnOff")],
+            1_000_000_000)];
+        let hits = detect_qwcrypt_ps_patterns(&ev);
+        assert!(!hits.is_empty(), "Stop-VM in script block must be detected");
+        assert_eq!(hits[0].mitre_technique_id, "T1059.001");
+    }
+
+    #[test]
+    fn qwcrypt_ps_vssadmin_detected_in_script_block() {
+        let ev = vec![make_event(4104, "Microsoft-Windows-PowerShell/Operational",
+            vec![("ScriptBlockText","vssadmin delete shadows /all /quiet")],
+            1_000_000_000)];
+        let hits = detect_qwcrypt_ps_patterns(&ev);
+        assert!(!hits.is_empty(), "vssadmin delete shadows must be detected");
+    }
+
+    #[test]
+    fn qwcrypt_ps_benign_script_not_detected() {
+        let ev = vec![make_event(4104, "Microsoft-Windows-PowerShell/Operational",
+            vec![("ScriptBlockText","Get-Process | Where-Object { $_.CPU -gt 50 }")],
+            1_000)];
+        assert!(detect_qwcrypt_ps_patterns(&ev).is_empty());
+    }
+
+    #[test]
+    fn qwcrypt_ps_empty_events() { assert!(detect_qwcrypt_ps_patterns(&[]).is_empty()); }
+
+    #[test]
+    fn security_task_created_detected_on_4698() {
+        let ev = vec![make_event(4698, "Security",
+            vec![("TaskName","\\Maintenance\\UpdateChecker"),
+                 ("SubjectUserName","SYSTEM"),
+                 ("TaskContent","<Actions><Exec><Command>C:\\Temp\\evil.exe</Command></Exec></Actions>")],
+            1_000_000_000)];
+        let hits = detect_security_task_created(&ev);
+        assert!(!hits.is_empty(), "Security EID 4698 task creation must be detected");
+        assert_eq!(hits[0].mitre_technique_id, "T1053.005");
+    }
+
+    #[test]
+    fn security_task_created_empty_events() {
+        assert!(detect_security_task_created(&[]).is_empty());
+    }
+
+    #[test]
+    fn qwcrypt_cluster_detected_on_byovd_plus_hyperv() {
+        let ns = 1_000_000_000_i64;
+        let ev = vec![
+            make_event(7045, "System",
+                vec![("ServiceName","ZemanaAntiMalware"),("ImagePath","C:\\Windows\\ZAM64.sys")],
+                10 * ns),
+            make_event(13002, "Microsoft-Windows-Hyper-V-VMMS/Admin",
+                vec![("VmName","VM-Alpha")], 20 * ns),
+            make_event(13002, "Microsoft-Windows-Hyper-V-VMMS/Admin",
+                vec![("VmName","VM-Beta")], 30 * ns),
+            make_event(13002, "Microsoft-Windows-Hyper-V-VMMS/Admin",
+                vec![("VmName","VM-Gamma")], 40 * ns),
+        ];
+        let hits = detect_qwcrypt_cluster(&ev);
+        assert!(!hits.is_empty(), "BYOVD + Hyper-V mass shutdown must trigger QWCrypt cluster");
+        assert_eq!(hits[0].confidence, Confidence::High);
+    }
+
+    #[test]
+    fn qwcrypt_cluster_byovd_alone_not_sufficient() {
+        let ev = vec![make_event(7045, "System",
+            vec![("ServiceName","ZemanaAntiMalware"),("ImagePath","C:\\Windows\\ZAM64.sys")],
+            1_000_000_000)];
+        assert!(detect_qwcrypt_cluster(&ev).is_empty());
+    }
+
+    #[test]
+    fn qwcrypt_cluster_empty_events() { assert!(detect_qwcrypt_cluster(&[]).is_empty()); }
 }
