@@ -10,6 +10,7 @@ members = [
     "crates/issen-shrinkpath",
     "crates/issen-signatures",
     "crates/issen-remote-access",
+    "crates/parsers/issen-parser-pe",
     "crates/parsers/issen-parser-mft",
     "crates/parsers/issen-parser-evtx",
     "crates/parsers/issen-parser-velociraptor",
@@ -69,6 +70,7 @@ issen-qcow2      = { path = "crates/issen-qcow2" }
 issen-iso        = { path = "crates/issen-iso" }
 issen-aff4       = { path = "crates/issen-aff4" }
 issen-shrinkpath = { path = "crates/issen-shrinkpath" }
+issen-parser-pe      = { path = "crates/parsers/issen-parser-pe" }
 issen-parser-mft     = { path = "crates/parsers/issen-parser-mft" }
 issen-parser-evtx    = { path = "crates/parsers/issen-parser-evtx" }
 issen-parser-velociraptor = { path = "crates/parsers/issen-parser-velociraptor" }
@@ -153,6 +155,7 @@ tar          = "0.4"
 usnjrnl-forensic = { path = "../usnjrnl-forensic", default-features = false }
 srum-parser      = { path = "../srum-forensic/crates/srum-parser" }
 srum-core        = { path = "../srum-forensic/crates/srum-core" }
+goblin       = { version = "0.10", default-features = false, features = ["pe32", "pe64", "std"] }
 ewf          = "0.1"
 dd           = { path = "../dd/dd" }
 vhd          = { path = "../vhd/vhd" }
