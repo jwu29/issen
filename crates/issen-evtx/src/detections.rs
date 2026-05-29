@@ -1,20 +1,22 @@
-//! Detection use cases: 16 TTP detectors operating on parsed EvtxEvent slices.
+//! Detection use cases: 23 TTP detectors operating on parsed EvtxEvent slices.
 
 use forensicnomicon::heuristics::evtx::{
-    AMSI_BYPASS_PATTERNS, ARCHIVER_PROCESS_NAMES, BITS_CLIENT_CHANNEL, DEFENDER_CHANNEL,
-    DEFENDER_TAMPER_PATTERNS, EID_BITS_TRANSFER_START, EID_DIRECTORY_SERVICE_ACCESS,
+    AMSI_BYPASS_PATTERNS, ARCHIVER_PROCESS_NAMES, BITS_CLIENT_CHANNEL, BYOVD_DRIVER_NAMES,
+    DEFENDER_CHANNEL, DEFENDER_TAMPER_PATTERNS, EID_BITS_TRANSFER_START,
+    EID_DIRECTORY_SERVICE_ACCESS, EID_HYPERV_VM_STATE_CHANGE, EID_HYPERV_VM_STOPPED,
     EID_KERBEROS_TGS_REQUEST, EID_KERBEROS_TGT_REQUEST, EID_LOG_CLEARED,
-    EID_PROCESS_CREATE, EID_PS_SCRIPT_BLOCK, EID_SERVICE_INSTALLED,
-    EID_SERVICE_INSTALLED_SECURITY, EID_SMB_SHARE_ACCESS, EID_SYSMON_DNS_QUERY,
-    EID_SYSMON_FILE_CREATE, EID_SYSMON_PROCESS_ACCESS, EID_SYSMON_PROCESS_CREATE,
-    EID_TASK_COMPLETED, EID_TASK_DELETED, EID_TASK_LAUNCHED, EID_TASK_REGISTERED,
-    EID_TASK_UPDATED, EID_WMI_FILTER_TRIGGERED, EID_DEFENDER_REALTIME_DISABLED,
-    EID_DEFENDER_CONFIG_CHANGED, EID_LOGON,
+    EID_PROCESS_CREATE, EID_PS_SCRIPT_BLOCK, EID_SECURITY_TASK_CREATED,
+    EID_SERVICE_INSTALLED, EID_SERVICE_INSTALLED_SECURITY, EID_SMB_SHARE_ACCESS,
+    EID_SYSMON_DNS_QUERY, EID_SYSMON_FILE_CREATE, EID_SYSMON_PROCESS_ACCESS,
+    EID_SYSMON_PROCESS_CREATE, EID_TASK_COMPLETED, EID_TASK_DELETED, EID_TASK_LAUNCHED,
+    EID_TASK_REGISTERED, EID_TASK_UPDATED, EID_VSS_ERROR, EID_VSS_SNAPSHOT_DELETED,
+    EID_WMI_FILTER_TRIGGERED, EID_WMI_OPERATION_FAILURE, EID_WMI_QUERY,
+    EID_DEFENDER_REALTIME_DISABLED, EID_DEFENDER_CONFIG_CHANGED, EID_LOGON,
     GUID_DS_REPLICATION_GET_CHANGES, GUID_DS_REPLICATION_GET_CHANGES_ALL,
-    GUID_DS_REPLICATION_FILTERED, LSASS_DUMP_ACCESS_MASKS, LSASS_IMAGE_NAME,
-    PSEXEC_SERVICE_PATTERNS, SYSMON_CHANNEL, SYSMON_FIELD_GRANTED_ACCESS,
-    SYSMON_FIELD_IMAGE, SYSMON_FIELD_TARGET_IMAGE, TASKSCHEDULER_CHANNEL,
-    WMI_ACTIVITY_CHANNEL,
+    GUID_DS_REPLICATION_FILTERED, HYPERV_VMMS_CHANNEL, LSASS_DUMP_ACCESS_MASKS,
+    LSASS_IMAGE_NAME, PSEXEC_SERVICE_PATTERNS, QWCRYPT_PS_PATTERNS, SYSMON_CHANNEL,
+    SYSMON_FIELD_GRANTED_ACCESS, SYSMON_FIELD_IMAGE, SYSMON_FIELD_TARGET_IMAGE,
+    TASKSCHEDULER_CHANNEL, WMI_ACTIVITY_CHANNEL,
 };
 use forensicnomicon::lolbins::is_lolbas_windows;
 use winevt_core::EvtxEvent;
@@ -504,7 +506,238 @@ pub fn detect_dns_cloud_exfil(events: &[EvtxEvent]) -> Vec<Detection> {
         .collect()
 }
 
-/// Run all 16 detectors and aggregate results.
+/// Detect BYOVD driver install: EID 7045 with a known-vulnerable driver service name.
+///
+/// QWCrypt/RedCurl install Zemana Anti-Malware (ZAM64.sys) as a service then use
+/// its privileged kernel access to terminate EDR processes before deploying the
+/// encryptor (MITRE T1068 — Exploitation for Privilege Escalation).
+pub fn detect_byovd_driver_install(events: &[EvtxEvent]) -> Vec<Detection> {
+    events
+        .iter()
+        .filter(|e| e.event_id == EID_SERVICE_INSTALLED)
+        .filter(|e| {
+            e.data.get("ServiceName")
+                .map(|n| BYOVD_DRIVER_NAMES.iter().any(|d| n.eq_ignore_ascii_case(d)))
+                .unwrap_or(false)
+        })
+        .map(|e| Detection {
+            technique: "BYOVD Driver Install",
+            mitre_technique_id: "T1068",
+            tactic: "privilege-escalation",
+            confidence: Confidence::High,
+            evidence: vec![e.clone()],
+            description: format!(
+                "Known-vulnerable driver '{}' installed as a service (BYOVD — T1068)",
+                e.data.get("ServiceName").map(String::as_str).unwrap_or("?")
+            ),
+        })
+        .collect()
+}
+
+/// Detect VSS shadow copy deletion: Application EID 8193 (VSS error) or EID 524
+/// (snapshot deleted). QWCrypt destroys VSS snapshots to prevent recovery (T1490).
+pub fn detect_vss_deletion(events: &[EvtxEvent]) -> Vec<Detection> {
+    events
+        .iter()
+        .filter(|e| e.event_id == EID_VSS_ERROR || e.event_id == EID_VSS_SNAPSHOT_DELETED)
+        .map(|e| Detection {
+            technique: "VSS Shadow Copy Deletion",
+            mitre_technique_id: "T1490",
+            tactic: "impact",
+            confidence: Confidence::High,
+            evidence: vec![e.clone()],
+            description: format!(
+                "VSS shadow copy deletion indicator (EID {})",
+                e.event_id
+            ),
+        })
+        .collect()
+}
+
+/// Detect Hyper-V mass VM state change: ≥3 unique VMs stopping within 60 minutes.
+///
+/// QWCrypt shuts down all Hyper-V virtual machines before encrypting the VHD/VHDX
+/// files on disk — a mass shutdown of 3+ distinct VMs is a strong ransomware signal
+/// (MITRE T1486 — Data Encrypted for Impact).
+pub fn detect_hyperv_mass_state_change(events: &[EvtxEvent]) -> Vec<Detection> {
+    use std::collections::HashSet;
+
+    const WINDOW_NS: i64 = 60 * 60 * 1_000_000_000; // 60 minutes
+    const VM_THRESHOLD: usize = 3;
+
+    let stopping: Vec<&EvtxEvent> = events
+        .iter()
+        .filter(|e| {
+            (e.event_id == EID_HYPERV_VM_STATE_CHANGE || e.event_id == EID_HYPERV_VM_STOPPED)
+                && e.channel == HYPERV_VMMS_CHANNEL
+        })
+        .collect();
+
+    if stopping.len() < VM_THRESHOLD {
+        return vec![];
+    }
+
+    // Slide a 60-minute window; if ≥ VM_THRESHOLD unique VM names appear → alert.
+    for (i, anchor) in stopping.iter().enumerate() {
+        let window_end = anchor.timestamp_ns + WINDOW_NS;
+        let mut vms: HashSet<&str> = HashSet::new();
+        let mut window_events: Vec<EvtxEvent> = Vec::new();
+        for ev in stopping.iter().skip(i) {
+            if ev.timestamp_ns > window_end {
+                break;
+            }
+            if let Some(name) = ev.data.get("VmName") {
+                vms.insert(name.as_str());
+                window_events.push((*ev).clone());
+            }
+        }
+        if vms.len() >= VM_THRESHOLD {
+            return vec![Detection {
+                technique: "Hyper-V Mass VM Shutdown",
+                mitre_technique_id: "T1486",
+                tactic: "impact",
+                confidence: Confidence::High,
+                evidence: window_events,
+                description: format!(
+                    "{} Hyper-V VMs stopped within 60 min (QWCrypt pre-encryption shutdown)",
+                    vms.len()
+                ),
+            }];
+        }
+    }
+
+    vec![]
+}
+
+/// Detect WMI lateral movement: EID 5857/5858 in WMI-Activity where
+/// `ClientMachine` contains a remote UNC hostname (`\\<host>`).
+///
+/// Local WMI queries are expected noise; a `ClientMachine` that begins with `\\`
+/// indicates a remote WMI operation — a lateral-movement indicator (T1047).
+pub fn detect_wmi_lateral_movement(events: &[EvtxEvent]) -> Vec<Detection> {
+    events
+        .iter()
+        .filter(|e| {
+            (e.event_id == EID_WMI_QUERY || e.event_id == EID_WMI_OPERATION_FAILURE)
+                && e.channel == WMI_ACTIVITY_CHANNEL
+        })
+        .filter(|e| {
+            e.data.get("ClientMachine")
+                .map(|m| m.starts_with("\\\\"))
+                .unwrap_or(false)
+        })
+        .map(|e| Detection {
+            technique: "WMI Remote Lateral Movement",
+            mitre_technique_id: "T1047",
+            tactic: "lateral-movement",
+            confidence: Confidence::Medium,
+            evidence: vec![e.clone()],
+            description: format!(
+                "Remote WMI operation from '{}' by '{}'",
+                e.data.get("ClientMachine").map(String::as_str).unwrap_or("?"),
+                e.data.get("User").map(String::as_str).unwrap_or("?"),
+            ),
+        })
+        .collect()
+}
+
+/// Detect QWCrypt-specific PowerShell patterns: EID 4104 script blocks containing
+/// Hyper-V management or shadow-deletion commands observed in RedCurl intrusions.
+pub fn detect_qwcrypt_ps_patterns(events: &[EvtxEvent]) -> Vec<Detection> {
+    events
+        .iter()
+        .filter(|e| e.event_id == EID_PS_SCRIPT_BLOCK)
+        .filter_map(|e| {
+            let script = e.data.get("ScriptBlockText")?;
+            let pattern = QWCRYPT_PS_PATTERNS
+                .iter()
+                .find(|&&p| script.to_lowercase().contains(&p.to_lowercase()))?;
+            Some(Detection {
+                technique: "QWCrypt PowerShell",
+                mitre_technique_id: "T1059.001",
+                tactic: "execution",
+                confidence: Confidence::High,
+                evidence: vec![e.clone()],
+                description: format!("QWCrypt pattern '{}' in PowerShell script block", pattern),
+            })
+        })
+        .collect()
+}
+
+/// Detect scheduled task creation via Security audit: EID 4698 (Security channel).
+///
+/// Complements `detect_scheduled_task_abuse` (TaskScheduler/Operational EID 106);
+/// the Security channel entry persists even when the TaskScheduler log is cleared.
+pub fn detect_security_task_created(events: &[EvtxEvent]) -> Vec<Detection> {
+    events
+        .iter()
+        .filter(|e| e.event_id == EID_SECURITY_TASK_CREATED)
+        .map(|e| Detection {
+            technique: "Scheduled Task (Security Audit)",
+            mitre_technique_id: "T1053.005",
+            tactic: "persistence",
+            confidence: Confidence::Medium,
+            evidence: vec![e.clone()],
+            description: format!(
+                "Scheduled task '{}' created (Security EID 4698, user '{}')",
+                e.data.get("TaskName").map(String::as_str).unwrap_or("?"),
+                e.data.get("SubjectUserName").map(String::as_str).unwrap_or("?"),
+            ),
+        })
+        .collect()
+}
+
+/// Composite QWCrypt cluster: BYOVD install AND (VSS deletion OR Hyper-V mass
+/// shutdown) within a 24-hour window → High-confidence QWCrypt attribution.
+pub fn detect_qwcrypt_cluster(events: &[EvtxEvent]) -> Vec<Detection> {
+    const WINDOW_NS: i64 = 86_400 * 1_000_000_000; // 24 hours
+
+    let byovd = detect_byovd_driver_install(events);
+    if byovd.is_empty() {
+        return vec![];
+    }
+    let vss = detect_vss_deletion(events);
+    let hyperv = detect_hyperv_mass_state_change(events);
+    if vss.is_empty() && hyperv.is_empty() {
+        return vec![];
+    }
+
+    // Ensure at least one corroborating signal falls within 24 h of the BYOVD event.
+    let byovd_ts: Vec<i64> = byovd
+        .iter()
+        .flat_map(|d| d.evidence.iter().map(|e| e.timestamp_ns))
+        .collect();
+
+    let corroborating: Vec<&Detection> = vss.iter().chain(hyperv.iter()).collect();
+    let corroborated = corroborating.iter().any(|d| {
+        d.evidence.iter().any(|ce| {
+            byovd_ts.iter().any(|&bt| (ce.timestamp_ns - bt).abs() < WINDOW_NS)
+        })
+    });
+
+    if !corroborated {
+        return vec![];
+    }
+
+    let mut evidence: Vec<EvtxEvent> = byovd.iter()
+        .chain(vss.iter())
+        .chain(hyperv.iter())
+        .flat_map(|d| d.evidence.iter().cloned())
+        .collect();
+    evidence.sort_by_key(|e| e.timestamp_ns);
+
+    vec![Detection {
+        technique: "QWCrypt Ransomware Cluster",
+        mitre_technique_id: "T1486",
+        tactic: "impact",
+        confidence: Confidence::High,
+        evidence,
+        description: "QWCrypt/RedCurl cluster: BYOVD driver install correlated with VSS \
+            deletion or Hyper-V mass shutdown within 24 h".to_string(),
+    }]
+}
+
+/// Run all 23 detectors and aggregate results.
 pub fn run_all_detectors(events: &[EvtxEvent]) -> Vec<Detection> {
     let mut results = Vec::new();
     results.extend(detect_kerberoasting(events));
@@ -523,6 +756,13 @@ pub fn run_all_detectors(events: &[EvtxEvent]) -> Vec<Detection> {
     results.extend(detect_bits_persistence(events));
     results.extend(detect_compression_staging(events));
     results.extend(detect_dns_cloud_exfil(events));
+    results.extend(detect_byovd_driver_install(events));
+    results.extend(detect_vss_deletion(events));
+    results.extend(detect_hyperv_mass_state_change(events));
+    results.extend(detect_wmi_lateral_movement(events));
+    results.extend(detect_qwcrypt_ps_patterns(events));
+    results.extend(detect_security_task_created(events));
+    results.extend(detect_qwcrypt_cluster(events));
     results
 }
 
