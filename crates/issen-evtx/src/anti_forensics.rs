@@ -2,8 +2,8 @@
 
 use forensicnomicon::heuristics::evtx::{
     EID_LOG_CLEARED, EID_LOG_CLEARED_SYSTEM, EID_CHANNEL_LOG_CLEARED,
-    EID_SYSMON_DRIVER_UNLOAD, EID_SYSMON_CONFIG_CHANGE, SYSMON_CHANNEL,
-    EID_W32TIME_NTP_FAILED,
+    EID_SYSMON_DRIVER_UNLOAD, EID_SYSMON_CONFIG_CHANGE, EID_SYSMON_FILE_DELETE,
+    PS_HISTORY_PATH_FRAGMENT, SYSMON_CHANNEL, EID_W32TIME_NTP_FAILED,
 };
 use winevt_core::EvtxEvent;
 
@@ -160,6 +160,29 @@ pub fn detect_channel_disable(events: &[EvtxEvent]) -> Vec<AntiForensicsAlert> {
         .collect()
 }
 
+/// Detect PowerShell history file deletion: Sysmon EID 23 (FileDelete) on
+/// ConsoleHost_history.txt (T1070.003).
+pub fn detect_ps_history_wipe(events: &[EvtxEvent]) -> Vec<AntiForensicsAlert> {
+    events
+        .iter()
+        .filter(|e| e.event_id == EID_SYSMON_FILE_DELETE && e.channel == SYSMON_CHANNEL)
+        .filter(|e| {
+            e.data.get("TargetFilename")
+                .map(|f| f.contains(PS_HISTORY_PATH_FRAGMENT))
+                .unwrap_or(false)
+        })
+        .map(|e| AntiForensicsAlert {
+            kind: AlertKind::PsHistoryWipe,
+            description: format!(
+                "PowerShell history file deleted (EID {}): '{}'",
+                e.event_id,
+                e.data.get("TargetFilename").map(String::as_str).unwrap_or("?")
+            ),
+            evidence: vec![e.clone()],
+        })
+        .collect()
+}
+
 /// Run all anti-forensics detectors.
 pub fn run_all_antiforensics(events: &[EvtxEvent]) -> Vec<AntiForensicsAlert> {
     let mut results = Vec::new();
@@ -168,6 +191,7 @@ pub fn run_all_antiforensics(events: &[EvtxEvent]) -> Vec<AntiForensicsAlert> {
     results.extend(detect_time_skew(events));
     results.extend(detect_sysmon_tampering(events));
     results.extend(detect_channel_disable(events));
+    results.extend(detect_ps_history_wipe(events));
     results
 }
 

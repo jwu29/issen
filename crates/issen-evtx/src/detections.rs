@@ -1,22 +1,24 @@
-//! Detection use cases: 23 TTP detectors operating on parsed EvtxEvent slices.
+//! Detection use cases: 27 TTP detectors operating on parsed EvtxEvent slices.
 
 use forensicnomicon::heuristics::evtx::{
     AMSI_BYPASS_PATTERNS, ARCHIVER_PROCESS_NAMES, BITS_CLIENT_CHANNEL, BYOVD_DRIVER_NAMES,
     DEFENDER_CHANNEL, DEFENDER_TAMPER_PATTERNS, EID_BITS_TRANSFER_START,
     EID_DIRECTORY_SERVICE_ACCESS, EID_HYPERV_VM_STATE_CHANGE, EID_HYPERV_VM_STOPPED,
     EID_KERBEROS_TGS_REQUEST, EID_KERBEROS_TGT_REQUEST, EID_LOG_CLEARED,
-    EID_PROCESS_CREATE, EID_PS_SCRIPT_BLOCK, EID_SECURITY_TASK_CREATED,
-    EID_SERVICE_INSTALLED, EID_SERVICE_INSTALLED_SECURITY, EID_SMB_SHARE_ACCESS,
-    EID_SYSMON_DNS_QUERY, EID_SYSMON_FILE_CREATE, EID_SYSMON_PROCESS_ACCESS,
-    EID_SYSMON_PROCESS_CREATE, EID_TASK_COMPLETED, EID_TASK_DELETED, EID_TASK_LAUNCHED,
-    EID_TASK_REGISTERED, EID_TASK_UPDATED, EID_VSS_ERROR, EID_VSS_SNAPSHOT_DELETED,
+    EID_PROCESS_CREATE, EID_PS_SCRIPT_BLOCK, EID_REGISTRY_VALUE_SET,
+    EID_SECURITY_TASK_CREATED, EID_SERVICE_INSTALLED, EID_SERVICE_INSTALLED_SECURITY,
+    EID_SMB_SHARE_ACCESS, EID_SYSMON_DNS_QUERY, EID_SYSMON_FILE_CREATE,
+    EID_SYSMON_NETWORK_CONNECT, EID_SYSMON_PROCESS_ACCESS, EID_SYSMON_PROCESS_CREATE,
+    EID_TASK_COMPLETED, EID_TASK_DELETED, EID_TASK_LAUNCHED, EID_TASK_REGISTERED,
+    EID_TASK_UPDATED, EID_VSS_ERROR, EID_VSS_SNAPSHOT_DELETED,
     EID_WMI_FILTER_TRIGGERED, EID_WMI_OPERATION_FAILURE, EID_WMI_QUERY,
     EID_DEFENDER_REALTIME_DISABLED, EID_DEFENDER_CONFIG_CHANGED, EID_LOGON,
     GUID_DS_REPLICATION_GET_CHANGES, GUID_DS_REPLICATION_GET_CHANGES_ALL,
-    GUID_DS_REPLICATION_FILTERED, HYPERV_VMMS_CHANNEL, LSASS_DUMP_ACCESS_MASKS,
-    LSASS_IMAGE_NAME, PSEXEC_SERVICE_PATTERNS, QWCRYPT_PS_PATTERNS, SYSMON_CHANNEL,
+    GUID_DS_REPLICATION_FILTERED, HVCI_REGISTRY_KEY_PATHS, HVCI_REGISTRY_VALUE_NAMES,
+    HYPERV_VMMS_CHANNEL, LSASS_DUMP_ACCESS_MASKS, LSASS_IMAGE_NAME,
+    PSEXEC_SERVICE_PATTERNS, QWCRYPT_IOC_FILENAMES, QWCRYPT_PS_PATTERNS, SYSMON_CHANNEL,
     SYSMON_FIELD_GRANTED_ACCESS, SYSMON_FIELD_IMAGE, SYSMON_FIELD_TARGET_IMAGE,
-    TASKSCHEDULER_CHANNEL, WMI_ACTIVITY_CHANNEL,
+    TASKSCHEDULER_CHANNEL, WEBDAV_LOL_PROCESSES, WMI_ACTIVITY_CHANNEL,
 };
 use forensicnomicon::lolbins::is_lolbas_windows;
 use winevt_core::EvtxEvent;
@@ -737,7 +739,125 @@ pub fn detect_qwcrypt_cluster(events: &[EvtxEvent]) -> Vec<Detection> {
     }]
 }
 
-/// Run all 23 detectors and aggregate results.
+/// Detect LNK/WebDAV LOLBin execution: EID 4688 where a known LOL process is launched
+/// with a CommandLine referencing a UNC (`\\`) or HTTP path (T1204.002).
+pub fn detect_lnk_webdav_execution(events: &[EvtxEvent]) -> Vec<Detection> {
+    events
+        .iter()
+        .filter(|e| e.event_id == EID_PROCESS_CREATE)
+        .filter(|e| {
+            let name = e.data.get("NewProcessName").map(String::as_str).unwrap_or("");
+            let basename = name.rsplit(['\\', '/']).next().unwrap_or(name);
+            WEBDAV_LOL_PROCESSES.iter().any(|p| basename.eq_ignore_ascii_case(p))
+        })
+        .filter(|e| {
+            let cmdline = e.data.get("CommandLine").map(String::as_str).unwrap_or("");
+            cmdline.contains("http") || cmdline.contains("\\\\")
+        })
+        .map(|e| Detection {
+            technique: "LNK/WebDAV LOLBin Execution",
+            mitre_technique_id: "T1204.002",
+            tactic: "execution",
+            confidence: Confidence::High,
+            evidence: vec![e.clone()],
+            description: format!(
+                "LOLBin '{}' launched with network/WebDAV path",
+                e.data.get("NewProcessName").map(String::as_str).unwrap_or("?")
+            ),
+        })
+        .collect()
+}
+
+/// Detect WebDAV/Cloudflare C2: Sysmon EID 3 (network connect) from a known LOLBin process
+/// (T1102).
+pub fn detect_webdav_c2(events: &[EvtxEvent]) -> Vec<Detection> {
+    events
+        .iter()
+        .filter(|e| e.event_id == EID_SYSMON_NETWORK_CONNECT && e.channel == SYSMON_CHANNEL)
+        .filter(|e| {
+            let image = e.data.get(SYSMON_FIELD_IMAGE).map(String::as_str).unwrap_or("");
+            let basename = image.rsplit(['\\', '/']).next().unwrap_or(image);
+            WEBDAV_LOL_PROCESSES.iter().any(|p| basename.eq_ignore_ascii_case(p))
+        })
+        .map(|e| Detection {
+            technique: "WebDAV/Cloudflare C2 via LOLBin",
+            mitre_technique_id: "T1102",
+            tactic: "command-and-control",
+            confidence: Confidence::Medium,
+            evidence: vec![e.clone()],
+            description: format!(
+                "LOLBin '{}' made outbound network connection (potential WebDAV C2)",
+                e.data.get(SYSMON_FIELD_IMAGE).map(String::as_str).unwrap_or("?")
+            ),
+        })
+        .collect()
+}
+
+/// Detect HVCI/Driver Blocklist registry tampering: EID 4657 modifying VBS/HVCI keys
+/// (T1562.001). Confidence is Medium because EID 4657 only fires when Object Access auditing
+/// covers these specific registry keys.
+pub fn detect_hvci_registry_disable(events: &[EvtxEvent]) -> Vec<Detection> {
+    events
+        .iter()
+        .filter(|e| e.event_id == EID_REGISTRY_VALUE_SET)
+        .filter(|e| {
+            let obj_name = e.data.get("ObjectName").map(String::as_str).unwrap_or("");
+            let val_name = e.data.get("ObjectValueName").map(String::as_str).unwrap_or("");
+            let key_match = HVCI_REGISTRY_KEY_PATHS.iter().any(|k| obj_name.contains(k));
+            let val_match = HVCI_REGISTRY_VALUE_NAMES.iter().any(|v| val_name.eq_ignore_ascii_case(v));
+            key_match || val_match
+        })
+        .map(|e| Detection {
+            technique: "HVCI/Driver Blocklist Registry Disable",
+            mitre_technique_id: "T1562.001",
+            tactic: "defense-evasion",
+            confidence: Confidence::Medium,
+            evidence: vec![e.clone()],
+            description: format!(
+                "HVCI/VBS security registry key modified: '{}' = '{}'",
+                e.data.get("ObjectValueName").map(String::as_str).unwrap_or("?"),
+                e.data.get("NewValue").map(String::as_str).unwrap_or("?")
+            ),
+        })
+        .collect()
+}
+
+/// Detect known QWCrypt IOC filenames: EID 4688 or Sysmon EID 1 where the process basename
+/// matches a known QWCrypt/RedCurl executable (e.g. rbcw.exe, ADNotificationManager.exe).
+pub fn detect_qwcrypt_ioc_filename(events: &[EvtxEvent]) -> Vec<Detection> {
+    events
+        .iter()
+        .filter(|e| e.event_id == EID_PROCESS_CREATE || e.event_id == EID_SYSMON_PROCESS_CREATE)
+        .filter(|e| {
+            let name = if e.event_id == EID_PROCESS_CREATE {
+                e.data.get("NewProcessName").map(String::as_str).unwrap_or("")
+            } else {
+                e.data.get(SYSMON_FIELD_IMAGE).map(String::as_str).unwrap_or("")
+            };
+            let basename = name.rsplit(['\\', '/']).next().unwrap_or(name);
+            QWCRYPT_IOC_FILENAMES.iter().any(|ioc| basename.eq_ignore_ascii_case(ioc))
+        })
+        .map(|e| {
+            let proc_name = e.data.get("NewProcessName")
+                .or_else(|| e.data.get(SYSMON_FIELD_IMAGE))
+                .map(String::as_str)
+                .unwrap_or("?");
+            Detection {
+                technique: "QWCrypt IOC Filename Match",
+                mitre_technique_id: "T1486",
+                tactic: "impact",
+                confidence: Confidence::High,
+                evidence: vec![e.clone()],
+                description: format!(
+                    "Known QWCrypt/RedCurl IOC executable launched: '{}'",
+                    proc_name
+                ),
+            }
+        })
+        .collect()
+}
+
+/// Run all 27 detectors and aggregate results.
 pub fn run_all_detectors(events: &[EvtxEvent]) -> Vec<Detection> {
     let mut results = Vec::new();
     results.extend(detect_kerberoasting(events));
@@ -763,6 +883,10 @@ pub fn run_all_detectors(events: &[EvtxEvent]) -> Vec<Detection> {
     results.extend(detect_qwcrypt_ps_patterns(events));
     results.extend(detect_security_task_created(events));
     results.extend(detect_qwcrypt_cluster(events));
+    results.extend(detect_lnk_webdav_execution(events));
+    results.extend(detect_webdav_c2(events));
+    results.extend(detect_hvci_registry_disable(events));
+    results.extend(detect_qwcrypt_ioc_filename(events));
     results
 }
 
