@@ -48,6 +48,8 @@ name = "aff4"
 version = "0.1.0"
 dependencies = [
  "flate2",
+ "lz4_flex",
+ "snap",
  "thiserror 2.0.18",
  "zip 2.4.2",
 ]
@@ -2102,6 +2104,7 @@ checksum = "a4ae5f15dda3c708c0ade84bfee31ccab44a3da4f88015ed22f63732abe300c8"
 name = "dd"
 version = "0.1.0"
 dependencies = [
+ "flate2",
  "thiserror 2.0.18",
 ]
 
@@ -4467,6 +4470,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "issen-parser-pe"
+version = "0.1.0"
+dependencies = [
+ "forensicnomicon",
+ "goblin 0.10.5",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "issen-parser-prefetch"
 version = "0.1.0"
 dependencies = [
@@ -5519,6 +5531,7 @@ dependencies = [
  "serde",
  "thiserror 2.0.18",
  "winevt-core",
+ "yara-x",
 ]
 
 [[package]]
@@ -7082,6 +7095,7 @@ dependencies = [
 name = "qcow2"
 version = "0.1.0"
 dependencies = [
+ "flate2",
  "thiserror 2.0.18",
 ]
 

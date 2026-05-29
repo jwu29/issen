@@ -30,15 +30,45 @@ pub struct PeDetection {
 ///
 /// Returns one detection per suspicious import found.
 pub fn detect_suspicious_imports(pe: &PeInfo) -> Vec<PeDetection> {
-    todo!()
+    use forensicnomicon::heuristics::pe::SUSPICIOUS_IMPORT_NAMES;
+    pe.imports
+        .iter()
+        .filter(|imp| SUSPICIOUS_IMPORT_NAMES.contains(&imp.as_str()))
+        .map(|imp| PeDetection {
+            kind: PeDetectionKind::SuspiciousImport,
+            mitre_technique_id: "T1055",
+            tactic: "defense-evasion",
+            description: format!("Suspicious API import: '{imp}'"),
+            evidence: vec![imp.clone()],
+        })
+        .collect()
 }
 
 /// Detect packed or protected PE binaries (T1027.002).
 ///
 /// Fires when any section has a name in [`PACKED_SECTION_NAMES`] or entropy ≥
-/// [`PACKED_SECTION_THRESHOLD`].
+/// the packed-section threshold (6.8).
 pub fn detect_packed_pe(pe: &PeInfo) -> Vec<PeDetection> {
-    todo!()
+    use forensicnomicon::heuristics::entropy::PACKED_SECTION_THRESHOLD;
+    use forensicnomicon::heuristics::pe::PACKED_SECTION_NAMES;
+    let mut detections = Vec::new();
+    for section in &pe.sections {
+        let by_name = PACKED_SECTION_NAMES.contains(&section.name.as_str());
+        let by_entropy = section.entropy >= PACKED_SECTION_THRESHOLD;
+        if by_name || by_entropy {
+            detections.push(PeDetection {
+                kind: PeDetectionKind::PackedExecutable,
+                mitre_technique_id: "T1027.002",
+                tactic: "defense-evasion",
+                description: format!(
+                    "Packed/protected section '{}' (entropy {:.2}, packer name: {})",
+                    section.name, section.entropy, by_name
+                ),
+                evidence: vec![section.name.clone()],
+            });
+        }
+    }
+    detections
 }
 
 /// Detect AV exclusion path or registry fragments in the PE string table (T1562.001).
@@ -46,17 +76,56 @@ pub fn detect_packed_pe(pe: &PeInfo) -> Vec<PeDetection> {
 /// AV-tampering malware frequently embeds the exact registry paths it will write to
 /// as string literals in its .data or .rdata section.
 pub fn detect_av_exclusion_strings(pe: &PeInfo) -> Vec<PeDetection> {
-    todo!()
+    use forensicnomicon::heuristics::pe::AV_EXCLUSION_PATH_FRAGMENTS;
+    let mut detections = Vec::new();
+    for string in &pe.strings {
+        for &fragment in AV_EXCLUSION_PATH_FRAGMENTS {
+            if string.contains(fragment) {
+                detections.push(PeDetection {
+                    kind: PeDetectionKind::AvExclusionStrings,
+                    mitre_technique_id: "T1562.001",
+                    tactic: "defense-evasion",
+                    description: format!(
+                        "AV exclusion path fragment '{fragment}' found in PE string table"
+                    ),
+                    evidence: vec![string.clone()],
+                });
+                break; // one detection per string
+            }
+        }
+    }
+    detections
 }
 
 /// Detect known QWCrypt / RedCurl PE IOC strings in the binary.
 pub fn detect_qwcrypt_pe_iocs(pe: &PeInfo) -> Vec<PeDetection> {
-    todo!()
+    use forensicnomicon::heuristics::pe::QWCRYPT_PE_STRING_IOCS;
+    let mut detections = Vec::new();
+    for string in &pe.strings {
+        for &ioc in QWCRYPT_PE_STRING_IOCS {
+            if string.contains(ioc) {
+                detections.push(PeDetection {
+                    kind: PeDetectionKind::QWCryptPeIoc,
+                    mitre_technique_id: "T1486",
+                    tactic: "impact",
+                    description: format!("QWCrypt/RedCurl IOC '{ioc}' found in PE string table"),
+                    evidence: vec![string.clone()],
+                });
+                break;
+            }
+        }
+    }
+    detections
 }
 
 /// Run all PE detectors and aggregate results.
 pub fn detect_all(pe: &PeInfo) -> Vec<PeDetection> {
-    todo!()
+    let mut results = Vec::new();
+    results.extend(detect_suspicious_imports(pe));
+    results.extend(detect_packed_pe(pe));
+    results.extend(detect_av_exclusion_strings(pe));
+    results.extend(detect_qwcrypt_pe_iocs(pe));
+    results
 }
 
 #[cfg(test)]

@@ -50,14 +50,135 @@ pub enum PeError {
 /// Returns `PeError::NotPe` for non-PE inputs (empty, wrong magic, truncated).
 /// Returns `PeError::Parse` for structurally invalid PEs that pass the magic check.
 pub fn parse_pe(bytes: &[u8]) -> Result<PeInfo, PeError> {
-    todo!()
+    use forensicnomicon::heuristics::pe::MZ_MAGIC;
+    use goblin::pe::PE;
+
+    if bytes.len() < 2 || bytes[0..2] != MZ_MAGIC {
+        return Err(PeError::NotPe);
+    }
+
+    let pe = PE::parse(bytes).map_err(|e| PeError::Parse(e.to_string()))?;
+
+    let machine = pe.header.coff_header.machine;
+    let compile_timestamp = pe.header.coff_header.time_date_stamp;
+    let is_dll = pe.is_lib;
+
+    let imports: Vec<String> = pe
+        .imports
+        .iter()
+        .map(|imp| imp.name.to_string())
+        .collect();
+
+    let sections = pe
+        .sections
+        .iter()
+        .map(|sec| {
+            let name = String::from_utf8_lossy(&sec.name)
+                .trim_end_matches('\0')
+                .to_string();
+            let offset = sec.pointer_to_raw_data as usize;
+            let size = sec.size_of_raw_data as usize;
+            let section_data = bytes
+                .get(offset..offset.saturating_add(size))
+                .unwrap_or(&[]);
+            let entropy = compute_entropy(section_data);
+            let is_executable = sec.characteristics & 0x2000_0000 != 0;
+            let is_writable = sec.characteristics & 0x8000_0000 != 0;
+            PeSection {
+                name,
+                virtual_size: sec.virtual_size,
+                raw_size: sec.size_of_raw_data,
+                entropy,
+                is_executable,
+                is_writable,
+            }
+        })
+        .collect();
+
+    let strings = extract_strings(bytes, 6);
+
+    Ok(PeInfo {
+        machine,
+        compile_timestamp,
+        is_dll,
+        imports,
+        sections,
+        strings,
+    })
 }
 
 /// Parse a PE binary from a file path.
 ///
 /// Reads the file into memory and calls [`parse_pe`].
 pub fn parse_pe_path(path: &Path) -> Result<PeInfo, PeError> {
-    todo!()
+    let bytes = std::fs::read(path).map_err(|e| PeError::Parse(e.to_string()))?;
+    parse_pe(&bytes)
+}
+
+/// Shannon entropy over byte values (0.0 – 8.0).
+pub(crate) fn compute_entropy(data: &[u8]) -> f32 {
+    if data.is_empty() {
+        return 0.0;
+    }
+    let mut freq = [0u32; 256];
+    for &b in data {
+        freq[b as usize] += 1;
+    }
+    let len = data.len() as f32;
+    let mut entropy = 0.0_f32;
+    for &count in &freq {
+        if count > 0 {
+            let p = count as f32 / len;
+            entropy -= p * p.log2();
+        }
+    }
+    entropy
+}
+
+/// Extract ASCII strings of at least `min_len` printable chars from `bytes`.
+///
+/// Also scans for UTF-16LE strings (alternating printable byte / 0x00).
+fn extract_strings(bytes: &[u8], min_len: usize) -> Vec<String> {
+    let mut results = Vec::new();
+
+    // ASCII pass
+    let mut current = String::new();
+    for &b in bytes {
+        if b >= 0x20 && b < 0x7F {
+            current.push(b as char);
+        } else {
+            if current.len() >= min_len {
+                results.push(current.clone());
+            }
+            current.clear();
+        }
+    }
+    if current.len() >= min_len {
+        results.push(current);
+    }
+
+    // UTF-16LE pass: every other byte is 0x00
+    let mut current16 = String::new();
+    let mut i = 0;
+    while i + 1 < bytes.len() {
+        let lo = bytes[i];
+        let hi = bytes[i + 1];
+        if hi == 0 && lo >= 0x20 && lo < 0x7F {
+            current16.push(lo as char);
+            i += 2;
+        } else {
+            if current16.len() >= min_len {
+                results.push(current16.clone());
+            }
+            current16.clear();
+            i += 1;
+        }
+    }
+    if current16.len() >= min_len {
+        results.push(current16);
+    }
+
+    results
 }
 
 #[cfg(test)]
