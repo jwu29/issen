@@ -75,6 +75,34 @@ impl DataSource for Qcow2DataSource {
     }
 }
 
+// ── CollectionProvider ────────────────────────────────────────────────
+
+use issen_unpack::{CollectionManifest, CollectionProvider, Confidence};
+
+/// Format-recognition and manifest provider for QCOW2 disk images.
+#[derive(Debug, Default)]
+pub struct Qcow2Provider;
+
+impl CollectionProvider for Qcow2Provider {
+    fn name(&self) -> &str {
+        "QCOW2"
+    }
+
+    fn probe(&self, _path: &Path) -> Result<Confidence, RtError> {
+        Ok(Confidence::None) // stub
+    }
+
+    fn open(&self, _path: &Path) -> Result<CollectionManifest, RtError> {
+        Err(RtError::UnsupportedFormat(
+            "QCOW2 provider not yet implemented".to_string(),
+        ))
+    }
+}
+
+inventory::submit!(issen_unpack::registry::ProviderRegistration {
+    create: || Box::new(Qcow2Provider),
+});
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -122,5 +150,67 @@ mod tests {
     fn qcow2_error_converts_to_rt_error() {
         let e = Qcow2Error::Qcow2("bad magic".into());
         assert!(matches!(RtError::from(e), RtError::Parse { .. }));
+    }
+
+    // ── Qcow2Provider tests ───────────────────────────────────────────
+
+    #[test]
+    fn qcow2_provider_name() {
+        assert_eq!(Qcow2Provider.name(), "QCOW2");
+    }
+
+    #[test]
+    fn qcow2_provider_probe_valid_magic_returns_high() {
+        // QCOW2 magic: 0x5146_49fb BE = bytes [0x51, 0x46, 0x49, 0xFB]
+        let img = qcow2::testutil::test_qcow2(&vec![0u8; 512]);
+        let f = write_tmp(&img);
+        // RED: stub returns None — FAILS
+        assert_eq!(
+            Qcow2Provider.probe(f.path()).expect("probe"),
+            Confidence::High
+        );
+    }
+
+    #[test]
+    fn qcow2_provider_probe_wrong_magic_returns_none() {
+        let f = write_tmp(b"not-qcow2\x00\x00\x00");
+        assert_eq!(
+            Qcow2Provider.probe(f.path()).expect("probe"),
+            Confidence::None
+        );
+    }
+
+    #[test]
+    fn qcow2_provider_probe_nonexistent_returns_err() {
+        // RED: stub returns Ok(None) — FAILS
+        assert!(Qcow2Provider
+            .probe(Path::new("/tmp/nonexistent_99999.qcow2"))
+            .is_err());
+    }
+
+    #[test]
+    fn qcow2_provider_open_invalid_returns_err() {
+        let f = write_tmp(b"not a qcow2");
+        assert!(Qcow2Provider.open(f.path()).is_err());
+    }
+
+    #[test]
+    fn qcow2_provider_open_nonexistent_returns_err() {
+        assert!(Qcow2Provider
+            .open(Path::new("/tmp/nonexistent_99999.qcow2"))
+            .is_err());
+    }
+
+    #[test]
+    fn qcow2_provider_registered_in_inventory() {
+        use issen_unpack::registry::ProviderRegistration;
+        let names: Vec<String> = inventory::iter::<ProviderRegistration>
+            .into_iter()
+            .map(|r| (r.create)().name().to_string())
+            .collect();
+        assert!(
+            names.contains(&"QCOW2".to_string()),
+            "Qcow2Provider must be in inventory; got: {names:?}"
+        );
     }
 }

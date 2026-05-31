@@ -75,6 +75,34 @@ impl DataSource for VhdDataSource {
     }
 }
 
+// ── CollectionProvider ────────────────────────────────────────────────
+
+use issen_unpack::{CollectionManifest, CollectionProvider, Confidence};
+
+/// Format-recognition and manifest provider for legacy VHD disk images.
+#[derive(Debug, Default)]
+pub struct VhdProvider;
+
+impl CollectionProvider for VhdProvider {
+    fn name(&self) -> &str {
+        "VHD"
+    }
+
+    fn probe(&self, _path: &Path) -> Result<Confidence, RtError> {
+        Ok(Confidence::None) // stub
+    }
+
+    fn open(&self, _path: &Path) -> Result<CollectionManifest, RtError> {
+        Err(RtError::UnsupportedFormat(
+            "VHD provider not yet implemented".to_string(),
+        ))
+    }
+}
+
+inventory::submit!(issen_unpack::registry::ProviderRegistration {
+    create: || Box::new(VhdProvider),
+});
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -128,5 +156,68 @@ mod tests {
     fn vhd_error_converts_to_rt_error() {
         let e = VhdError::Vhd("bad cookie".into());
         assert!(matches!(RtError::from(e), RtError::Parse { .. }));
+    }
+
+    // ── VhdProvider tests ─────────────────────────────────────────────
+
+    #[test]
+    fn vhd_provider_name() {
+        assert_eq!(VhdProvider.name(), "VHD");
+    }
+
+    #[test]
+    fn vhd_provider_probe_valid_footer_returns_high() {
+        // Valid VHD = data + 512-byte footer with "conectix" cookie
+        let sector = vec![0u8; 512];
+        let vhd_bytes = fixed_vhd(&sector);
+        let f = write_tmp(&vhd_bytes);
+        // RED: stub returns None — FAILS
+        assert_eq!(
+            VhdProvider.probe(f.path()).expect("probe"),
+            Confidence::High
+        );
+    }
+
+    #[test]
+    fn vhd_provider_probe_wrong_footer_returns_none() {
+        let f = write_tmp(&vec![0u8; 1024]);
+        assert_eq!(
+            VhdProvider.probe(f.path()).expect("probe"),
+            Confidence::None
+        );
+    }
+
+    #[test]
+    fn vhd_provider_probe_nonexistent_returns_err() {
+        // RED: stub returns Ok(None) — FAILS
+        assert!(VhdProvider
+            .probe(Path::new("/tmp/nonexistent_99999.vhd"))
+            .is_err());
+    }
+
+    #[test]
+    fn vhd_provider_open_invalid_returns_err() {
+        let f = write_tmp(b"not a vhd");
+        assert!(VhdProvider.open(f.path()).is_err());
+    }
+
+    #[test]
+    fn vhd_provider_open_nonexistent_returns_err() {
+        assert!(VhdProvider
+            .open(Path::new("/tmp/nonexistent_99999.vhd"))
+            .is_err());
+    }
+
+    #[test]
+    fn vhd_provider_registered_in_inventory() {
+        use issen_unpack::registry::ProviderRegistration;
+        let names: Vec<String> = inventory::iter::<ProviderRegistration>
+            .into_iter()
+            .map(|r| (r.create)().name().to_string())
+            .collect();
+        assert!(
+            names.contains(&"VHD".to_string()),
+            "VhdProvider must be in inventory; got: {names:?}"
+        );
     }
 }

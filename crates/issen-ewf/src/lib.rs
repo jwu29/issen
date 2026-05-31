@@ -169,6 +169,34 @@ impl DataSource for EwfDataSource {
     }
 }
 
+// ── CollectionProvider ────────────────────────────────────────────────
+
+use issen_unpack::{CollectionManifest, CollectionProvider, Confidence};
+
+/// Format-recognition and manifest provider for EWF/E01 forensic images.
+#[derive(Debug, Default)]
+pub struct EwfProvider;
+
+impl CollectionProvider for EwfProvider {
+    fn name(&self) -> &str {
+        "EWF"
+    }
+
+    fn probe(&self, _path: &Path) -> Result<Confidence, RtError> {
+        Ok(Confidence::None) // stub
+    }
+
+    fn open(&self, _path: &Path) -> Result<CollectionManifest, RtError> {
+        Err(RtError::UnsupportedFormat(
+            "EWF provider not yet implemented".to_string(),
+        ))
+    }
+}
+
+inventory::submit!(issen_unpack::registry::ProviderRegistration {
+    create: || Box::new(EwfProvider),
+});
+
 // ── Tests ────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -259,6 +287,74 @@ mod tests {
         assert!(
             matches!(ewf_err, EwfError::Io(_)),
             "Expected EwfError::Io, got: {ewf_err:?}"
+        );
+    }
+
+    // ── EwfProvider tests ─────────────────────────────────────────────
+
+    #[test]
+    fn ewf_provider_name() {
+        assert_eq!(EwfProvider.name(), "EWF");
+    }
+
+    #[test]
+    fn ewf_provider_probe_valid_magic_returns_high() {
+        use std::io::Write;
+        // EWF v1 magic: EVF\x09\x0d\x0a\xff\x00
+        let magic = [0x45u8, 0x56, 0x46, 0x09, 0x0d, 0x0a, 0xff, 0x00];
+        let mut f = tempfile::NamedTempFile::new().expect("tmpfile");
+        f.write_all(&magic).expect("write");
+        // RED: stub returns None — FAILS
+        assert_eq!(
+            EwfProvider.probe(f.path()).expect("probe"),
+            Confidence::High
+        );
+    }
+
+    #[test]
+    fn ewf_provider_probe_wrong_magic_returns_none() {
+        use std::io::Write;
+        let mut f = tempfile::NamedTempFile::new().expect("tmpfile");
+        f.write_all(b"not-ewf-\x00\x00").expect("write");
+        assert_eq!(
+            EwfProvider.probe(f.path()).expect("probe"),
+            Confidence::None
+        );
+    }
+
+    #[test]
+    fn ewf_provider_probe_nonexistent_returns_err() {
+        // RED: stub returns Ok(None) — FAILS
+        assert!(EwfProvider
+            .probe(Path::new("/tmp/nonexistent_99999.E01"))
+            .is_err());
+    }
+
+    #[test]
+    fn ewf_provider_open_invalid_returns_err() {
+        use std::io::Write;
+        let mut f = tempfile::NamedTempFile::new().expect("tmpfile");
+        f.write_all(b"not an ewf file").expect("write");
+        assert!(EwfProvider.open(f.path()).is_err());
+    }
+
+    #[test]
+    fn ewf_provider_open_nonexistent_returns_err() {
+        assert!(EwfProvider
+            .open(Path::new("/tmp/nonexistent_99999.E01"))
+            .is_err());
+    }
+
+    #[test]
+    fn ewf_provider_registered_in_inventory() {
+        use issen_unpack::registry::ProviderRegistration;
+        let names: Vec<String> = inventory::iter::<ProviderRegistration>
+            .into_iter()
+            .map(|r| (r.create)().name().to_string())
+            .collect();
+        assert!(
+            names.contains(&"EWF".to_string()),
+            "EwfProvider must be in inventory; got: {names:?}"
         );
     }
 }

@@ -12,12 +12,14 @@ name = "issen_dd"
 path = "src/lib.rs"
 
 [dependencies]
-issen-core = { workspace = true }
-dd         = { workspace = true }
-thiserror  = { workspace = true }
+issen-core   = { workspace = true }
+issen-unpack = { workspace = true }
+inventory    = { workspace = true }
+dd           = { workspace = true }
+thiserror    = { workspace = true }
+tempfile     = { workspace = true }
 
 [dev-dependencies]
-tempfile = { workspace = true }
 
 [lints]
 workspace = true

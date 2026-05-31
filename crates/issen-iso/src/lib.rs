@@ -76,6 +76,34 @@ impl DataSource for IsoDataSource {
     }
 }
 
+// ── CollectionProvider ────────────────────────────────────────────────
+
+use issen_unpack::{CollectionManifest, CollectionProvider, Confidence};
+
+/// Format-recognition and manifest provider for ISO 9660 disc images.
+#[derive(Debug, Default)]
+pub struct IsoProvider;
+
+impl CollectionProvider for IsoProvider {
+    fn name(&self) -> &str {
+        "ISO"
+    }
+
+    fn probe(&self, _path: &Path) -> Result<Confidence, RtError> {
+        Ok(Confidence::None) // stub
+    }
+
+    fn open(&self, _path: &Path) -> Result<CollectionManifest, RtError> {
+        Err(RtError::UnsupportedFormat(
+            "ISO provider not yet implemented".to_string(),
+        ))
+    }
+}
+
+inventory::submit!(issen_unpack::registry::ProviderRegistration {
+    create: || Box::new(IsoProvider),
+});
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -147,5 +175,66 @@ mod tests {
     fn iso_error_converts_to_rt_error() {
         let e = IsoError::InvalidIso("bad signature".into());
         assert!(matches!(RtError::from(e), RtError::Parse { .. }));
+    }
+
+    // ── IsoProvider tests ─────────────────────────────────────────────
+
+    #[test]
+    fn iso_provider_name() {
+        assert_eq!(IsoProvider.name(), "ISO");
+    }
+
+    #[test]
+    fn iso_provider_probe_valid_iso_returns_high() {
+        let img = make_iso(&[0u8; SECTOR]);
+        let f = write_tmp(&img);
+        // RED: stub returns None — FAILS
+        assert_eq!(
+            IsoProvider.probe(f.path()).expect("probe"),
+            Confidence::High
+        );
+    }
+
+    #[test]
+    fn iso_provider_probe_wrong_bytes_returns_none() {
+        let f = write_tmp(&vec![0u8; 40_000]);
+        assert_eq!(
+            IsoProvider.probe(f.path()).expect("probe"),
+            Confidence::None
+        );
+    }
+
+    #[test]
+    fn iso_provider_probe_nonexistent_returns_err() {
+        // RED: stub returns Ok(None) — FAILS
+        assert!(IsoProvider
+            .probe(Path::new("/tmp/nonexistent_99999.iso"))
+            .is_err());
+    }
+
+    #[test]
+    fn iso_provider_open_invalid_returns_err() {
+        let f = write_tmp(&vec![0u8; 40_000]);
+        assert!(IsoProvider.open(f.path()).is_err());
+    }
+
+    #[test]
+    fn iso_provider_open_nonexistent_returns_err() {
+        assert!(IsoProvider
+            .open(Path::new("/tmp/nonexistent_99999.iso"))
+            .is_err());
+    }
+
+    #[test]
+    fn iso_provider_registered_in_inventory() {
+        use issen_unpack::registry::ProviderRegistration;
+        let names: Vec<String> = inventory::iter::<ProviderRegistration>
+            .into_iter()
+            .map(|r| (r.create)().name().to_string())
+            .collect();
+        assert!(
+            names.contains(&"ISO".to_string()),
+            "IsoProvider must be in inventory; got: {names:?}"
+        );
     }
 }

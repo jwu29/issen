@@ -75,6 +75,34 @@ impl DataSource for VmdkDataSource {
     }
 }
 
+// ── CollectionProvider ────────────────────────────────────────────────
+
+use issen_unpack::{CollectionManifest, CollectionProvider, Confidence};
+
+/// Format-recognition and manifest provider for VMware VMDK disk images.
+#[derive(Debug, Default)]
+pub struct VmdkProvider;
+
+impl CollectionProvider for VmdkProvider {
+    fn name(&self) -> &str {
+        "VMDK"
+    }
+
+    fn probe(&self, _path: &Path) -> Result<Confidence, RtError> {
+        Ok(Confidence::None) // stub
+    }
+
+    fn open(&self, _path: &Path) -> Result<CollectionManifest, RtError> {
+        Err(RtError::UnsupportedFormat(
+            "VMDK provider not yet implemented".to_string(),
+        ))
+    }
+}
+
+inventory::submit!(issen_unpack::registry::ProviderRegistration {
+    create: || Box::new(VmdkProvider),
+});
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -126,5 +154,73 @@ mod tests {
     fn vmdk_error_converts_to_rt_error() {
         let e = VmdkError::Vmdk("bad magic".into());
         assert!(matches!(RtError::from(e), RtError::Parse { .. }));
+    }
+
+    // ── VmdkProvider tests ────────────────────────────────────────────
+
+    #[test]
+    fn vmdk_provider_name() {
+        assert_eq!(VmdkProvider.name(), "VMDK");
+    }
+
+    #[test]
+    fn vmdk_provider_probe_valid_magic_returns_high() {
+        // VMDK sparse magic: 0x564D444B LE = bytes [0x4B, 0x44, 0x4D, 0x56]
+        let magic_bytes = 0x564D_444Bu32.to_le_bytes();
+        let vmdk_data = vmdk::testutil::test_sparse_vmdk(&[0u8; 512]);
+        let f = write_tmp(&vmdk_data);
+        assert_eq!(
+            magic_bytes[..],
+            vmdk_data[..4],
+            "test VMDK must start with sparse magic"
+        );
+        // RED: stub returns None — FAILS
+        assert_eq!(
+            VmdkProvider.probe(f.path()).expect("probe"),
+            Confidence::High
+        );
+    }
+
+    #[test]
+    fn vmdk_provider_probe_wrong_magic_returns_none() {
+        let f = write_tmp(b"not-vmdk\x00\x00\x00\x00");
+        assert_eq!(
+            VmdkProvider.probe(f.path()).expect("probe"),
+            Confidence::None
+        );
+    }
+
+    #[test]
+    fn vmdk_provider_probe_nonexistent_returns_err() {
+        // RED: stub returns Ok(None) — FAILS
+        assert!(VmdkProvider
+            .probe(Path::new("/tmp/nonexistent_99999.vmdk"))
+            .is_err());
+    }
+
+    #[test]
+    fn vmdk_provider_open_invalid_returns_err() {
+        let f = write_tmp(b"not a vmdk");
+        assert!(VmdkProvider.open(f.path()).is_err());
+    }
+
+    #[test]
+    fn vmdk_provider_open_nonexistent_returns_err() {
+        assert!(VmdkProvider
+            .open(Path::new("/tmp/nonexistent_99999.vmdk"))
+            .is_err());
+    }
+
+    #[test]
+    fn vmdk_provider_registered_in_inventory() {
+        use issen_unpack::registry::ProviderRegistration;
+        let names: Vec<String> = inventory::iter::<ProviderRegistration>
+            .into_iter()
+            .map(|r| (r.create)().name().to_string())
+            .collect();
+        assert!(
+            names.contains(&"VMDK".to_string()),
+            "VmdkProvider must be in inventory; got: {names:?}"
+        );
     }
 }

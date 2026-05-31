@@ -12,13 +12,15 @@ name = "issen_vhd"
 path = "src/lib.rs"
 
 [dependencies]
-issen-core = { workspace = true }
-vhd        = { workspace = true }
-thiserror  = { workspace = true }
+issen-core   = { workspace = true }
+issen-unpack = { workspace = true }
+inventory    = { workspace = true }
+vhd          = { workspace = true }
+thiserror    = { workspace = true }
+tempfile     = { workspace = true }
 
 [dev-dependencies]
-tempfile = { workspace = true }
-vhd      = { workspace = true, features = ["test-helpers"] }
+vhd = { workspace = true, features = ["test-helpers"] }
 
 [lints]
 workspace = true

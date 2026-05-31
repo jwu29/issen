@@ -71,6 +71,37 @@ impl DataSource for DdDataSource {
     }
 }
 
+// ── CollectionProvider ────────────────────────────────────────────────
+
+use issen_unpack::{CollectionManifest, CollectionProvider, Confidence};
+
+/// Format-recognition and manifest provider for raw (dd) disk images.
+///
+/// Raw images have no magic bytes; this provider is last-resort and returns
+/// [`Confidence::Low`] for any readable file.
+#[derive(Debug, Default)]
+pub struct DdProvider;
+
+impl CollectionProvider for DdProvider {
+    fn name(&self) -> &str {
+        "DD"
+    }
+
+    fn probe(&self, _path: &Path) -> Result<Confidence, RtError> {
+        Ok(Confidence::None) // stub
+    }
+
+    fn open(&self, _path: &Path) -> Result<CollectionManifest, RtError> {
+        Err(RtError::UnsupportedFormat(
+            "DD provider not yet implemented".to_string(),
+        ))
+    }
+}
+
+inventory::submit!(issen_unpack::registry::ProviderRegistration {
+    create: || Box::new(DdProvider),
+});
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -118,5 +149,57 @@ mod tests {
         let io = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied");
         let e = DdError::Io(io);
         assert!(matches!(RtError::from(e), RtError::Io(_)));
+    }
+
+    // ── DdProvider tests ──────────────────────────────────────────────
+
+    #[test]
+    fn dd_provider_name() {
+        assert_eq!(DdProvider.name(), "DD");
+    }
+
+    #[test]
+    fn dd_provider_probe_readable_file_returns_low() {
+        let img = make_image(&[0u8; 512]);
+        // RED: stub returns None — FAILS (expects Low)
+        assert_eq!(
+            DdProvider.probe(img.path()).expect("probe"),
+            Confidence::Low
+        );
+    }
+
+    #[test]
+    fn dd_provider_probe_nonexistent_returns_err() {
+        // RED: stub returns Ok(None) — FAILS
+        assert!(DdProvider
+            .probe(Path::new("/tmp/nonexistent_99999.dd"))
+            .is_err());
+    }
+
+    #[test]
+    fn dd_provider_open_readable_file_returns_ok() {
+        let img = make_image(&[0u8; 512]);
+        // RED: stub returns Err — FAILS (expects Ok)
+        assert!(DdProvider.open(img.path()).is_ok());
+    }
+
+    #[test]
+    fn dd_provider_open_nonexistent_returns_err() {
+        assert!(DdProvider
+            .open(Path::new("/tmp/nonexistent_99999.dd"))
+            .is_err());
+    }
+
+    #[test]
+    fn dd_provider_registered_in_inventory() {
+        use issen_unpack::registry::ProviderRegistration;
+        let names: Vec<String> = inventory::iter::<ProviderRegistration>
+            .into_iter()
+            .map(|r| (r.create)().name().to_string())
+            .collect();
+        assert!(
+            names.contains(&"DD".to_string()),
+            "DdProvider must be in inventory; got: {names:?}"
+        );
     }
 }

@@ -98,6 +98,34 @@ impl DataSource for VhdxDataSource {
     }
 }
 
+// ── CollectionProvider ────────────────────────────────────────────────
+
+use issen_unpack::{CollectionManifest, CollectionProvider, Confidence};
+
+/// Format-recognition and manifest provider for VHDX disk images.
+#[derive(Debug, Default)]
+pub struct VhdxProvider;
+
+impl CollectionProvider for VhdxProvider {
+    fn name(&self) -> &str {
+        "VHDX"
+    }
+
+    fn probe(&self, _path: &Path) -> Result<Confidence, RtError> {
+        Ok(Confidence::None) // stub
+    }
+
+    fn open(&self, _path: &Path) -> Result<CollectionManifest, RtError> {
+        Err(RtError::UnsupportedFormat(
+            "VHDX provider not yet implemented".to_string(),
+        ))
+    }
+}
+
+inventory::submit!(issen_unpack::registry::ProviderRegistration {
+    create: || Box::new(VhdxProvider),
+});
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -152,6 +180,72 @@ mod tests {
         let rt_err: RtError = vhdx_err.into();
         assert!(
             matches!(rt_err, RtError::Parse { ref message, .. } if message.contains("vhdx"))
+        );
+    }
+
+    // ── VhdxProvider tests ────────────────────────────────────────────
+
+    #[test]
+    fn vhdx_provider_name() {
+        assert_eq!(VhdxProvider.name(), "VHDX");
+    }
+
+    #[test]
+    fn vhdx_provider_probe_valid_magic_returns_high() {
+        use std::io::Write;
+        let mut f = tempfile::NamedTempFile::new().expect("tmpfile");
+        f.write_all(b"vhdxfile\x00\x00\x00\x00").expect("write");
+        // RED: stub returns None — this test FAILS
+        assert_eq!(
+            VhdxProvider.probe(f.path()).expect("probe"),
+            Confidence::High
+        );
+    }
+
+    #[test]
+    fn vhdx_provider_probe_wrong_magic_returns_none() {
+        use std::io::Write;
+        let mut f = tempfile::NamedTempFile::new().expect("tmpfile");
+        f.write_all(b"not-vhdx\x00\x00\x00\x00").expect("write");
+        assert_eq!(
+            VhdxProvider.probe(f.path()).expect("probe"),
+            Confidence::None
+        );
+    }
+
+    #[test]
+    fn vhdx_provider_probe_nonexistent_returns_err() {
+        // RED: stub returns Ok(None) — this test FAILS
+        assert!(VhdxProvider
+            .probe(Path::new("/tmp/nonexistent_99999.vhdx"))
+            .is_err());
+    }
+
+    #[test]
+    fn vhdx_provider_open_invalid_returns_err() {
+        use std::io::Write;
+        let mut f = tempfile::NamedTempFile::new().expect("tmpfile");
+        f.write_all(b"not a vhdx file").expect("write");
+        assert!(VhdxProvider.open(f.path()).is_err());
+    }
+
+    #[test]
+    fn vhdx_provider_open_nonexistent_returns_err() {
+        assert!(VhdxProvider
+            .open(Path::new("/tmp/nonexistent_99999.vhdx"))
+            .is_err());
+    }
+
+    #[test]
+    fn vhdx_provider_registered_in_inventory() {
+        use issen_unpack::registry::ProviderRegistration;
+        let names: Vec<String> = inventory::iter::<ProviderRegistration>
+            .into_iter()
+            .map(|r| (r.create)().name().to_string())
+            .collect();
+        assert!(
+            names.contains(&"VHDX".to_string()),
+            "VhdxProvider must be in inventory; got: {names:?}"
         );
     }
 }

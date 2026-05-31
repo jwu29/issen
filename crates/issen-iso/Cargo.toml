@@ -12,12 +12,14 @@ name = "issen_iso"
 path = "src/lib.rs"
 
 [dependencies]
-issen-core = { workspace = true }
-hadris-iso = { workspace = true }
-thiserror  = { workspace = true }
+issen-core   = { workspace = true }
+issen-unpack = { workspace = true }
+inventory    = { workspace = true }
+hadris-iso   = { workspace = true }
+thiserror    = { workspace = true }
+tempfile     = { workspace = true }
 
 [dev-dependencies]
-tempfile = { workspace = true }
 
 [lints]
 workspace = true
