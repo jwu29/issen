@@ -1407,4 +1407,49 @@ mod tests {
 
     #[test]
     fn qwcrypt_ioc_filename_empty() { assert!(detect_qwcrypt_ioc_filename(&[]).is_empty()); }
+
+    // ── winevt-analysis bridge integration tests ─────────────────────────────
+    // These tests verify that run_all_detectors() surfaces detections from the
+    // winevt-analysis crate that have NO equivalent in issen-evtx's own 27.
+
+    #[test]
+    fn winevt_analysis_explorer_lolbin_wired_into_run_all() {
+        // detect_explorer_lolbin (T1204.002) exists only in winevt-analysis.
+        // run_all_detectors() must surface it after the bridge is wired.
+        let events = vec![make_event(
+            1,
+            "Microsoft-Windows-Sysmon/Operational",
+            vec![
+                ("Image", "C:\\Windows\\System32\\rundll32.exe"),
+                ("ParentImage", "C:\\Windows\\explorer.exe"),
+                ("CommandLine", "rundll32.exe DavWWWRoot\\payload.dll"),
+            ],
+            1_700_000_000_000_000_000,
+        )];
+        let hits = run_all_detectors(&events);
+        assert!(
+            hits.iter().any(|d| d.mitre_technique_id == "T1204.002"),
+            "T1204.002 (explorer LOLBin) must be returned by run_all_detectors"
+        );
+    }
+
+    #[test]
+    fn winevt_analysis_smb_admin_share_wired_into_run_all() {
+        // detect_smb_admin_share (T1021.002 remote admin share) exists only in winevt-analysis.
+        let events = vec![make_event(
+            5140,
+            "Security",
+            vec![
+                ("ShareName", "\\\\*\\ADMIN$"),
+                ("IpAddress", "10.0.0.42"),
+                ("SubjectUserName", "attacker"),
+            ],
+            1_700_000_000_000_000_000,
+        )];
+        let hits = run_all_detectors(&events);
+        assert!(
+            hits.iter().any(|d| d.mitre_technique_id == "T1021.002"),
+            "T1021.002 (SMB admin share) must be returned by run_all_detectors"
+        );
+    }
 }
