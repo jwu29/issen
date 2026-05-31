@@ -78,7 +78,7 @@ impl DataSource for IsoDataSource {
 
 // ── CollectionProvider ────────────────────────────────────────────────
 
-use issen_unpack::{CollectionManifest, CollectionProvider, Confidence};
+use issen_unpack::{CollectionManifest, CollectionMetadata, CollectionProvider, Confidence, OsType};
 
 /// Format-recognition and manifest provider for ISO 9660 disc images.
 #[derive(Debug, Default)]
@@ -89,13 +89,43 @@ impl CollectionProvider for IsoProvider {
         "ISO"
     }
 
-    fn probe(&self, _path: &Path) -> Result<Confidence, RtError> {
-        Ok(Confidence::None) // stub
+    fn probe(&self, path: &Path) -> Result<Confidence, RtError> {
+        use std::io::{Read, Seek, SeekFrom};
+        // ISO 9660 Primary Volume Descriptor starts at sector 16 (byte 0x8000).
+        // Byte 1 of the PVD is the standard identifier "CD001" (5 bytes at 0x8001).
+        let mut f = std::fs::File::open(path).map_err(RtError::Io)?;
+        if f.seek(SeekFrom::Start(0x8001)).map_err(RtError::Io)? < 0x8001 {
+            return Ok(Confidence::None);
+        }
+        let mut id = [0u8; 5];
+        match f.read_exact(&mut id) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+                return Ok(Confidence::None)
+            }
+            Err(e) => return Err(RtError::Io(e)),
+        }
+        if &id == b"CD001" {
+            Ok(Confidence::High)
+        } else {
+            Ok(Confidence::None)
+        }
     }
 
-    fn open(&self, _path: &Path) -> Result<CollectionManifest, RtError> {
-        Err(RtError::UnsupportedFormat(
-            "ISO provider not yet implemented".to_string(),
+    fn open(&self, path: &Path) -> Result<CollectionManifest, RtError> {
+        let source = IsoDataSource::open(path)?;
+        let size = source.len();
+        let tempdir = tempfile::tempdir().map_err(RtError::Io)?;
+        Ok(CollectionManifest::new(
+            self.name().to_string(),
+            tempdir,
+            vec![],
+            CollectionMetadata {
+                hostname: None,
+                collection_time: None,
+                os_type: OsType::Unknown,
+                tool_version: Some(format!("{size} bytes")),
+            },
         ))
     }
 }

@@ -171,7 +171,7 @@ impl DataSource for EwfDataSource {
 
 // ── CollectionProvider ────────────────────────────────────────────────
 
-use issen_unpack::{CollectionManifest, CollectionProvider, Confidence};
+use issen_unpack::{CollectionManifest, CollectionMetadata, CollectionProvider, Confidence, OsType};
 
 /// Format-recognition and manifest provider for EWF/E01 forensic images.
 #[derive(Debug, Default)]
@@ -182,13 +182,40 @@ impl CollectionProvider for EwfProvider {
         "EWF"
     }
 
-    fn probe(&self, _path: &Path) -> Result<Confidence, RtError> {
-        Ok(Confidence::None) // stub
+    fn probe(&self, path: &Path) -> Result<Confidence, RtError> {
+        use std::io::Read;
+        // EWF v1 signature: EVF\x09\x0d\x0a\xff\x00
+        const EVF_SIG: [u8; 8] = [0x45, 0x56, 0x46, 0x09, 0x0d, 0x0a, 0xff, 0x00];
+        let mut f = std::fs::File::open(path).map_err(RtError::Io)?;
+        let mut magic = [0u8; 8];
+        match f.read_exact(&mut magic) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+                return Ok(Confidence::None)
+            }
+            Err(e) => return Err(RtError::Io(e)),
+        }
+        if magic == EVF_SIG {
+            Ok(Confidence::High)
+        } else {
+            Ok(Confidence::None)
+        }
     }
 
-    fn open(&self, _path: &Path) -> Result<CollectionManifest, RtError> {
-        Err(RtError::UnsupportedFormat(
-            "EWF provider not yet implemented".to_string(),
+    fn open(&self, path: &Path) -> Result<CollectionManifest, RtError> {
+        let source = EwfDataSource::open(path)?;
+        let size = source.total_size();
+        let tempdir = tempfile::tempdir().map_err(RtError::Io)?;
+        Ok(CollectionManifest::new(
+            self.name().to_string(),
+            tempdir,
+            vec![],
+            CollectionMetadata {
+                hostname: None,
+                collection_time: None,
+                os_type: OsType::Unknown,
+                tool_version: Some(format!("{size} bytes")),
+            },
         ))
     }
 }

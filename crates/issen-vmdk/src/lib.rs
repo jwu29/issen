@@ -77,7 +77,7 @@ impl DataSource for VmdkDataSource {
 
 // ── CollectionProvider ────────────────────────────────────────────────
 
-use issen_unpack::{CollectionManifest, CollectionProvider, Confidence};
+use issen_unpack::{CollectionManifest, CollectionMetadata, CollectionProvider, Confidence, OsType};
 
 /// Format-recognition and manifest provider for VMware VMDK disk images.
 #[derive(Debug, Default)]
@@ -88,13 +88,40 @@ impl CollectionProvider for VmdkProvider {
         "VMDK"
     }
 
-    fn probe(&self, _path: &Path) -> Result<Confidence, RtError> {
-        Ok(Confidence::None) // stub
+    fn probe(&self, path: &Path) -> Result<Confidence, RtError> {
+        use std::io::Read;
+        // VMDK sparse extent magic: 0x564D444B stored LE = bytes [0x4B, 0x44, 0x4D, 0x56]
+        const VMDK_MAGIC: [u8; 4] = [0x4B, 0x44, 0x4D, 0x56];
+        let mut f = std::fs::File::open(path).map_err(RtError::Io)?;
+        let mut magic = [0u8; 4];
+        match f.read_exact(&mut magic) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+                return Ok(Confidence::None)
+            }
+            Err(e) => return Err(RtError::Io(e)),
+        }
+        if magic == VMDK_MAGIC {
+            Ok(Confidence::High)
+        } else {
+            Ok(Confidence::None)
+        }
     }
 
-    fn open(&self, _path: &Path) -> Result<CollectionManifest, RtError> {
-        Err(RtError::UnsupportedFormat(
-            "VMDK provider not yet implemented".to_string(),
+    fn open(&self, path: &Path) -> Result<CollectionManifest, RtError> {
+        let source = VmdkDataSource::open(path)?;
+        let size = source.len();
+        let tempdir = tempfile::tempdir().map_err(RtError::Io)?;
+        Ok(CollectionManifest::new(
+            self.name().to_string(),
+            tempdir,
+            vec![],
+            CollectionMetadata {
+                hostname: None,
+                collection_time: None,
+                os_type: OsType::Unknown,
+                tool_version: Some(format!("{size} bytes")),
+            },
         ))
     }
 }

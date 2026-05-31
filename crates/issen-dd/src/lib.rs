@@ -73,12 +73,12 @@ impl DataSource for DdDataSource {
 
 // ── CollectionProvider ────────────────────────────────────────────────
 
-use issen_unpack::{CollectionManifest, CollectionProvider, Confidence};
+use issen_unpack::{CollectionManifest, CollectionMetadata, CollectionProvider, Confidence, OsType};
 
 /// Format-recognition and manifest provider for raw (dd) disk images.
 ///
-/// Raw images have no magic bytes; this provider is last-resort and returns
-/// [`Confidence::Low`] for any readable file.
+/// Raw images have no magic bytes. This provider returns [`Confidence::Low`]
+/// for any readable file, making it the last-resort fallback in the registry.
 #[derive(Debug, Default)]
 pub struct DdProvider;
 
@@ -87,13 +87,27 @@ impl CollectionProvider for DdProvider {
         "DD"
     }
 
-    fn probe(&self, _path: &Path) -> Result<Confidence, RtError> {
-        Ok(Confidence::None) // stub
+    fn probe(&self, path: &Path) -> Result<Confidence, RtError> {
+        // Any readable file is a potential raw image — lowest confidence so
+        // format-specific providers always win.
+        std::fs::metadata(path).map_err(RtError::Io)?;
+        Ok(Confidence::Low)
     }
 
-    fn open(&self, _path: &Path) -> Result<CollectionManifest, RtError> {
-        Err(RtError::UnsupportedFormat(
-            "DD provider not yet implemented".to_string(),
+    fn open(&self, path: &Path) -> Result<CollectionManifest, RtError> {
+        let source = DdDataSource::open(path)?;
+        let size = source.len();
+        let tempdir = tempfile::tempdir().map_err(RtError::Io)?;
+        Ok(CollectionManifest::new(
+            self.name().to_string(),
+            tempdir,
+            vec![],
+            CollectionMetadata {
+                hostname: None,
+                collection_time: None,
+                os_type: OsType::Unknown,
+                tool_version: Some(format!("{size} bytes")),
+            },
         ))
     }
 }

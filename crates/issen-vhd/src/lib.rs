@@ -77,7 +77,7 @@ impl DataSource for VhdDataSource {
 
 // ── CollectionProvider ────────────────────────────────────────────────
 
-use issen_unpack::{CollectionManifest, CollectionProvider, Confidence};
+use issen_unpack::{CollectionManifest, CollectionMetadata, CollectionProvider, Confidence, OsType};
 
 /// Format-recognition and manifest provider for legacy VHD disk images.
 #[derive(Debug, Default)]
@@ -88,13 +88,44 @@ impl CollectionProvider for VhdProvider {
         "VHD"
     }
 
-    fn probe(&self, _path: &Path) -> Result<Confidence, RtError> {
-        Ok(Confidence::None) // stub
+    fn probe(&self, path: &Path) -> Result<Confidence, RtError> {
+        use std::io::{Read, Seek, SeekFrom};
+        // VHD footer cookie "conectix" sits in the last 512 bytes of the file.
+        let mut f = std::fs::File::open(path).map_err(RtError::Io)?;
+        let len = f.metadata().map_err(RtError::Io)?.len();
+        if len < 512 {
+            return Ok(Confidence::None);
+        }
+        f.seek(SeekFrom::Start(len - 512)).map_err(RtError::Io)?;
+        let mut cookie = [0u8; 8];
+        match f.read_exact(&mut cookie) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+                return Ok(Confidence::None)
+            }
+            Err(e) => return Err(RtError::Io(e)),
+        }
+        if &cookie == b"conectix" {
+            Ok(Confidence::High)
+        } else {
+            Ok(Confidence::None)
+        }
     }
 
-    fn open(&self, _path: &Path) -> Result<CollectionManifest, RtError> {
-        Err(RtError::UnsupportedFormat(
-            "VHD provider not yet implemented".to_string(),
+    fn open(&self, path: &Path) -> Result<CollectionManifest, RtError> {
+        let source = VhdDataSource::open(path)?;
+        let size = source.len();
+        let tempdir = tempfile::tempdir().map_err(RtError::Io)?;
+        Ok(CollectionManifest::new(
+            self.name().to_string(),
+            tempdir,
+            vec![],
+            CollectionMetadata {
+                hostname: None,
+                collection_time: None,
+                os_type: OsType::Unknown,
+                tool_version: Some(format!("{size} bytes")),
+            },
         ))
     }
 }
