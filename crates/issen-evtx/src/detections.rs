@@ -857,7 +857,27 @@ pub fn detect_qwcrypt_ioc_filename(events: &[EvtxEvent]) -> Vec<Detection> {
         .collect()
 }
 
-/// Run all 27 detectors and aggregate results.
+/// Convert an [`winevt_analysis::EvtxDetection`] into the issen-evtx [`Detection`] type.
+///
+/// Evidence is reconstructed by finding the triggering event in the input slice
+/// by matching `timestamp_ns` + `event_id` — the same fields stored in `EvtxDetection`.
+fn bridge(det: winevt_analysis::EvtxDetection, events: &[EvtxEvent]) -> Detection {
+    let evidence: Vec<EvtxEvent> = events
+        .iter()
+        .filter(|e| e.timestamp_ns == det.timestamp_ns && e.event_id == det.event_id)
+        .cloned()
+        .collect();
+    Detection {
+        technique: det.mitre_technique_id,
+        mitre_technique_id: det.mitre_technique_id,
+        tactic: det.tactic,
+        confidence: Confidence::High,
+        evidence,
+        description: det.description,
+    }
+}
+
+/// Run all detectors — issen-evtx's own 27 plus the full winevt-analysis suite — and aggregate.
 pub fn run_all_detectors(events: &[EvtxEvent]) -> Vec<Detection> {
     let mut results = Vec::new();
     results.extend(detect_kerberoasting(events));
@@ -887,6 +907,12 @@ pub fn run_all_detectors(events: &[EvtxEvent]) -> Vec<Detection> {
     results.extend(detect_webdav_c2(events));
     results.extend(detect_hvci_registry_disable(events));
     results.extend(detect_qwcrypt_ioc_filename(events));
+    // winevt-analysis suite — 31 additional detectors not covered above
+    results.extend(
+        winevt_analysis::detect_all(events)
+            .into_iter()
+            .map(|d| bridge(d, events)),
+    );
     results
 }
 
