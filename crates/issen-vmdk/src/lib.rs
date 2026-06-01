@@ -39,7 +39,7 @@ impl From<VmdkError> for RtError {
 
 /// A [`DataSource`] backed by a VMware VMDK disk image.
 pub struct VmdkDataSource {
-    reader: Mutex<vmdk::VmdkReader>,
+    reader: Mutex<vmdk::VmdkReader<std::fs::File>>,
     size: u64,
 }
 
@@ -52,7 +52,8 @@ impl std::fmt::Debug for VmdkDataSource {
 impl VmdkDataSource {
     /// Open a VMDK disk image (monolithic sparse).
     pub fn open(path: &Path) -> Result<Self, VmdkError> {
-        let reader = vmdk::VmdkReader::open(path)?;
+        let file = std::fs::File::open(path)?;
+        let reader = vmdk::VmdkReader::open(file)?;
         let size = reader.virtual_disk_size();
         Ok(Self { reader: Mutex::new(reader), size })
     }
