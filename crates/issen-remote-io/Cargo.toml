@@ -8,6 +8,7 @@ license.workspace = true
 [features]
 default = []
 remote = ["dep:opendal", "dep:tokio", "dep:reqwest"]
+sftp   = ["remote", "opendal/services-sftp"]
 
 [dependencies]
 anyhow      = { workspace = true }
@@ -68,7 +69,7 @@ opendal = { version = "0.55.0", optional = true, features = [
     "services-fs",
     "services-http",
     "services-webdav",
-    "services-sftp",
+    # services-sftp excluded: uses openssh which is Unix-only (no Windows support)
     "services-ftp",
     "services-hdfs-native",
     "services-compfs",

@@ -618,28 +618,7 @@ pub fn operator_for_uri(uri: &str) -> Result<(Operator, String)> {
             Ok((op, path))
         }
 
-        "sftp" => {
-            // sftp://user@host/path  (authenticates via SSH agent or key file)
-            // Optional env overrides: RT_SFTP_KEY_PATH, RT_SFTP_KNOWN_HOSTS_STRATEGY
-            let (userinfo, hostpath) = if rest.contains('@') {
-                rest.split_once('@').unwrap_or(("", rest))
-            } else {
-                ("", rest)
-            };
-            let (host, path) = hostpath.split_once('/').unwrap_or((hostpath, ""));
-            let user = if let Some((u, _)) = userinfo.split_once(':') { u } else { userinfo };
-            let mut builder = services::Sftp::default()
-                .endpoint(&format!("ssh://{host}"))
-                .user(user);
-            if let Ok(key) = std::env::var("RT_SFTP_KEY_PATH") {
-                builder = builder.key(&key);
-            }
-            let known_hosts = std::env::var("RT_SFTP_KNOWN_HOSTS_STRATEGY")
-                .unwrap_or_else(|_| "add".into());
-            builder = builder.known_hosts_strategy(&known_hosts);
-            let op = Operator::new(builder)?.finish();
-            Ok((op, path.to_string()))
-        }
+        "sftp" => sftp_operator(rest),
 
         "ftp" | "ftps" => {
             // ftp://user:password@host/path
@@ -677,6 +656,35 @@ pub fn operator_for_uri(uri: &str) -> Result<(Operator, String)> {
 
         other => Err(anyhow!("Unsupported URI scheme: {other}")),
     }
+}
+
+#[cfg(feature = "sftp")]
+fn sftp_operator(rest: &str) -> Result<(Operator, String)> {
+    // sftp://user@host/path  (authenticates via SSH agent or key file)
+    // Optional env overrides: RT_SFTP_KEY_PATH, RT_SFTP_KNOWN_HOSTS_STRATEGY
+    let (userinfo, hostpath) = if rest.contains('@') {
+        rest.split_once('@').unwrap_or(("", rest))
+    } else {
+        ("", rest)
+    };
+    let (host, path) = hostpath.split_once('/').unwrap_or((hostpath, ""));
+    let user = if let Some((u, _)) = userinfo.split_once(':') { u } else { userinfo };
+    let mut builder = services::Sftp::default()
+        .endpoint(&format!("ssh://{host}"))
+        .user(user);
+    if let Ok(key) = std::env::var("RT_SFTP_KEY_PATH") {
+        builder = builder.key(&key);
+    }
+    let known_hosts = std::env::var("RT_SFTP_KNOWN_HOSTS_STRATEGY")
+        .unwrap_or_else(|_| "add".into());
+    builder = builder.known_hosts_strategy(&known_hosts);
+    let op = Operator::new(builder)?.finish();
+    Ok((op, path.to_string()))
+}
+
+#[cfg(not(feature = "sftp"))]
+fn sftp_operator(_rest: &str) -> Result<(Operator, String)> {
+    Err(anyhow!("SFTP support requires the 'sftp' feature (Unix only)"))
 }
 
 /// Split `"authority/path"` into `("authority", "path")`.

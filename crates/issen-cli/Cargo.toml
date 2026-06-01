@@ -53,6 +53,9 @@ csv = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
+[target.'cfg(unix)'.dependencies]
+issen-remote-io = { workspace = true, features = ["sftp"] }
+
 [dev-dependencies]
 assert_cmd = { workspace = true }
 flate2 = { workspace = true }
