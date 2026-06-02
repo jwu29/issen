@@ -46,6 +46,8 @@ issen-remote-io = { workspace = true, features = ["remote"] }
 srum-parser  = { workspace = true }
 srum-core    = { workspace = true }
 clap = { workspace = true }
+colored = { workspace = true }
+is-terminal = { workspace = true }
 anyhow = { workspace = true }
 duckdb = { workspace = true }
 serde_json = { workspace = true }

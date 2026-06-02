@@ -6,6 +6,7 @@
 
 use std::path::Path;
 
+use colored::Colorize;
 use issen_parser_uac::parsers::{self, rootkit::{RootkitFinding, RootkitSeverity}, HiddenProcessAnalysis};
 use issen_unpack::CollectionProvider as _;
 use issen_evtx;
@@ -69,9 +70,9 @@ pub fn run(collection_path: &Path) -> anyhow::Result<()> {
         .map(|t| t.format("%Y-%m-%d %H:%M:%S UTC").to_string())
         .unwrap_or_else(|| "(unknown)".to_string());
 
-    println!("╔══════════════════════════════════════════════════════════╗");
-    println!("║  Issen — UAC Collection Analysis                   ║");
-    println!("╚══════════════════════════════════════════════════════════╝");
+    println!("{}", "╔══════════════════════════════════════════════════════════╗".bold().cyan());
+    println!("{}", "║  Issen — UAC Collection Analysis                   ║".bold().cyan());
+    println!("{}", "╚══════════════════════════════════════════════════════════╝".bold().cyan());
     println!();
     println!("  Collection : {}", collection_path.display());
     println!("  Host       : {hostname}");
@@ -94,44 +95,50 @@ pub fn run(collection_path: &Path) -> anyhow::Result<()> {
     // Verdict banner — shown before section details
     {
         let verdict = compute_verdict(&rootkit_findings, &hidden, &[]);
-        let (label, banner) = match verdict {
-            Verdict::Clean => ("CLEAN", "No indicators of compromise detected."),
-            Verdict::Suspicious => ("SUSPICIOUS", "Low-confidence indicators — warrant investigation."),
-            Verdict::LikelyCompromised => ("LIKELY COMPROMISED", "High-confidence indicators of active compromise."),
-            Verdict::Confirmed => ("CONFIRMED COMPROMISE", "Multiple independent critical signals confirm compromise."),
+        let colored_label: colored::ColoredString = match verdict {
+            Verdict::Clean => "CLEAN".green().bold(),
+            Verdict::Suspicious => "SUSPICIOUS".yellow().bold(),
+            Verdict::LikelyCompromised => "LIKELY COMPROMISED".red().bold(),
+            Verdict::Confirmed => "CONFIRMED COMPROMISE".red().bold().underline(),
         };
-        println!("┌─ VERDICT ─────────────────────────────────────────────");
-        println!("│  [{label}] {banner}");
+        let banner = match verdict {
+            Verdict::Clean => "No indicators of compromise detected.",
+            Verdict::Suspicious => "Low-confidence indicators — warrant investigation.",
+            Verdict::LikelyCompromised => "High-confidence indicators of active compromise.",
+            Verdict::Confirmed => "Multiple independent critical signals confirm compromise.",
+        };
+        println!("{}", "┌─ VERDICT ─────────────────────────────────────────────".bold());
+        println!("│  [{}] {}", colored_label, banner);
         println!();
     }
 
-    println!("┌─ ROOTKIT INDICATORS ──────────────────────────────────");
+    println!("{}", "┌─ ROOTKIT INDICATORS ──────────────────────────────────".bold());
     if rootkit_findings.is_empty() {
-        println!("│  None detected.                                          │");
+        println!("│  None detected.");
     } else {
         for f in &critical_rk {
-            println!("│  [CRITICAL] {} — {}", f.check, f.evidence);
+            println!("│  [{}] {} — {}", "CRITICAL".red().bold(), f.check, f.evidence);
             println!("│             {}", f.description);
         }
         for f in &warn_rk {
-            println!("│  [WARNING]  {} — {}", f.check, f.evidence);
+            println!("│  [{}]  {} — {}", "WARNING".yellow().bold(), f.check, f.evidence);
         }
         for f in rootkit_findings
             .iter()
             .filter(|f| f.severity == RootkitSeverity::Info)
         {
-            println!("│  [INFO]     {} — {}", f.check, f.evidence);
+            println!("│  [{}]     {} — {}", "INFO".cyan(), f.check, f.evidence);
         }
     }
     println!();
 
-    println!("┌─ HIDDEN PROCESSES (ps/top blind-spot) ─────────────────");
+    println!("{}", "┌─ HIDDEN PROCESSES (ps/top blind-spot) ─────────────────".bold());
     if hidden.hidden_pids.is_empty() {
         println!("│  None detected (or collection predates UAC hidden-PID check).");
     } else {
         println!(
             "│  {} PID(s) visible in /proc but absent from ps:",
-            hidden.hidden_pids.len()
+            hidden.hidden_pids.len().to_string().yellow().bold()
         );
         println!();
         for finding in &hidden.findings {
@@ -139,7 +146,7 @@ pub fn run(collection_path: &Path) -> anyhow::Result<()> {
                 .process_name
                 .as_deref()
                 .unwrap_or("(name unknown — no memory dump)");
-            println!("│  PID {:6}  {}", finding.pid, name);
+            println!("│  {} {:6}  {}", "PID".bold(), finding.pid.to_string().bold(), name.yellow());
 
             // Prefer all_thread_names (process + threads) when available, fall
             // back to thread_names for backward compat with old collections.
@@ -174,7 +181,8 @@ pub fn run(collection_path: &Path) -> anyhow::Result<()> {
                 );
             }
             if finding.desktop_masquerade {
-                println!("│           [!] desktop masquerade — process emulates desktop profile via system-daemon sockets");
+                println!("│           {} desktop masquerade — process emulates desktop profile via system-daemon sockets",
+                    "[!]".yellow().bold());
             }
             println!("│");
         }
@@ -183,7 +191,7 @@ pub fn run(collection_path: &Path) -> anyhow::Result<()> {
         let chains = parsers::detect_shell_upgrade_chain(&hidden);
         if !chains.is_empty() {
             println!("│");
-            println!("│  [!] SHELL UPGRADE CHAIN(S) DETECTED:");
+            println!("│  {} SHELL UPGRADE CHAIN(S) DETECTED:", "[!]".yellow().bold());
             for chain in &chains {
                 println!(
                     "│      PIDs {} on {} — {}",
@@ -210,7 +218,7 @@ pub fn run(collection_path: &Path) -> anyhow::Result<()> {
         })
         .collect();
 
-    println!("┌─ NETWORK (visible to userspace) ───────────────────────");
+    println!("{}", "┌─ NETWORK (visible to userspace) ───────────────────────".bold());
     if established.is_empty() {
         println!("│  No established TCP connections found.");
     } else {
@@ -256,10 +264,11 @@ pub fn run(collection_path: &Path) -> anyhow::Result<()> {
             .lines()
             .find(|l| l.contains("%Cpu") || l.contains("Cpu(s)"))
         {
-            println!("┌─ CPU ───────────────────────────────────────────────────");
+            println!("{}", "┌─ CPU ───────────────────────────────────────────────────".bold());
             println!("│  {}", cpu_line.trim());
             if pct >= 90.0 {
-                println!("│  ^ WARNING: Near-100% CPU with no visible process — miner likely hidden by rootkit.");
+                println!("│  {} Near-100% CPU with no visible process — miner likely hidden by rootkit.",
+                    "^ WARNING:".yellow().bold());
             }
             println!();
         }
@@ -274,10 +283,17 @@ pub fn run(collection_path: &Path) -> anyhow::Result<()> {
             });
 
     if !correlation_findings.is_empty() {
-        println!("┌─ CORRELATION FINDINGS ──────────────────────────────────");
+        println!("{}", "┌─ CORRELATION FINDINGS ──────────────────────────────────".bold());
         for f in &correlation_findings {
-            let severity_label = f.severity.to_uppercase();
-            println!("│  [{severity_label}] {}", f.title);
+            let sev = f.severity.to_uppercase();
+            let severity_label: colored::ColoredString = match sev.as_str() {
+                "CRITICAL" => sev.red().bold(),
+                "HIGH" => sev.red().into(),
+                "MEDIUM" => sev.yellow().bold(),
+                "LOW" => sev.yellow().into(),
+                _ => sev.cyan().into(),
+            };
+            println!("│  [{}] {}", severity_label, f.title);
             println!("│         Rule : {}", f.rule_id);
             if f.evidence_rendered.is_empty() {
                 println!("│         Evidence : {}", f.evidence_ids.join(", "));
@@ -315,7 +331,7 @@ pub fn run(collection_path: &Path) -> anyhow::Result<()> {
         let unpackaged_paths = parsers::packages::find_unpackaged_paths(&preloaded_paths);
 
         if !preloaded_hashes.is_empty() || !unpackaged_paths.is_empty() {
-            println!("┌─ SUSPICIOUS PRELOADED LIBRARIES ───────────────────────");
+            println!("{}", "┌─ SUSPICIOUS PRELOADED LIBRARIES ───────────────────────".bold());
             for h in &preloaded_hashes {
                 let algo = match h.hash.len() {
                     32 => "MD5",
@@ -330,7 +346,12 @@ pub fn run(collection_path: &Path) -> anyhow::Result<()> {
                 } else {
                     "UNPACKAGED"
                 };
-                println!("│  [{}] {} — {}: {}", provenance, h.path, algo, h.hash);
+                let prov_label: colored::ColoredString = if provenance == "UNPACKAGED" {
+                    provenance.red().bold()
+                } else {
+                    provenance.normal()
+                };
+                println!("│  [{}] {} — {}: {}", prov_label, h.path, algo, h.hash);
             }
             // Preloaded paths with no hash entry (not in hash_executables)
             for p in &unpackaged_paths {
@@ -345,7 +366,7 @@ pub fn run(collection_path: &Path) -> anyhow::Result<()> {
     // ── EVTX Session Correlation ──────────────────────────────────────────
     let evtx_files = issen_evtx::find_evtx_files(root);
     if !evtx_files.is_empty() {
-        println!("┌─ WINDOWS EVENT LOG SESSIONS ───────────────────────────────");
+        println!("{}", "┌─ WINDOWS EVENT LOG SESSIONS ───────────────────────────────".bold());
         match issen_evtx::analyse_evtx_sessions(&evtx_files) {
             Ok(summary) => {
                 println!("│  EVTX files : {}", evtx_files.len());
@@ -356,7 +377,7 @@ pub fn run(collection_path: &Path) -> anyhow::Result<()> {
                         summary.lateral_movement_count
                     );
                     for lm in &summary.lateral_movements {
-                        println!("│      {} — {}", lm.src_ip, lm.reason);
+                        println!("│      {} — {}", lm.src_ip.yellow(), lm.reason);
                     }
                 }
             }
@@ -365,9 +386,9 @@ pub fn run(collection_path: &Path) -> anyhow::Result<()> {
         println!();
     }
 
-    println!("═══════════════════════════════════════════════════════════");
-    println!("  Issen analysis complete.");
-    println!("═══════════════════════════════════════════════════════════");
+    println!("{}", "═══════════════════════════════════════════════════════════".bold().cyan());
+    println!("{}", "  Issen analysis complete.".bold());
+    println!("{}", "═══════════════════════════════════════════════════════════".bold().cyan());
 
     Ok(())
 }
@@ -376,7 +397,7 @@ fn build_narrative(findings: &[issen_correlation::model::Finding]) {
     if findings.is_empty() {
         return;
     }
-    println!("┌─ NARRATIVE ────────────────────────────────────────────────");
+    println!("{}", "┌─ NARRATIVE ────────────────────────────────────────────────".bold());
     for (i, f) in findings.iter().enumerate() {
         let num = i + 1;
         if let Some(s) = &f.summary {

@@ -1,7 +1,8 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
+use is_terminal::IsTerminal;
 
 mod commands;
 mod parsers;
@@ -21,6 +22,18 @@ extern crate issen_dd;
 extern crate issen_qcow2;
 extern crate issen_iso;
 
+/// When to emit ANSI color codes.
+#[derive(ValueEnum, Debug, Clone, Default)]
+pub enum ColorChoice {
+    /// Emit colors only when stdout is an interactive terminal (default).
+    #[default]
+    Auto,
+    /// Always emit ANSI color codes.
+    Always,
+    /// Never emit ANSI color codes.
+    Never,
+}
+
 /// Issen — fast forensic triage for incident responders.
 #[derive(Parser, Debug)]
 #[command(name = "issen", version, about)]
@@ -28,6 +41,10 @@ pub struct Cli {
     /// Enable verbose/debug logging.
     #[arg(short, long, global = true)]
     verbose: bool,
+
+    /// Control ANSI color output: auto (default), always, or never.
+    #[arg(long, global = true, default_value = "auto", value_name = "WHEN")]
+    color: ColorChoice,
 
     #[command(subcommand)]
     command: Commands,
@@ -390,6 +407,19 @@ impl FeedAction {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
+
+    // Configure color output before any printing occurs.
+    match cli.color {
+        ColorChoice::Always => colored::control::set_override(true),
+        ColorChoice::Never => colored::control::set_override(false),
+        ColorChoice::Auto => {
+            if !std::io::stdout().is_terminal() {
+                colored::control::set_override(false);
+            }
+            // If it IS a terminal, leave colored's own auto-detection active
+            // (it also respects NO_COLOR and TERM).
+        }
+    }
 
     // Initialize tracing.
     let filter = if cli.verbose { "debug" } else { "warn" };
