@@ -166,6 +166,16 @@ pub fn run(collection_path: &Path) -> anyhow::Result<()> {
                     println!("│           {} [{}]  ({})", key, conn.state, conn.proto);
                 }
             }
+
+            if !finding.unix_socket_paths.is_empty() {
+                println!(
+                    "│           Unix sockets: {}",
+                    finding.unix_socket_paths.join(", ")
+                );
+            }
+            if finding.desktop_masquerade {
+                println!("│           [!] desktop masquerade — process emulates desktop profile via system-daemon sockets");
+            }
             println!("│");
         }
 
