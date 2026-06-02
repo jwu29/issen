@@ -2228,6 +2228,78 @@ fn analyse_shows_desktop_masquerade_indicator() {
     );
 }
 
+// ── Color output ─────────────────────────────────────────────────────────────
+
+/// `--color` is a recognised global flag (help must mention it).
+#[test]
+fn color_flag_is_recognised() {
+    issen_cmd()
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("color"));
+}
+
+/// `issen analyse --color=never` must produce output with NO ANSI escape codes.
+#[test]
+fn analyse_color_never_produces_no_ansi() {
+    let dir = TempDir::new().expect("tmpdir");
+    let archive = build_uac_with_desktop_masquerade(dir.path());
+
+    let output = issen_cmd()
+        .args(["--color=never", "analyse", archive.to_str().unwrap()])
+        .output()
+        .expect("run issen analyse");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "analyse must exit 0\n{stdout}");
+    assert!(
+        !stdout.contains('\x1b'),
+        "--color=never must not emit ANSI escape codes\n{stdout}"
+    );
+}
+
+/// `issen analyse --color=always` must emit ANSI escape codes in output.
+#[test]
+fn analyse_color_always_emits_ansi() {
+    let dir = TempDir::new().expect("tmpdir");
+    let archive = build_uac_with_desktop_masquerade(dir.path());
+
+    let output = issen_cmd()
+        .args(["--color=always", "analyse", archive.to_str().unwrap()])
+        .output()
+        .expect("run issen analyse");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "analyse must exit 0\n{stdout}");
+    assert!(
+        stdout.contains('\x1b'),
+        "--color=always must emit ANSI escape codes\n{stdout}"
+    );
+}
+
+/// `issen analyse` (piped, auto mode) must produce NO ANSI escape codes.
+/// This is the regression guard: existing tests must not break when colors
+/// are added, because they pipe stdout through Rust's process capture.
+#[test]
+fn analyse_color_auto_piped_no_ansi() {
+    let dir = TempDir::new().expect("tmpdir");
+    let archive = build_uac_with_desktop_masquerade(dir.path());
+
+    // No --color flag → auto. The test harness pipes stdout → not a TTY → no color.
+    let output = issen_cmd()
+        .args(["analyse", archive.to_str().unwrap()])
+        .output()
+        .expect("run issen analyse");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "analyse must exit 0\n{stdout}");
+    assert!(
+        !stdout.contains('\x1b'),
+        "auto mode when piped must not emit ANSI escape codes\n{stdout}"
+    );
+}
+
 // ── WS-10 Phase 3: rt supertimeline ──────────────────────────────────────────
 
 /// `rt supertimeline --help` must succeed and mention the collection argument.
