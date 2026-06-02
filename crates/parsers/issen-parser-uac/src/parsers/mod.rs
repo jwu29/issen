@@ -10,6 +10,7 @@ pub mod journal;
 pub mod mem_sockstat;
 pub mod network;
 pub mod packages;
+pub mod proc_unix_sockets;
 pub mod process;
 pub mod rootkit;
 pub mod shadow;
@@ -576,5 +577,141 @@ mod tests {
         let py = analysis.findings.iter().find(|f| f.pid == 940).unwrap();
         assert_eq!(py.process_name.as_deref(), Some("python3"));
         assert!(py.connections.iter().all(|c| c.dst_port == Some(48411)));
+    }
+
+    // ── unix_socket_paths + desktop_masquerade ────────────────────────────────
+
+    #[test]
+    fn analyze_populates_unix_socket_paths_from_sockstat_af_unix_rows() {
+        // AF_UNIX rows in output-sockstat must populate unix_socket_paths on the
+        // corresponding HiddenProcessFinding.
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let proc_dir = dir.path().join("live_response/process");
+        std::fs::create_dir_all(&proc_dir).expect("mkdir");
+        std::fs::write(proc_dir.join("hidden_pids_for_ps_command.txt"), "977\n").expect("write");
+
+        let mem_dir = dir.path().join("memory_dump");
+        std::fs::create_dir_all(&mem_dir).expect("mkdir");
+        let sockstat = format!(
+            "{}\
+             4026531840\ttop\t977\t977\t17\t0xABC\tAF_INET\tSTREAM\tTCP\t127.0.0.1\t59182\t127.0.0.1\t3333\tESTABLISHED\t-\n\
+             4026531840\ttop\t977\t977\t3\t0xABC\tAF_UNIX\tSTREAM\t-\t/run/systemd/journal/socket\t-\t-\t-\tCONNECTED\t-\n\
+             4026531840\ttop\t977\t977\t4\t0xABC\tAF_UNIX\tSTREAM\t-\t/run/dbus/system_bus_socket\t-\t-\t-\tCONNECTED\t-\n",
+            header()
+        );
+        std::fs::write(mem_dir.join("output-sockstat"), sockstat).expect("write");
+
+        let analysis = analyze_hidden_processes(dir.path());
+        let finding = analysis.findings.iter().find(|f| f.pid == 977).unwrap();
+
+        let mut paths = finding.unix_socket_paths.clone();
+        paths.sort();
+        assert!(
+            paths.contains(&"/run/systemd/journal/socket".to_string()),
+            "journald socket must be in unix_socket_paths; got {:?}", paths
+        );
+        assert!(
+            paths.contains(&"/run/dbus/system_bus_socket".to_string()),
+            "dbus socket must be in unix_socket_paths; got {:?}", paths
+        );
+    }
+
+    #[test]
+    fn analyze_populates_unix_socket_paths_from_proc_files() {
+        // live_response/process/proc/<PID>/net/unix.txt must also contribute
+        // to unix_socket_paths when memory dump is absent.
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let proc_dir = dir.path().join("live_response/process");
+        std::fs::create_dir_all(&proc_dir).expect("mkdir");
+        std::fs::write(proc_dir.join("hidden_pids_for_ps_command.txt"), "977\n").expect("write");
+
+        let unix_dir = dir.path()
+            .join("live_response/process/proc/977/net");
+        std::fs::create_dir_all(&unix_dir).expect("mkdir");
+        std::fs::write(
+            unix_dir.join("unix.txt"),
+            "Num       RefCount Protocol Flags    Type St Inode Path\n\
+             ffffffff80001234: 00000002 00000000 00010000 0001 03 12345 /run/systemd/journal/socket\n\
+             ffffffff80001235: 00000002 00000000 00010000 0001 03 12346 /run/dbus/system_bus_socket\n\
+             ffffffff80001236: 00000003 00000000 00010000 0001 03 12347 /run/user/1000/pipewire-0\n",
+        ).expect("write");
+
+        let analysis = analyze_hidden_processes(dir.path());
+        let finding = analysis.findings.iter().find(|f| f.pid == 977).unwrap();
+
+        assert!(
+            finding.unix_socket_paths.contains(&"/run/systemd/journal/socket".to_string()),
+            "journald from proc file must appear; got {:?}", finding.unix_socket_paths
+        );
+        assert!(
+            finding.unix_socket_paths.contains(&"/run/user/1000/pipewire-0".to_string()),
+            "pipewire from proc file must appear; got {:?}", finding.unix_socket_paths
+        );
+    }
+
+    #[test]
+    fn analyze_desktop_masquerade_true_when_two_system_daemon_sockets() {
+        // Connecting to ≥2 system daemon sockets (journald, dbus, pipewire, …)
+        // indicates deliberate desktop process masquerade.
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let proc_dir = dir.path().join("live_response/process");
+        std::fs::create_dir_all(&proc_dir).expect("mkdir");
+        std::fs::write(proc_dir.join("hidden_pids_for_ps_command.txt"), "977\n").expect("write");
+
+        let unix_dir = dir.path()
+            .join("live_response/process/proc/977/net");
+        std::fs::create_dir_all(&unix_dir).expect("mkdir");
+        std::fs::write(
+            unix_dir.join("unix.txt"),
+            "Num       RefCount Protocol Flags    Type St Inode Path\n\
+             ffffffff80001234: 00000002 00000000 00010000 0001 03 12345 /run/systemd/journal/socket\n\
+             ffffffff80001235: 00000002 00000000 00010000 0001 03 12346 /run/dbus/system_bus_socket\n",
+        ).expect("write");
+
+        let analysis = analyze_hidden_processes(dir.path());
+        let finding = analysis.findings.iter().find(|f| f.pid == 977).unwrap();
+        assert!(
+            finding.desktop_masquerade,
+            "≥2 system daemon sockets must set desktop_masquerade=true"
+        );
+    }
+
+    #[test]
+    fn analyze_desktop_masquerade_false_with_no_system_daemon_sockets() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let proc_dir = dir.path().join("live_response/process");
+        std::fs::create_dir_all(&proc_dir).expect("mkdir");
+        std::fs::write(proc_dir.join("hidden_pids_for_ps_command.txt"), "977\n").expect("write");
+        // No unix.txt, no AF_UNIX rows → no system daemons.
+        let analysis = analyze_hidden_processes(dir.path());
+        let finding = analysis.findings.iter().find(|f| f.pid == 977).unwrap();
+        assert!(
+            !finding.desktop_masquerade,
+            "no system daemon sockets must leave desktop_masquerade=false"
+        );
+    }
+
+    #[test]
+    fn analyze_desktop_masquerade_false_with_only_one_system_daemon_socket() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let proc_dir = dir.path().join("live_response/process");
+        std::fs::create_dir_all(&proc_dir).expect("mkdir");
+        std::fs::write(proc_dir.join("hidden_pids_for_ps_command.txt"), "977\n").expect("write");
+
+        let unix_dir = dir.path()
+            .join("live_response/process/proc/977/net");
+        std::fs::create_dir_all(&unix_dir).expect("mkdir");
+        std::fs::write(
+            unix_dir.join("unix.txt"),
+            "Num       RefCount Protocol Flags    Type St Inode Path\n\
+             ffffffff80001234: 00000002 00000000 00010000 0001 03 12345 /run/systemd/journal/socket\n",
+        ).expect("write");
+
+        let analysis = analyze_hidden_processes(dir.path());
+        let finding = analysis.findings.iter().find(|f| f.pid == 977).unwrap();
+        assert!(
+            !finding.desktop_masquerade,
+            "only 1 system daemon socket is not enough for desktop_masquerade"
+        );
     }
 }

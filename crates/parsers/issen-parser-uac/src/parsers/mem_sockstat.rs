@@ -206,4 +206,72 @@ mod tests {
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].pid, 977);
     }
+
+    // ── unix_paths_for_pid ────────────────────────────────────────────────────
+
+    #[test]
+    fn parses_af_unix_row() {
+        // Volatility emits AF_UNIX rows where src_addr = socket path, no ports.
+        let content = format!(
+            "{}\
+             4026531840\ttop\t977\t977\t3\t0xABC\tAF_UNIX\tSTREAM\t-\t/run/systemd/journal/socket\t-\t-\t-\tCONNECTED\t-\n",
+            header()
+        );
+        let entries = parse_mem_sockstat(&content);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].family, "AF_UNIX");
+        assert_eq!(entries[0].src_addr, "/run/systemd/journal/socket");
+        assert_eq!(entries[0].src_port, None);
+    }
+
+    #[test]
+    fn unix_paths_for_pid_returns_filesystem_paths() {
+        let entries = vec![
+            SockstatEntry {
+                process_name: "top".into(),
+                pid: 977, tid: 977,
+                family: "AF_UNIX".into(),
+                proto: "-".into(),
+                src_addr: "/run/systemd/journal/socket".into(),
+                src_port: None,
+                dst_addr: "-".into(),
+                dst_port: None,
+                state: "CONNECTED".into(),
+            },
+            SockstatEntry {
+                process_name: "top".into(),
+                pid: 977, tid: 977,
+                family: "AF_UNIX".into(),
+                proto: "-".into(),
+                src_addr: "/run/dbus/system_bus_socket".into(),
+                src_port: None,
+                dst_addr: "-".into(),
+                dst_port: None,
+                state: "CONNECTED".into(),
+            },
+            // AF_INET row must not appear in unix paths
+            SockstatEntry {
+                process_name: "top".into(),
+                pid: 977, tid: 977,
+                family: "AF_INET".into(),
+                proto: "TCP".into(),
+                src_addr: "127.0.0.1".into(),
+                src_port: Some(59182),
+                dst_addr: "127.0.0.1".into(),
+                dst_port: Some(3333),
+                state: "ESTABLISHED".into(),
+            },
+        ];
+        let mut paths = unix_paths_for_pid(&entries, 977);
+        paths.sort();
+        assert_eq!(paths, vec![
+            "/run/dbus/system_bus_socket".to_string(),
+            "/run/systemd/journal/socket".to_string(),
+        ]);
+    }
+
+    #[test]
+    fn unix_paths_for_pid_unknown_pid_returns_empty() {
+        assert!(unix_paths_for_pid(&[], 977).is_empty());
+    }
 }
