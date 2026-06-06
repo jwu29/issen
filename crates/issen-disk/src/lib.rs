@@ -30,20 +30,31 @@ impl<'a> DataSourceReader<'a> {
 
 impl Read for DataSourceReader<'_> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        let _ = buf;
-        todo!("DataSourceReader::read — GREEN step")
+        let n = self.source.read_at(self.pos, buf).map_err(rt_to_io)?;
+        self.pos = self.pos.saturating_add(n as u64);
+        Ok(n)
     }
 }
 
 impl Seek for DataSourceReader<'_> {
     fn seek(&mut self, from: SeekFrom) -> std::io::Result<u64> {
-        let _ = from;
-        todo!("DataSourceReader::seek — GREEN step")
+        let target: i128 = match from {
+            SeekFrom::Start(n) => i128::from(n),
+            SeekFrom::Current(d) => i128::from(self.pos) + i128::from(d),
+            SeekFrom::End(d) => i128::from(self.source.len()) + i128::from(d),
+        };
+        if target < 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "seek before start of data source",
+            ));
+        }
+        self.pos = u64::try_from(target).unwrap_or(u64::MAX);
+        Ok(self.pos)
     }
 }
 
 /// Map an [`RtError`] into a `std::io::Error` for the `Read`/`Seek` contract.
-#[allow(dead_code)]
 fn rt_to_io(e: RtError) -> std::io::Error {
     match e {
         RtError::Io(io) => io,
