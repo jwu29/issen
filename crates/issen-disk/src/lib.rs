@@ -134,8 +134,31 @@ pub const WINDOWS_TRIAGE_PATHS: &[&str] = &[
     r"\Windows\AppCompat\Programs\Amcache.hve",
 ];
 
-/// Extract the standard Windows triage artifacts ([`WINDOWS_TRIAGE_PATHS`]) from
-/// every NTFS partition in the disk image.
+/// A directory whose children matching a suffix should all be collected — for
+/// artifact families with per-host names (every `.evtx`, every `.pf`).
+#[derive(Debug, Clone, Copy)]
+pub struct TriageGlob {
+    /// Directory to enumerate (not recursed).
+    pub dir: &'static str,
+    /// Case-insensitive filename suffix to match.
+    pub suffix: &'static str,
+}
+
+/// Directory globs swept in addition to [`WINDOWS_TRIAGE_PATHS`].
+pub const WINDOWS_TRIAGE_GLOBS: &[TriageGlob] = &[
+    TriageGlob {
+        dir: r"\Windows\System32\winevt\Logs",
+        suffix: ".evtx",
+    },
+    TriageGlob {
+        dir: r"\Windows\Prefetch",
+        suffix: ".pf",
+    },
+];
+
+/// Extract the standard Windows triage artifacts — the fixed
+/// [`WINDOWS_TRIAGE_PATHS`] plus the [`WINDOWS_TRIAGE_GLOBS`] directory sweeps —
+/// from every NTFS partition in the disk image.
 ///
 /// # Errors
 ///
@@ -144,6 +167,9 @@ pub fn extract_triage(source: &dyn DataSource) -> Result<Vec<ExtractedFile>, Dis
     let mut out = Vec::new();
     for window in find_ntfs_partitions(source)? {
         out.extend(extract_files(source, window, WINDOWS_TRIAGE_PATHS)?);
+        for glob in WINDOWS_TRIAGE_GLOBS {
+            out.extend(extract_dir_suffix(source, window, glob.dir, glob.suffix)?);
+        }
     }
     Ok(out)
 }
