@@ -240,6 +240,23 @@ mod tests {
     }
 
     #[test]
+    fn vmdk_provider_open_runs_disk_triage() {
+        // A VMDK wrapping a disk with no partition table: open() now runs the
+        // NTFS disk-triage pipeline (issen_disk::triage_manifest), which tags
+        // the collection os_type = Windows. The old stub left it Unknown.
+        // (Full artifact extraction is covered by issen-disk's own tests.)
+        let disk = vec![0u8; 64 * 512];
+        let vmdk_data = vmdk::testutil::test_sparse_vmdk(&disk);
+        let f = write_tmp(&vmdk_data);
+        let manifest = VmdkProvider.open(f.path()).expect("open runs triage");
+        assert_eq!(manifest.format_name, "VMDK");
+        assert!(matches!(
+            manifest.metadata.os_type,
+            issen_unpack::OsType::Windows
+        ));
+    }
+
+    #[test]
     fn vmdk_provider_registered_in_inventory() {
         use issen_unpack::registry::ProviderRegistration;
         let names: Vec<String> = inventory::iter::<ProviderRegistration>

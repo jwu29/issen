@@ -14,6 +14,7 @@ path = "src/lib.rs"
 [dependencies]
 issen-core   = { workspace = true }
 issen-unpack = { workspace = true }
+issen-disk   = { workspace = true }
 inventory    = { workspace = true }
 vmdk         = { workspace = true }
 thiserror    = { workspace = true }
