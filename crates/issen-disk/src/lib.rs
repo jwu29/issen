@@ -257,6 +257,26 @@ pub fn extract_files(
     Ok(out)
 }
 
+/// Extract every file directly under NTFS directory `dir` whose name ends with
+/// `suffix` (case-insensitive) — e.g. every `.evtx` in the event-log folder.
+///
+/// Best-effort: an absent directory yields an empty list (not an error), so a
+/// fixed glob set works across images. Sub-directories are not recursed.
+///
+/// # Errors
+///
+/// [`DiskError`] if the volume can't be opened, or a read fails for a reason
+/// other than the directory or a child being absent.
+pub fn extract_dir_suffix(
+    source: &dyn DataSource,
+    window: PartitionWindow,
+    dir: &str,
+    suffix: &str,
+) -> Result<Vec<ExtractedFile>, DiskError> {
+    let _ = (source, window, dir, suffix);
+    todo!("extract_dir_suffix — GREEN step")
+}
+
 /// A `Read + Seek` view over a [`DataSource`].
 ///
 /// `DataSource` exposes random access (`read_at(offset, buf)`); the forensic
@@ -636,6 +656,35 @@ mod tests {
         let files = extract_files(&src, parts[0], &["\\test.txt", "\\nope.txt"]).expect("extract");
         assert_eq!(files.len(), 1); // only the present file
         assert_eq!(files[0].path, "\\test.txt");
+    }
+
+    #[test]
+    fn extract_dir_suffix_collects_matching_children() {
+        // Root holds test.txt; a ".txt" glob on the root directory finds it.
+        let src = disk_with_volume(2048);
+        let parts = find_ntfs_partitions(&src).expect("find");
+        let files = extract_dir_suffix(&src, parts[0], "\\", ".TXT").expect("glob");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "\\test.txt");
+        assert_eq!(files[0].data, b"hello world");
+    }
+
+    #[test]
+    fn extract_dir_suffix_on_absent_directory_is_empty() {
+        let src = disk_with_volume(2048);
+        let parts = find_ntfs_partitions(&src).expect("find");
+        let files =
+            extract_dir_suffix(&src, parts[0], r"\Windows\System32\winevt\Logs", ".evtx")
+                .expect("glob");
+        assert!(files.is_empty());
+    }
+
+    #[test]
+    fn extract_dir_suffix_ignores_non_matching_children() {
+        let src = disk_with_volume(2048);
+        let parts = find_ntfs_partitions(&src).expect("find");
+        let files = extract_dir_suffix(&src, parts[0], "\\", ".evtx").expect("glob");
+        assert!(files.is_empty()); // root has no .evtx
     }
 
     #[test]
