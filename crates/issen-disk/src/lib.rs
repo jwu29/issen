@@ -134,6 +134,43 @@ pub fn extract_triage(source: &dyn DataSource) -> Result<Vec<ExtractedFile>, Dis
     Ok(out)
 }
 
+/// Extract the Windows triage artifacts from `source` into a temp directory and
+/// return a [`CollectionManifest`] the Issen ingest pipeline can parse.
+///
+/// This is the entry point a disk-image [`CollectionProvider`] (VMDK, EWF, …)
+/// calls in its `open()`.
+///
+/// [`CollectionManifest`]: issen_unpack::CollectionManifest
+/// [`CollectionProvider`]: issen_unpack::CollectionProvider
+///
+/// # Errors
+///
+/// [`DiskError`] if the disk can't be read, or [`DiskError::Io`] while writing
+/// the extracted files.
+pub fn triage_manifest(
+    source: &dyn DataSource,
+    format_name: &str,
+) -> Result<issen_unpack::CollectionManifest, DiskError> {
+    let _ = (source, format_name);
+    todo!("triage_manifest — GREEN step")
+}
+
+/// Turn an NTFS path (`\Windows\System32\config\SYSTEM`) into a safe relative
+/// path under the extraction root, dropping the leading separator, any drive/ADS
+/// colon, and `.`/`..` components.
+#[allow(dead_code)]
+fn sanitize_ntfs_path(path: &str) -> std::path::PathBuf {
+    let mut out = std::path::PathBuf::new();
+    for part in path.split(['\\', '/']) {
+        let part = part.split(':').next().unwrap_or(part); // strip ADS suffix
+        if part.is_empty() || part == "." || part == ".." {
+            continue;
+        }
+        out.push(part);
+    }
+    out
+}
+
 /// A file extracted from an NTFS partition.
 #[derive(Debug, Clone)]
 pub struct ExtractedFile {
@@ -570,5 +607,37 @@ mod tests {
             .find(|f| f.path == r"\$MFT")
             .expect("$MFT present");
         assert!(!mft.data.is_empty());
+    }
+
+    #[test]
+    fn sanitize_ntfs_path_is_safe_and_relative() {
+        assert_eq!(sanitize_ntfs_path(r"\$MFT"), std::path::Path::new("$MFT"));
+        assert_eq!(
+            sanitize_ntfs_path(r"\Windows\System32\config\SYSTEM"),
+            std::path::Path::new("Windows/System32/config/SYSTEM")
+        );
+        // Drops ADS suffix, leading separators, and traversal components.
+        assert_eq!(
+            sanitize_ntfs_path(r"\..\x\$UsnJrnl:$J"),
+            std::path::Path::new("x/$UsnJrnl")
+        );
+    }
+
+    #[test]
+    fn triage_manifest_writes_artifacts_to_tempdir() {
+        let src = disk_with_volume(2048);
+        let manifest = triage_manifest(&src, "TEST").expect("manifest");
+        assert_eq!(manifest.format_name, "TEST");
+        assert!(matches!(
+            manifest.metadata.os_type,
+            issen_unpack::OsType::Windows
+        ));
+        let entry = manifest
+            .artifacts
+            .iter()
+            .find(|e| e.path.file_name() == Some(std::ffi::OsStr::new("$MFT")))
+            .expect("$MFT artifact");
+        let data = std::fs::read(manifest.extracted_root.join(&entry.path)).expect("read file");
+        assert!(!data.is_empty());
     }
 }
