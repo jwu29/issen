@@ -828,6 +828,14 @@ mod tests {
     }
 
     #[test]
+    fn triage_user_files_cover_ntuser_hive() {
+        assert!(WINDOWS_USER_FILES.contains(&"NTUSER.DAT"));
+        assert!(WINDOWS_USER_FILES
+            .iter()
+            .any(|f| f.ends_with("UsrClass.dat")));
+    }
+
+    #[test]
     fn triage_globs_cover_evtx_and_prefetch() {
         let dirs: Vec<&str> = WINDOWS_TRIAGE_GLOBS.iter().map(|g| g.dir).collect();
         assert!(dirs.contains(&r"\Windows\System32\winevt\Logs"));
