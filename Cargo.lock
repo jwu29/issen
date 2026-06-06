@@ -221,6 +221,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
+name = "apm-forensic"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "11a9c7e0bf069103aff30deddf31893f3a65a9b33fdb26e1de4e8559bdb51091"
+dependencies = [
+ "forensicnomicon",
+]
+
+[[package]]
 name = "ar_archive_writer"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2302,6 +2311,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "disk-forensic"
+version = "0.2.1"
+dependencies = [
+ "apm-forensic",
+ "forensicnomicon",
+ "gpt-forensic",
+ "mbr-forensic",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "displaydoc"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2933,7 +2953,7 @@ dependencies = [
 
 [[package]]
 name = "forensicnomicon"
-version = "0.1.0"
+version = "0.2.1"
 dependencies = [
  "serde",
 ]
@@ -3322,6 +3342,16 @@ dependencies = [
  "log",
  "plain",
  "scroll 0.13.0",
+]
+
+[[package]]
+name = "gpt-forensic"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "522fcda40ebc5a6826e067b9e0ff32be822a73809e0cd1d7de5a4e850f10e971"
+dependencies = [
+ "forensicnomicon",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -4319,6 +4349,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "issen-disk"
+version = "0.1.0"
+dependencies = [
+ "disk-forensic",
+ "issen-core",
+ "issen-ewf",
+ "issen-unpack",
+ "ntfs-forensic",
+ "tempfile",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "issen-evtx"
 version = "0.1.0"
 dependencies = [
@@ -4792,6 +4835,7 @@ version = "0.1.0"
 dependencies = [
  "inventory",
  "issen-core",
+ "issen-disk",
  "issen-unpack",
  "tempfile",
  "thiserror 2.0.18",
@@ -5423,6 +5467,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47e1ffaa40ddd1f3ed91f717a33c8c0ee23fff369e3aa8772b9605cc1d22f4c3"
 
 [[package]]
+name = "mbr-forensic"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "949b04485ca36bc245dca3b6ea75fa6bb354839901852990ba0cc3ae350e4ab4"
+dependencies = [
+ "forensicnomicon",
+ "gpt-forensic",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "md-5"
 version = "0.10.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5881,6 +5936,14 @@ dependencies = [
  "strum_macros 0.28.0",
  "thiserror 2.0.18",
  "winstructs",
+]
+
+[[package]]
+name = "ntfs-forensic"
+version = "0.1.0"
+dependencies = [
+ "forensicnomicon",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -10013,7 +10076,7 @@ dependencies = [
 
 [[package]]
 name = "vmdk"
-version = "0.2.0"
+version = "0.4.0"
 dependencies = [
  "flate2",
  "md-5",
