@@ -335,6 +335,27 @@ pub fn extract_dir_suffix(
     Ok(out)
 }
 
+/// For each immediate subdirectory of `parent`, extract the file at `child`
+/// (relative to that subdirectory) — used for per-user hives, e.g. `parent =
+/// \Users`, `child = NTUSER.DAT` collects every user's registry hive.
+///
+/// Best-effort: an absent `parent`, a non-directory entry, or a missing `child`
+/// is skipped.
+///
+/// # Errors
+///
+/// [`DiskError`] if the volume can't be opened, or a read fails for a reason
+/// other than a path being absent.
+pub fn extract_per_subdir(
+    source: &dyn DataSource,
+    window: PartitionWindow,
+    parent: &str,
+    child: &str,
+) -> Result<Vec<ExtractedFile>, DiskError> {
+    let _ = (source, window, parent, child);
+    todo!("extract_per_subdir — GREEN step")
+}
+
 /// A `Read + Seek` view over a [`DataSource`].
 ///
 /// `DataSource` exposes random access (`read_at(offset, buf)`); the forensic
@@ -648,10 +669,11 @@ mod tests {
             attr_resident(0x90, Some("$I30"), &c)
         }
 
-        /// Build the full volume bytes; `\test.txt` = "hello world".
+        /// Build the full volume bytes. Root holds `\test.txt` = "hello world"
+        /// and a subdirectory `\homes` containing `data.bin` = "user data".
         pub fn build() -> Vec<u8> {
-            let num = 7usize;
-            let mft_clusters = (num * REC / CLUSTER) as u64; // 14
+            let num = 9usize;
+            let mft_clusters = (num * REC / CLUSTER) as u64; // 18
             let total = MFT_LCN + mft_clusters + 2;
             let mut v = vec![0u8; total as usize * CLUSTER];
             v[0..512].copy_from_slice(&boot());
@@ -661,11 +683,13 @@ mod tests {
                 0x0001,
                 &nonresident_data(&runs, mft_clusters * CLUSTER as u64),
             );
+            // Record 5: root directory → $MFT, test.txt, homes/.
             let rec5 = record(
                 0x0003,
                 &index_root(&[
                     index_entry(0, "$MFT"),
                     index_entry(6, "test.txt"),
+                    index_entry(7, "homes"),
                     index_end(),
                 ]),
             );
@@ -675,8 +699,26 @@ mod tests {
             a6.extend_from_slice(&attr_resident(0x80, None, b"hello world"));
             let rec6 = record(0x0001, &a6);
 
+            // Record 7: subdirectory `homes` → data.bin.
+            let rec7 = record(
+                0x0003,
+                &index_root(&[index_entry(8, "data.bin"), index_end()]),
+            );
+            // Record 8: file `homes\data.bin`.
+            let mut a8 = Vec::new();
+            a8.extend_from_slice(&attr_resident(0x10, None, &[0u8; 0x30]));
+            a8.extend_from_slice(&attr_resident(0x30, None, &fname(7, "data.bin")));
+            a8.extend_from_slice(&attr_resident(0x80, None, b"user data"));
+            let rec8 = record(0x0001, &a8);
+
             let mft_off = MFT_LCN as usize * CLUSTER;
-            for (idx, rec) in [(0usize, &rec0), (5, &rec5), (6, &rec6)] {
+            for (idx, rec) in [
+                (0usize, &rec0),
+                (5, &rec5),
+                (6, &rec6),
+                (7, &rec7),
+                (8, &rec8),
+            ] {
                 let o = mft_off + idx * REC;
                 v[o..o + rec.len()].copy_from_slice(rec);
             }
@@ -733,6 +775,25 @@ mod tests {
         let parts = find_ntfs_partitions(&src).expect("find");
         let files = extract_dir_suffix(&src, parts[0], r"\Windows\System32\winevt\Logs", ".evtx")
             .expect("glob");
+        assert!(files.is_empty());
+    }
+
+    #[test]
+    fn extract_per_subdir_reads_child_in_each_subdirectory() {
+        // Root has the subdirectory `homes` containing `data.bin`.
+        let src = disk_with_volume(2048);
+        let parts = find_ntfs_partitions(&src).expect("find");
+        let files = extract_per_subdir(&src, parts[0], "\\", "data.bin").expect("per-subdir");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, r"\homes\data.bin");
+        assert_eq!(files[0].data, b"user data");
+    }
+
+    #[test]
+    fn extract_per_subdir_on_absent_parent_is_empty() {
+        let src = disk_with_volume(2048);
+        let parts = find_ntfs_partitions(&src).expect("find");
+        let files = extract_per_subdir(&src, parts[0], r"\Users", "NTUSER.DAT").expect("per-subdir");
         assert!(files.is_empty());
     }
 
