@@ -100,6 +100,37 @@ fn window_is_ntfs(source: &dyn DataSource, window: PartitionWindow) -> Result<bo
     Ok(n >= 512 && ntfs_forensic::BootSector::parse(&sector).is_ok())
 }
 
+/// The standard high-value Windows triage artifacts, by NTFS path.
+///
+/// Fixed paths only (no per-user hives or wildcards, which need directory
+/// enumeration); [`extract_triage`] returns whichever are present.
+pub const WINDOWS_TRIAGE_PATHS: &[&str] = &[
+    r"\$MFT",
+    r"\$LogFile",
+    r"\Windows\System32\config\SYSTEM",
+    r"\Windows\System32\config\SOFTWARE",
+    r"\Windows\System32\config\SAM",
+    r"\Windows\System32\config\SECURITY",
+    r"\Windows\System32\config\DEFAULT",
+    r"\Windows\System32\winevt\Logs\Security.evtx",
+    r"\Windows\System32\winevt\Logs\System.evtx",
+    r"\Windows\System32\winevt\Logs\Application.evtx",
+    r"\Windows\System32\winevt\Logs\Microsoft-Windows-Sysmon%4Operational.evtx",
+    r"\Windows\System32\sru\SRUDB.dat",
+    r"\Windows\AppCompat\Programs\Amcache.hve",
+];
+
+/// Extract the standard Windows triage artifacts ([`WINDOWS_TRIAGE_PATHS`]) from
+/// every NTFS partition in the disk image.
+///
+/// # Errors
+///
+/// [`DiskError`] if the partition table or a volume can't be read.
+pub fn extract_triage(source: &dyn DataSource) -> Result<Vec<ExtractedFile>, DiskError> {
+    let _ = source;
+    todo!("extract_triage — GREEN step")
+}
+
 /// A file extracted from an NTFS partition.
 #[derive(Debug, Clone)]
 pub struct ExtractedFile {
@@ -466,7 +497,11 @@ mod tests {
             );
             let rec5 = record(
                 0x0003,
-                &index_root(&[index_entry(6, "test.txt"), index_end()]),
+                &index_root(&[
+                    index_entry(0, "$MFT"),
+                    index_entry(6, "test.txt"),
+                    index_end(),
+                ]),
             );
             let mut a6 = Vec::new();
             a6.extend_from_slice(&attr_resident(0x10, None, &[0u8; 0x30]));
@@ -513,5 +548,24 @@ mod tests {
         let files = extract_files(&src, parts[0], &["\\test.txt", "\\nope.txt"]).expect("extract");
         assert_eq!(files.len(), 1); // only the present file
         assert_eq!(files[0].path, "\\test.txt");
+    }
+
+    #[test]
+    fn triage_paths_cover_key_artifacts() {
+        assert!(WINDOWS_TRIAGE_PATHS.contains(&r"\$MFT"));
+        assert!(WINDOWS_TRIAGE_PATHS.contains(&r"\Windows\System32\config\SYSTEM"));
+        assert!(WINDOWS_TRIAGE_PATHS.contains(&r"\Windows\System32\winevt\Logs\Security.evtx"));
+    }
+
+    #[test]
+    fn extract_triage_collects_present_artifacts() {
+        // The synthetic volume exposes \$MFT in its root index.
+        let src = disk_with_volume(2048);
+        let files = extract_triage(&src).expect("triage");
+        let mft = files
+            .iter()
+            .find(|f| f.path == r"\$MFT")
+            .expect("$MFT present");
+        assert!(!mft.data.is_empty());
     }
 }
