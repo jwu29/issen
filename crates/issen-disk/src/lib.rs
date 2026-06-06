@@ -127,8 +127,11 @@ pub const WINDOWS_TRIAGE_PATHS: &[&str] = &[
 ///
 /// [`DiskError`] if the partition table or a volume can't be read.
 pub fn extract_triage(source: &dyn DataSource) -> Result<Vec<ExtractedFile>, DiskError> {
-    let _ = source;
-    todo!("extract_triage — GREEN step")
+    let mut out = Vec::new();
+    for window in find_ntfs_partitions(source)? {
+        out.extend(extract_files(source, window, WINDOWS_TRIAGE_PATHS)?);
+    }
+    Ok(out)
 }
 
 /// A file extracted from an NTFS partition.
