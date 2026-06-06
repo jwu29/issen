@@ -179,6 +179,11 @@ pub fn extract_triage(source: &dyn DataSource) -> Result<Vec<ExtractedFile>, Dis
         for child in WINDOWS_USER_FILES {
             out.extend(extract_per_subdir(source, window, r"\Users", child)?);
         }
+        out.extend(extract_named_streams(
+            source,
+            window,
+            WINDOWS_TRIAGE_STREAMS,
+        )?);
     }
     Ok(out)
 }
@@ -413,8 +418,25 @@ pub fn extract_named_streams(
     window: PartitionWindow,
     streams: &[(&str, &str)],
 ) -> Result<Vec<ExtractedFile>, DiskError> {
-    let _ = (source, window, streams);
-    todo!("extract_named_streams — GREEN step")
+    use ntfs_forensic::{NtfsError, NtfsFs, OffsetReader};
+
+    let to_disk = |e: NtfsError| DiskError::Ntfs(e.to_string());
+    let reader = DataSourceReader::new(source);
+    let part = OffsetReader::new(reader, window.offset, window.length).map_err(to_disk)?;
+    let mut fs = NtfsFs::open(part).map_err(to_disk)?;
+
+    let mut out = Vec::new();
+    for &(path, stream) in streams {
+        match fs.read_named_stream(path, stream) {
+            Ok(data) => out.push(ExtractedFile {
+                path: format!("{path}:{stream}"),
+                data,
+            }),
+            Err(NtfsError::NotFound(_) | NtfsError::NotADirectory(_)) => {}
+            Err(e) => return Err(to_disk(e)),
+        }
+    }
+    Ok(out)
 }
 
 /// A `Read + Seek` view over a [`DataSource`].
@@ -759,7 +781,11 @@ mod tests {
             a6.extend_from_slice(&attr_resident(0x30, None, &fname(5, "test.txt")));
             a6.extend_from_slice(&attr_resident(0x80, None, b"hello world"));
             // A named $DATA stream (alternate data stream).
-            a6.extend_from_slice(&attr_resident(0x80, Some("Zone.Identifier"), b"[ZoneTransfer]"));
+            a6.extend_from_slice(&attr_resident(
+                0x80,
+                Some("Zone.Identifier"),
+                b"[ZoneTransfer]",
+            ));
             let rec6 = record(0x0001, &a6);
 
             // Record 7: subdirectory `homes` → data.bin.
