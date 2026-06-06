@@ -711,6 +711,25 @@ mod tests {
     }
 
     #[test]
+    fn triage_globs_cover_evtx_and_prefetch() {
+        let dirs: Vec<&str> = WINDOWS_TRIAGE_GLOBS.iter().map(|g| g.dir).collect();
+        assert!(dirs.contains(&r"\Windows\System32\winevt\Logs"));
+        assert!(dirs.contains(&r"\Windows\Prefetch"));
+        assert!(WINDOWS_TRIAGE_GLOBS
+            .iter()
+            .any(|g| g.suffix.eq_ignore_ascii_case(".evtx")));
+    }
+
+    #[test]
+    fn extract_triage_runs_globs_without_breaking_fixed_paths() {
+        // The synthetic volume lacks the glob dirs, so they add nothing — but the
+        // glob loop must not disturb the fixed-path extraction (\$MFT).
+        let src = disk_with_volume(2048);
+        let files = extract_triage(&src).expect("triage");
+        assert!(files.iter().any(|f| f.path == r"\$MFT"));
+    }
+
+    #[test]
     fn extract_dir_suffix_ignores_non_matching_children() {
         let src = disk_with_volume(2048);
         let parts = find_ntfs_partitions(&src).expect("find");
