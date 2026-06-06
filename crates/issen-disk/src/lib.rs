@@ -394,6 +394,29 @@ pub fn extract_per_subdir(
     Ok(out)
 }
 
+/// Named ADS streams collected during triage: `(path, stream)`.
+///
+/// The USN change journal lives in the named stream `$UsnJrnl:$J`, not a plain
+/// file — reading it needs a named-stream read, not `read_file`.
+pub const WINDOWS_TRIAGE_STREAMS: &[(&str, &str)] = &[(r"\$Extend\$UsnJrnl", "$J")];
+
+/// Extract each named `$DATA` stream (ADS) in `streams` from the NTFS partition.
+///
+/// Best-effort: an absent path or stream is skipped.
+///
+/// # Errors
+///
+/// [`DiskError`] if the volume can't be opened, or a read fails for a reason
+/// other than the path or stream being absent.
+pub fn extract_named_streams(
+    source: &dyn DataSource,
+    window: PartitionWindow,
+    streams: &[(&str, &str)],
+) -> Result<Vec<ExtractedFile>, DiskError> {
+    let _ = (source, window, streams);
+    todo!("extract_named_streams — GREEN step")
+}
+
 /// A `Read + Seek` view over a [`DataSource`].
 ///
 /// `DataSource` exposes random access (`read_at(offset, buf)`); the forensic
@@ -735,6 +758,8 @@ mod tests {
             a6.extend_from_slice(&attr_resident(0x10, None, &[0u8; 0x30]));
             a6.extend_from_slice(&attr_resident(0x30, None, &fname(5, "test.txt")));
             a6.extend_from_slice(&attr_resident(0x80, None, b"hello world"));
+            // A named $DATA stream (alternate data stream).
+            a6.extend_from_slice(&attr_resident(0x80, Some("Zone.Identifier"), b"[ZoneTransfer]"));
             let rec6 = record(0x0001, &a6);
 
             // Record 7: subdirectory `homes` → data.bin.
@@ -834,6 +859,34 @@ mod tests {
         let files =
             extract_per_subdir(&src, parts[0], r"\Users", "NTUSER.DAT").expect("per-subdir");
         assert!(files.is_empty());
+    }
+
+    #[test]
+    fn extract_named_streams_reads_ads() {
+        // test.txt carries a Zone.Identifier ADS.
+        let src = disk_with_volume(2048);
+        let parts = find_ntfs_partitions(&src).expect("find");
+        let files = extract_named_streams(&src, parts[0], &[("\\test.txt", "Zone.Identifier")])
+            .expect("ads");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "\\test.txt:Zone.Identifier");
+        assert_eq!(files[0].data, b"[ZoneTransfer]");
+    }
+
+    #[test]
+    fn extract_named_streams_skips_missing() {
+        let src = disk_with_volume(2048);
+        let parts = find_ntfs_partitions(&src).expect("find");
+        let files =
+            extract_named_streams(&src, parts[0], &[("\\test.txt", "NoStream")]).expect("ads");
+        assert!(files.is_empty());
+    }
+
+    #[test]
+    fn triage_streams_cover_usn_journal() {
+        assert!(WINDOWS_TRIAGE_STREAMS
+            .iter()
+            .any(|(p, s)| p.ends_with("$UsnJrnl") && *s == "$J"));
     }
 
     #[test]
