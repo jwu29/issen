@@ -1,0 +1,19 @@
+[package]
+name = "issen-disk"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license = "Apache-2.0"
+description = "Disk-image orchestration for Issen: container DataSource → partition table → NTFS filesystem → triage artifacts"
+repository.workspace = true
+
+[lib]
+name = "issen_disk"
+path = "src/lib.rs"
+
+[dependencies]
+issen-core = { workspace = true }
+thiserror  = { workspace = true }
+
+[lints]
+workspace = true

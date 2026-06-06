@@ -38,6 +38,7 @@ members = [
     "crates/issen-vhd",
     "crates/issen-vhdx",
     "crates/issen-vmdk",
+    "crates/issen-disk",
     "crates/issen-qcow2",
     "crates/issen-iso",
     "crates/issen-aff4",
@@ -66,6 +67,9 @@ issen-dd         = { path = "crates/issen-dd" }
 issen-vhd        = { path = "crates/issen-vhd" }
 issen-vhdx       = { path = "crates/issen-vhdx" }
 issen-vmdk       = { path = "crates/issen-vmdk" }
+issen-disk       = { path = "crates/issen-disk" }
+disk-forensic    = { path = "../disk-forensic" }
+ntfs-forensic    = { path = "../ntfs-forensic" }
 issen-qcow2      = { path = "crates/issen-qcow2" }
 issen-iso        = { path = "crates/issen-iso" }
 issen-aff4       = { path = "crates/issen-aff4" }
@@ -198,4 +202,5 @@ pedantic = { level = "warn", priority = -1 }
 unwrap_used = "deny"
 
 [patch.crates-io]
+forensicnomicon = { path = "../forensicnomicon" }
 notatin = { path = "vendor/notatin" }
