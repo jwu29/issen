@@ -273,8 +273,40 @@ pub fn extract_dir_suffix(
     dir: &str,
     suffix: &str,
 ) -> Result<Vec<ExtractedFile>, DiskError> {
-    let _ = (source, window, dir, suffix);
-    todo!("extract_dir_suffix — GREEN step")
+    use ntfs_forensic::{NtfsError, NtfsFs, OffsetReader};
+
+    let to_disk = |e: NtfsError| DiskError::Ntfs(e.to_string());
+    let reader = DataSourceReader::new(source);
+    let part = OffsetReader::new(reader, window.offset, window.length).map_err(to_disk)?;
+    let mut fs = NtfsFs::open(part).map_err(to_disk)?;
+
+    // Resolve the directory; if it isn't on this image, there's nothing to do.
+    let dir_record = match fs.resolve_path(dir) {
+        Ok(n) => n,
+        Err(NtfsError::NotFound(_) | NtfsError::NotADirectory(_)) => return Ok(Vec::new()),
+        Err(e) => return Err(to_disk(e)),
+    };
+    let record = fs.read_record(dir_record).map_err(to_disk)?;
+    let entries = fs.directory_entries(&record).map_err(to_disk)?;
+
+    let suffix_lc = suffix.to_ascii_lowercase();
+    let base = dir.trim_end_matches('\\');
+    let mut out = Vec::new();
+    for entry in entries {
+        let Some(name) = entry.file_name.map(|f| f.name) else {
+            continue;
+        };
+        if !name.to_ascii_lowercase().ends_with(&suffix_lc) {
+            continue;
+        }
+        let path = format!("{base}\\{name}");
+        match fs.read_file(&path) {
+            Ok(data) => out.push(ExtractedFile { path, data }),
+            Err(NtfsError::NotFound(_) | NtfsError::NotADirectory(_)) => {}
+            Err(e) => return Err(to_disk(e)),
+        }
+    }
+    Ok(out)
 }
 
 /// A `Read + Seek` view over a [`DataSource`].
@@ -673,9 +705,8 @@ mod tests {
     fn extract_dir_suffix_on_absent_directory_is_empty() {
         let src = disk_with_volume(2048);
         let parts = find_ntfs_partitions(&src).expect("find");
-        let files =
-            extract_dir_suffix(&src, parts[0], r"\Windows\System32\winevt\Logs", ".evtx")
-                .expect("glob");
+        let files = extract_dir_suffix(&src, parts[0], r"\Windows\System32\winevt\Logs", ".evtx")
+            .expect("glob");
         assert!(files.is_empty());
     }
 
