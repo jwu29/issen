@@ -151,14 +151,41 @@ pub fn triage_manifest(
     source: &dyn DataSource,
     format_name: &str,
 ) -> Result<issen_unpack::CollectionManifest, DiskError> {
-    let _ = (source, format_name);
-    todo!("triage_manifest — GREEN step")
+    use issen_unpack::{CollectionManifest, CollectionMetadata, ManifestEntry, OsType};
+
+    let files = extract_triage(source)?;
+    let tempdir = tempfile::tempdir()?;
+
+    let mut artifacts = Vec::new();
+    for file in &files {
+        let rel = sanitize_ntfs_path(&file.path);
+        let dest = tempdir.path().join(&rel);
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&dest, &file.data)?;
+        artifacts.push(ManifestEntry {
+            path: rel,
+            artifact_type: None, // let the fswalker classify by content
+        });
+    }
+
+    Ok(CollectionManifest::new(
+        format_name.to_string(),
+        tempdir,
+        artifacts,
+        CollectionMetadata {
+            hostname: None,
+            collection_time: None,
+            os_type: OsType::Windows, // an NTFS volume implies a Windows host
+            tool_version: None,
+        },
+    ))
 }
 
 /// Turn an NTFS path (`\Windows\System32\config\SYSTEM`) into a safe relative
 /// path under the extraction root, dropping the leading separator, any drive/ADS
 /// colon, and `.`/`..` components.
-#[allow(dead_code)]
 fn sanitize_ntfs_path(path: &str) -> std::path::PathBuf {
     let mut out = std::path::PathBuf::new();
     for part in path.split(['\\', '/']) {
