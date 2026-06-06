@@ -31,6 +31,9 @@ pub enum DiskError {
     /// The runtime data source reported an error.
     #[error("data source error: {0}")]
     Source(String),
+    /// Reading the NTFS filesystem failed.
+    #[error("ntfs error: {0}")]
+    Ntfs(String),
 }
 
 /// Find the NTFS partitions in the disk image behind `source`.
@@ -95,6 +98,39 @@ fn window_is_ntfs(source: &dyn DataSource, window: PartitionWindow) -> Result<bo
         .read_at(window.offset, &mut sector)
         .map_err(|e| DiskError::Source(e.to_string()))?;
     Ok(n >= 512 && ntfs_forensic::BootSector::parse(&sector).is_ok())
+}
+
+/// A file extracted from an NTFS partition.
+#[derive(Debug, Clone)]
+pub struct ExtractedFile {
+    /// The NTFS path it was read from (e.g. `\\$MFT`).
+    pub path: String,
+    /// The file's unnamed `$DATA` contents.
+    pub data: Vec<u8>,
+}
+
+/// Read each of `paths` from the NTFS partition at `window`.
+///
+/// Best-effort: a path that is absent (`NotFound` / not a directory) is skipped,
+/// so a triage manifest can list more artifacts than any one image contains.
+///
+/// # Errors
+///
+/// [`DiskError`] if the volume can't be opened, or a read fails for a reason
+/// other than the path being absent.
+pub fn extract_files(
+    source: &dyn DataSource,
+    window: PartitionWindow,
+    paths: &[&str],
+) -> Result<Vec<ExtractedFile>, DiskError> {
+    let _ = (source, window, paths);
+    todo!("extract_files — GREEN step")
+}
+
+/// Map an NTFS error into a [`DiskError`].
+#[allow(dead_code)]
+fn ntfs_to_disk(e: ntfs_forensic::NtfsError) -> DiskError {
+    DiskError::Ntfs(e.to_string())
 }
 
 /// A `Read + Seek` view over a [`DataSource`].
@@ -276,5 +312,189 @@ mod tests {
         // (no NTFS boot sector written at the partition offset)
         let src = VecSource(disk);
         assert!(find_ntfs_partitions(&src).expect("analyse").is_empty());
+    }
+
+    // ── A complete synthetic NTFS volume (ported from ntfs-forensic) ───────────
+    // Cluster = sector = 512; 1024-byte MFT records; $MFT at LCN 4. Holds one
+    // file, \test.txt = "hello world".
+
+    mod vol {
+        const CLUSTER: usize = 512;
+        const REC: usize = 1024;
+        const MFT_LCN: u64 = 4;
+
+        fn boot() -> [u8; 512] {
+            let mut b = [0u8; 512];
+            b[3..11].copy_from_slice(b"NTFS    ");
+            b[0x0B..0x0D].copy_from_slice(&512u16.to_le_bytes());
+            b[0x0D] = 1; // sectors/cluster ⇒ cluster = 512
+            b[0x30..0x38].copy_from_slice(&MFT_LCN.to_le_bytes());
+            b[0x38..0x40].copy_from_slice(&(MFT_LCN + 100).to_le_bytes());
+            b[0x40] = 0xF6; // 1024-byte records
+            b[0x44] = 0x01;
+            b[510] = 0x55;
+            b[511] = 0xAA;
+            b
+        }
+
+        fn record(flags: u16, attrs: &[u8]) -> Vec<u8> {
+            let mut r = vec![0u8; REC];
+            r[0..4].copy_from_slice(b"FILE");
+            let usa_off = 0x30u16;
+            let usa_count = (REC / 512 + 1) as u16;
+            r[0x04..0x06].copy_from_slice(&usa_off.to_le_bytes());
+            r[0x06..0x08].copy_from_slice(&usa_count.to_le_bytes());
+            let first = 0x38usize;
+            r[0x14..0x16].copy_from_slice(&(first as u16).to_le_bytes());
+            r[0x16..0x18].copy_from_slice(&flags.to_le_bytes());
+            r[0x18..0x1C].copy_from_slice(&((first + attrs.len() + 4) as u32).to_le_bytes());
+            r[0x1C..0x20].copy_from_slice(&(REC as u32).to_le_bytes());
+            r[first..first + attrs.len()].copy_from_slice(attrs);
+            r[first + attrs.len()..first + attrs.len() + 4]
+                .copy_from_slice(&0xFFFF_FFFFu32.to_le_bytes());
+            let usn = 0x0001u16;
+            let uo = usa_off as usize;
+            r[uo..uo + 2].copy_from_slice(&usn.to_le_bytes());
+            for i in 0..(usa_count as usize - 1) {
+                let tail = (i + 1) * 512 - 2;
+                let orig = [r[tail], r[tail + 1]];
+                let pos = uo + 2 + i * 2;
+                r[pos..pos + 2].copy_from_slice(&orig);
+                r[tail..tail + 2].copy_from_slice(&usn.to_le_bytes());
+            }
+            r
+        }
+
+        fn attr_resident(type_code: u32, name: Option<&str>, content: &[u8]) -> Vec<u8> {
+            let nu: Vec<u16> = name.map(|n| n.encode_utf16().collect()).unwrap_or_default();
+            let name_off = 0x18usize;
+            let con_off = (name_off + nu.len() * 2 + 7) & !7;
+            let len = (con_off + content.len() + 7) & !7;
+            let mut a = vec![0u8; len];
+            a[0..4].copy_from_slice(&type_code.to_le_bytes());
+            a[4..8].copy_from_slice(&(len as u32).to_le_bytes());
+            a[0x09] = nu.len() as u8;
+            a[0x0A..0x0C].copy_from_slice(&(name_off as u16).to_le_bytes());
+            a[0x10..0x14].copy_from_slice(&(content.len() as u32).to_le_bytes());
+            a[0x14..0x16].copy_from_slice(&(con_off as u16).to_le_bytes());
+            for (i, u) in nu.iter().enumerate() {
+                a[name_off + i * 2..name_off + i * 2 + 2].copy_from_slice(&u.to_le_bytes());
+            }
+            a[con_off..con_off + content.len()].copy_from_slice(content);
+            a
+        }
+
+        fn nonresident_data(runs: &[u8], real: u64) -> Vec<u8> {
+            let ro = 0x40usize;
+            let len = (ro + runs.len() + 7) & !7;
+            let mut a = vec![0u8; len];
+            a[0..4].copy_from_slice(&0x80u32.to_le_bytes());
+            a[4..8].copy_from_slice(&(len as u32).to_le_bytes());
+            a[0x08] = 1;
+            a[0x0A..0x0C].copy_from_slice(&(ro as u16).to_le_bytes());
+            a[0x20..0x22].copy_from_slice(&(ro as u16).to_le_bytes());
+            a[0x28..0x30].copy_from_slice(&real.to_le_bytes());
+            a[0x30..0x38].copy_from_slice(&real.to_le_bytes());
+            a[ro..ro + runs.len()].copy_from_slice(runs);
+            a
+        }
+
+        fn fname(parent: u64, name: &str) -> Vec<u8> {
+            let u: Vec<u16> = name.encode_utf16().collect();
+            let mut c = vec![0u8; 0x42 + u.len() * 2];
+            c[0..8].copy_from_slice(&((1u64 << 48) | parent).to_le_bytes());
+            c[0x40] = u.len() as u8;
+            c[0x41] = 1; // Win32
+            for (i, ch) in u.iter().enumerate() {
+                c[0x42 + i * 2..0x42 + i * 2 + 2].copy_from_slice(&ch.to_le_bytes());
+            }
+            c
+        }
+
+        fn index_entry(target: u64, name: &str) -> Vec<u8> {
+            let fnc = fname(5, name);
+            let len = (0x10 + fnc.len() + 7) & !7;
+            let mut e = vec![0u8; len];
+            e[0..8].copy_from_slice(&((1u64 << 48) | target).to_le_bytes());
+            e[0x08..0x0A].copy_from_slice(&(len as u16).to_le_bytes());
+            e[0x0A..0x0C].copy_from_slice(&(fnc.len() as u16).to_le_bytes());
+            e[0x10..0x10 + fnc.len()].copy_from_slice(&fnc);
+            e
+        }
+
+        fn index_end() -> Vec<u8> {
+            let mut e = vec![0u8; 0x10];
+            e[0x08..0x0A].copy_from_slice(&0x10u16.to_le_bytes());
+            e[0x0C] = 0x02;
+            e
+        }
+
+        fn index_root(entries: &[Vec<u8>]) -> Vec<u8> {
+            let blob: Vec<u8> = entries.concat();
+            let mut c = vec![0u8; 0x10 + 0x10 + blob.len()];
+            c[0x00..0x04].copy_from_slice(&0x30u32.to_le_bytes());
+            c[0x10..0x14].copy_from_slice(&0x10u32.to_le_bytes());
+            c[0x14..0x18].copy_from_slice(&((0x10 + blob.len()) as u32).to_le_bytes());
+            c[0x20..0x20 + blob.len()].copy_from_slice(&blob);
+            attr_resident(0x90, Some("$I30"), &c)
+        }
+
+        /// Build the full volume bytes; `\test.txt` = "hello world".
+        pub fn build() -> Vec<u8> {
+            let num = 7usize;
+            let mft_clusters = (num * REC / CLUSTER) as u64; // 14
+            let total = MFT_LCN + mft_clusters + 2;
+            let mut v = vec![0u8; total as usize * CLUSTER];
+            v[0..512].copy_from_slice(&boot());
+
+            let runs = [0x11u8, mft_clusters as u8, MFT_LCN as u8, 0x00];
+            let rec0 = record(0x0001, &nonresident_data(&runs, mft_clusters * CLUSTER as u64));
+            let rec5 = record(0x0003, &index_root(&[index_entry(6, "test.txt"), index_end()]));
+            let mut a6 = Vec::new();
+            a6.extend_from_slice(&attr_resident(0x10, None, &[0u8; 0x30]));
+            a6.extend_from_slice(&attr_resident(0x30, None, &fname(5, "test.txt")));
+            a6.extend_from_slice(&attr_resident(0x80, None, b"hello world"));
+            let rec6 = record(0x0001, &a6);
+
+            let mft_off = MFT_LCN as usize * CLUSTER;
+            for (idx, rec) in [(0usize, &rec0), (5, &rec5), (6, &rec6)] {
+                let o = mft_off + idx * REC;
+                v[o..o + rec.len()].copy_from_slice(rec);
+            }
+            v
+        }
+    }
+
+    /// Place the synthetic NTFS volume at a partition offset inside an MBR disk.
+    fn disk_with_volume(lba_start: u32) -> VecSource {
+        let v = vol::build();
+        let count = v.len().div_ceil(SECTOR) as u32 + 1;
+        let total = (lba_start + count) as usize * SECTOR;
+        let mut disk = vec![0u8; total];
+        disk[..SECTOR].copy_from_slice(&mbr_one_ntfs(lba_start, count));
+        let off = lba_start as usize * SECTOR;
+        disk[off..off + v.len()].copy_from_slice(&v);
+        VecSource(disk)
+    }
+
+    #[test]
+    fn extracts_a_file_from_an_ntfs_partition() {
+        let src = disk_with_volume(2048);
+        let parts = find_ntfs_partitions(&src).expect("find");
+        assert_eq!(parts.len(), 1);
+        let files = extract_files(&src, parts[0], &["\\test.txt"]).expect("extract");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "\\test.txt");
+        assert_eq!(files[0].data, b"hello world");
+    }
+
+    #[test]
+    fn missing_paths_are_skipped() {
+        let src = disk_with_volume(2048);
+        let parts = find_ntfs_partitions(&src).expect("find");
+        let files =
+            extract_files(&src, parts[0], &["\\test.txt", "\\nope.txt"]).expect("extract");
+        assert_eq!(files.len(), 1); // only the present file
+        assert_eq!(files[0].path, "\\test.txt");
     }
 }
