@@ -44,12 +44,51 @@ pub enum DiskError {
 /// [`DiskError::Disk`] if the partition table can't be analysed, or
 /// [`DiskError::Io`] on a read failure.
 pub fn find_ntfs_partitions(source: &dyn DataSource) -> Result<Vec<PartitionWindow>, DiskError> {
-    let _ = (source, PartitionWindow { offset: 0, length: 0 });
-    todo!("find_ntfs_partitions — GREEN step")
+    use disk_forensic::DiskReport;
+
+    let mut reader = DataSourceReader::new(source);
+    let report = disk_forensic::analyse_disk(&mut reader, source.len())?;
+
+    // Candidate windows from whichever partition table was found.
+    let candidates: Vec<PartitionWindow> = match &report {
+        DiskReport::Mbr(m) | DiskReport::Gpt(m) => match m.gpt.as_ref() {
+            // GPT: every in-use entry; NTFS isn't fingerprinted by type GUID, so
+            // the boot-sector check below is what confirms it.
+            Some(gpt) => gpt
+                .partitions
+                .iter()
+                .map(|p| PartitionWindow {
+                    offset: p.first_lba.saturating_mul(gpt.sector_size),
+                    length: (p.last_lba.saturating_add(1))
+                        .saturating_sub(p.first_lba)
+                        .saturating_mul(gpt.sector_size),
+                })
+                .collect(),
+            // Classic MBR: non-empty primary/logical partitions.
+            None => m
+                .partitions
+                .iter()
+                .filter(|p| p.byte_size > 0)
+                .map(|p| PartitionWindow {
+                    offset: p.byte_offset,
+                    length: p.byte_size,
+                })
+                .collect(),
+        },
+        // NTFS on an Apple Partition Map does not occur in practice.
+        DiskReport::Apm(_) => Vec::new(),
+    };
+
+    let mut out = Vec::new();
+    for w in candidates {
+        if window_is_ntfs(source, w)? {
+            out.push(w);
+        }
+    }
+    Ok(out)
 }
 
 /// `true` if the 512-byte boot sector at `window.offset` parses as NTFS.
-#[allow(dead_code)]
 fn window_is_ntfs(source: &dyn DataSource, window: PartitionWindow) -> Result<bool, DiskError> {
     let mut sector = [0u8; 512];
     let n = source
