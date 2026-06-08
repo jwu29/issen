@@ -368,6 +368,49 @@ detection:
     }
 
     #[test]
+    fn test_scan_phase_sigma_description_contains_carries_attack_tag() {
+        // Mirrors the real triage rule: match the shallow EVTX Description string
+        // (the only place the event id reliably appears) and ensure the rule's
+        // ATT&CK tactic tag propagates into FindingRow.tags, which the report
+        // turns into an attack-chain node. De-risks the full E01 ingest.
+        let mut sigma = SigmaEngine::new();
+        sigma
+            .load_rule(
+                r#"
+title: Failed Logon Attempt (Possible Brute Force)
+id: 11111111-0000-0000-0000-000000004625
+level: high
+detection:
+    sel:
+        Description|contains: 'EventID:4625 '
+    condition: sel
+tags:
+    - attack.initial_access
+    - attack.t1110
+"#,
+            )
+            .unwrap();
+
+        let engine = ScanEngine::new().with_sigma(sigma);
+        let dir = tempfile::tempdir().unwrap();
+        // Description shaped exactly like the real parsed EVTX events.
+        let events = vec![sample_event(
+            EventType::Other("EventID:4625".to_string()),
+            "EventID:4625 Provider:Microsoft-Windows-Security-Auditing Channel:Security (Record 5)",
+        )];
+
+        let (findings, summary) = run_scan_phase(&events, &engine, dir.path());
+
+        assert_eq!(summary.sigma_findings, 1, "rule should fire on the description");
+        assert_eq!(findings.len(), 1);
+        assert!(
+            findings[0].tags.contains("attack.initial_access"),
+            "ATT&CK tactic tag must propagate into the finding: {}",
+            findings[0].tags
+        );
+    }
+
+    #[test]
     fn test_scan_phase_sigma_no_match() {
         let mut sigma = SigmaEngine::new();
         sigma
