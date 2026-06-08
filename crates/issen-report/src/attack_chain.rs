@@ -19,9 +19,16 @@ use crate::{AttackChainEdge, AttackChainInput, AttackChainNode, AttackTactic, Fi
 /// that are not `attack.<known-tactic>` are ignored. The returned vec is
 /// de-duplicated and preserves first-seen order.
 #[must_use]
-pub fn tactic_from_tags(_tags: &[String]) -> Vec<AttackTactic> {
-    // RED stub — implemented in the GREEN commit.
-    Vec::new()
+pub fn tactic_from_tags(tags: &[String]) -> Vec<AttackTactic> {
+    let mut out: Vec<AttackTactic> = Vec::new();
+    for tag in tags {
+        if let Some(t) = parse_tactic_tag(tag) {
+            if !out.contains(&t) {
+                out.push(t);
+            }
+        }
+    }
+    out
 }
 
 /// Parse a single `attack.<tactic>` tag into an [`AttackTactic`].
@@ -74,9 +81,39 @@ fn tactic_label(t: &AttackTactic) -> &'static str {
 /// plus the count of findings that mapped to it. Consecutive nodes are joined
 /// by an edge. Findings whose tags carry no recognized tactic do not appear.
 #[must_use]
-pub fn findings_to_attack_chain(_findings: &[FindingRow]) -> AttackChainInput {
-    // RED stub — implemented in the GREEN commit.
-    AttackChainInput::default()
+pub fn findings_to_attack_chain(findings: &[FindingRow]) -> AttackChainInput {
+    // Count findings per recognized tactic.
+    let mut counts: Vec<(AttackTactic, usize)> = Vec::new();
+    for f in findings {
+        for t in tactic_from_tags(&f.tags) {
+            if let Some(entry) = counts.iter_mut().find(|(et, _)| *et == t) {
+                entry.1 += 1;
+            } else {
+                counts.push((t, 1));
+            }
+        }
+    }
+
+    // Order by kill-chain phase.
+    counts.sort_by_key(|(t, _)| tactic_order(t));
+
+    let mut input = AttackChainInput::default();
+    for (i, (tactic, count)) in counts.iter().enumerate() {
+        let id = format!("n{i}");
+        input.nodes.push(AttackChainNode {
+            id: id.clone(),
+            label: format!("{} ({count})", tactic_label(tactic)),
+            tactic: tactic.clone(),
+        });
+        if i > 0 {
+            input.edges.push(AttackChainEdge {
+                from: format!("n{}", i - 1),
+                to: id,
+            });
+        }
+    }
+
+    input
 }
 
 #[cfg(test)]
