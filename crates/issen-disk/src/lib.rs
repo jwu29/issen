@@ -111,7 +111,7 @@ fn window_is_ntfs(source: &dyn DataSource, window: PartitionWindow) -> Result<bo
     let n = source
         .read_at(window.offset, &mut sector)
         .map_err(|e| DiskError::Source(e.to_string()))?;
-    Ok(n >= 512 && ntfs_forensic::BootSector::parse(&sector).is_ok())
+    Ok(n >= 512 && ntfs_core::BootSector::parse(&sector).is_ok())
 }
 
 /// The standard high-value Windows triage artifacts, by NTFS path.
@@ -275,7 +275,7 @@ pub fn extract_files(
     window: PartitionWindow,
     paths: &[&str],
 ) -> Result<Vec<ExtractedFile>, DiskError> {
-    use ntfs_forensic::{NtfsError, NtfsFs, OffsetReader};
+    use ntfs_core::{NtfsError, NtfsFs, OffsetReader};
 
     let to_disk = |e: NtfsError| DiskError::Ntfs(e.to_string());
     let reader = DataSourceReader::new(source);
@@ -313,7 +313,7 @@ pub fn extract_dir_suffix(
     dir: &str,
     suffix: &str,
 ) -> Result<Vec<ExtractedFile>, DiskError> {
-    use ntfs_forensic::{NtfsError, NtfsFs, OffsetReader};
+    use ntfs_core::{NtfsError, NtfsFs, OffsetReader};
 
     let to_disk = |e: NtfsError| DiskError::Ntfs(e.to_string());
     let reader = DataSourceReader::new(source);
@@ -366,7 +366,7 @@ pub fn extract_per_subdir(
     parent: &str,
     child: &str,
 ) -> Result<Vec<ExtractedFile>, DiskError> {
-    use ntfs_forensic::{NtfsError, NtfsFs, OffsetReader};
+    use ntfs_core::{NtfsError, NtfsFs, OffsetReader};
 
     let to_disk = |e: NtfsError| DiskError::Ntfs(e.to_string());
     let reader = DataSourceReader::new(source);
@@ -418,7 +418,7 @@ pub fn extract_named_streams(
     window: PartitionWindow,
     streams: &[(&str, &str)],
 ) -> Result<Vec<ExtractedFile>, DiskError> {
-    use ntfs_forensic::{NtfsError, NtfsFs, OffsetReader};
+    use ntfs_core::{NtfsError, NtfsFs, OffsetReader};
 
     let to_disk = |e: NtfsError| DiskError::Ntfs(e.to_string());
     let reader = DataSourceReader::new(source);

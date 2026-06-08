@@ -169,7 +169,7 @@ dd           = { path = "../dd/dd" }
 vhd          = { path = "../vhd/vhd" }
 vhdx         = { path = "../vhdx-forensic/core", package = "vhdx-core" }
 vmdk         = { path = "../vmdk-forensic/core", package = "vmdk-core" }
-qcow2        = { path = "../qcow2/qcow2" }
+qcow2        = { version = "0.2", package = "qcow2-core" }
 hadris-iso   = "1"
 aff4         = { path = "../aff4/aff4" }
 evtx         = { version = "0.11", default-features = false }
