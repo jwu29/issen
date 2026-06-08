@@ -312,7 +312,7 @@ the migrated analyzers and `forensicnomicon::report` to aggregate findings into 
 These crates parse **untrusted, attacker-controllable disk images**. The bar is: *never panic, never read out of bounds, never trust a length field.* The standard below is the **superset** of the strongest settings found across vmdk/vhdx/ewf/ntfs/qcow2 — every forensic crate must meet all of it.
 
 **Lints (in `[workspace.lints]`, every member inherits via `[lints] workspace = true`):**
-- `[workspace.lints.rust]`: `unsafe_code = "forbid"`.
+- `[workspace.lints.rust]`: `unsafe_code = "forbid"` — **except** crates that legitimately need one bounded `unsafe` (e.g. an mmap-backed reader calling `memmap2::Mmap::map`): use `unsafe_code = "deny"` and put a justified `#[allow(unsafe_code)]` on each genuine site (`forbid` can't be locally overridden). ewf-forensic does this for its 4 mmap sites; every other `unsafe` stays a hard error.
 - `[workspace.lints.clippy]`: `all = warn`, `pedantic = warn`, `correctness = deny`, `suspicious = deny`, **`unwrap_used = deny`**, **`expect_used = deny`**. Pragmatic allows (priority 1): `module_name_repetitions`, `must_use_candidate`, `missing_errors_doc`, `missing_panics_doc`, `cast_possible_truncation/wrap/sign_loss/precision_loss`.
 - Tests opt out of the panic lints: `#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]` in each lib; integration-test files (separate crates) need their own top-level `#![allow(clippy::unwrap_used, clippy::expect_used)]`.
 
@@ -324,7 +324,7 @@ These crates parse **untrusted, attacker-controllable disk images**. The bar is:
 
 **CI gates (every PR):** build, test, `cargo clippy --workspace --all-targets` (the paranoid set, warnings = errors), `cargo fmt --check`, `cargo deny check`, gitleaks, and **100% line coverage** (`cargo llvm-cov --lib`, fail on any `DA:n,0`). Validate against **real artifacts** (e.g. qcow2 validates `inspect()` against qemu-img-produced images with backing-file/snapshot/encryption + a real CirrOS corpus), not only synthetic fixtures.
 
-**Compliance (2026-06-08):** qcow2-forensic meets the full standard. vmdk-forensic has the strict lints + full tooling + fuzz. vhdx/ewf/ntfs-forensic have `.gitleaks.toml` + `clippy.toml`; still need the `unwrap_used`/`expect_used = deny` lints (+ resulting panic-free fixes) and `fuzz.yml` — bring each up to this superset.
+**Compliance (2026-06-08):** qcow2, vmdk, vhdx, ewf, ntfs-forensic all enforce the `unwrap_used`/`expect_used = deny` panic lints with panic-free bounds-checked readers, and all have `fuzz.yml`. Panic-free remediation counts: vhdx 80 reads, ewf 47, ntfs 44+2, qcow2 clean by construction. Residual debt to clear in a *separate* pass (not security — pre-existing pedantic/fmt style): vhdx ~30 pedantic warnings, ewf broad stylistic allow-list + fmt diffs. The safety lints are hard denies everywhere.
 
 ## README Standard (every forensic repo)
 

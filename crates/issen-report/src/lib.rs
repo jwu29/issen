@@ -8,6 +8,7 @@
 use std::fmt::Write as FmtWrite;
 use std::path::Path;
 
+pub mod attack_chain;
 pub mod mermaid;
 pub mod misp;
 pub mod pdf;
@@ -25,6 +26,7 @@ pub use mermaid::{
     AttackChainInput, AttackChainNode, AttackChainEdge, AttackTactic,
     DefenseInput, DefenseItem, DefenseCategory,
 };
+pub use attack_chain::{findings_to_attack_chain, tactic_from_tags};
 
 use chrono::Utc;
 
@@ -131,6 +133,9 @@ pub struct FindingRow {
     pub target: String,
     /// Human-readable description of the finding.
     pub description: String,
+    /// Free-form tags (e.g. Sigma `attack.execution`), used to classify the
+    /// finding into an ATT&CK tactic for the attack-chain diagram.
+    pub tags: Vec<String>,
 }
 
 /// All data needed to render a report.
@@ -286,7 +291,7 @@ fn collect_findings(conn: &duckdb::Connection) -> Result<(Vec<FindingRow>, usize
     };
 
     let mut stmt = conn.prepare(
-        "SELECT engine, rule_name, severity, artifact_path, description
+        "SELECT engine, rule_name, severity, artifact_path, description, tags
          FROM scan_findings
          ORDER BY CASE severity
              WHEN 'critical' THEN 5
@@ -298,12 +303,20 @@ fn collect_findings(conn: &duckdb::Connection) -> Result<(Vec<FindingRow>, usize
     )?;
 
     let rows = stmt.query_map([], |row| {
+        // `tags` is stored as a JSON-serialized Vec<String>; tolerate NULL and
+        // malformed JSON by falling back to an empty tag set.
+        let tags_json: Option<String> = row.get(5)?;
+        let tags = tags_json
+            .as_deref()
+            .and_then(|s| serde_json::from_str::<Vec<String>>(s).ok())
+            .unwrap_or_default();
         Ok(FindingRow {
             engine: row.get(0)?,
             rule_name: row.get(1)?,
             severity: row.get(2)?,
             target: row.get(3)?,
             description: row.get(4)?,
+            tags,
         })
     })?;
 
@@ -800,6 +813,7 @@ mod tests {
                 severity: "critical".to_string(),
                 target: "/evidence/malware.exe".to_string(),
                 description: "Known malware signature matched".to_string(),
+                tags: vec!["attack.execution".to_string()],
             },
             FindingRow {
                 engine: "Sigma".to_string(),
@@ -807,6 +821,7 @@ mod tests {
                 severity: "high".to_string(),
                 target: "Security.evtx".to_string(),
                 description: "Brute force login pattern".to_string(),
+                tags: vec!["attack.initial_access".to_string()],
             },
         ];
 
