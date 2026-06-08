@@ -234,7 +234,7 @@ fn resolve_sources(cli: &Cli) -> Result<ArtifactSources> {
 fn enrich_with_usnjrnl(
     tree: &mut FileTree,
     path: &std::path::Path,
-) -> Vec<usnjrnl_forensic::usn::UsnRecord> {
+) -> Vec<ntfs_core::usn::UsnRecord> {
     eprintln!("  Enriching with USN journal from {} ...", path.display());
     let data = match std::fs::read(path) {
         Ok(d) => d,
@@ -252,7 +252,7 @@ fn enrich_with_usnjrnl(
             offset += 8;
             continue;
         }
-        match usnjrnl_forensic::usn::parse_usn_record_v2(&data[offset..]) {
+        match ntfs_core::usn::parse_usn_record_v2(&data[offset..]) {
             Ok(rec) => {
                 // Record length is the first 4 bytes of the raw record.
                 let len = if data.len() >= offset + 4 {

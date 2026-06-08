@@ -9,7 +9,7 @@ repository.workspace = true
 
 [features]
 default = ["heuristics"]
-heuristics = ["dep:issen-mft-tree", "dep:usnjrnl-forensic"]
+heuristics = ["dep:issen-mft-tree", "dep:ntfs-core"]
 
 [dependencies]
 issen-core = { workspace = true }
@@ -17,7 +17,7 @@ issen-correlation = { workspace = true }
 
 # Heuristics (optional)
 issen-mft-tree = { workspace = true, optional = true }
-usnjrnl-forensic = { workspace = true, optional = true }
+ntfs-core = { workspace = true, optional = true }
 
 # Scanning engines
 yara-x = { workspace = true }

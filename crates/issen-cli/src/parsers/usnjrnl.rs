@@ -9,7 +9,7 @@ use issen_core::plugin::traits::{
     DataSource, EventEmitter, ForensicParser, ParseStats, ParserCapabilities,
 };
 use issen_core::timeline::event::{EventType, TimelineEvent};
-use usnjrnl_forensic::usn::{parse_usn_record_v2, UsnReason, UsnRecord};
+use ntfs_core::usn::{parse_usn_record_v2, UsnReason, UsnRecord};
 
 /// USN Journal parser — implements ForensicParser for Issen.
 pub struct UsnJrnlParser;

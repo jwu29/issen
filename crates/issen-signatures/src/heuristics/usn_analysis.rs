@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use issen_mft_tree::tree::FileTree;
-use usnjrnl_forensic::usn::{UsnReason, UsnRecord};
+use ntfs_core::usn::{UsnReason, UsnRecord};
 
 use super::anomaly::{Anomaly, AnomalyCategory, AnomalyIndex};
 use crate::matching::results::Severity;
@@ -249,8 +249,8 @@ mod tests {
     use super::*;
     use chrono::{DateTime, TimeZone, Utc};
     use issen_mft_tree::node::{FileNode, NtfsTimestamps};
-    use usnjrnl_forensic::usn::FileAttributes;
-    use usnjrnl_forensic::usn::UsnReason;
+    use ntfs_core::usn::FileAttributes;
+    use ntfs_core::usn::UsnReason;
 
     /// Base timestamp: 2024-06-01 00:00:00 UTC.
     fn base_ts() -> DateTime<Utc> {
@@ -656,7 +656,7 @@ mod tests {
         );
     }
 
-    // --- GREEN: test for usnjrnl_forensic::usn::UsnRecord in check_usn_stream ---
+    // --- GREEN: test for ntfs_core::usn::UsnRecord in check_usn_stream ---
 
     #[test]
     fn usnjrnl_forensic_usn_record_works_in_check_usn_stream() {

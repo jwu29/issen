@@ -23,7 +23,7 @@ anyhow = { workspace = true }
 ratatui = { workspace = true }
 crossterm = { workspace = true }
 indicatif = { workspace = true }
-usnjrnl-forensic = { workspace = true }
+ntfs-core = { workspace = true }
 issen-signatures = { workspace = true, features = ["heuristics"] }
 shrinkpath = { workspace = true }
 issen-core = { workspace = true }

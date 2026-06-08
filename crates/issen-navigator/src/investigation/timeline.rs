@@ -10,7 +10,7 @@ use issen_mft_tree::tree::FileTree;
 use issen_parser_uac::parsers::bodyfile::BodyfileEntry;
 use issen_parser_uac::parsers::process::ProcessInfo;
 use issen_parser_uac::parsers::system::LoginRecord;
-use usnjrnl_forensic::usn::UsnRecord;
+use ntfs_core::usn::UsnRecord;
 
 // ---------------------------------------------------------------------------
 // Core types
@@ -611,7 +611,7 @@ mod tests {
 
     #[test]
     fn usn_to_events_single_record() {
-        use usnjrnl_forensic::usn::{FileAttributes, UsnReason};
+        use ntfs_core::usn::{FileAttributes, UsnReason};
 
         let record = UsnRecord {
             mft_entry: 12345,
