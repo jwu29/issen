@@ -220,3 +220,108 @@ tracev3-forensic [planned], zeek-forensic [planned], cloudtrail-src [planned]):
 9. **"Does this execute a live query against an endpoint and capture the result?"** → QUERY ENGINE (`issen-remote-access`, `velociraptor-parser`)
 10. **"Does this navigate a content-addressed store by hash (Merkle DAG)?"** → GRAPH NAVIGATION (`cas-forensic`, `git-forensic`, `sigstore-forensic`)
 11. **"Does this enumerate the temporal cohort of states for an artifact?"** → `[H]` state-history layer (`vss-history`, `wal-history`, `git-history`, etc.) sharing types from `state-history-forensic`
+
+## The Reporting Model — `forensicnomicon::report`
+
+Format specs are one role of the KNOWLEDGE leaf; the **normalized reporting
+vocabulary** is the other. Every analyzer in the fleet emits its findings as this
+single model so ORCHESTRATION (Issen, disk4n6) and a future GUI render them
+uniformly instead of N bespoke `XxxAnalysis` types. It is the **union (superset)
+of the analyzers' data, not a flattening**.
+
+### Core types (`forensicnomicon::report`)
+
+- `Severity` — `Info < Low < Medium < High < Critical`. A finding carries
+  `Option<Severity>`: `None` ("not scored") is forensically distinct from
+  `Some(Info)` ("scored, benign"). Emit `None` only when the analyzer genuinely
+  cannot grade in isolation (e.g. a PE writable+executable section); otherwise grade.
+- `Category` — the analytical lens: `Integrity, Structure, Residue, Provenance,
+  History, Concealment, Threat`. Coarse by design; fine taxonomy lives in `code` + MITRE.
+- `Finding { severity, category, code, note, source, subjects, evidence, context }`
+  — constructed **only** via `Finding::observation(sev, cat, code)` /
+  `Finding::unrated(cat, code)` + the returned builder, never a struct literal.
+- `FindingContext { confidence, occurrences, timestamps, external_refs, tags }`
+  — the behavioral superset; disk findings leave it empty, memory/winevt/srum populate it.
+- `Location` — `ByteOffset/Lba/Sector/Rva/RecordId/Path/Field/Key/Other{space,value}`.
+- `SubjectRef { scheme, kind, id, label }` — non-disk subjects (process/module/registry/…).
+- `ExternalRef` (e.g. `ExternalRef::mitre_attack("T1055.012")`) — **"consistent with", never a verdict.**
+- `Report { findings, provenance, timeline, metadata }` — the aggregate Issen renders;
+  `Report::{max_severity, findings_at_least, unrated_findings}`.
+
+### The producer pattern
+
+Each analyzer KEEPS its typed `AnomalyKind`/event type (domain knowledge) and
+converts to canonical Findings — `forensicnomicon` never enumerates every anomaly kind:
+
+- **Static codes** → `impl forensicnomicon::report::Observation` for the kind
+  (`severity/category/code/note` required; `subjects/evidence/mitre/confidence` optional).
+  `Observation::to_finding(Source)` assembles the `Finding` in one place.
+- **Dynamic codes** (usnjrnl rule names, memory `Finding::Other(String)`, srum filter
+  flags) → an inherent `fn to_finding(&self, Source) -> Finding` using the builder directly,
+  because `Observation::code()` returns `&'static str`.
+
+### Conventions (binding across the fleet)
+
+- **`code` is a published contract**: scheme-prefixed SCREAMING-KEBAB
+  (`VMDK-RGD-MISMATCH`, `MBR-PART-OVERLAP`, `MEM-PROCESS-HOLLOWING`,
+  `WINEVT-PROVIDER-GUID-SPOOFING`). Never change a shipped code; new variants get new codes.
+- **Category** defaults to `Category::from_code(code)`; override per-variant only where the
+  keyword classifier is wrong (e.g. overloaded `BOOT-` prefixes).
+- **Findings are observations, never legal conclusions** — the analyst/tribunal concludes.
+  Use "consistent with" for MITRE/threat narration.
+- **`#[non_exhaustive]` + builders** keep the model additively evolvable: a new field,
+  `Location`, or `Category` variant is a non-breaking `forensicnomicon` minor bump, not a
+  fleet-wide break. Consumers must use a `_` arm when matching the shared enums.
+
+### Severity normalization (the canonical mapping every analyzer applies)
+
+| Native scale | → canonical |
+|---|---|
+| 5-level (mbr, gpt, apm, iso9660, usnjrnl, memory) | identity |
+| 4-level (vhdx, ewf, winevt, ese-integrity) | `Info→Info, Warning→Medium, Error→High, Critical→Critical` |
+| 3-level (vmdk: `Info/Warning/Error`) | per-variant re-grade (a forensic judgment, not a blanket rename) |
+| triage (srum-analysis: `Clean/Informational/Suspicious/Critical`) | `Clean→Info, Informational→Low, Suspicious→High, Critical→Critical` |
+| unrated (exec-pe `PeAnomaly`) | graded per-variant on migration, or `severity: None` |
+
+### Dependency direction
+
+`forensicnomicon` is the leaf — every analyzer depends **down** onto it; it depends on
+no one. Adding `report` did not change that. disk-forensic / Issen depend down onto both
+the migrated analyzers and `forensicnomicon::report` to aggregate findings into one `Report`.
+
+## Crate-structure standard — reader/analyzer split (core/ + forensic/)
+
+**Standard layout for every format** (adopted 2026-06-08; reference impl: `ntfs-forensic`):
+
+- **One workspace repo, named `<x>-forensic`** (the analyzer is the headline; keep this name even though the repo also holds the core crate).
+- Two members:
+  - **`core/`** → crate **`<x>-core`** — the raw reader/parser, exposes `Read + Seek` (containers) or `NtfsFs`-style navigation (filesystems). No findings.
+  - **`forensic/`** → crate **`<x>-forensic`** — the anomaly auditor: `AnomalyKind`/`Anomaly` + `audit()`/`audit_record()` emitting `forensicnomicon::report::Finding` via `impl Observation`, **depending on `<x>-core`** (path within the workspace, registry version for publish).
+- Optional `cli/` member for a debug CLI (the end-user CLI is still `disk4n6`/Issen).
+
+**Naming / imports:**
+- If the bare `<x>` crate name is taken on crates.io by a third party we can co-exist with safely (obscure/ours), publish `<x>-core` with `[lib] name = "<x>"` so consumers write `use <x>::…`. If the bare name is a *popular* crate (e.g. `ntfs` = Colin Finck's), do **not** hijack the import — keep `<x>_core` (ntfs-core imports as `ntfs_core`).
+- Reader = `<x>-core`, analyzer = `<x>-forensic`. Always.
+
+**Coverage gate:** each crate keeps 100% line coverage (`cargo llvm-cov --lib`, fail on any `DA:n,0`). The analyzer's `audit_record`-style entry points are tested end-to-end (build a valid record, drive parse→extract→audit), not just the component helpers.
+
+**Realignment status:** `vmdk`, `vhdx`, `ntfs`, and `qcow2` are all migrated to the workspace standard (vmdk-forensic, vhdx-forensic, ntfs-forensic, qcow2-forensic — each `core/` + `forensic/`).
+
+## Security & Robustness Standard — Paranoid Gatekeeper (MANDATORY for every `*-core` / `*-forensic` crate)
+
+These crates parse **untrusted, attacker-controllable disk images**. The bar is: *never panic, never read out of bounds, never trust a length field.* The standard below is the **superset** of the strongest settings found across vmdk/vhdx/ewf/ntfs/qcow2 — every forensic crate must meet all of it.
+
+**Lints (in `[workspace.lints]`, every member inherits via `[lints] workspace = true`):**
+- `[workspace.lints.rust]`: `unsafe_code = "forbid"`.
+- `[workspace.lints.clippy]`: `all = warn`, `pedantic = warn`, `correctness = deny`, `suspicious = deny`, **`unwrap_used = deny`**, **`expect_used = deny`**. Pragmatic allows (priority 1): `module_name_repetitions`, `must_use_candidate`, `missing_errors_doc`, `missing_panics_doc`, `cast_possible_truncation/wrap/sign_loss/precision_loss`.
+- Tests opt out of the panic lints: `#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]` in each lib; integration-test files (separate crates) need their own top-level `#![allow(clippy::unwrap_used, clippy::expect_used)]`.
+
+**Panic-free production code:** no `.unwrap()`, `.expect()`, `panic!`, or unchecked slice indexing in non-test code. Read integers through bounds-checked helpers (`fn be_u32(data, off) -> u32 { let mut b=[0;4]; if let Some(s)=data.get(off..off+4){b.copy_from_slice(s);} u32::from_be_bytes(b) }`) — out-of-range yields 0, never a panic. Range-check every length/offset/count field from the image *before* using it; cap allocations (reject absurd table sizes) to defend against allocation bombs.
+
+**Required tooling files (copy/keep in sync, repo root):** `deny.toml` (cargo-deny: licenses + advisories + bans), `.gitleaks.toml`, `clippy.toml`, `rustfmt.toml`, `.pre-commit-config.yaml`, `renovate.json`, `LICENSE`.
+
+**Fuzzing:** a `fuzz/` cargo-fuzz workspace with **one target per parsed structure** (ntfs is the model: `boot`, `record`, `attributes`, `attribute_list`, `runlist`, `index_buffer`, `compress`, …) **plus** a `fuzz_forensic` target driving the full inspect/audit pipeline. Each target's invariant is "must not panic." A `fuzz.yml` CI workflow builds + smoke-runs every target.
+
+**CI gates (every PR):** build, test, `cargo clippy --workspace --all-targets` (the paranoid set, warnings = errors), `cargo fmt --check`, `cargo deny check`, gitleaks, and **100% line coverage** (`cargo llvm-cov --lib`, fail on any `DA:n,0`). Validate against **real artifacts** (e.g. qcow2 validates `inspect()` against qemu-img-produced images with backing-file/snapshot/encryption + a real CirrOS corpus), not only synthetic fixtures.
+
+**Compliance (2026-06-08):** qcow2-forensic meets the full standard. vmdk-forensic has the strict lints + full tooling + fuzz. vhdx/ewf/ntfs-forensic still need: `.gitleaks.toml`, `clippy.toml`, `rustfmt.toml`, the `unwrap_used`/`expect_used = deny` lints (+ resulting panic-free fixes), and `fuzz.yml` — bring each up to this superset.
