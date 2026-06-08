@@ -405,6 +405,20 @@ td {{ font-family: "SF Mono", "Fira Code", "Consolas", monospace; word-break: br
 .severity-medium {{ color: var(--severity-medium); }}
 .severity-low {{ color: var(--severity-low); }}
 .severity-informational {{ color: var(--severity-info); }}
+.attack-note {{ color: #8899aa; font-size: 0.82rem; margin-bottom: 12px; }}
+.attack-chain {{ display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0; }}
+.attack-node {{ padding: 10px 14px; border-radius: 6px; color: #fff; font-weight: bold; font-size: 0.85rem; white-space: nowrap; }}
+.attack-arrow {{ color: #8899aa; font-size: 1.3rem; line-height: 1; }}
+.attack-initial {{ background: #1a5276; }}
+.attack-exec {{ background: #d35400; }}
+.attack-persist {{ background: #7d3c98; }}
+.attack-evasion {{ background: #1e8449; }}
+.attack-c2 {{ background: #0e6655; }}
+.attack-impact {{ background: #922b21; }}
+.attack-unknown {{ background: #5d6d7e; }}
+.attack-mermaid {{ margin-top: 12px; }}
+.attack-mermaid summary {{ cursor: pointer; color: var(--link); font-size: 0.82rem; }}
+.attack-mermaid pre {{ background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 10px; margin-top: 8px; overflow-x: auto; font-size: 0.75rem; font-family: "SF Mono", "Fira Code", "Consolas", monospace; white-space: pre; }}
 .breakdown {{ display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }}
 .breakdown-item {{ background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 4px 10px; font-size: 0.82rem; }}
 .breakdown-item .count {{ font-weight: bold; color: var(--heading); }}
@@ -440,6 +454,12 @@ footer {{ text-align: center; color: #556; font-size: 0.75rem; padding: 16px; }}
 
     // --- Summary section -----------------------------------------------------
     render_summary(&mut html, &data.summary);
+
+    // --- ATT&CK attack-chain (only if findings carry recognized tactics) ------
+    let chain = attack_chain::findings_to_attack_chain(&data.findings);
+    if !chain.nodes.is_empty() {
+        render_attack_chain_section(&mut html, &chain);
+    }
 
     // --- Events table --------------------------------------------------------
     render_events_table(&mut html, &data.events);
@@ -495,6 +515,59 @@ if (filterInput) {
     );
 
     html
+}
+
+/// CSS class for a tactic's coloured attack-chain node.
+fn tactic_css_class(tactic: &AttackTactic) -> &'static str {
+    match tactic {
+        AttackTactic::InitialAccess => "attack-initial",
+        AttackTactic::Execution => "attack-exec",
+        AttackTactic::Persistence => "attack-persist",
+        AttackTactic::DefenseEvasion => "attack-evasion",
+        AttackTactic::CommandAndControl => "attack-c2",
+        AttackTactic::Impact => "attack-impact",
+        AttackTactic::Unknown => "attack-unknown",
+    }
+}
+
+/// Render the ATT&CK attack-chain section: an inline, self-contained row of
+/// colour-coded tactic nodes (ordered by kill-chain phase) plus the
+/// [`render_attack_chain`] Mermaid source in a collapsible block.
+///
+/// The visual chain renders offline with no external resources; the Mermaid
+/// source is provided for analysts who want to drop it into other tooling.
+fn render_attack_chain_section(html: &mut String, chain: &AttackChainInput) {
+    html.push_str("<section>\n<h2>Attack Chain</h2>\n");
+    html.push_str(
+        "<p class=\"attack-note\">ATT&amp;CK tactics observed in the scan findings, \
+         ordered by kill-chain phase. This shows which tactics are present, not a \
+         proven causal sequence \u{2014} the analyst draws the conclusions.</p>\n",
+    );
+
+    html.push_str("<div class=\"attack-chain\">\n");
+    for (i, node) in chain.nodes.iter().enumerate() {
+        if i > 0 {
+            html.push_str("<div class=\"attack-arrow\">&rarr;</div>\n");
+        }
+        let _ = writeln!(
+            html,
+            "<div class=\"attack-node {class}\">{label}</div>",
+            class = tactic_css_class(&node.tactic),
+            label = html_escape(&node.label),
+        );
+    }
+    html.push_str("</div>\n");
+
+    // Embed the Mermaid source (proves the shared renderer is wired in and gives
+    // analysts a copy-pastable diagram). Escaped so it is inert in the page.
+    let mermaid = render_attack_chain(chain);
+    let _ = write!(
+        html,
+        "<details class=\"attack-mermaid\">\n<summary>Mermaid source</summary>\n<pre>{}</pre>\n</details>\n",
+        html_escape(&mermaid),
+    );
+
+    html.push_str("</section>\n");
 }
 
 /// Render the summary section into the HTML buffer.
