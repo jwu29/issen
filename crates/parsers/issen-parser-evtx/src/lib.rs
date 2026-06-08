@@ -207,35 +207,36 @@ pub fn record_to_event(
         event = event.with_hostname(computer);
     }
 
-    // Extract logon session ID for EID 4688 (ProcessExec) and 4624 (LogonSuccess).
-    let event_data = data.get("Event").and_then(|e| e.get("EventData"));
-    match event_id {
-        4688 => {
-            let lid_str = event_data
-                .and_then(|ed| ed.get("SubjectLogonId"))
-                .and_then(Value::as_str)
-                .unwrap_or("");
-            if let Some(lid) = parse_logon_id(lid_str) {
-                event = event.with_metadata("logon_id", serde_json::json!(lid));
-            }
+    // Flatten the full EventData/UserData payload into metadata (lossless) via
+    // the shared winevt-extract flattener, which normalizes both EVTX
+    // serialization shapes (named-attribute array + flat Sysmon object). This
+    // makes every field — Image, CommandLine, TargetFilename, account/logon
+    // fields, … — available to Sigma matching. Reserved System keys set above
+    // are never overwritten by crafted EventData.
+    let flat = winevt_extract::flatten_event_data(data);
+    for (key, val) in &flat {
+        if matches!(key.as_str(), "event_id" | "record_id" | "provider" | "channel") {
+            continue;
         }
-        4624 => {
-            let lid_str = event_data
-                .and_then(|ed| ed.get("TargetLogonId"))
-                .and_then(Value::as_str)
-                .unwrap_or("");
-            if let Some(lid) = parse_logon_id(lid_str) {
-                event = event.with_metadata("logon_id", serde_json::json!(lid));
-            }
-            let logon_type_str = event_data
-                .and_then(|ed| ed.get("LogonType"))
-                .and_then(Value::as_str)
-                .unwrap_or("");
-            if let Ok(lt) = logon_type_str.parse::<u64>() {
-                event = event.with_metadata("logon_type", serde_json::json!(lt));
-            }
+        event = event.with_metadata(key.clone(), Value::String(val.clone()));
+    }
+
+    // Legacy typed convenience fields, derived from the now-flattened raw values:
+    // logon_id for 4688 (SubjectLogonId) / 4624 (TargetLogonId), and logon_type
+    // for 4624. These survive for existing consumers; the raw fields are also
+    // present under their native names.
+    let logon_raw = match event_id {
+        4688 => flat.get("SubjectLogonId"),
+        4624 => flat.get("TargetLogonId"),
+        _ => None,
+    };
+    if let Some(lid) = logon_raw.and_then(|s| parse_logon_id(s)) {
+        event = event.with_metadata("logon_id", serde_json::json!(lid));
+    }
+    if event_id == 4624 {
+        if let Some(lt) = flat.get("LogonType").and_then(|s| s.parse::<u64>().ok()) {
+            event = event.with_metadata("logon_type", serde_json::json!(lt));
         }
-        _ => {}
     }
 
     event
