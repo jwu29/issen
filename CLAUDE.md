@@ -324,4 +324,17 @@ These crates parse **untrusted, attacker-controllable disk images**. The bar is:
 
 **CI gates (every PR):** build, test, `cargo clippy --workspace --all-targets` (the paranoid set, warnings = errors), `cargo fmt --check`, `cargo deny check`, gitleaks, and **100% line coverage** (`cargo llvm-cov --lib`, fail on any `DA:n,0`). Validate against **real artifacts** (e.g. qcow2 validates `inspect()` against qemu-img-produced images with backing-file/snapshot/encryption + a real CirrOS corpus), not only synthetic fixtures.
 
-**Compliance (2026-06-08):** qcow2-forensic meets the full standard. vmdk-forensic has the strict lints + full tooling + fuzz. vhdx/ewf/ntfs-forensic still need: `.gitleaks.toml`, `clippy.toml`, `rustfmt.toml`, the `unwrap_used`/`expect_used = deny` lints (+ resulting panic-free fixes), and `fuzz.yml` — bring each up to this superset.
+**Compliance (2026-06-08):** qcow2-forensic meets the full standard. vmdk-forensic has the strict lints + full tooling + fuzz. vhdx/ewf/ntfs-forensic have `.gitleaks.toml` + `clippy.toml`; still need the `unwrap_used`/`expect_used = deny` lints (+ resulting panic-free fixes) and `fuzz.yml` — bring each up to this superset.
+
+## README Standard (every forensic repo)
+
+Full rules live in the global `~/.claude/CLAUDE.personal.md` ("SecurityRonin Repository README Standard"); the load-bearing points for these crates:
+
+- **Goal:** convert the target reader (forensic analyst *or* Rust dev) into an active user in **30 seconds** — `cargo add` to a result they care about, above the fold.
+- **Badges:** Crates.io (both `<x>-core` and `<x>-forensic`), Docs.rs, License: MIT, CI, Sponsor (`h4x0r`).
+- **Above the fold:** a bold one-line tagline (never copied between repos), then the single fastest path — for a `*-forensic` workspace lead with the *analyzer* hook (`audit_path(...)` → graded findings), since that is the differentiator, then show the reader.
+- **Body:** the two-crate split (`<x>-core` reader / `<x>-forensic` analyzer), the anomaly-code table, and a "trust but verify" paragraph (panic-free, fuzzed, validated against real artifacts).
+- **Footer (mandatory, exact):** `[Privacy Policy](https://securityronin.github.io/<repo>/privacy/) · [Terms of Service](https://securityronin.github.io/<repo>/terms/) · © 2026 Security Ronin Ltd` — and `docs/privacy.md` + `docs/terms.md` **must exist** to back the links.
+- **No `## License` section** (the MIT badge → `LICENSE` is the single source of truth).
+- A `docs/validation.md` documents the differential/real-artifact validation (Doer-Checker evidence).
+- After a `*-core`→`*-core`/`*-forensic` restructure, **rewrite the README**: badges/links/repo-name/`cargo add` lines all point at the new crate names, not the pre-split single crate.
