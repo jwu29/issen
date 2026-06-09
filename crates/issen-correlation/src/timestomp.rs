@@ -15,8 +15,9 @@
 //! copy that preserves the source `$SI` can produce the same ordering, so the
 //! tribunal draws the conclusion.
 
-use forensicnomicon::report::{Category, Finding, Severity};
-use issen_core::timeline::event::TimelineEvent;
+use chrono::{DateTime, Utc};
+use forensicnomicon::report::{Category, Finding, Severity, Source};
+use issen_core::timeline::event::{EventType, TimelineEvent};
 
 /// Stable, scheme-prefixed finding code (published contract — never change).
 pub const TIMESTOMP_CODE: &str = "MFT-SI-FN-TIMESTOMP";
@@ -28,9 +29,63 @@ pub const TIMESTOMP_CODE: &str = "MFT-SI-FN-TIMESTOMP";
 /// `tolerance_ns`. Returns `None` when the event is not a `FileCreate`, carries
 /// no parseable `fn_created`, or the two times are within tolerance.
 #[must_use]
-pub fn detect_timestomp(_event: &TimelineEvent, _tolerance_ns: i64) -> Option<Finding> {
-    // C2 RED stub — implementation lands in the GREEN commit.
-    None
+pub fn detect_timestomp(event: &TimelineEvent, tolerance_ns: i64) -> Option<Finding> {
+    if !matches!(event.event_type, EventType::FileCreate) {
+        return None;
+    }
+
+    let fn_created_display = event.metadata.get("fn_created")?.as_str()?;
+    let fn_created_ns = display_to_ns(fn_created_display)?;
+    let si_created_ns = event.timestamp_ns;
+
+    // The tell: $SI birth strictly earlier than $FN birth, beyond tolerance.
+    if si_created_ns >= fn_created_ns.saturating_sub(tolerance_ns) {
+        return None;
+    }
+
+    let delta_ns = fn_created_ns.saturating_sub(si_created_ns);
+    Some(
+        Finding::observation(Severity::High, Category::Concealment, TIMESTOMP_CODE)
+            .source(Source {
+                analyzer: "issen-correlation".to_string(),
+                scope: "mft.timestomp".to_string(),
+                version: Some(env!("CARGO_PKG_VERSION").to_string()),
+            })
+            .note(format!(
+                "$STANDARD_INFORMATION birth time precedes $FILE_NAME birth time by {} — \
+                 consistent with a backdated $SI created via SetFileTime (timestomping). \
+                 A file copy that preserves the source $SI can present the same ordering.",
+                humanize_delta_ns(delta_ns)
+            ))
+            .evidence("si_created", event.timestamp_display.clone())
+            .evidence("fn_created", fn_created_display)
+            .evidence("path", event.artifact_path.clone())
+            .mitre("T1070.006")
+            .build(),
+    )
+}
+
+/// Parse a `datetime_to_display`-formatted string (`%Y-%m-%dT%H:%M:%S%.9fZ`,
+/// RFC3339) back to nanoseconds since the Unix epoch.
+fn display_to_ns(s: &str) -> Option<i64> {
+    DateTime::parse_from_rfc3339(s)
+        .ok()?
+        .with_timezone(&Utc)
+        .timestamp_nanos_opt()
+}
+
+/// Render a nanosecond delta as a coarse human string for the finding note.
+fn humanize_delta_ns(delta_ns: i64) -> String {
+    let secs = delta_ns / 1_000_000_000;
+    if secs >= 86_400 {
+        format!("{} day(s)", secs / 86_400)
+    } else if secs >= 3_600 {
+        format!("{} hour(s)", secs / 3_600)
+    } else if secs >= 60 {
+        format!("{} minute(s)", secs / 60)
+    } else {
+        format!("{secs} second(s)")
+    }
 }
 
 #[cfg(test)]
