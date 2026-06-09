@@ -10,6 +10,7 @@ mod scanning;
 
 // Link parser crates so their inventory::submit! registrations are included.
 extern crate issen_parser_evtx;
+extern crate issen_parser_registry;
 extern crate issen_parser_uac;
 extern crate issen_parser_velociraptor;
 

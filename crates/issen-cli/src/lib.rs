@@ -40,6 +40,10 @@
 //! Exposes the built-in parser modules so that integration test binaries
 //! can link them and trigger their `inventory::submit!` registrations.
 
+// Force-link the external parser crates so their `inventory::submit!`
+// registrations are pulled into the binary (and the lib test harness).
+extern crate issen_parser_registry as _;
+
 pub mod commands;
 pub mod parsers;
 pub mod scanning;
