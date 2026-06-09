@@ -20,7 +20,8 @@ use forensicnomicon::report::{Category, Finding, Severity, Source};
 use issen_core::timeline::event::{EventType, TimelineEvent};
 
 /// Stable, scheme-prefixed finding code (published contract — never change).
-pub const TIMESTOMP_CODE: &str = "MFT-SI-FN-TIMESTOMP";
+/// Matches the Case 001 capability-gaps sub-plan (Workstream C2).
+pub const TIMESTOMP_CODE: &str = "NTFS-TIMESTOMP-SI-FN-MISMATCH";
 
 /// Detect `$SI`/`$FN` birth-time inconsistency on a single `FileCreate` event.
 ///
