@@ -41,43 +41,121 @@ pub fn detect_timestomp(event: &TimelineEvent, tolerance_ns: i64) -> Option<Find
         return None;
     }
 
-    let fn_created_display = event.metadata.get("fn_created")?.as_str()?;
-    let fn_created_ns = display_to_ns(fn_created_display)?;
-    let si_created_ns = event.timestamp_ns;
+    let fn_created_display = event.metadata.get("fn_created")?.as_str()?.to_string();
+    let fn_created = display_to_ns(&fn_created_display)?;
+    // $SI.created: prefer the explicit metadata (surfaced by C3); fall back to the
+    // event timestamp for events emitted before that field existed.
+    let si_created = meta_ns(event, "si_created").unwrap_or(event.timestamp_ns);
+    let si_modified = meta_ns(event, "si_modified");
+    let si_accessed = meta_ns(event, "si_accessed");
 
-    // The tell: $SI birth strictly earlier than $FN birth, beyond tolerance.
-    if si_created_ns >= fn_created_ns.saturating_sub(tolerance_ns) {
+    let threshold = fn_created.saturating_sub(tolerance_ns);
+
+    // ── Ordering signals — at least one is required to emit anything ──
+    let s1 = si_created < threshold; // weak: copy/archive/tunnelling reproduce it benignly
+    let s2 = si_modified.is_some_and(|m| m < threshold); // stronger: modified before its name existed
+    if !s1 && !s2 {
         return None;
     }
 
-    let delta_ns = fn_created_ns.saturating_sub(si_created_ns);
+    // ── Corroborator: $SI sub-second (100 ns) zeroing (Velociraptor `USecZeros`,
+    //    verified §7.2) — naive whole-second stomp tools zero the sub-second field. ──
+    let s3 = is_whole_second(si_created) || si_modified.is_some_and(is_whole_second);
+
+    // ── Benign-context MODIFIERS (confidence reducers, never hard gates — §6.2) ──
+    let copy = si_modified.is_some_and(|m| si_created > m); // born after modified ⇒ copy/restore
+    let volume_move = match (si_modified, si_accessed) {
+        (Some(m), Some(a)) => a > si_created && a > m,
+        _ => false,
+    };
+    let high_fp_path = is_high_fp_path(&event.artifact_path);
+
+    // ── Base grade from the signals (no benign modifier yet) ──
+    let mut severity = if s3 {
+        Severity::Medium // ordering + sub-second zeroing
+    } else if s2 {
+        Severity::Low // a stronger ordering anomaly, but no corroborator
+    } else {
+        Severity::Info // S1 only — the weakest, copy-dominated lead
+    };
+
+    let mut signals: Vec<&str> = Vec::new();
+    if s1 {
+        signals.push("$SI.created < $FN.created");
+    }
+    if s2 {
+        signals.push("$SI.modified < $FN.created");
+    }
+    if s3 {
+        signals.push("$SI sub-second (100ns) component zeroed");
+    }
+
+    // A benign-context modifier caps the lead at Info. The single-event tier has no
+    // strong corroborator (the USN/$LogFile High tier is a later step), so a plausible
+    // benign explanation dominates — but the hit is NEVER discarded, only downgraded.
+    let mut modifiers: Vec<&str> = Vec::new();
+    if copy {
+        modifiers.push("copy pattern ($SI.created > $SI.modified)");
+    }
+    if volume_move {
+        modifiers.push("volume-move pattern ($SI.accessed newest)");
+    }
+    if high_fp_path {
+        modifiers.push("high-FP path (servicing/installer/recycle/temp)");
+    }
+    if !modifiers.is_empty() {
+        severity = Severity::Info;
+    }
+
+    let modifier_clause = if modifiers.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "Benign-context modifiers present ({}), so graded as a low-confidence lead. ",
+            modifiers.join("; ")
+        )
+    };
+    let note = format!(
+        "Possible $SI timestamp manipulation — signals: {}. {}Corroboration \
+         ($SI.modified vs $FN, sub-second zeroing, or a USN/$LogFile contradiction keyed \
+         on MFT reference + sequence) is required before this is more than a lead; benign \
+         causes (file copy, archive/installer extraction, NTFS file-system tunnelling) are \
+         not excluded. Consistent with MITRE T1070.006.",
+        signals.join("; "),
+        modifier_clause,
+    );
+
     Some(
-        // Info, not graded: a single-event $SI<$FN ordering is the weakest timestomp
-        // signal in the literature. File copy, archive/installer extraction, and NTFS
-        // file-system tunnelling all reproduce it with no tampering, so on its own it
-        // is a LEAD requiring corroboration — never a High finding. See
-        // docs/research/2026-06-09-timestomp-detection-false-positives.md (§6).
-        Finding::observation(Severity::Info, Category::Concealment, TIMESTOMP_CODE)
+        Finding::observation(severity, Category::Concealment, TIMESTOMP_CODE)
             .source(Source {
                 analyzer: "issen-correlation".to_string(),
                 scope: "mft.timestomp".to_string(),
                 version: Some(env!("CARGO_PKG_VERSION").to_string()),
             })
-            .note(format!(
-                "$STANDARD_INFORMATION birth time precedes $FILE_NAME birth time by {} — \
-                 a weak single-attribute ordering anomaly. Benign causes (file copy, \
-                 archive/installer extraction, NTFS file-system tunnelling) are not \
-                 excluded; corroboration ($SI.modified vs $FN, sub-second 100ns zeroing, \
-                 or a USN/$LogFile contradiction) is required before this is more than a \
-                 lead. Consistent with MITRE T1070.006.",
-                humanize_delta_ns(delta_ns)
-            ))
-            .evidence("si_created", event.timestamp_display.clone())
+            .note(note)
+            .evidence(
+                "si_created",
+                meta_str(event, "si_created").unwrap_or_else(|| event.timestamp_display.clone()),
+            )
+            .evidence(
+                "si_modified",
+                meta_str(event, "si_modified").unwrap_or_default(),
+            )
             .evidence("fn_created", fn_created_display)
             .evidence("path", event.artifact_path.clone())
             .mitre("T1070.006")
             .build(),
     )
+}
+
+/// Read a metadata value as a string (the `datetime_to_display` form).
+fn meta_str(event: &TimelineEvent, key: &str) -> Option<String> {
+    Some(event.metadata.get(key)?.as_str()?.to_string())
+}
+
+/// Read a metadata timestamp value and parse it to nanoseconds since the epoch.
+fn meta_ns(event: &TimelineEvent, key: &str) -> Option<i64> {
+    display_to_ns(event.metadata.get(key)?.as_str()?)
 }
 
 /// Parse a `datetime_to_display`-formatted string (`%Y-%m-%dT%H:%M:%S%.9fZ`,
@@ -89,18 +167,26 @@ fn display_to_ns(s: &str) -> Option<i64> {
         .timestamp_nanos_opt()
 }
 
-/// Render a nanosecond delta as a coarse human string for the finding note.
-fn humanize_delta_ns(delta_ns: i64) -> String {
-    let secs = delta_ns / 1_000_000_000;
-    if secs >= 86_400 {
-        format!("{} day(s)", secs / 86_400)
-    } else if secs >= 3_600 {
-        format!("{} hour(s)", secs / 3_600)
-    } else if secs >= 60 {
-        format!("{} minute(s)", secs / 60)
-    } else {
-        format!("{secs} second(s)")
-    }
+/// `true` when a nanosecond timestamp falls exactly on a whole second — i.e. its
+/// sub-second (100 ns) component is zero, the tell of a naive whole-second stomp.
+fn is_whole_second(ns: i64) -> bool {
+    ns.rem_euclid(1_000_000_000) == 0
+}
+
+/// `true` when the path lives under a known high-false-positive location
+/// (OS servicing, installers, recycle bin, temp) where benign timestamp
+/// divergence is routine. Matches both `\` and `/` separators, case-insensitively.
+fn is_high_fp_path(path: &str) -> bool {
+    const HIGH_FP: &[&str] = &[
+        "/windows/winsxs/",
+        "/windows/servicing/",
+        "/windows/installer/",
+        "/windows/softwaredistribution/",
+        "/$recycle.bin/",
+        "/windows/temp/",
+    ];
+    let p = path.replace('\\', "/").to_ascii_lowercase();
+    HIGH_FP.iter().any(|seg| p.contains(seg))
 }
 
 #[cfg(test)]
@@ -177,7 +263,11 @@ mod tests {
                 && f.note.to_lowercase().contains("not excluded"),
             "note must state corroboration required + benign causes not excluded"
         );
-        assert!(f.context.external_refs.iter().any(|r| r.id.contains("T1070.006")));
+        assert!(f
+            .context
+            .external_refs
+            .iter()
+            .any(|r| r.id.contains("T1070.006")));
     }
 
     #[test]
