@@ -41,7 +41,10 @@ impl IsolationFailure {
             FailureKind::Error => "error",
             FailureKind::Panic => "panic",
         };
-        format!("isolated unit '{}' failed ({kind}): {}", self.unit, self.reason)
+        format!(
+            "isolated unit '{}' failed ({kind}): {}",
+            self.unit, self.reason
+        )
     }
 }
 
@@ -52,6 +55,41 @@ pub enum Isolated<T> {
     Completed(T),
     /// The unit failed (error or panic) and was captured.
     Failed(IsolationFailure),
+}
+
+/// Run `f` under isolation: a returned `Err` or a panic is captured as an
+/// [`IsolationFailure`] instead of propagating, so the caller can record it,
+/// skip the artifact, and continue. The panic hook still fires (the panic is
+/// logged) but unwinding stops at this boundary.
+pub fn run_isolated<T, E: Display>(
+    unit: impl Into<String>,
+    f: impl FnOnce() -> Result<T, E>,
+) -> Isolated<T> {
+    let unit = unit.into();
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+        Ok(Ok(value)) => Isolated::Completed(value),
+        Ok(Err(e)) => Isolated::Failed(IsolationFailure {
+            unit,
+            kind: FailureKind::Error,
+            reason: e.to_string(),
+        }),
+        Err(payload) => Isolated::Failed(IsolationFailure {
+            unit,
+            kind: FailureKind::Panic,
+            reason: panic_message(payload.as_ref()),
+        }),
+    }
+}
+
+/// Best-effort readable message from a caught panic payload.
+fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
+    if let Some(s) = payload.downcast_ref::<&str>() {
+        (*s).to_string()
+    } else if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "unknown panic payload".to_string()
+    }
 }
 
 #[cfg(test)]
