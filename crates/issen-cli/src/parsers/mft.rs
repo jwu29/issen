@@ -3,10 +3,6 @@
 //! Moved from `rt-parser-mft`. Registers via `inventory::submit!`.
 
 use chrono::{DateTime, Utc};
-use mft::attribute::x10::StandardInfoAttr;
-use mft::attribute::MftAttributeContent;
-use mft::attribute::MftAttributeType;
-use mft::MftParser;
 use issen_core::artifacts::ArtifactType;
 use issen_core::error::RtError;
 use issen_core::plugin::registry::ParserRegistration;
@@ -14,6 +10,10 @@ use issen_core::plugin::traits::{
     DataSource, EventEmitter, ForensicParser, ParseStats, ParserCapabilities,
 };
 use issen_core::timeline::event::{EventType, TimelineEvent};
+use mft::attribute::x10::StandardInfoAttr;
+use mft::attribute::MftAttributeContent;
+use mft::attribute::MftAttributeType;
+use mft::MftParser;
 use tracing::warn;
 
 /// NTFS Master File Table parser.
@@ -405,5 +405,113 @@ mod tests {
         let emitter = CollectingEmitter::new();
         let stats = MftFileParser.parse(&source, &emitter).expect("parse");
         assert_eq!(emitter.into_events().len(), stats.events_emitted as usize);
+    }
+
+    // -- $FN timestamp surfacing (C1) ---------------------------------------
+
+    /// Build a synthetic `$FILE_NAME` attribute with all four MACE timestamps
+    /// set to the same FILETIME, distinct from any `$SI` set.
+    fn build_file_name_attr(filetime: u64, name: &str) -> mft::attribute::x30::FileNameAttr {
+        use std::io::Cursor;
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&5u64.to_le_bytes()); // parent MftReference
+        for _ in 0..4 {
+            buf.extend_from_slice(&filetime.to_le_bytes()); // created/mod/mft_mod/acc
+        }
+        buf.extend_from_slice(&0u64.to_le_bytes()); // logical_size
+        buf.extend_from_slice(&0u64.to_le_bytes()); // physical_size
+        buf.extend_from_slice(&0u32.to_le_bytes()); // flags
+        buf.extend_from_slice(&0u32.to_le_bytes()); // reparse_value
+        let utf16: Vec<u16> = name.encode_utf16().collect();
+        buf.push(utf16.len() as u8); // name_length
+        buf.push(1u8); // namespace = Win32
+        for code_unit in utf16 {
+            buf.extend_from_slice(&code_unit.to_le_bytes());
+        }
+        mft::attribute::x30::FileNameAttr::from_stream(&mut Cursor::new(buf))
+            .expect("valid synthetic $FN attribute")
+    }
+
+    #[test]
+    fn test_fn_timestamps_surfaced_when_si_present() {
+        use chrono::TimeZone;
+
+        let si_created = Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap();
+        let si_modified = Utc.with_ymd_and_hms(2020, 1, 2, 0, 0, 0).unwrap();
+        let si_accessed = Utc.with_ymd_and_hms(2020, 1, 3, 0, 0, 0).unwrap();
+        let si_mft_modified = Utc.with_ymd_and_hms(2020, 1, 4, 0, 0, 0).unwrap();
+
+        let fn_unix = Utc
+            .with_ymd_and_hms(2010, 6, 15, 12, 0, 0)
+            .unwrap()
+            .timestamp();
+        let fn_filetime = (fn_unix as u64) * 10_000_000 + 116_444_736_000_000_000;
+        let fn_attr = build_file_name_attr(fn_filetime, "report.docx");
+
+        let mut batch: Vec<TimelineEvent> = Vec::new();
+        emit_mace_timestamps(
+            &mut batch,
+            &si_modified,
+            &si_accessed,
+            &si_created,
+            &si_mft_modified,
+            42,
+            "Users/analyst/report.docx",
+            false,
+            "evidence-001",
+            Some(&fn_attr),
+        );
+
+        let create = batch
+            .iter()
+            .find(|e| e.event_type == EventType::FileCreate)
+            .expect("FileCreate event emitted");
+
+        assert_eq!(create.timestamp_ns, datetime_to_ns(&si_created));
+        assert_eq!(
+            create.metadata["fn_created"],
+            serde_json::json!(datetime_to_display(&fn_attr.created)),
+        );
+        assert_eq!(
+            create.metadata["fn_modified"],
+            serde_json::json!(datetime_to_display(&fn_attr.modified)),
+        );
+        assert_eq!(
+            create.metadata["fn_accessed"],
+            serde_json::json!(datetime_to_display(&fn_attr.accessed)),
+        );
+        assert_eq!(
+            create.metadata["fn_mft_modified"],
+            serde_json::json!(datetime_to_display(&fn_attr.mft_modified)),
+        );
+    }
+
+    #[test]
+    fn test_no_fn_metadata_when_fn_absent() {
+        use chrono::TimeZone;
+        let ts = Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap();
+
+        let mut batch: Vec<TimelineEvent> = Vec::new();
+        emit_mace_timestamps(
+            &mut batch,
+            &ts,
+            &ts,
+            &ts,
+            &ts,
+            7,
+            "test.txt",
+            false,
+            "evidence-001",
+            None,
+        );
+
+        let create = batch
+            .iter()
+            .find(|e| e.event_type == EventType::FileCreate)
+            .expect("FileCreate event emitted");
+        assert!(!create.metadata.contains_key("fn_created"));
+        assert!(!create.metadata.contains_key("fn_modified"));
+        assert!(!create.metadata.contains_key("fn_accessed"));
+        assert!(!create.metadata.contains_key("fn_mft_modified"));
     }
 }
