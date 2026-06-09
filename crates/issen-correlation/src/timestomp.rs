@@ -115,15 +115,27 @@ mod tests {
     }
 
     #[test]
-    fn fires_when_si_birth_predates_fn_birth() {
-        // $SI says 2010, $FN says 2020 — SI was backdated by ~10 years.
+    fn emits_info_lead_when_si_birth_predates_fn_birth() {
+        // $SI says 2010, $FN says 2020. On its own this is the *weakest* timestomp
+        // signal — file copy, archive extraction, and NTFS tunnelling all reproduce
+        // it benignly (see docs/research/2026-06-09-timestomp-detection-...). So a
+        // single-event SI<FN ordering must be an Info LEAD, never a High finding.
         let event =
             file_create(SI_2010_NS).with_metadata("fn_created", serde_json::json!(FN_2020_DISPLAY));
 
-        let finding = detect_timestomp(&event, DAY_NS).expect("timestomp must fire");
+        let finding = detect_timestomp(&event, DAY_NS).expect("must emit a lead");
         assert_eq!(finding.code, TIMESTOMP_CODE);
-        assert_eq!(finding.severity, Some(Severity::High));
+        assert_eq!(
+            finding.severity,
+            Some(Severity::Info),
+            "single-event SI<FN ordering is a weak lead, not a graded finding"
+        );
         assert_eq!(finding.category, Category::Concealment);
+        assert!(
+            finding.note.to_lowercase().contains("corroborat")
+                && finding.note.to_lowercase().contains("not excluded"),
+            "note must state corroboration is required and benign causes are not excluded"
+        );
         assert!(
             finding
                 .context
