@@ -101,13 +101,17 @@ wall-clock. **GREEN:** batched insert; same count, no dedup regression.
 timeout + error capture); a unit that fails/loops → a `scan_findings` finding + skip; the pipeline
 always terminates. Defensive backstop so one bad real-world artifact can't reintroduce a hang.
 
-**A2 · Registry — implement `issen-parser-registry` + link it.** **Do NOT create a `registry-forensic`
-repo** (it doesn't exist). `issen-disk` already extracts the hives and Issen already vendors
-`notatin`. Two parts: (a) replace the stub `parse()` (`issen-parser-registry/src/lib.rs:61-68`) with
-a real `notatin`-backed parse → facts + TimelineEvents (OS version, timezone, computer name, network
-interfaces, `Services\…`, Run keys, user list, SAM NTLM hashes); (b) **link** `issen_parser_registry`
-in `issen-cli/main.rs` (currently absent) and register it. Unblocks **Q1, Q3, Q9, B4/B5**, the
-Run-key half of **6.9**, hashes for **B6**.
+**A2 · Registry — implement `issen-parser-registry` + link it. ✅ DONE (2026-06-10).**
+**CORRECTION:** the original "Issen already vendors `notatin`; do not create a registry repo" guidance
+was wrong — **`~/src/winreg-forensic` is ours** (the registry equivalent of `ntfs-forensic`:
+`winreg-core` reader + `winreg-artifacts`/`-carve`/`-recover`/`-diff`). Per the prefer-our-own-crates
+rule it replaces notatin. Delivered: (a) `parse()` wired to `winreg-core::Hive::from_bytes` +
+`winreg-artifacts::registry_keys::walk_keys` → RegistryModify TimelineEvents (notatin dropped);
+(b) **linked** via `extern crate issen_parser_registry` in issen-cli lib+main (`all_parsers()`
+registration test). **Still TODO (extend INTO winreg-forensic, not issen):** the richer fact events —
+OS version, timezone, computer name, `Services\…`, Run keys, user list, SAM NTLM hashes — via
+`winreg_artifacts::{run_keys, svc_diff, sam}`. Unblocks **Q1, Q3, Q9, B4/B5**, the Run-key half of
+**6.9**, hashes for **B6**.
 
 **A3 · USN ($J) — already works; just needs ingest to complete.** _Downgraded after the two-host
 measurement:_ USN is linked **and functional** — the **Desktop** ingest captured **39,072
