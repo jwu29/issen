@@ -60,11 +60,33 @@ impl ForensicParser for RegistryHiveParser {
 
     fn parse(
         &self,
-        _input: &dyn DataSource,
-        _emitter: &dyn EventEmitter,
+        input: &dyn DataSource,
+        emitter: &dyn EventEmitter,
     ) -> Result<ParseStats, RtError> {
-        // Stub — GREEN implementation goes here.
-        Ok(ParseStats::new())
+        let mut stats = ParseStats::new();
+        let len = input.len();
+
+        // Read the whole hive into memory (hives are bounded; capabilities cap at
+        // 512 MiB) and feed it to notatin via an in-memory reader. The DataSource
+        // exposes no path, so transaction-log replay isn't available here — the
+        // primary hive is parsed (see `parser::parse_hive_reader`).
+        let mut bytes = vec![0u8; usize::try_from(len).unwrap_or(0)];
+        let mut filled = 0usize;
+        while (filled as u64) < len {
+            let n = input.read_at(filled as u64, &mut bytes[filled..])?;
+            if n == 0 {
+                break;
+            }
+            filled += n;
+        }
+        bytes.truncate(filled);
+
+        let events =
+            parser::parse_hive_reader(std::io::Cursor::new(bytes), "registry-hive", "registry");
+        stats.events_emitted = events.len() as u64;
+        stats.bytes_processed = len;
+        emitter.emit_batch(events)?;
+        Ok(stats)
     }
 
     fn capabilities(&self) -> ParserCapabilities {
@@ -195,8 +217,8 @@ mod tests {
     fn parse_hive_events_have_correct_source() {
         // When events are returned, every event's source field must be Registry.
         let tmp = tempfile::NamedTempFile::new().expect("tempfile");
-        let events = parser::parse_hive(tmp.path(), "test-source")
-            .expect("parse_hive must not return Err");
+        let events =
+            parser::parse_hive(tmp.path(), "test-source").expect("parse_hive must not return Err");
         for event in &events {
             assert_eq!(
                 event.source,
