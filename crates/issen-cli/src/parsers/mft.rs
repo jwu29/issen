@@ -11,6 +11,7 @@ use issen_core::plugin::traits::{
 };
 use issen_core::timeline::event::{EventType, TimelineEvent};
 use mft::attribute::x10::StandardInfoAttr;
+use mft::attribute::x30::FileNameAttr;
 use mft::attribute::MftAttributeContent;
 use mft::attribute::MftAttributeType;
 use mft::MftParser;
@@ -77,6 +78,13 @@ fn extract_standard_info(entry: &mft::entry::MftEntry) -> Option<StandardInfoAtt
 const MIN_MFT_SIZE: u64 = 1024;
 
 /// Emit the four MACE timestamp events for a single MFT entry.
+///
+/// `fn_attr` carries the `$FILE_NAME` attribute when it co-exists with the
+/// `$STANDARD_INFORMATION` source of these timestamps. When present, its four
+/// timestamps are surfaced onto the `FileCreate` event's metadata
+/// (`fn_created` / `fn_modified` / `fn_accessed` / `fn_mft_modified`) so a
+/// downstream timestomp detector can compare `$SI` vs `$FN`. Pass `None` when
+/// only one of the two attributes exists — behavior is then unchanged.
 #[allow(clippy::too_many_arguments)]
 fn emit_mace_timestamps(
     batch: &mut Vec<TimelineEvent>,
@@ -88,6 +96,7 @@ fn emit_mace_timestamps(
     full_path: &str,
     is_dir: bool,
     source_id: &str,
+    fn_attr: Option<&FileNameAttr>,
 ) {
     batch.push(mace_event(
         modified,
@@ -105,14 +114,34 @@ fn emit_mace_timestamps(
         is_dir,
         source_id,
     ));
-    batch.push(mace_event(
+    let mut create_event = mace_event(
         created,
         EventType::FileCreate,
         entry_id,
         full_path,
         is_dir,
         source_id,
-    ));
+    );
+    if let Some(fname) = fn_attr {
+        create_event = create_event
+            .with_metadata(
+                "fn_created",
+                serde_json::json!(datetime_to_display(&fname.created)),
+            )
+            .with_metadata(
+                "fn_modified",
+                serde_json::json!(datetime_to_display(&fname.modified)),
+            )
+            .with_metadata(
+                "fn_accessed",
+                serde_json::json!(datetime_to_display(&fname.accessed)),
+            )
+            .with_metadata(
+                "fn_mft_modified",
+                serde_json::json!(datetime_to_display(&fname.mft_modified)),
+            );
+    }
+    batch.push(create_event);
     batch.push(mace_event(
         mft_modified,
         EventType::Other("MftEntryModified".to_string()),
@@ -227,6 +256,7 @@ impl ForensicParser for MftFileParser {
                     &full_path,
                     is_dir,
                     source_id,
+                    Some(&file_name),
                 );
             } else {
                 emit_mace_timestamps(
@@ -239,6 +269,7 @@ impl ForensicParser for MftFileParser {
                     &full_path,
                     is_dir,
                     source_id,
+                    None,
                 );
             }
 
