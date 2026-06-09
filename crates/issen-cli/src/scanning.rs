@@ -254,6 +254,45 @@ mod tests {
     }
 
     #[test]
+    fn native_attack_phase_emits_rdp_finding_with_tactic_tags() {
+        // event_id 4624 + logon_type 10 → T1021.001 / initial_access (no Sigma).
+        let event = sample_event(EventType::LogonSuccess, "RDP logon")
+            .with_metadata("event_id", serde_json::json!(4624))
+            .with_metadata("logon_type", serde_json::json!(10));
+        let rows = run_native_attack_phase(&[event]);
+        assert!(
+            rows.iter().any(|r| r.engine == "Native"
+                && r.tags.contains("attack.t1021.001")
+                && r.tags.contains("attack.initial_access")),
+            "RDP logon must yield a Native FindingRow tagged T1021.001 / initial_access \
+             so the report attack-chain populates without Sigma"
+        );
+    }
+
+    #[test]
+    fn native_attack_phase_emits_brute_force_on_failed_logon_burst() {
+        let events: Vec<_> = (0..6)
+            .map(|_| {
+                sample_event(EventType::LogonFailure, "Failed logon")
+                    .with_metadata("event_id", serde_json::json!(4625))
+            })
+            .collect();
+        let rows = run_native_attack_phase(&events);
+        assert!(
+            rows.iter().any(
+                |r| r.tags.contains("attack.t1110") && r.tags.contains("attack.initial_access")
+            ),
+            "a 4625 burst must yield a brute-force (T1110) FindingRow"
+        );
+    }
+
+    #[test]
+    fn native_attack_phase_ignores_events_without_event_id() {
+        let events = vec![sample_event(EventType::FileCreate, "no event id")];
+        assert!(run_native_attack_phase(&events).is_empty());
+    }
+
+    #[test]
     fn test_event_to_map_basic_fields() {
         let event = sample_event(EventType::LogonFailure, "Failed logon attempt");
         let map = event_to_map(&event);
@@ -401,7 +440,10 @@ tags:
 
         let (findings, summary) = run_scan_phase(&events, &engine, dir.path());
 
-        assert_eq!(summary.sigma_findings, 1, "rule should fire on the description");
+        assert_eq!(
+            summary.sigma_findings, 1,
+            "rule should fire on the description"
+        );
         assert_eq!(findings.len(), 1);
         assert!(
             findings[0].tags.contains("attack.initial_access"),

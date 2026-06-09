@@ -21,6 +21,7 @@ issen-core = { workspace = true }
 issen-fswalker = { workspace = true }
 issen-timeline = { workspace = true }
 issen-signatures = { workspace = true }
+forensicnomicon = { workspace = true }
 ntfs-core = { workspace = true }
 mft = { workspace = true }
 chrono = { workspace = true }
