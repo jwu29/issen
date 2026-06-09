@@ -219,6 +219,48 @@ mod tests {
         );
     }
 
+    /// Build a minimal USN_RECORD_V2 byte buffer for `filename` with `reason`.
+    fn build_usn_v2(filename: &str, filetime: i64, reason: u32) -> Vec<u8> {
+        let name: Vec<u8> = filename
+            .encode_utf16()
+            .flat_map(u16::to_le_bytes)
+            .collect();
+        let filename_offset = 0x3Cusize;
+        let record_len = filename_offset + name.len();
+        let mut d = vec![0u8; record_len];
+        d[0x00..0x04].copy_from_slice(&(record_len as u32).to_le_bytes());
+        d[0x04..0x06].copy_from_slice(&2u16.to_le_bytes()); // major version 2
+        d[0x08..0x10].copy_from_slice(&5000u64.to_le_bytes()); // file reference
+        d[0x10..0x18].copy_from_slice(&6000u64.to_le_bytes()); // parent reference
+        d[0x18..0x20].copy_from_slice(&7000i64.to_le_bytes()); // usn
+        d[0x20..0x28].copy_from_slice(&filetime.to_le_bytes());
+        d[0x28..0x2C].copy_from_slice(&reason.to_le_bytes());
+        d[0x38..0x3A].copy_from_slice(&(name.len() as u16).to_le_bytes());
+        d[0x3A..0x3C].copy_from_slice(&(filename_offset as u16).to_le_bytes());
+        d[0x3C..].copy_from_slice(&name);
+        d
+    }
+
+    #[test]
+    fn rename_record_surfaces_new_name_as_file_rename() {
+        // Regression guard (A3): a RENAME_NEW_NAME USN record must surface end-to-end
+        // (bytes → record → event) as a FileRename whose path is the *new* name — the
+        // move target. This is the parser-level core of the Case-001 assertion
+        // (coreupdater.exe renamed into \System32\). The full DC-E01 end-to-end check
+        // is pending a completed ingest (DC USN captured 0 events when the run was
+        // killed mid-stream; A0/A1 remove that hang so a re-ingest exercises this path).
+        let filetime = 133_451_432_000_000_000i64;
+        let reason = UsnReason::RENAME_NEW_NAME.bits() | UsnReason::CLOSE.bits();
+        let data = build_usn_v2("coreupdater.exe", filetime, reason);
+
+        let record = parse_usn_record_v2(&data).expect("parse rename record");
+        let event = record_to_event(&record, "dc01-usn");
+
+        assert_eq!(event.event_type, EventType::FileRename);
+        assert_eq!(event.artifact_path, "coreupdater.exe");
+        assert!(event.description.contains("coreupdater.exe"));
+    }
+
     #[test]
     fn record_length_from_slice_too_short() {
         assert_eq!(record_length_from_slice(&[]), 8);
