@@ -9,11 +9,17 @@
 //! `$STANDARD_INFORMATION` is user-writable (the Win32 `SetFileTime` API, and
 //! every timestomping tool, touches it); `$FILE_NAME` is set by the kernel on
 //! creation / rename / move and is *not* reachable through that API. So an
-//! `$SI` birth time that **predates** the `$FN` birth time is the canonical
-//! tell of a backdated creation timestamp. The finding is graded `High` and
-//! carries T1070.006 as *consistent-with*, never a verdict — a legitimate file
-//! copy that preserves the source `$SI` can produce the same ordering, so the
-//! tribunal draws the conclusion.
+//! `$SI` birth time that **predates** the `$FN` birth time *can* indicate a
+//! backdated creation timestamp.
+//!
+//! **But on its own this is the weakest signal in the literature** — a file
+//! copy (which preserves the source `$SI`), archive/installer extraction, and
+//! NTFS file-system tunnelling all reproduce `$SI < $FN` with no tampering. So
+//! this single-event check emits only a low-confidence **`Info` lead**, never a
+//! graded finding; it carries T1070.006 as *consistent-with*, and the note
+//! states plainly that corroboration is required. The precision-first redesign
+//! (copy/tunnelling modifiers, sub-second zeroing, USN/`$LogFile` correlation)
+//! is tracked in `docs/research/2026-06-09-timestomp-detection-false-positives.md`.
 
 use chrono::{DateTime, Utc};
 use forensicnomicon::report::{Category, Finding, Severity, Source};
@@ -46,7 +52,12 @@ pub fn detect_timestomp(event: &TimelineEvent, tolerance_ns: i64) -> Option<Find
 
     let delta_ns = fn_created_ns.saturating_sub(si_created_ns);
     Some(
-        Finding::observation(Severity::High, Category::Concealment, TIMESTOMP_CODE)
+        // Info, not graded: a single-event $SI<$FN ordering is the weakest timestomp
+        // signal in the literature. File copy, archive/installer extraction, and NTFS
+        // file-system tunnelling all reproduce it with no tampering, so on its own it
+        // is a LEAD requiring corroboration — never a High finding. See
+        // docs/research/2026-06-09-timestomp-detection-false-positives.md (§6).
+        Finding::observation(Severity::Info, Category::Concealment, TIMESTOMP_CODE)
             .source(Source {
                 analyzer: "issen-correlation".to_string(),
                 scope: "mft.timestomp".to_string(),
@@ -54,8 +65,11 @@ pub fn detect_timestomp(event: &TimelineEvent, tolerance_ns: i64) -> Option<Find
             })
             .note(format!(
                 "$STANDARD_INFORMATION birth time precedes $FILE_NAME birth time by {} — \
-                 consistent with a backdated $SI created via SetFileTime (timestomping). \
-                 A file copy that preserves the source $SI can present the same ordering.",
+                 a weak single-attribute ordering anomaly. Benign causes (file copy, \
+                 archive/installer extraction, NTFS file-system tunnelling) are not \
+                 excluded; corroboration ($SI.modified vs $FN, sub-second 100ns zeroing, \
+                 or a USN/$LogFile contradiction) is required before this is more than a \
+                 lead. Consistent with MITRE T1070.006.",
                 humanize_delta_ns(delta_ns)
             ))
             .evidence("si_created", event.timestamp_display.clone())
