@@ -1,3 +1,7 @@
+> **ARCHIVED 2026-06-09 — superseded by `docs/plans/2026-06-09-issen-grand-plan.md`.** winevt-extract migration era; the codebase has moved well past it (parked).
+
+---
+
 # Migration Plan: issen → winevt-extract
 
 ## Context

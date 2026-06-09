@@ -1,3 +1,7 @@
+> **ARCHIVED 2026-06-09 — superseded by `docs/plans/2026-06-09-issen-grand-plan.md`.** The old consolidated grand plan (2026-05-04). SUPERSEDED in full.
+
+---
+
 # Issen Consolidated Grand Implementation Plan
 
 **Date**: 2026-05-04

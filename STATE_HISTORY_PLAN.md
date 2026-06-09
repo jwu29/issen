@@ -1,3 +1,7 @@
+> **DESIGN REFERENCE (2026-06-09).** The `[H]` architecture here is still authoritative for the TemporalCohort / MaterializationSafety / ArtifactRef-identity / temporal-source design. **OVERRULED:** `[H]` now lives as a `forensicnomicon::history` module (additive), NOT a standalone `state-history-forensic` crate — see `docs/plans/2026-06-09-issen-grand-plan.md`.
+
+---
+
 # State-History Layer: Forensic Temporal Architecture
 
 **Status**: DESIGN  

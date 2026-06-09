@@ -1,3 +1,7 @@
+> **ARCHIVED 2026-06-09 — superseded by `docs/plans/2026-06-09-issen-grand-plan.md`.** Session-enrichment feature — parked; enabled by the P3 super-timeline engine in the grand plan.
+
+---
+
 # Session Enrichment Plan
 
 Implement the "what did this session do?" layer: link Windows logon sessions to the

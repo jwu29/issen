@@ -1,3 +1,7 @@
+> **ARCHIVED 2026-06-09 — superseded by `docs/plans/2026-06-09-issen-grand-plan.md`.** winevt-forensic core/forensic split — DONE across the fleet (subsumed).
+
+---
+
 # Split Plan: winevt-forensic → Issen
 
 **Date:** 2026-05-04  
