@@ -10,6 +10,7 @@
 //! verdict. The tribunal draws the conclusion.
 
 use crate::matching::results::{MatchSource, ScanFinding, Severity};
+use forensicnomicon::attack_events::{technique_for, NativeEventTechnique, FAILED_LOGON_BURST};
 
 /// Failed-logon (4625) count at or above which a brute-force (T1110) finding
 /// fires. A burst, not a single failure, is the signal.
@@ -45,101 +46,76 @@ impl NativeEventSignature {
     }
 }
 
-/// A per-event mapping rule: one matching signature → one finding.
-struct PerEventRule {
-    /// Windows event ID to match.
-    event_id: u32,
-    /// Required logon type, or `None` to match any.
-    logon_type: Option<u32>,
-    /// ATT&CK technique ID, e.g. `"T1021.001"`.
-    technique: &'static str,
-    /// ATT&CK tactic in `attack.<tactic>` form, e.g. `"persistence"`.
-    tactic: &'static str,
-    /// Stable rule name.
-    rule_name: &'static str,
-    /// Graded severity.
-    severity: Severity,
-    /// Human-readable description.
-    description: &'static str,
+/// Analyzer severity grade for a native technique. This is a forensic judgment
+/// the classifier owns — the `forensicnomicon` knowledge table carries the
+/// technique facts, not severity. New techniques default to `High`; downgrade
+/// the few that are routinely benign in isolation.
+fn severity_for(technique: &str) -> Severity {
+    match technique {
+        // A privileged logon (4672) is noisy on its own; grade it down.
+        "T1078" => Severity::Medium,
+        _ => Severity::High,
+    }
 }
 
-/// The data-driven per-event mapping table. Add a row to extend coverage.
-const PER_EVENT_RULES: &[PerEventRule] = &[
-    PerEventRule {
-        event_id: 4624,
-        logon_type: Some(10),
-        technique: "T1021.001",
-        tactic: "initial_access",
-        rule_name: "rdp-interactive-logon",
-        severity: Severity::High,
-        description: "Type-10 (RemoteInteractive/RDP) successful logon",
-    },
-    PerEventRule {
-        event_id: 7045,
-        logon_type: None,
-        technique: "T1543.003",
-        tactic: "persistence",
-        rule_name: "windows-service-install",
-        severity: Severity::High,
-        description: "New Windows service installed (7045)",
-    },
-    PerEventRule {
-        event_id: 4672,
-        logon_type: None,
-        technique: "T1078",
-        tactic: "privilege_escalation",
-        rule_name: "privileged-logon",
-        severity: Severity::Medium,
-        description: "Privileged (admin-equivalent) logon assigned (4672)",
-    },
-];
-
-/// Build the ATT&CK tag pair `["attack.<tactic>", "attack.<technique-lower>"]`.
-fn attack_tags(tactic: &str, technique: &str) -> Vec<String> {
+/// Build the `attack.<tactic>`/`attack.<technique-lower>` tag pair the report
+/// attack-chain reads, from a knowledge entry.
+fn attack_tags(t: &NativeEventTechnique) -> Vec<String> {
     vec![
-        format!("attack.{tactic}"),
-        format!("attack.{}", technique.to_ascii_lowercase()),
+        format!("attack.{}", t.tactic),
+        format!("attack.{}", t.technique.to_ascii_lowercase()),
     ]
+}
+
+/// Assemble a [`ScanFinding`] from a knowledge entry plus analyzer-owned
+/// presentation (severity, rule name, description, indicator).
+fn finding_from(t: &NativeEventTechnique, description: String, indicator: String) -> ScanFinding {
+    ScanFinding {
+        source: MatchSource::Native,
+        severity: severity_for(t.technique),
+        rule_name: format!("native-{}", t.technique.to_ascii_lowercase()),
+        description,
+        matched_indicator: Some(indicator),
+        tags: attack_tags(t),
+    }
 }
 
 /// Classify a batch of native event signatures into ATT&CK-tagged findings.
 ///
-/// Handles both per-event mappings (a single 4624 type-10 → T1021.001) and
-/// aggregate ones (a burst of 4625 failures → T1110).
+/// The technique mappings are *facts* read from
+/// [`forensicnomicon::attack_events`]; this function adds the analyzer's
+/// decisions — the burst threshold, severity grading, and `ScanFinding`
+/// presentation. Handles both per-event mappings (a single 4624 type-10 →
+/// T1021.001) and aggregate ones (a burst of 4625 failures → T1110).
 #[must_use]
 pub fn classify_native_events(sigs: &[NativeEventSignature]) -> Vec<ScanFinding> {
     let mut out = Vec::new();
 
-    // Aggregate: a burst of failed logons (4625) → brute force (T1110).
-    let failed = sigs.iter().filter(|s| s.event_id == 4625).count();
+    // Aggregate: a burst of failed logons → brute force. The burst *threshold*
+    // is the analyzer's tuning decision; the *technique* is a fact.
+    let failed = sigs
+        .iter()
+        .filter(|s| s.event_id == FAILED_LOGON_BURST.event_id)
+        .count();
     if failed >= FAILED_LOGON_BURST_THRESHOLD {
-        out.push(ScanFinding {
-            source: MatchSource::Native,
-            severity: Severity::High,
-            rule_name: "failed-logon-burst".to_string(),
-            description: format!(
-                "{failed} failed logons (4625) — consistent with a password brute-force attempt"
+        out.push(finding_from(
+            &FAILED_LOGON_BURST,
+            format!(
+                "{failed} failed logons (EID {}) — consistent with a password brute-force attempt",
+                FAILED_LOGON_BURST.event_id
             ),
-            matched_indicator: Some(format!("{failed} x EID 4625")),
-            tags: attack_tags("initial_access", "T1110"),
-        });
+            format!("{failed} x EID {}", FAILED_LOGON_BURST.event_id),
+        ));
     }
 
-    // Per-event mappings.
+    // Per-event behavioral signatures, resolved from the knowledge table.
     for sig in sigs {
-        for rule in PER_EVENT_RULES {
-            let id_matches = sig.event_id == rule.event_id;
-            let type_matches = rule.logon_type.map_or(true, |lt| sig.logon_type == Some(lt));
-            if id_matches && type_matches {
-                out.push(ScanFinding {
-                    source: MatchSource::Native,
-                    severity: rule.severity,
-                    rule_name: rule.rule_name.to_string(),
-                    description: rule.description.to_string(),
-                    matched_indicator: Some(format!("EID {}", rule.event_id)),
-                    tags: attack_tags(rule.tactic, rule.technique),
-                });
-            }
+        if let Some(t) = technique_for(sig.event_id, sig.logon_type) {
+            out.push(finding_from(
+                t,
+                t.description.to_string(),
+                format!("EID {}", sig.event_id),
+            ));
         }
     }
 

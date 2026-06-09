@@ -14,6 +14,7 @@ heuristics = ["dep:issen-mft-tree", "dep:ntfs-core"]
 [dependencies]
 issen-core = { workspace = true }
 issen-correlation = { workspace = true }
+forensicnomicon = { workspace = true }
 
 # Heuristics (optional)
 issen-mft-tree = { workspace = true, optional = true }
