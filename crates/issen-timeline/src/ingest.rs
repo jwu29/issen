@@ -218,4 +218,33 @@ mod tests {
         let exists = stmt.exists(["evidence-001"]).expect("check");
         assert!(exists);
     }
+
+    #[test]
+    fn test_insert_batch_of_50k_completes_promptly() {
+        // Regression (A0): the original `insert_batch` did a per-event
+        // `hash_exists` SELECT + single auto-committed `insert_event` — ~2
+        // round-trips per event with no transaction. On Case 001 DC01 (369K
+        // events) that never finished. A batched, transaction-wrapped insert
+        // must ingest 50K events well under a generous bound and still dedup.
+        let store = TimelineStore::in_memory().expect("store");
+        let events: Vec<TimelineEvent> = (0..50_000)
+            .map(|i| sample_event(i64::from(i) * 1_000, &format!("Event {i}")))
+            .collect();
+
+        let started = std::time::Instant::now();
+        let inserted = store.inseissen_batch(&events).expect("batch");
+        let elapsed = started.elapsed();
+
+        assert_eq!(inserted, 50_000);
+        assert_eq!(store.event_count().expect("count"), 50_000);
+        assert!(
+            elapsed < std::time::Duration::from_secs(5),
+            "50K-event insert_batch took {elapsed:?}; expected < 5s (batched insert)"
+        );
+
+        // Re-inserting the identical batch must dedup to zero new rows.
+        let again = store.inseissen_batch(&events).expect("batch 2");
+        assert_eq!(again, 0, "duplicate batch must be fully deduped");
+        assert_eq!(store.event_count().expect("count"), 50_000);
+    }
 }
