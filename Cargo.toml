@@ -56,7 +56,7 @@ authors = ["Issen Contributors"]
 
 [workspace.dependencies]
 # Internal crates (path dependencies)
-forensicnomicon  = { path = "../forensicnomicon" }
+forensicnomicon  = "0.3.1"
 forensic-pivot   = { path = "crates/forensic-pivot" }
 issen-core       = { path = "crates/issen-core" }
 issen-fswalker   = { path = "crates/issen-fswalker" }
@@ -69,8 +69,8 @@ issen-vhdx       = { path = "crates/issen-vhdx" }
 issen-vmdk       = { path = "crates/issen-vmdk" }
 issen-disk       = { path = "crates/issen-disk" }
 disk-forensic    = { path = "../disk-forensic" }
-ntfs-forensic    = { path = "../ntfs-forensic/forensic" }
-ntfs-core        = { path = "../ntfs-forensic/core" }
+ntfs-forensic    = "0.5.0"
+ntfs-core        = "0.6.0"
 issen-qcow2      = { path = "crates/issen-qcow2" }
 issen-iso        = { path = "crates/issen-iso" }
 issen-aff4       = { path = "crates/issen-aff4" }
@@ -167,8 +167,8 @@ goblin       = { version = "0.10", default-features = false, features = ["pe32",
 ewf          = "0.1"
 dd           = { path = "../dd/dd" }
 vhd          = { path = "../vhd/vhd" }
-vhdx         = { path = "../vhdx-forensic/core", package = "vhdx-core" }
-vmdk         = { path = "../vmdk-forensic/core", package = "vmdk-core" }
+vhdx         = { version = "0.2.1", package = "vhdx-core" }
+vmdk         = { version = "0.6.4", package = "vmdk-core" }
 qcow2        = { version = "0.2", package = "qcow2-core" }
 hadris-iso   = "1"
 aff4         = { path = "../aff4/aff4" }
