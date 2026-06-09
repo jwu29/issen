@@ -221,10 +221,7 @@ mod tests {
 
     /// Build a minimal USN_RECORD_V2 byte buffer for `filename` with `reason`.
     fn build_usn_v2(filename: &str, filetime: i64, reason: u32) -> Vec<u8> {
-        let name: Vec<u8> = filename
-            .encode_utf16()
-            .flat_map(u16::to_le_bytes)
-            .collect();
+        let name: Vec<u8> = filename.encode_utf16().flat_map(u16::to_le_bytes).collect();
         let filename_offset = 0x3Cusize;
         let record_len = filename_offset + name.len();
         let mut d = vec![0u8; record_len];
