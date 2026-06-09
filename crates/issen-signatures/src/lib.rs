@@ -41,6 +41,7 @@
     clippy::missing_panics_doc,
     clippy::must_use_candidate
 )]
+pub mod attack_classifier;
 pub mod engines;
 pub mod feeds;
 pub mod matching;

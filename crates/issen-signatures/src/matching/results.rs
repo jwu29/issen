@@ -13,6 +13,9 @@ pub enum MatchSource {
     HashIoc,
     NetworkIoc,
     Stix,
+    /// Native event → ATT&CK classifier (no external ruleset; see
+    /// [`crate::attack_classifier`]).
+    Native,
 }
 
 impl fmt::Display for MatchSource {
@@ -23,6 +26,7 @@ impl fmt::Display for MatchSource {
             Self::HashIoc => write!(f, "Hash IOC"),
             Self::NetworkIoc => write!(f, "Network IOC"),
             Self::Stix => write!(f, "STIX"),
+            Self::Native => write!(f, "Native"),
         }
     }
 }
