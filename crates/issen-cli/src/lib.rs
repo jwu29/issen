@@ -43,3 +43,22 @@
 pub mod commands;
 pub mod parsers;
 pub mod scanning;
+
+#[cfg(test)]
+mod parser_registration_tests {
+    use issen_core::artifacts::ArtifactType;
+    use issen_core::plugin::registry::all_parsers;
+
+    #[test]
+    fn all_parsers_includes_a_registry_parser() {
+        // issen-parser-registry must be linked + inventory-registered so registry
+        // hives are actually parsed during ingest (A2 link).
+        let has_registry = all_parsers()
+            .iter()
+            .any(|p| p.supported_artifacts().contains(&ArtifactType::Registry));
+        assert!(
+            has_registry,
+            "no registered parser supports ArtifactType::Registry — the crate is not linked"
+        );
+    }
+}

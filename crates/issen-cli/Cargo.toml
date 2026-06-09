@@ -27,6 +27,7 @@ mft = { workspace = true }
 chrono = { workspace = true }
 inventory = { workspace = true }
 issen-parser-evtx = { workspace = true }
+issen-parser-registry = { workspace = true }
 issen-report = { workspace = true }
 issen-remote-access = { workspace = true }
 issen-parser-velociraptor = { workspace = true }

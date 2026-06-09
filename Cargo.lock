@@ -4401,6 +4401,7 @@ dependencies = [
  "issen-iso",
  "issen-mem",
  "issen-parser-evtx",
+ "issen-parser-registry",
  "issen-parser-uac",
  "issen-parser-velociraptor",
  "issen-qcow2",
