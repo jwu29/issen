@@ -8,11 +8,7 @@ Issen is a local command-line tool. It does not collect, transmit, or store any 
 
 ## Google Drive Integration
 
-When you use `rt gdrive auth login`, Issen:
-
-1. Opens a browser window to Google's OAuth 2.0 authorization page.
-2. Asks for the `drive.readonly` scope — read-only access to files you explicitly identify by URL or file ID.
-3. Stores the resulting access and refresh tokens **locally** at `~/.config/issen/gdrive_token.json` on your machine.
+When you ingest from a `gdrive://` source, Issen resolves Google credentials from a token cached **locally** at `~/.config/issen/gdrive_token.json` on your machine. That token grants the `drive.readonly` scope — read-only access to files you explicitly identify by URL or file ID.
 
 No token or credential is ever sent to Security Ronin Ltd or any third party other than Google.
 
@@ -25,9 +21,11 @@ No token or credential is ever sent to Security Ronin Ltd or any third party oth
 
 ## Telemetry
 
-Issen has **no telemetry**. It makes no network requests except:
-- OAuth token exchange with `oauth2.googleapis.com` (during `rt gdrive auth login`)
-- File content download from `googleapis.com` (during `rt gdrive://FILE_ID`)
+Issen has **no telemetry**. It makes no network requests except those you initiate:
+- OAuth token exchange with `oauth2.googleapis.com` when refreshing Google Drive credentials
+- File content download from `googleapis.com` when ingesting a `gdrive://` source
+- Threat-intel feed downloads when you run `issen feed update` or `issen pivot sync`
+- Remote evidence fetches from the URI you pass to `issen ingest --source` (S3, GCS, SFTP, …)
 
 ## Open Source
 

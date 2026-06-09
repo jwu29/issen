@@ -14,21 +14,21 @@
   <a href="https://github.com/sponsors/h4x0r"><img src="https://img.shields.io/badge/sponsor-h4x0r-ff69b4.svg?logo=github-sponsors" alt="Sponsor"/></a>
 </p>
 
-**One command. One output. The full attack narrative.**
+**Point it at a disk image. Get a forensic timeline and an ATT&CK attack-chain report.**
+
+Issen is the orchestration layer of the SecurityRonin forensic fleet — a multi-crate Rust workspace and the `issen` CLI. Hand it acquired evidence, and it auto-detects the container, triages the filesystem for the artifacts that matter, parses each one, and builds a single queryable timeline you can scan and report on.
 
 ---
 
-```
-$ issen analyse collection.tar.gz
+```bash
+# 1. Ingest evidence → a DuckDB timeline (auto-detects E01/EWF, VMDK, raw dd, …)
+issen ingest evidence.E01 -o timeline.duckdb
 
-[CRITICAL] Rootkit concealed miner activity
-  Rule    : correlation.miner.rootkit-concealment
-  Evidence: ld_preload /lib/x86_64-linux-gnu/libymv.so.3
-            PID 977 "top" [thread: libuv-worker] → XMRig
-            127.0.0.1:59182 → 127.0.0.1:3333 [Stratum tunnel]
+# 2. Render a self-contained HTML report (timeline + ATT&CK attack-chain when Sigma findings exist)
+issen report timeline.duckdb -o report.html
 ```
 
-A rootkit hiding a crypto miner behind an SSH tunnel. Found automatically. Zero manual grep.
+Two commands take you from a raw acquisition to a shareable HTML report. No Python env, no dependency hell — one static binary.
 
 ---
 
@@ -76,44 +76,75 @@ cargo install --git https://github.com/SecurityRonin/issen issen
 issen --version
 ```
 
-## First command
+## The headline workflow
 
 ```bash
-issen analyse collection.tar.gz
+# Ingest a disk image → DuckDB timeline (E01/EWF, VMDK, raw dd, VHD/VHDX, QCOW2, ISO),
+# optionally scanning with cached Sigma / threat-intel feeds in the same pass
+issen ingest evidence.E01 -o timeline.duckdb --scan
+
+# Render a self-contained HTML report — timeline plus an ATT&CK attack-chain
+# section whenever Sigma findings carry ATT&CK tactic tags
+issen report timeline.duckdb -o report.html
 ```
 
-That's it. Everything else is optional.
+On ingest, Issen auto-detects the container via its `CollectionProvider` registry, triages the NTFS volume for the artifacts that matter, parses each one, and writes a unified timeline. From there, `issen timeline`, `issen scan`, and `issen report` all read the same database.
+
+### What it triages from a disk image
+
+When the evidence is a Windows disk image, Issen walks the NTFS filesystem and extracts:
+
+- **`$MFT`** — the Master File Table (file metadata + timestamps)
+- **`$Extend\$UsnJrnl:$J`** — the USN change journal (file create/delete/rename history)
+- **All `.evtx`** event logs under `Windows\System32\winevt\Logs` (Security, System, Application, Sysmon, and every other channel)
+- **Registry hives** — `SYSTEM`, `SOFTWARE`, `SAM`, `SECURITY`, `DEFAULT`, plus per-user `NTUSER.DAT`
+- **`SRUDB.dat`** — the System Resource Usage Monitor database
 
 ---
 
-## Quick reference
+## Subcommands
+
+| Command | What it does |
+|---|---|
+| `issen ingest` | Ingest evidence (disk image, collection, directory, or remote URI) → parse artifacts → DuckDB timeline; `--scan` runs signatures in the same pass |
+| `issen analyse` | Rapid triage of a UAC / supported collection — rootkits, hidden processes, network |
+| `issen supertimeline` | Build a semantic supertimeline from a collection — narrative / JSONL / CSV |
+| `issen timeline` | Query and export the timeline (text, JSON, CSV, bodyfile; `--flagged` for findings) |
+| `issen scan` | Scan files or indicators against YARA / Sigma / hash / network / STIX signatures |
+| `issen report` | Generate a self-contained HTML report (timeline + ATT&CK attack-chain) from a timeline DB |
+| `issen info` | Show information about a timeline database |
+| `issen memf` | Analyse a physical memory dump (LiME, AVML, Windows crash dump, raw) |
+| `issen srum` | Parse and query SRUM (System Resource Usage Monitor) data |
+| `issen frequency` | Frequency / stacking analysis across timeline events |
+| `issen processes` | Process-centric view of the timeline |
+| `issen session` | Logon-session reconstruction and linking |
+| `issen remote-access` | Scan evidence for remote-access infrastructure (LOLRMM rule set) |
+| `issen pivot` | Pivot engine — sync threat-intel feeds, list rules, evaluate evidence |
+| `issen feed` | Manage threat-intelligence feeds (list, update, inspect) |
 
 ```bash
-# Parse artifacts into a DuckDB timeline and scan for IOCs
-issen ingest evidence/ --output case.duckdb --scan
+# Query the timeline; show only flagged findings at high+ severity
+issen timeline timeline.duckdb --flagged --min-severity high
 
-# Query the timeline
-issen timeline case.duckdb --flagged --min-severity high
-
-# Export timeline as CSV or bodyfile
-issen timeline case.duckdb --format csv
-issen timeline case.duckdb --format bodyfile
+# Export the timeline as CSV or a bodyfile for cross-tool timelining
+issen timeline timeline.duckdb --format csv
+issen timeline timeline.duckdb --format bodyfile
 
 # Analyse a physical memory dump (LiME, AVML, crash dump)
 issen memf dump.lime --command all
 
-# Detect remote access tools (LOLRMM-based)
-issen remote-access evidence/
-
-# Scan files against YARA/Sigma/hash/STIX signatures
+# Scan files against YARA / Sigma / hash / STIX signatures
 issen scan evidence/ --auto-feeds
 
-# Update threat intel feeds (YARA, Sigma, STIX, Zeek, Suricata)
+# Update threat-intel feeds (YARA, Sigma, STIX, Zeek, Suricata)
 issen feed update
-
-# Generate HTML report from a timeline database
-issen report case.duckdb --output report.html
 ```
+
+---
+
+## Trust but verify
+
+Issen has been run end-to-end against a real **29 GB DEF CON E01** acquisition: it auto-detected the container, triaged the NTFS volume, and parsed **843 artifacts** into a **431,863-event** DuckDB timeline. Synthetic fixtures miss real-world quirks; validation against genuine acquired evidence is part of the development discipline.
 
 ---
 
@@ -122,7 +153,7 @@ issen report case.duckdb --output report.html
 | Category | Formats / Sources |
 |---|---|
 | **Collection formats** | UAC `.tar.gz`, Velociraptor, KAPE triage zip |
-| **Disk images** | E01/EWF, raw DD, split images |
+| **Disk images** | E01/EWF, raw DD (split images), VMDK, VHD, VHDX, QCOW2, ISO9660 — auto-detected via a `CollectionProvider` registry |
 | **Filesystems** | ext4, NTFS [planned], APFS [planned] |
 | **Memory formats** | LiME, AVML, WinPMEM, crash dump (DMP), Hibernation (hiberfil.sys) |
 | **Log streams** | EVTX, Zeek `conn.log`, Suricata EVE, systemd journal [planned], Apple Unified Log [planned], CloudTrail [planned] |

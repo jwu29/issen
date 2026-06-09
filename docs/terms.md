@@ -18,9 +18,9 @@ You must not use Issen to access files on Google Drive without authorisation fro
 
 ## Google Drive Integration
 
-Issen integrates with the Google Drive API under Google's [Terms of Service](https://developers.google.com/terms) and [API Services User Data Policy](https://developers.google.com/terms/api-services-user-data-policy). By using `rt gdrive auth login` you agree to those terms.
+Issen integrates with the Google Drive API under Google's [Terms of Service](https://developers.google.com/terms) and [API Services User Data Policy](https://developers.google.com/terms/api-services-user-data-policy). By ingesting from a `gdrive://` source you agree to those terms.
 
-Issen requests only `drive.readonly` access and uses it solely to hash the specific file(s) you supply.
+Issen requests only `drive.readonly` access and uses it solely to fetch the specific file(s) you supply for ingestion.
 
 ## No Warranty
 
