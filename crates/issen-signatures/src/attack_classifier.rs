@@ -45,14 +45,105 @@ impl NativeEventSignature {
     }
 }
 
+/// A per-event mapping rule: one matching signature → one finding.
+struct PerEventRule {
+    /// Windows event ID to match.
+    event_id: u32,
+    /// Required logon type, or `None` to match any.
+    logon_type: Option<u32>,
+    /// ATT&CK technique ID, e.g. `"T1021.001"`.
+    technique: &'static str,
+    /// ATT&CK tactic in `attack.<tactic>` form, e.g. `"persistence"`.
+    tactic: &'static str,
+    /// Stable rule name.
+    rule_name: &'static str,
+    /// Graded severity.
+    severity: Severity,
+    /// Human-readable description.
+    description: &'static str,
+}
+
+/// The data-driven per-event mapping table. Add a row to extend coverage.
+const PER_EVENT_RULES: &[PerEventRule] = &[
+    PerEventRule {
+        event_id: 4624,
+        logon_type: Some(10),
+        technique: "T1021.001",
+        tactic: "initial_access",
+        rule_name: "rdp-interactive-logon",
+        severity: Severity::High,
+        description: "Type-10 (RemoteInteractive/RDP) successful logon",
+    },
+    PerEventRule {
+        event_id: 7045,
+        logon_type: None,
+        technique: "T1543.003",
+        tactic: "persistence",
+        rule_name: "windows-service-install",
+        severity: Severity::High,
+        description: "New Windows service installed (7045)",
+    },
+    PerEventRule {
+        event_id: 4672,
+        logon_type: None,
+        technique: "T1078",
+        tactic: "privilege_escalation",
+        rule_name: "privileged-logon",
+        severity: Severity::Medium,
+        description: "Privileged (admin-equivalent) logon assigned (4672)",
+    },
+];
+
+/// Build the ATT&CK tag pair `["attack.<tactic>", "attack.<technique-lower>"]`.
+fn attack_tags(tactic: &str, technique: &str) -> Vec<String> {
+    vec![
+        format!("attack.{tactic}"),
+        format!("attack.{}", technique.to_ascii_lowercase()),
+    ]
+}
+
 /// Classify a batch of native event signatures into ATT&CK-tagged findings.
 ///
 /// Handles both per-event mappings (a single 4624 type-10 → T1021.001) and
 /// aggregate ones (a burst of 4625 failures → T1110).
 #[must_use]
-pub fn classify_native_events(_sigs: &[NativeEventSignature]) -> Vec<ScanFinding> {
-    // D1 RED stub — implementation lands in the GREEN commit.
-    Vec::new()
+pub fn classify_native_events(sigs: &[NativeEventSignature]) -> Vec<ScanFinding> {
+    let mut out = Vec::new();
+
+    // Aggregate: a burst of failed logons (4625) → brute force (T1110).
+    let failed = sigs.iter().filter(|s| s.event_id == 4625).count();
+    if failed >= FAILED_LOGON_BURST_THRESHOLD {
+        out.push(ScanFinding {
+            source: MatchSource::Native,
+            severity: Severity::High,
+            rule_name: "failed-logon-burst".to_string(),
+            description: format!(
+                "{failed} failed logons (4625) — consistent with a password brute-force attempt"
+            ),
+            matched_indicator: Some(format!("{failed} x EID 4625")),
+            tags: attack_tags("initial_access", "T1110"),
+        });
+    }
+
+    // Per-event mappings.
+    for sig in sigs {
+        for rule in PER_EVENT_RULES {
+            let id_matches = sig.event_id == rule.event_id;
+            let type_matches = rule.logon_type.map_or(true, |lt| sig.logon_type == Some(lt));
+            if id_matches && type_matches {
+                out.push(ScanFinding {
+                    source: MatchSource::Native,
+                    severity: rule.severity,
+                    rule_name: rule.rule_name.to_string(),
+                    description: rule.description.to_string(),
+                    matched_indicator: Some(format!("EID {}", rule.event_id)),
+                    tags: attack_tags(rule.tactic, rule.technique),
+                });
+            }
+        }
+    }
+
+    out
 }
 
 #[cfg(test)]
@@ -122,7 +213,9 @@ mod tests {
         let sigs = vec![NativeEventSignature::new(4672)];
         let findings = classify_native_events(&sigs);
         assert!(
-            findings.iter().any(|f| has_tag(f, "attack.privilege_escalation")),
+            findings
+                .iter()
+                .any(|f| has_tag(f, "attack.privilege_escalation")),
             "4672 must emit a privileged-logon finding"
         );
     }
