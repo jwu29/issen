@@ -122,6 +122,23 @@ fn emit_mace_timestamps(
         is_dir,
         source_id,
     );
+    // Surface all four $SI MACE values (nanosecond-precise) onto the FileCreate
+    // event so the timestomp FP gate (copy/volume-move) and the stronger
+    // si_modified<fn_created ordering test can run from one event.
+    create_event = create_event
+        .with_metadata("si_created", serde_json::json!(datetime_to_display(created)))
+        .with_metadata(
+            "si_modified",
+            serde_json::json!(datetime_to_display(modified)),
+        )
+        .with_metadata(
+            "si_accessed",
+            serde_json::json!(datetime_to_display(accessed)),
+        )
+        .with_metadata(
+            "si_mft_changed",
+            serde_json::json!(datetime_to_display(mft_modified)),
+        );
     if let Some(fname) = fn_attr {
         create_event = create_event
             .with_metadata(
