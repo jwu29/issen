@@ -80,45 +80,55 @@ fn finding_from(t: &NativeEventTechnique, description: String, indicator: String
     }
 }
 
-/// Classify a batch of native event signatures into ATT&CK-tagged findings.
-///
-/// The technique mappings are *facts* read from
-/// [`forensicnomicon::attack_events`]; this function adds the analyzer's
-/// decisions — the burst threshold, severity grading, and `ScanFinding`
-/// presentation. Handles both per-event mappings (a single 4624 type-10 →
-/// T1021.001) and aggregate ones (a burst of 4625 failures → T1110).
+/// Classify a *single* event signature into its per-event ATT&CK finding(s),
+/// resolved from the [`forensicnomicon::attack_events`] knowledge table. Returns
+/// empty for events with no per-event technique (e.g. a lone 4625 — its signal is
+/// the aggregate burst, see [`failed_logon_burst_finding`]).
+#[must_use]
+pub fn classify_event(sig: &NativeEventSignature) -> Vec<ScanFinding> {
+    technique_for(sig.event_id, sig.logon_type)
+        .map(|t| {
+            finding_from(
+                t,
+                t.description.to_string(),
+                format!("EID {}", sig.event_id),
+            )
+        })
+        .into_iter()
+        .collect()
+}
+
+/// The aggregate brute-force (T1110) finding for `count` failed logons (4625),
+/// or `None` below the analyzer's burst threshold. The *threshold* is the
+/// analyzer's tuning decision; the *technique* is a fact from the knowledge table.
+#[must_use]
+pub fn failed_logon_burst_finding(count: usize) -> Option<ScanFinding> {
+    if count >= FAILED_LOGON_BURST_THRESHOLD {
+        Some(finding_from(
+            &FAILED_LOGON_BURST,
+            format!(
+                "{count} failed logons (EID {}) — consistent with a password brute-force attempt",
+                FAILED_LOGON_BURST.event_id
+            ),
+            format!("{count} x EID {}", FAILED_LOGON_BURST.event_id),
+        ))
+    } else {
+        None
+    }
+}
+
+/// Classify a batch of native event signatures into ATT&CK-tagged findings —
+/// the aggregate burst plus every per-event mapping.
 #[must_use]
 pub fn classify_native_events(sigs: &[NativeEventSignature]) -> Vec<ScanFinding> {
-    let mut out = Vec::new();
-
-    // Aggregate: a burst of failed logons → brute force. The burst *threshold*
-    // is the analyzer's tuning decision; the *technique* is a fact.
     let failed = sigs
         .iter()
         .filter(|s| s.event_id == FAILED_LOGON_BURST.event_id)
         .count();
-    if failed >= FAILED_LOGON_BURST_THRESHOLD {
-        out.push(finding_from(
-            &FAILED_LOGON_BURST,
-            format!(
-                "{failed} failed logons (EID {}) — consistent with a password brute-force attempt",
-                FAILED_LOGON_BURST.event_id
-            ),
-            format!("{failed} x EID {}", FAILED_LOGON_BURST.event_id),
-        ));
-    }
-
-    // Per-event behavioral signatures, resolved from the knowledge table.
+    let mut out: Vec<ScanFinding> = failed_logon_burst_finding(failed).into_iter().collect();
     for sig in sigs {
-        if let Some(t) = technique_for(sig.event_id, sig.logon_type) {
-            out.push(finding_from(
-                t,
-                t.description.to_string(),
-                format!("EID {}", sig.event_id),
-            ));
-        }
+        out.extend(classify_event(sig));
     }
-
     out
 }
 
