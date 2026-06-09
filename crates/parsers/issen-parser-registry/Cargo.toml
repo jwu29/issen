@@ -8,7 +8,8 @@ license.workspace = true
 [dependencies]
 issen-core = { workspace = true }
 issen-plugin-sdk = { workspace = true }
-notatin = { workspace = true }
+winreg-core = { workspace = true }
+winreg-artifacts = { workspace = true }
 anyhow = { workspace = true }
 chrono = { workspace = true }
 inventory = { workspace = true }

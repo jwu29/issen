@@ -1,103 +1,90 @@
-//! Core registry hive parsing logic using `notatin`.
+//! Core registry hive parsing logic using our `winreg-core` / `winreg-artifacts`
+//! fleet crates — the registry equivalent of `ntfs-core` (prefer over the
+//! third-party `notatin`).
 
+use std::io::Cursor;
 use std::path::Path;
 
 use issen_core::artifacts::ArtifactType;
 use issen_core::timeline::event::{EventType, TimelineEvent};
+use winreg_artifacts::registry_keys::walk_keys;
+use winreg_core::hive::Hive;
 
 /// Parse a Windows registry hive file and emit [`TimelineEvent`]s.
 ///
-/// For each key with a `LastWrite` timestamp, one event is emitted with:
-/// - `event_type = RegistryModify`
-/// - `source = Registry`
-/// - `timestamp` from the key's LastWrite time (nanoseconds since Unix epoch)
-/// - `path` = full key path
-/// - `description` = "Registry key modified: <key_name>"
-/// - `attributes` = JSON `{"hive": "<filename>", "key": "<path>", "value_count": N}`
+/// For each key, one event is emitted:
+/// - `event_type = RegistryModify`, `source = Registry`
+/// - `timestamp` from the key's LastWrite time
+/// - `path` = full key path; `description` = "Registry key modified: <key_name>"
+/// - metadata `{hive, key, value_count}`
 ///
 /// # Errors
-/// Returns `Err` only on unrecoverable I/O failures.  Parse errors from
-/// `notatin` on a zero-byte or malformed hive are caught and returned as
-/// `Ok(vec![])`.
+/// Returns `Err` only on unrecoverable I/O failure. A malformed or zero-byte
+/// hive yields `Ok(vec![])`.
 pub fn parse_hive(path: &Path, source_id: &str) -> anyhow::Result<Vec<TimelineEvent>> {
-    use notatin::parser_builder::ParserBuilder;
-
-    // Zero-byte or very small files are not valid hives — return empty.
     let meta = std::fs::metadata(path);
-    if meta.map(|m| m.len()).unwrap_or(0) == 0 {
+    if meta.map_or(0, |m| m.len()) == 0 {
         return Ok(vec![]);
     }
-
     let hive_name = path
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("unknown");
-
-    // Build from the path so co-located transaction logs (LOG1/LOG2) are replayed;
-    // on any error (corrupt header, wrong magic) return empty rather than propagate.
-    let owned_path = path.to_path_buf();
-    let parser = match ParserBuilder::from_path(owned_path).build() {
-        Ok(p) => p,
-        Err(_) => return Ok(vec![]),
-    };
-    Ok(events_from_parser(&parser, hive_name, source_id))
+    let data = std::fs::read(path)?;
+    Ok(parse_hive_bytes(data, hive_name, source_id))
 }
 
-/// Parse a registry hive from an in-memory reader — the bytes a [`DataSource`]
-/// yields during ingest. Unlike [`parse_hive`], this parses the **primary hive
-/// only** (transaction-log replay needs the sidecar files on disk). Returns an
-/// empty vec on any parse error (not a valid hive).
+/// Parse a registry hive from an in-memory byte buffer — the bytes a
+/// [`DataSource`] yields during ingest. Returns an empty vec on any parse error
+/// (not a valid hive: bad signature, checksum, or truncation).
 ///
 /// [`DataSource`]: issen_core::plugin::traits::DataSource
-pub fn parse_hive_reader<R>(reader: R, hive_name: &str, source_id: &str) -> Vec<TimelineEvent>
-where
-    R: notatin::file_info::ReadSeek + 'static,
-{
-    use notatin::parser_builder::ParserBuilder;
-
-    match ParserBuilder::from_file(reader).build() {
-        Ok(parser) => events_from_parser(&parser, hive_name, source_id),
+#[must_use]
+pub fn parse_hive_bytes(data: Vec<u8>, hive_name: &str, source_id: &str) -> Vec<TimelineEvent> {
+    match Hive::from_bytes(data) {
+        Ok(hive) => events_from_hive(&hive, hive_name, source_id),
         Err(_) => vec![],
     }
 }
 
 /// Emit one `RegistryModify` event per key, keyed on its LastWrite time.
-fn events_from_parser(
-    parser: &notatin::parser::Parser,
+fn events_from_hive(
+    hive: &Hive<Cursor<Vec<u8>>>,
     hive_name: &str,
     source_id: &str,
 ) -> Vec<TimelineEvent> {
-    use notatin::parser::ParserIterator;
-
     let mut events = Vec::new();
-    for key in ParserIterator::new(parser) {
-        let ts: chrono::DateTime<chrono::Utc> = key.last_key_written_date_and_time();
+    for key in walk_keys(hive) {
+        let (timestamp_ns, timestamp_display) = match &key.last_written {
+            Some(s) => (iso_to_ns(s), s.clone()),
+            None => (0, String::new()),
+        };
 
-        // Convert to nanoseconds since Unix epoch.
-        let timestamp_ns = ts.timestamp_nanos_opt().unwrap_or(0);
-        let timestamp_display = ts.to_rfc3339();
-
-        let key_path = key.path.clone();
-        let key_name = key.key_name.clone();
-        let value_count = key.value_iter().count();
-
-        let description = format!("Registry key modified: {key_name}");
+        let description = format!("Registry key modified: {}", key.name);
 
         let event = TimelineEvent::new(
             timestamp_ns,
             timestamp_display,
             EventType::RegistryModify,
             ArtifactType::Registry,
-            key_path.clone(),
+            key.path.clone(),
             description,
             source_id.to_string(),
         )
         .with_metadata("hive", serde_json::json!(hive_name))
-        .with_metadata("key", serde_json::json!(key_path))
-        .with_metadata("value_count", serde_json::json!(value_count));
+        .with_metadata("key", serde_json::json!(key.path))
+        .with_metadata("value_count", serde_json::json!(key.value_count));
 
         events.push(event);
     }
-
     events
+}
+
+/// Convert a `walk_keys` ISO-8601 string (`%Y-%m-%dT%H:%M:%S`, UTC) to
+/// nanoseconds since the Unix epoch; `0` if unparseable.
+fn iso_to_ns(s: &str) -> i64 {
+    chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S")
+        .ok()
+        .and_then(|ndt| ndt.and_utc().timestamp_nanos_opt())
+        .unwrap_or(0)
 }

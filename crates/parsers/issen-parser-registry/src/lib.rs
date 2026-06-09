@@ -1,14 +1,15 @@
 //! Windows Registry hive parser for Issen.
 //!
 //! Parses registry hive files (`SYSTEM`, `SOFTWARE`, `NTUSER.DAT`, etc.)
-//! using the `notatin` crate and emits [`TimelineEvent`]s via the
-//! [`ForensicParser`] trait.
+//! using our `winreg-core` / `winreg-artifacts` fleet crates and emits
+//! [`TimelineEvent`]s via the [`ForensicParser`] trait.
 
 #![allow(
     clippy::doc_markdown,
     clippy::missing_errors_doc,
     clippy::missing_panics_doc,
-    clippy::must_use_candidate
+    clippy::must_use_candidate,
+    clippy::unnecessary_literal_bound
 )]
 
 pub mod parser;
@@ -67,9 +68,9 @@ impl ForensicParser for RegistryHiveParser {
         let len = input.len();
 
         // Read the whole hive into memory (hives are bounded; capabilities cap at
-        // 512 MiB) and feed it to notatin via an in-memory reader. The DataSource
+        // 512 MiB) and feed it to winreg-core's `Hive::from_bytes`. The DataSource
         // exposes no path, so transaction-log replay isn't available here — the
-        // primary hive is parsed (see `parser::parse_hive_reader`).
+        // primary hive is parsed (see `parser::parse_hive_bytes`).
         let mut bytes = vec![0u8; usize::try_from(len).unwrap_or(0)];
         let mut filled = 0usize;
         while (filled as u64) < len {
@@ -81,8 +82,7 @@ impl ForensicParser for RegistryHiveParser {
         }
         bytes.truncate(filled);
 
-        let events =
-            parser::parse_hive_reader(std::io::Cursor::new(bytes), "registry-hive", "registry");
+        let events = parser::parse_hive_bytes(bytes, "registry-hive", "registry");
         stats.events_emitted = events.len() as u64;
         stats.bytes_processed = len;
         emitter.emit_batch(events)?;
@@ -182,8 +182,8 @@ mod tests {
     #[test]
     fn parse_consumes_the_whole_source() {
         // The stub never reads the DataSource (bytes_processed stays 0). The wired
-        // parser must consume the entire hive image and route it through notatin.
-        // (4 KiB of non-hive bytes → notatin build fails → 0 events, but no panic.)
+        // parser must consume the entire hive image and route it through winreg-core.
+        // (4 KiB of non-hive bytes → Hive::from_bytes fails → 0 events, but no panic.)
         let data = vec![0xABu8; 4096];
         let src = BytesSource { data: data.clone() };
         let emitter = CountingEmitter::default();
@@ -202,7 +202,7 @@ mod tests {
 
     #[test]
     fn parse_hive_returns_empty_for_empty_hive() {
-        // A zero-byte file should not cause an Err — errors from notatin
+        // A zero-byte file should not cause an Err — errors from winreg-core
         // on invalid input must be caught and converted to Ok(vec![]).
         let tmp = tempfile::NamedTempFile::new().expect("tempfile");
         let result = parser::parse_hive(tmp.path(), "test-source");
