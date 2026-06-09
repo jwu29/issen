@@ -301,4 +301,40 @@ mod tests {
         assert_eq!(again, 0, "duplicate batch must be fully deduped");
         assert_eq!(store.event_count().expect("count"), 50_000);
     }
+
+    #[test]
+    fn test_epoch_dimension_super_timeline() {
+        // P0b: the super-timeline tags each snapshot's timeline with its epoch.
+        // The SAME events ingested at two different snapshot epochs must coexist
+        // (they are distinct points in the cohort), but dedup WITHIN an epoch.
+        let store = TimelineStore::in_memory().expect("store");
+        let events: Vec<TimelineEvent> = (0..5)
+            .map(|i| sample_event(i64::from(i) * 1_000, &format!("E{i}")))
+            .collect();
+
+        let a = store.insert_batch_at_epoch(&events, "snap-T1").expect("T1");
+        let b = store.insert_batch_at_epoch(&events, "snap-T2").expect("T2");
+        assert_eq!(a, 5);
+        assert_eq!(b, 5, "identical events at a different epoch are NOT deduped");
+        assert_eq!(store.event_count().expect("count"), 10);
+
+        // Point-in-time view: each epoch sees only its own snapshot's timeline.
+        assert_eq!(store.event_count_at_epoch("snap-T1").expect("c"), 5);
+        assert_eq!(store.event_count_at_epoch("snap-T2").expect("c"), 5);
+
+        // Re-ingesting the same epoch dedups (within-epoch idempotence).
+        let again = store.insert_batch_at_epoch(&events, "snap-T1").expect("re");
+        assert_eq!(again, 0, "identical events at the same epoch dedup");
+        assert_eq!(store.event_count().expect("count"), 10);
+
+        // The cohort's distinct epochs are enumerable.
+        let mut epochs = store.epochs().expect("epochs");
+        epochs.sort();
+        assert_eq!(epochs, vec!["snap-T1".to_string(), "snap-T2".to_string()]);
+
+        // The plain inseissen_batch path tags events with the default "live" epoch.
+        let live: Vec<TimelineEvent> = vec![sample_event(9_000, "live-event")];
+        store.inseissen_batch(&live).expect("live");
+        assert_eq!(store.event_count_at_epoch("live").expect("live-count"), 1);
+    }
 }
