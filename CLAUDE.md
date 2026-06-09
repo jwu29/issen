@@ -303,7 +303,9 @@ the migrated analyzers and `forensicnomicon::report` to aggregate findings into 
 - If the bare `<x>` crate name is taken on crates.io by a third party we can co-exist with safely (obscure/ours), publish `<x>-core` with `[lib] name = "<x>"` so consumers write `use <x>::…`. If the bare name is a *popular* crate (e.g. `ntfs` = Colin Finck's), do **not** hijack the import — keep `<x>_core` (ntfs-core imports as `ntfs_core`).
 - Reader = `<x>-core`, analyzer = `<x>-forensic`. Always.
 
-**Coverage gate:** each crate keeps 100% line coverage (`cargo llvm-cov --lib`, fail on any `DA:n,0`). The analyzer's `audit_record`-style entry points are tested end-to-end (build a valid record, drive parse→extract→audit), not just the component helpers.
+**Coverage gate:** each crate keeps 100% line coverage (`cargo llvm-cov --lib`, fail on any `DA:n,0`) **except lines annotated `// cov:unreachable`**. The analyzer's `audit_record`-style entry points are tested end-to-end (build a valid record, drive parse→extract→audit), not just the component helpers.
+
+**`// cov:unreachable` — defence-in-depth over coverage purism (binding standard).** Panic-free parsers keep defensive guard arms (`let Some(x) = … else { continue }`, bounds-checked `.get()` fallbacks, length checks) that are *provably unreachable* under a dominating invariant but are kept so the code degrades gracefully if that invariant is ever broken by a future change. Such an arm cannot be exercised by any test. **Never delete or restructure a defensive guard solely to satisfy the coverage gate** — that trades robustness for a number, the exact opposite of the Paranoid Gatekeeper standard. Instead append `// cov:unreachable: <the dominating invariant>` to the uncovered line (the `continue;`/`return …;`/guard expression). The CI gate exempts only annotated lines; every other zero-hit line still fails. Prefer restructuring to *infallible-by-construction* (e.g. `split_at_mut` so there is no `Option` to guard) where it loses no defence; reach for a crafted-input test before annotating (only annotate genuinely-unreachable arms); the `code-coverage` CI job reads each `DA:n,0` line's source and fails unless it carries the marker.
 
 **Realignment status:** `vmdk`, `vhdx`, `ntfs`, and `qcow2` are all migrated to the workspace standard (vmdk-forensic, vhdx-forensic, ntfs-forensic, qcow2-forensic — each `core/` + `forensic/`).
 
@@ -322,7 +324,7 @@ These crates parse **untrusted, attacker-controllable disk images**. The bar is:
 
 **Fuzzing:** a `fuzz/` cargo-fuzz workspace with **one target per parsed structure** (ntfs is the model: `boot`, `record`, `attributes`, `attribute_list`, `runlist`, `index_buffer`, `compress`, …) **plus** a `fuzz_forensic` target driving the full inspect/audit pipeline. Each target's invariant is "must not panic." A `fuzz.yml` CI workflow builds + smoke-runs every target.
 
-**CI gates (every PR):** build, test, `cargo clippy --workspace --all-targets` (the paranoid set, warnings = errors), `cargo fmt --check`, `cargo deny check`, gitleaks, and **100% line coverage** (`cargo llvm-cov --lib`, fail on any `DA:n,0`). Validate against **real artifacts** (e.g. qcow2 validates `inspect()` against qemu-img-produced images with backing-file/snapshot/encryption + a real CirrOS corpus), not only synthetic fixtures.
+**CI gates (every PR):** build, test, `cargo clippy --workspace --all-targets` (the paranoid set, warnings = errors), `cargo fmt --check`, `cargo deny check`, gitleaks, and **100% line coverage** (`cargo llvm-cov --lib`, fail on any `DA:n,0` not annotated `// cov:unreachable` — see the coverage-gate standard above). Validate against **real artifacts** (e.g. qcow2 validates `inspect()` against qemu-img-produced images with backing-file/snapshot/encryption + a real CirrOS corpus), not only synthetic fixtures.
 
 **Compliance (2026-06-08):** qcow2, vmdk, vhdx, ewf, ntfs-forensic all enforce the `unwrap_used`/`expect_used = deny` panic lints with panic-free bounds-checked readers, and all have `fuzz.yml`. Panic-free remediation counts: vhdx 80 reads, ewf 47, ntfs 44+2, qcow2 clean by construction. Residual debt to clear in a *separate* pass (not security — pre-existing pedantic/fmt style): vhdx ~30 pedantic warnings, ewf broad stylistic allow-list + fmt diffs. The safety lints are hard denies everywhere.
 
@@ -338,3 +340,24 @@ Full rules live in the global `~/.claude/CLAUDE.personal.md` ("SecurityRonin Rep
 - **No `## License` section** (the MIT badge → `LICENSE` is the single source of truth).
 - A `docs/validation.md` documents the differential/real-artifact validation (Doer-Checker evidence).
 - After a `*-core`→`*-core`/`*-forensic` restructure, **rewrite the README**: badges/links/repo-name/`cargo add` lines all point at the new crate names, not the pre-split single crate.
+
+## Test Corpus Catalog — keep it current (MANDATORY)
+
+`issen/docs/corpus-catalog.md` is the **single fleet-wide catalog** of all forensic test data —
+real datasets (what + source + hotlinked download URL + MD5) and synthetic fixtures (the **exact
+command line(s)** that produce them). Because `tests/data/` is gitignored, this catalog is the only
+committed record others can use to reproduce the corpus.
+
+**Whenever you download or build test data anywhere in the fleet, update the catalog in the same
+change:**
+- **Downloaded a real dataset?** Add an entry with: what it is, authoritative source, **hotlinked
+  download URL**, `md5` of the file, and a redistribution note. Confirm provenance by inspecting the
+  artifact, not just the filename (Doer-Checker).
+- **Built a synthetic fixture?** Record the **verbatim command(s)** that generate it (the
+  `qemu-img` / `mkfs` / `xorriso` / `ewfacquire` / `dar` / `hdiutil` line, or the in-code Rust
+  builder fn + `file:line`). Never write "generated for coverage" without the command — if there is
+  no generator, say "NO GENERATOR IN REPO" rather than guessing.
+- Classify each entry (`REAL-ext` / `REAL-self` / `SYNTHETIC` / `VENDORED` / `FUZZ`) and mark
+  confidence (`✓` confirmed / `~` inferred / `?` undetermined).
+- Keep the **§H MD5 manifest** in sync (hash new files; `tests/data/` is gitignored so hashes must
+  live in the catalog).
