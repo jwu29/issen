@@ -128,36 +128,146 @@ mod tests {
         )
     }
 
-    #[test]
-    fn emits_info_lead_when_si_birth_predates_fn_birth() {
-        // $SI says 2010, $FN says 2020. On its own this is the *weakest* timestomp
-        // signal — file copy, archive extraction, and NTFS tunnelling all reproduce
-        // it benignly (see docs/research/2026-06-09-timestomp-detection-...). So a
-        // single-event SI<FN ordering must be an Info LEAD, never a High finding.
-        let event =
-            file_create(SI_2010_NS).with_metadata("fn_created", serde_json::json!(FN_2020_DISPLAY));
+    // ── Layered scorer (Step 3) ────────────────────────────────────────────────
+    // Builds a FileCreate event carrying the four $SI MACE + fn_created (as C3
+    // surfaces them) so the scorer's signals + modifiers can run from one event.
 
-        let finding = detect_timestomp(&event, DAY_NS).expect("must emit a lead");
-        assert_eq!(finding.code, TIMESTOMP_CODE);
+    const SUB: i64 = 123_456_789; // a non-zero sub-second so a value is NOT whole-second
+    const T: i64 = FN_2020_NS; // 2020-01-01T00:00:00Z — a whole second
+
+    fn disp(ns: i64) -> String {
+        use chrono::TimeZone;
+        Utc.timestamp_nanos(ns)
+            .format("%Y-%m-%dT%H:%M:%S%.9fZ")
+            .to_string()
+    }
+
+    fn fc(si_c: i64, si_m: i64, si_a: i64, fn_c: i64, path: &str) -> TimelineEvent {
+        TimelineEvent::new(
+            si_c,
+            disp(si_c),
+            EventType::FileCreate,
+            ArtifactType::Mft,
+            path.to_string(),
+            "FileCreate".to_string(),
+            "evidence-001".to_string(),
+        )
+        .with_metadata("si_created", serde_json::json!(disp(si_c)))
+        .with_metadata("si_modified", serde_json::json!(disp(si_m)))
+        .with_metadata("si_accessed", serde_json::json!(disp(si_a)))
+        .with_metadata("fn_created", serde_json::json!(disp(fn_c)))
+    }
+
+    #[test]
+    fn s1_only_is_info_lead() {
+        // si_created<fn (S1), si_modified>fn (no S2), sub-seconds (no S3), no modifier.
+        let e = fc(
+            T - 10 * DAY_NS + SUB,
+            T + DAY_NS + SUB,
+            T - 9 * DAY_NS + SUB,
+            T,
+            "Users/a/x.txt",
+        );
+        let f = detect_timestomp(&e, DAY_NS).expect("must emit a lead");
+        assert_eq!(f.code, TIMESTOMP_CODE);
+        assert_eq!(f.severity, Some(Severity::Info));
+        assert_eq!(f.category, Category::Concealment);
+        assert!(
+            f.note.to_lowercase().contains("corroborat")
+                && f.note.to_lowercase().contains("not excluded"),
+            "note must state corroboration required + benign causes not excluded"
+        );
+        assert!(f.context.external_refs.iter().any(|r| r.id.contains("T1070.006")));
+    }
+
+    #[test]
+    fn s1_and_s2_without_subsecond_is_low() {
+        // si_created<si_modified<fn (S1+S2), sub-seconds (no S3), no modifier → Low.
+        let e = fc(
+            T - 10 * DAY_NS + SUB,
+            T - 5 * DAY_NS + SUB,
+            T - 9 * DAY_NS + SUB,
+            T,
+            "Users/a/x.txt",
+        );
         assert_eq!(
-            finding.severity,
-            Some(Severity::Info),
-            "single-event SI<FN ordering is a weak lead, not a graded finding"
+            detect_timestomp(&e, DAY_NS).expect("emit").severity,
+            Some(Severity::Low)
         );
-        assert_eq!(finding.category, Category::Concealment);
-        assert!(
-            finding.note.to_lowercase().contains("corroborat")
-                && finding.note.to_lowercase().contains("not excluded"),
-            "note must state corroboration is required and benign causes are not excluded"
+    }
+
+    #[test]
+    fn ordering_plus_subsecond_zero_is_medium() {
+        // si_created on a whole second (S3) and before fn (S1), no modifier → Medium.
+        let e = fc(
+            T - 10 * DAY_NS,
+            T - 5 * DAY_NS + SUB,
+            T - 9 * DAY_NS + SUB,
+            T,
+            "Users/a/x.txt",
         );
-        assert!(
-            finding
-                .context
-                .external_refs
-                .iter()
-                .any(|r| r.id.contains("T1070.006")),
-            "finding must reference MITRE T1070.006"
+        assert_eq!(
+            detect_timestomp(&e, DAY_NS).expect("emit").severity,
+            Some(Severity::Medium)
         );
+    }
+
+    #[test]
+    fn copy_pattern_caps_at_info_and_is_still_emitted() {
+        // si_created>si_modified ⇒ copy/restore. Even with ordering, cap at Info; never drop.
+        let e = fc(
+            T - 5 * DAY_NS + SUB,
+            T - 10 * DAY_NS + SUB,
+            T - 9 * DAY_NS + SUB,
+            T,
+            "Users/a/x.txt",
+        );
+        let f = detect_timestomp(&e, DAY_NS).expect("must still emit a lead, not discard");
+        assert_eq!(f.severity, Some(Severity::Info));
+        assert!(f.note.to_lowercase().contains("copy"));
+    }
+
+    #[test]
+    fn volume_move_pattern_caps_at_info() {
+        // si_accessed newest ⇒ volume move. Cap at Info.
+        let e = fc(
+            T - 10 * DAY_NS + SUB,
+            T - 8 * DAY_NS + SUB,
+            T + 5 * DAY_NS + SUB,
+            T,
+            "Users/a/x.txt",
+        );
+        let f = detect_timestomp(&e, DAY_NS).expect("emit");
+        assert_eq!(f.severity, Some(Severity::Info));
+        assert!(f.note.to_lowercase().contains("volume"));
+    }
+
+    #[test]
+    fn high_fp_path_caps_at_info() {
+        // Whole-second ordering (would be Medium) but under WinSxS ⇒ cap at Info.
+        let e = fc(
+            T - 10 * DAY_NS,
+            T - 5 * DAY_NS + SUB,
+            T - 9 * DAY_NS + SUB,
+            T,
+            "C:\\Windows\\WinSxS\\amd64_x\\foo.dll",
+        );
+        let f = detect_timestomp(&e, DAY_NS).expect("emit");
+        assert_eq!(f.severity, Some(Severity::Info));
+        assert!(f.note.to_lowercase().contains("path"));
+    }
+
+    #[test]
+    fn no_ordering_anomaly_returns_none() {
+        // si_created and si_modified both after fn → nothing to flag.
+        let e = fc(
+            T + 2 * DAY_NS + SUB,
+            T + 3 * DAY_NS + SUB,
+            T + 4 * DAY_NS + SUB,
+            T,
+            "Users/a/x.txt",
+        );
+        assert!(detect_timestomp(&e, DAY_NS).is_none());
     }
 
     #[test]
