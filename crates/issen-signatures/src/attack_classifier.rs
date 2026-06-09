@@ -201,4 +201,29 @@ mod tests {
         let sigs = vec![NativeEventSignature::new(4634)];
         assert!(classify_native_events(&sigs).is_empty());
     }
+
+    // ── Provenance-friendly split (D2 wiring needs per-event + burst separately) ──
+
+    #[test]
+    fn classify_event_maps_single_rdp_logon() {
+        let f = classify_event(&NativeEventSignature::new(4624).with_logon_type(10));
+        assert!(f.iter().any(|f| has_tag(f, "attack.t1021.001")));
+    }
+
+    #[test]
+    fn classify_event_ignores_failed_logon_burst() {
+        // A single 4625 is not a per-event technique — the burst is aggregate.
+        assert!(classify_event(&NativeEventSignature::new(4625)).is_empty());
+    }
+
+    #[test]
+    fn failed_logon_burst_finding_fires_at_threshold() {
+        assert!(failed_logon_burst_finding(FAILED_LOGON_BURST_THRESHOLD)
+            .is_some_and(|f| has_tag(&f, "attack.t1110")));
+    }
+
+    #[test]
+    fn failed_logon_burst_finding_silent_below_threshold() {
+        assert!(failed_logon_burst_finding(FAILED_LOGON_BURST_THRESHOLD - 1).is_none());
+    }
 }
