@@ -57,7 +57,7 @@ Compare same-named values across attributes: `$SI.created` vs `$FN.created`, `$S
 ### 1.5 Can `$FN` itself be stomped? (does the heuristic break?)
 
 Yes, two ways (inversecos "Myth 1"):
-- **Method 1 — direct `$FN` write** on pre-PatchGuard OSes (or via SetMACE writing `$FN` values directly). SetMACE is "currently the only tool offering `$FN` modification."
+- **Method 1 — direct `$FN` write** on pre-PatchGuard OSes (or via SetMACE writing `$FN` values directly). SetMACE is cited by inversecos as *an* example of a tool that can alter `$FN` (the "only tool" phrasing is **not** in the source — see §7.5 — and is time-sensitive; do not encode it).
 - **Method 2 — rename/move abuse on any OS:** Windows **copies `$SI`→`$FN` when a file is renamed or moved.** So an attacker stomps `$SI`, then renames the file (and optionally back) — Windows propagates the forged `$SI` into `$FN`, and `$SI`/`$FN` now *agree* on the fake time, defeating the comparison. (Confirmed — inversecos; Velociraptor docs.)
 
 This cuts both ways: it is an **evasion** (false negatives) *and* the mechanism behind several **false positives** (any legitimate rename/move propagates `$SI` into `$FN`). It is the core reason `$FN` is **not** ground truth and why USN/`$LogFile` corroboration is needed.
@@ -78,7 +78,7 @@ Archivers restore the **archive-stored** modification time onto extracted files;
 
 ### 2.3 NTFS file-system tunnelling (the 15-second cache)
 
-When a name is removed from a directory (delete/rename) its creation time + short/long name pair are cached, keyed by name, for a default **15 seconds**; if a file with the same name is recreated in the same directory within that window, the **old creation time is resurrected**. Designed to preserve creation time across the "safe save" pattern (write temp, delete original, rename temp→original) used by editors. A recreated file thus shows an *old* `$SI`/`$FN.created` against newer modification — and intra-record ordering can look anomalous. Tunnelling applies to FAT/NTFS/exFAT. Config: `HKLM\SYSTEM\CurrentControlSet\Control\FileSystem` → `MaximumTunnelEntries`, `MaximumTunnelEntryAgeInSeconds` (default 15; absence of these values = defaults). (Confirmed — Microsoft KB172190 [archived]; Raymond Chen, *The apocryphal history of file system tunnelling*.)
+When a name is removed from a directory (delete/rename) its creation time + short/long name pair are cached, keyed by name, for a default **15 seconds**; if a file with the same name is recreated in the same directory within that window, the **old creation time is resurrected**. Designed to preserve creation time across the "safe save" pattern (write temp, delete original, rename temp→original) used by editors. A recreated file thus shows an *old* `$SI`/`$FN.created` against newer modification — and intra-record ordering can look anomalous. Tunnelling applies to **FAT and NTFS** (KB172190 names only these two; **not** exFAT — see §7.6). Config: `HKLM\SYSTEM\CurrentControlSet\Control\FileSystem` → `MaximumTunnelEntries`, `MaximumTunnelEntryAgeInSeconds` (default 15; absence of these values = defaults). (Confirmed — Microsoft KB172190 [archived]; Raymond Chen, *The apocryphal history of file system tunnelling*.)
 
 ### 2.4 Legitimate `SetFileTime` callers
 
@@ -107,8 +107,8 @@ OS servicing stages files with vendor-set timestamps: Windows Update/WinSxS comp
 |---|---|---|
 | **Eric Zimmerman MFTECmd** | Parses `$MFT`; emits both `$SI` and `$FN` MACE columns + an `SI<FN` style boolean so the analyst eyeballs the comparison. | Surfaces data, **does not auto-verdict**; the analyst corroborates. (Confirmed — MFTECmd README/usage.) |
 | **AnalyzeMFT** (dkovar / rowingdude) | Panel of checks incl. `$SI<$FN` shift, nanosecond-zero, intra-`$SI` ordering. | Accepted PRs (SIFT #241) **narrowed** the `$SI`/`$FN` shift to fire only on `$SI.created<$FN.created`, fixed the nanosecond check to read `$SI`, and **added explicit benign labels** for file copy (`$SI.created>$SI.modified`) and volume move (`$SI.accessed>created&modified`). (Confirmed.) |
-| **Velociraptor** `Windows.NTFS.Timestomp` (Matt Green / @mgreen27) | `$SI."B"<$FN."B"` **AND** `$SI."B"/"M"` has nanosecond precision; **plus** PE compile-time < any `$SI`; **optional** `$SI."M"`<ShimCache, `$SI`<`$I30`-slack "B"/"M". Uses `Created0x10/0x30` etc. | **Conjunction of independent signals**, not a single comparison. Docs explicitly warn detections are "not very reliable" because archivers reset times "by design." (Confirmed — Velociraptor exchange artifact + NTFS docs.) |
-| **Magnet AXIOM** "NTFS Timestamp Mismatch" | `$SI` earlier than `$FN`; whole-millisecond check. | Framed as a **"starting point," not proof**; docs explicitly state "there could be legitimate reasons from normal system behavior" and link MITRE on circumvention. (Confirmed — Magnet blog.) |
+| **Velociraptor** `Windows.NTFS.Timestomp` (Matt Green / @mgreen27) | `$SI."B"<$FN."B"` **AND** `$SI."B"/"M"` sub-second component is **zero** (`USecZeros` — verified against the Go source, §7.2; this *agrees with* our S3 zeroing design); **plus** PE compile-time < any `$SI`; **optional** `$SI."M"`<ShimCache, `$SI`<`$I30`-slack "B"/"M". Uses `Created0x10/0x30` etc. | **Conjunction of independent signals**, not a single comparison. Docs explicitly warn detections are "not very reliable" because archivers reset times "by design." (Confirmed — Velociraptor exchange artifact + NTFS docs.) |
+| **Magnet AXIOM** "NTFS Timestamp Mismatch" | `$SI` earlier than `$FN` (the blog states **no** precision threshold — the earlier "whole-millisecond" wording is unverified, §7.4). | Framed as a **"starting point," not proof**; docs explicitly state "there could be legitimate reasons from normal system behavior" and link MITRE on circumvention. (Confirmed — Magnet blog.) |
 | **Mandiant / SANS** | Include `$FN` (`MACB`) times in the **super-timeline**; corroborate `$SI` anomalies against other events. | The classic SANS 2010 case (Dave Hull) shows the **timeline as a whole**, not a single mismatch, establishes manipulation. (Confirmed — SANS DFIR blog.) |
 | **inversecos (Lina Lau)** | Demonstrates both heuristics are "trivial to bypass." | Recommends `$UsnJrnl:$J` + `$LogFile` as the **"more foolproof"** corroboration (FILE_CREATE/RENAME_OLD/RENAME_NEW records contradict forged MFT times). (Confirmed.) Lau's NTFS/timestomp work is the most-cited primary write-up and is the technique the team recalled as "CyberCX-pioneered." |
 | **Attacker side: SetMACE / nTimestomp / EvilClippy** | SetMACE writes `$FN` directly and via rename; nTimestomp writes 100 ns `$SI`. | Establish that **both** naive heuristics are defeatable → detection must not rely on them alone. (Confirmed — nTimetools; inversecos; DFRWS keyword set.) |
@@ -262,3 +262,63 @@ Do **not** hard-code these until confirmed against the live source:
 3. **Layered scorer** with copy/volume-move/path as **modifiers** (not gates), `S2` Low, `S3` sub-second (multi-value), graded per §6.2.
 4. **USN reason-code correlation** (S5) keyed on MFT ref **+ sequence number** for the High tier — wiring `usnjrnl-forensic`, not new parsing.
 5. Web-verify §6.3 before encoding any tool-specific comparison.
+
+---
+
+## 7. Source verification (claim-by-claim)
+
+*Web-verification pass — 2026-06-09. Every verdict clicked through to the live primary source and confirmed against the actual content (no fake 200s). Where the source is code, the ground-truth expression is quoted, not paraphrased.*
+
+### Summary table
+
+| # | Claim | Verdict | Correction (if any) |
+|---|---|---|---|
+| 1 | AnalyzeMFT FP fixes (SIFT #241, `mpilking`) | **CONFIRMED** | — |
+| 2 | Velociraptor `Windows.NTFS.Timestomp` VQL logic/direction | **PARTLY** | Prose "has nanosecond precision" is the **inverse** of the code: the flag (`USecZeros`) fires on **ZEROED** sub-seconds, not on present precision. Direction of `$SI<$FN` confirmed. |
+| 3 | Velociraptor "not very reliable" caveat | **CONFIRMED** | — |
+| 4 | Magnet "whole-millisecond" + framing | **PARTLY** | Framing CONFIRMED verbatim; the **"whole-millisecond" precision wording is UNVERIFIABLE** — the blog never states a millisecond/sub-second threshold. |
+| 5 | inversecos "SetMACE only tool for `$FN`" + two myths | **PARTLY** | Two myths + rename `$SI`→`$FN` CONFIRMED. The exact phrase **"currently the only tool offering `$FN` modification" is NOT in the article** — inversecos names SetMace as *a* tool, not *the only* one; treat as unsupported/time-sensitive. |
+| 6 | MS file-system tunnelling (KB172190) | **PARTLY** | 15 s default, both registry value names, `Control\FileSystem` path all CONFIRMED. **exFAT is REFUTED** — KB172190 scopes tunnelling to **FAT and NTFS only**; exFAT is not mentioned. |
+| 7 | "CyberCX-pioneered" attribution | **PARTLY / REFUTED-as-stated** | A real CyberCX primary source exists, but it is **USN Journal *Rewind* (path reconstruction)**, *not* a timestomp `$SI/$FN` technique. The canonical timestomp write-up remains inversecos. |
+
+> **Loud callout — claim #2 changes detector logic.** The Velociraptor signal our memo cites as "`$SI` has nanosecond precision" is, in the actual code, the **opposite**: the `USecZeros` column is `True` when `$SI` sub-seconds are **zeroed**. This *agrees with* our S3 "sub-second zeroing" design — but the §3 table's wording ("`$SI."B"/"M"` has nanosecond precision") must be corrected to "`$SI` 'B'/'M' sub-second component is **zero**," or it inverts the signal. See claim #2 below for the quoted Go source.
+
+---
+
+**Claim 1 — AnalyzeMFT FP fixes (SIFT #241). Verdict: CONFIRMED.**
+Source: [github.com/teamdfir/sift/issues/241](https://github.com/teamdfir/sift/issues/241) (opened by `mpilking`, 19 Mar 2018).
+The issue body lists exactly the four fixes the memo attributes to it, verbatim: *"1. Fixed nanosecond anomaly check so it looks at the $SI create time instead of $FN create time. 2. Added new checks to flag possible file copies ($SI create time > $SI modify time) & volume moves ($SI access time > $SI create time & $SI modify time). 3. Narrowed stf-fn-shift logic so it only flags when $SI create time < $FN create time (previously it also alerted with … the first $FN entry is not present). This resulted in a few false-positives."* (The PRs themselves were merged into the AnalyzeMFT repo; the issue is the maintainer-facing record of them.)
+
+**Claim 2 — Velociraptor `Windows.NTFS.Timestomp` VQL. Verdict: PARTLY (one inversion).**
+Sources: [artifact page](https://docs.velociraptor.app/exchange/artifacts/pages/timestomp/) · [Timestomp.yaml](https://github.com/Velocidex/velociraptor-docs/blob/master/content/exchange/artifacts/Timestomp.yaml) · ground-truth column definitions in [go-ntfs `parser/mft.go`](https://github.com/Velocidex/go-ntfs/blob/master/parser/mft.go).
+The artifact's three core checks (description): *"$STANDARD_INFORMATION 'B' time prior to $FILE_NAME 'B' time; $STANDARD_INFORMATION 'B' or 'M' time has nanosecond precision; PE compile time prior to any $STANDARD_INFORMATION time stamp."* The YAML surfaces these via columns `SI_Lt_FN` (aliased `SI<FN`) and `USecZeros`, which are **computed in the `parse_mft` plugin**, not the YAML. The Go ground truth:
+- **(a) `$SI`-vs-`$FN` direction — CONFIRMED:** `row.SI_Lt_FN = row.Created0x10.Before(row.Created0x30)` — i.e. fires when `$SI.created` is **earlier than** `$FN.created` (`0x10` = `$SI`, `0x30` = `$FN`). Matches our S1.
+- **(b) precision/zeroing test — INVERTED in our prose:** `row.USecZeros = row.Created0x10.Unix()*1000000000 == row.Created0x10.UnixNano() || row.LastModified0x10.Unix()*1000000000 == row.LastModified0x10.UnixNano()`. `Unix()*1e9` (whole seconds in ns) equals `UnixNano()` (full precision) **only when the sub-second component is zero**. So the flag is `True` ⇔ **`$SI` created or last-modified sub-seconds are ZEROED** — the artifact flags the *absence* of sub-second precision, in **`$SI`** (`0x10`), not `$FN`. The memo's phrase "has nanosecond precision" describes the human-readable *check name* but reads opposite to what the column computes. This **agrees with** our S3 zeroing design; the §3 wording must be corrected (see callout).
+- **(c) PE compile-time test — CONFIRMED:** `SuspiciousCompileTime` fires when any `$SI` stamp is **earlier than** `PE.FileHeader.TimeDateStamp`: `LastModified0x10 < PE.FileHeader.TimeDateStamp OR LastAccess0x10 < … OR LastRecordChange0x10 < … OR Created0x10 < PE.FileHeader.TimeDateStamp`. (The memo's "PE compile-time < `$SI`" phrasing is loose; the code tests `$SI < PE.compile_time` — file claims to predate its own code. Same semantic, stated as the inequality the code uses.)
+
+**Claim 3 — Velociraptor "not very reliable" caveat. Verdict: CONFIRMED.**
+Source: [docs.velociraptor.app/docs/forensic/filesystem/ntfs](https://docs.velociraptor.app/docs/forensic/filesystem/ntfs/).
+Verbatim: *"Although it might appear to be a solid detection of timestomping, generally timestomping detections are not very reliable. It turns out that a lot of programs set file timestamps after creating them into the past by design — mostly archiving utilities like 7zip or cab will reset the file time to the times stored in the archive."* (Wording in memo §4 matches.)
+
+**Claim 4 — Magnet AXIOM precision + framing. Verdict: PARTLY.**
+Source: [magnetforensics.com/blog/…ntfs-timestamp-mismatch…](https://www.magnetforensics.com/blog/expose-evidence-of-timestomping-with-the-ntfs-timestamp-mismatch-artifact-in-magnet-axiom-4-4/).
+- **Framing — CONFIRMED verbatim:** the artifact *"gives you a starting point in the incident response investigations in which you suspect timestomping may have occurred,"* and *"there could be legitimate reasons from normal system behavior that could cause this mismatch, as well as ways that malicious activity can circumvent this timestamp difference"* (links MITRE).
+- **"Whole-millisecond" precision — UNVERIFIABLE:** the blog describes the artifact only as flagging *"when the $SI timestamp is earlier than the $FN timestamp."* It states **no** millisecond/sub-second/nanosecond precision threshold anywhere. The memo's "whole-millisecond check" attribution to Magnet is **not supported by this source** and should be dropped or re-sourced.
+
+**Claim 5 — inversecos "only tool" + two myths. Verdict: PARTLY.**
+Source: [inversecos.com/2022/04/defence-evasion-technique-timestomping.html](https://www.inversecos.com/2022/04/defence-evasion-technique-timestomping.html) (Lina Lau).
+- **Two myths — CONFIRMED verbatim:** *"Myth 1: $FILE_NAME timestamps cannot be timestomped"* and *"Myth 2: Attacker tools cannot alter nanoseconds in a timestamp,"* and *"it's almost trivial to bypass these two detection mechanisms."*
+- **Rename copies `$SI`→`$FN` — CONFIRMED:** *"If a threat actor timestomps the $SI attribute, and then moves or renames the file — Windows will copy the timestomped $SI times into the $FN attributes."*
+- **USN/`$LogFile` "more foolproof" — CONFIRMED:** *"this is a more foolproof way of detecting timestomping versus looking for nanosecond precision / comparing $FN to $SI."*
+- **"SetMACE is currently the only tool offering `$FN` modification" — NOT FOUND / REFUTED-as-quoted:** the article uses SetMace as *an example* (*"you can use SetMace to alter the $FN timestamps"*) but never claims it is the *only* such tool. Treat the "only tool" assertion as unsupported by this primary source and inherently time-sensitive — do not encode it.
+
+**Claim 6 — MS file-system tunnelling (KB172190). Verdict: PARTLY (exFAT REFUTED).**
+Sources: [KB172190 (archived)](https://web.archive.org/web/20160410012540/https://support.microsoft.com/en-us/kb/172190) · [Raymond Chen, *The apocryphal history of file system tunnelling*](https://devblogs.microsoft.com/oldnewthing/20050715-14/?p=34923).
+- **15 s default — CONFIRMED verbatim:** *"Tunneling cache time can be adjusted from the default time of 15 seconds."*
+- **Registry value names + path — CONFIRMED verbatim:** under `HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\FileSystem`, the KB documents creating DWORD `MaximumTunnelEntryAgeInSeconds` (cache age) and `MaximumTunnelEntries` (set to `0` to disable).
+- **Keyed-by-name creation-time cache — CONFIRMED:** Raymond Chen: *"the creation timestamp and short/long names of a file are taken from a file that existed in the directory previously … if you delete some file 'File with long name.txt' and then create a new file with the same name, that new file will have the same short name and the same creation time as the original file."*
+- **exFAT scope — REFUTED:** KB172190 states *"Windows performs tunneling on both FAT and NTFS file systems."* It names **only FAT and NTFS**; exFAT is **not** mentioned. The memo's "applies to FAT/NTFS/exFAT" overstates the primary source — drop exFAT (or cite a separate source) in §2.3.
+
+**Claim 7 — "CyberCX-pioneered" attribution. Verdict: PARTLY (mis-attributed technique).**
+Sources: [CyberCX, *NTFS USN Journal Rewind*](https://cybercx.com.au/blog/ntfs-usnjrnl-rewind/) (Yogesh Khatri, Apr 2024) · PoC [CyberCX-DFIR/usnjrnl_rewind](https://github.com/CyberCX-DFIR/usnjrnl_rewind) · canonical timestomp write-up [inversecos](https://www.inversecos.com/2022/04/defence-evasion-technique-timestomping.html).
+A genuine CyberCX primary source **does** exist, but it is the **USN Journal "Rewind"** algorithm — full-path reconstruction by walking `$UsnJrnl:$J` backwards to rebuild the directory tree at each historical point — **not** an `$SI`/`$FN` timestomp-detection technique. The team's recollection conflates two different NTFS contributions: CyberCX → *path reconstruction* (Rewind); inversecos (Lina Lau) → the *timestomp `$SI`/`$FN` + USN/`$LogFile`* detection write-up this memo relies on. **For timestomp detection, cite inversecos; do not attribute the `$SI`/`$FN` heuristic to CyberCX.** (CyberCX Rewind is correctly relevant to our S5 USN corroboration path-building, via `usnjrnl-forensic`, which already implements it.)
