@@ -35,6 +35,7 @@
     clippy::manual_contains,
     clippy::unnecessary_literal_bound
 )]
+pub mod isolate;
 pub mod layers;
 pub mod orchestrator;
 pub mod progress;
