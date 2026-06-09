@@ -33,18 +33,72 @@ impl TimelineStore {
         Ok(())
     }
 
-    /// Insert a batch of events. Skips events whose record_hash already exists.
+    /// Insert a batch of events, deduplicating on `record_hash`.
     ///
-    /// Returns the number of events actually inserted (after dedup).
+    /// Wrapped in a single transaction with one prepared `INSERT … ON CONFLICT
+    /// DO NOTHING` reused across the batch — no per-event `SELECT`, no per-row
+    /// commit. Returns the number of events actually inserted (after dedup).
     pub fn inseissen_batch(&self, events: &[TimelineEvent]) -> Result<u64, TimelineStoreError> {
-        let mut inserted = 0u64;
-        for event in events {
-            if !self.hash_exists(&event.record_hash)? {
-                self.inseissen_event(event)?;
-                inserted += 1;
-            }
+        if events.is_empty() {
+            return Ok(0);
         }
-        Ok(inserted)
+        let conn = self.connection();
+        // Stage the batch in a temp table via DuckDB's columnar Appender (the
+        // fast bulk path), then dedup-insert in ONE set-based statement: within
+        // the batch via row_number(), against existing rows via an anti-join on
+        // record_hash. No per-event SELECT, no per-row index maintenance.
+        conn.execute_batch(
+            "CREATE TEMP TABLE IF NOT EXISTS _ingest_stage (
+                timestamp_ns BIGINT, timestamp_display VARCHAR, event_type VARCHAR,
+                source VARCHAR, artifact_path VARCHAR, description VARCHAR,
+                metadata VARCHAR, user_account VARCHAR, hostname VARCHAR,
+                tags VARCHAR, record_hash VARCHAR, evidence_source VARCHAR
+            );
+            DELETE FROM _ingest_stage;",
+        )?;
+        {
+            let mut appender = conn.appender("_ingest_stage")?;
+            for event in events {
+                let metadata_json =
+                    serde_json::to_string(&event.metadata).unwrap_or_else(|_| "{}".to_string());
+                let tags_json =
+                    serde_json::to_string(&event.tags).unwrap_or_else(|_| "[]".to_string());
+                appender.append_row(duckdb::params![
+                    event.timestamp_ns,
+                    event.timestamp_display,
+                    format!("{:?}", event.event_type),
+                    format!("{:?}", event.source),
+                    event.artifact_path,
+                    event.description,
+                    metadata_json,
+                    event.user,
+                    event.hostname,
+                    tags_json,
+                    event.record_hash,
+                    event.evidence_source_id,
+                ])?;
+            }
+            appender.flush()?;
+        }
+        let inserted = conn.execute(
+            "INSERT INTO timeline (
+                timestamp_ns, timestamp_display, event_type, source,
+                artifact_path, description, metadata, user_account,
+                hostname, tags, record_hash, evidence_source
+            )
+            SELECT timestamp_ns, timestamp_display, event_type, source,
+                artifact_path, description, metadata, user_account,
+                hostname, tags, record_hash, evidence_source
+            FROM (
+                SELECT *, row_number() OVER (PARTITION BY record_hash) AS _rn
+                FROM _ingest_stage
+            ) q
+            WHERE q._rn = 1
+              AND q.record_hash NOT IN (SELECT record_hash FROM timeline)",
+            [],
+        )?;
+        conn.execute_batch("DELETE FROM _ingest_stage;")?;
+        Ok(inserted as u64)
     }
 
     /// Update the tags column for events that have been enriched.
