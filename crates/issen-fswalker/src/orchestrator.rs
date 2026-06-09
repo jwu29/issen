@@ -1,13 +1,14 @@
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use rayon::prelude::*;
 use issen_core::artifacts::ArtifactType;
 use issen_core::error::RtError;
 use issen_core::plugin::registry::all_parsers;
 use issen_core::plugin::traits::EventEmitter;
 use issen_core::timeline::event::TimelineEvent;
+use rayon::prelude::*;
 
+use crate::isolate::{run_isolated, Isolated};
 use crate::layers::layer0_storage::FileDataSource;
 use crate::progress::ProgressReporter;
 
@@ -189,21 +190,25 @@ pub fn run_pipeline(
         };
 
         match FileDataSource::open(&artifact.path) {
-            Ok(source) => match parser.parse(&source, &emitter) {
-                Ok(stats) => {
-                    result.artifacts_parsed += 1;
-                    result.total_events += stats.events_emitted;
-                    result.total_bytes += stats.bytes_processed;
-                    progress.add_events(stats.events_emitted);
-                    progress.add_bytes(stats.bytes_processed);
-                    progress.complete_artifact();
+            // A1: run each parser under isolation so a panicking/erroring artifact
+            // is captured and skipped — the pipeline always terminates.
+            Ok(source) => {
+                let unit = artifact.path.display().to_string();
+                match run_isolated(unit, || parser.parse(&source, &emitter)) {
+                    Isolated::Completed(stats) => {
+                        result.artifacts_parsed += 1;
+                        result.total_events += stats.events_emitted;
+                        result.total_bytes += stats.bytes_processed;
+                        progress.add_events(stats.events_emitted);
+                        progress.add_bytes(stats.bytes_processed);
+                        progress.complete_artifact();
+                    }
+                    Isolated::Failed(failure) => {
+                        result.errors.push(failure.describe());
+                        progress.record_error();
+                    }
                 }
-                Err(e) => {
-                    let msg = format!("Parse error on {}: {e}", artifact.path.display());
-                    result.errors.push(msg);
-                    progress.record_error();
-                }
-            },
+            }
             Err(e) => {
                 let msg = format!("Failed to open {}: {e}", artifact.path.display());
                 result.errors.push(msg);
