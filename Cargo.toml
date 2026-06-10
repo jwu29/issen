@@ -70,7 +70,7 @@ issen-vmdk       = { path = "crates/issen-vmdk" }
 issen-disk       = { path = "crates/issen-disk" }
 disk-forensic    = { path = "../disk-forensic" }
 ntfs-forensic    = "0.6.0"
-ntfs-core        = "0.7.0"
+ntfs-core        = "0.7.2"
 issen-qcow2      = { path = "crates/issen-qcow2" }
 issen-iso        = { path = "crates/issen-iso" }
 issen-aff4       = { path = "crates/issen-aff4" }

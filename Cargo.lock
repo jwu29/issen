@@ -4402,6 +4402,7 @@ dependencies = [
  "issen-mem",
  "issen-parser-evtx",
  "issen-parser-registry",
+ "issen-parser-srum",
  "issen-parser-uac",
  "issen-parser-velociraptor",
  "issen-qcow2",
@@ -4568,6 +4569,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 2.0.18",
+ "zip 2.4.2",
 ]
 
 [[package]]
@@ -6132,9 +6134,9 @@ dependencies = [
 
 [[package]]
 name = "ntfs-core"
-version = "0.7.0"
+version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "873564e37f7a828e6b41447dca621e7e9cf693d1579c2083071b2305216621e4"
+checksum = "ddddaf517a1827782d5eee74c5c456a993223c58ee7f8e66a6a0e6cfea47e62d"
 dependencies = [
  "bitflags 2.11.1",
  "chrono",
@@ -11265,8 +11267,10 @@ name = "winreg-artifacts"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "forensicnomicon",
  "serde",
  "winreg-core",
+ "winreg-discover",
  "winreg-format",
 ]
 
@@ -11280,6 +11284,16 @@ dependencies = [
  "miette",
  "serde",
  "thiserror 2.0.18",
+ "winreg-format",
+]
+
+[[package]]
+name = "winreg-discover"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "winreg-core",
  "winreg-format",
 ]
 
