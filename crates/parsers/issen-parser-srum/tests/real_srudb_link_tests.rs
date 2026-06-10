@@ -33,7 +33,9 @@ fn chainsaw_srudb() -> Option<PathBuf> {
         Some(p)
     } else {
         eprintln!("SKIP — real SRUDB fixture not present: {}", p.display());
-        eprintln!("       (sibling srum-forensic checkout required; see its tests/data/srudb/SOURCES.md)");
+        eprintln!(
+            "       (sibling srum-forensic checkout required; see its tests/data/srudb/SOURCES.md)"
+        );
         None
     }
 }

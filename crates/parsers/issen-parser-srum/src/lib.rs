@@ -3,9 +3,10 @@
 //! Parses `SRUDB.dat` ESE database files, converting network usage and
 //! application usage records into [`TimelineEvent`]s.
 //!
-//! The underlying `srum-parser` crate currently returns `Ok(vec![])` for
-//! valid ESE databases while full B-tree record extraction is in progress.
-//! This parser handles that gracefully — empty results are valid.
+//! Record extraction is performed by the `srum-parser`/`ese-core` ESE B-tree
+//! leaf traversal. A valid SRUDB with no rows in a given table yields an empty
+//! vector for that table (e.g. Windows Server omits several SRUM extensions),
+//! which this parser handles gracefully.
 
 #![allow(
     clippy::missing_errors_doc,
@@ -35,16 +36,16 @@ impl SrumParser {
 
     /// Parse a SRUDB.dat file and return timeline events.
     ///
-    /// Both `parse_network_usage` and `parse_app_usage` currently return
-    /// `Ok(vec![])` for valid ESE databases. This function handles that
-    /// gracefully and returns `Ok(vec![])` when they do.
+    /// Drives `srum-parser`'s real ESE B-tree leaf traversal for the network-
+    /// usage and app-resource-usage tables and converts each row into a
+    /// [`TimelineEvent`]. A table absent from the catalog yields no events.
     ///
     /// Returns `Err` if the file cannot be read or is not a valid ESE database.
     pub fn parse_path(&self, path: &Path) -> anyhow::Result<Vec<TimelineEvent>> {
         let evidence_source = path.to_string_lossy().into_owned();
         let mut events = Vec::new();
 
-        // Network usage records — Ok(vec![]) is fine while B-tree walk is pending.
+        // Network usage records.
         let network_records = srum_parser::parse_network_usage(path)?;
         for record in network_records {
             let ts_ns = record.timestamp.timestamp_nanos_opt().unwrap_or(0);
@@ -69,7 +70,7 @@ impl SrumParser {
             events.push(event);
         }
 
-        // App usage records — Ok(vec![]) is fine while B-tree walk is pending.
+        // App resource usage records.
         let app_records = srum_parser::parse_app_usage(path)?;
         for record in app_records {
             let ts_ns = record.timestamp.timestamp_nanos_opt().unwrap_or(0);
@@ -113,7 +114,11 @@ impl ForensicParser for SrumParser {
         &[ArtifactType::Srum]
     }
 
-    fn parse(&self, _input: &dyn DataSource, _emitter: &dyn EventEmitter) -> Result<ParseStats, RtError> {
+    fn parse(
+        &self,
+        _input: &dyn DataSource,
+        _emitter: &dyn EventEmitter,
+    ) -> Result<ParseStats, RtError> {
         // The SRUM parser uses parse_path() directly (file-path based ESE access).
         // The streaming DataSource interface does not apply to ESE database parsing.
         Ok(ParseStats::new())
