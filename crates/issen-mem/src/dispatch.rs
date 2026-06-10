@@ -1194,15 +1194,67 @@ mod tests {
     // build_reader error paths — GREEN: real implementation, no should_panic
     // -----------------------------------------------------------------------
 
+    /// Zero-config default: `profile == None` now triggers auto-profile
+    /// resolution (scan the dump for the kernel PE, extract its RSDS PDB GUID,
+    /// resolve the matching symbol profile) rather than immediately demanding
+    /// `--profile`.  On a dump where no kernel PE can be located the auto path
+    /// fails with a message that names the auto-detection / kernel scan — NOT
+    /// the old "`--profile` is required" wording.
     #[test]
-    fn build_reader_fails_without_profile() {
-        let f = tempfile::NamedTempFile::new().unwrap();
-        let result = build_reader(f.path(), None, None);
-        assert!(result.is_err(), "expected Err when profile is None");
-        let msg = result.err().unwrap().to_string();
+    fn build_reader_without_profile_attempts_auto_detect() {
+        use memf_core::test_builders::PageTableBuilder;
+
+        // Synthetic dump with a known CR3 but no Windows kernel image, so the
+        // kernel scan finds nothing and auto-detection fails downstream of the
+        // "profile required" short-circuit.
+        let (cr3, _mem) = PageTableBuilder::new().build();
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        f.write_all(&[0u8; 4096]).unwrap();
+        f.flush().unwrap();
+
+        let result = build_reader(f.path(), None, Some(cr3));
         assert!(
-            msg.to_lowercase().contains("profile"),
-            "error should mention 'profile', got: {msg}"
+            result.is_err(),
+            "expected Err: no kernel image to auto-detect from"
+        );
+        let msg = result.err().unwrap().to_string().to_lowercase();
+        assert!(
+            msg.contains("auto") || msg.contains("kernel"),
+            "None must route into auto-detection (message should mention \
+             'auto' or 'kernel'), got: {msg}"
+        );
+        assert!(
+            !msg.contains("--profile <isf.json> is required"),
+            "None must no longer short-circuit with '--profile is required', \
+             got: {msg}"
+        );
+    }
+
+    /// The literal `"auto"` sentinel is treated identically to `None`: it
+    /// selects the auto-profile path, not a file named `auto`.
+    #[test]
+    fn build_reader_auto_sentinel_attempts_auto_detect() {
+        use memf_core::test_builders::PageTableBuilder;
+
+        let (cr3, _mem) = PageTableBuilder::new().build();
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        f.write_all(&[0u8; 4096]).unwrap();
+        f.flush().unwrap();
+
+        let result = build_reader(f.path(), Some("auto"), Some(cr3));
+        assert!(
+            result.is_err(),
+            "expected Err: no kernel image to auto-detect from"
+        );
+        let msg = result.err().unwrap().to_string().to_lowercase();
+        assert!(
+            msg.contains("auto") || msg.contains("kernel"),
+            "\"auto\" must route into auto-detection, got: {msg}"
+        );
+        // Must NOT have been treated as a filesystem path to an ISF file.
+        assert!(
+            !msg.contains("failed to load isf profile 'auto'"),
+            "\"auto\" must be a sentinel, not a file path, got: {msg}"
         );
     }
 
