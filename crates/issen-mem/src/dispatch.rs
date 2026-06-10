@@ -696,10 +696,18 @@ pub fn dispatch_windows_ps(
     reader: &ObjectReader<Box<dyn PhysicalMemoryProvider>>,
 ) -> anyhow::Result<(Vec<&'static str>, Vec<Vec<String>>)> {
     let headers = vec!["PID", "PPID", "Name", "State"];
+    // Prefer the crash-dump metadata's PsActiveProcessHead: it is the absolute
+    // (already-relocated) virtual address of the list head. The ISF symbol
+    // table only carries the un-relocated RVA, so using it directly walks a
+    // bogus VA and fails translation ("page not present"). Fall back to the
+    // symbol address only when the dump exposes no metadata head.
     let ps_head = reader
-        .symbols()
-        .symbol_address("PsActiveProcessHead")
-        .ok_or_else(|| anyhow!("missing PsActiveProcessHead symbol"))?;
+        .vas()
+        .physical()
+        .metadata()
+        .and_then(|m| m.ps_active_process_head)
+        .or_else(|| reader.symbols().symbol_address("PsActiveProcessHead"))
+        .ok_or_else(|| anyhow!("missing PsActiveProcessHead (no dump metadata head, no symbol)"))?;
     let procs = memf_windows::process::walk_processes(reader, ps_head)
         .map_err(|e| anyhow!("windows ps walk failed: {e}"))?;
     let rows = procs

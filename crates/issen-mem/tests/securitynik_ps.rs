@@ -1,9 +1,16 @@
 //! Real-dump integration test for the memf `ps` Windows routing fix.
 //!
 //! Asserts that process listing (`ps`) on the real SecurityNik Windows dump
-//! routes through the *Windows* walker and lists the expected processes —
-//! at minimum `coreupdater` (the malicious process planted in the challenge)
-//! and `spoolsv` (a benign Windows service).
+//! routes through the *Windows* walker (the bug this fixes: a profile-Windows
+//! dump used to fall through to the Linux walker) and enumerates the active
+//! EPROCESS list. Ground truth: `windows.pslist` reports 220 processes,
+//! including `spoolsv.exe`, `lsass.exe`, `services.exe`, and the malicious
+//! `ncat.exe` reverse shell.
+//!
+//! (The task brief named `coreupdater` as the malicious process, but no such
+//! image exists in this dump — neither PsList (220) nor PsScan (219) lists
+//! one; the challenge's malice is process *injection* into vmtoolsd.exe et al.
+//! The assertions below track the independently-verified PsList instead.)
 //!
 //! This is `#[ignore]`d by default because it needs the 1.3 GB Total Recall
 //! zip. Run it with:
@@ -16,7 +23,7 @@
 //! Ground truth (sidecar JSON / memory-forensic real_data.rs): the dump is a
 //! Win11 22621 PAGEDU64 crash dump, embedded CR3 (DTB) = 0x1AE000.
 
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::doc_markdown)]
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -121,12 +128,26 @@ fn securitynik_ps_lists_windows_processes() {
             .any(|n| n.to_ascii_lowercase().contains(needle))
     };
 
+    // Ground truth (SecurityNik TOTAL RECALL 2024 write-up): `windows.pslist`
+    // reports 220 active processes for this dump. Our active-list walk must
+    // land in that ballpark — proof the Windows walker (not the Linux one)
+    // actually enumerated the EPROCESS list.
+    //
+    // NOTE: the dump contains NO process named "coreupdater" — neither PsList
+    // (220) nor PsScan (219) lists one. The challenge's malicious activity is
+    // *process injection* (into vmtoolsd.exe, the ncat.exe reverse shell,
+    // etc.), surfaced by malfind/psscan — not a standalone "coreupdater"
+    // image. So this test asserts processes that are independently confirmed
+    // present in the ground-truth PsList instead.
     assert!(
-        has("coreupdater"),
-        "expected malicious 'coreupdater' in ps output; got: {names:?}"
+        names.len() >= 200,
+        "expected ~220 processes from the Windows pslist walk, got {}: {names:?}",
+        names.len()
     );
-    assert!(
-        has("spoolsv"),
-        "expected 'spoolsv' in ps output; got: {names:?}"
-    );
+    for expected in ["spoolsv", "lsass", "services", "ncat"] {
+        assert!(
+            has(expected),
+            "expected '{expected}' in Windows ps output; got: {names:?}"
+        );
+    }
 }

@@ -39,6 +39,37 @@ pub fn detect_os(fmt: DumpFormat) -> TargetOs {
     }
 }
 
+/// Classify a *resolved* symbol profile as Windows or not.
+///
+/// The container format alone is insufficient: a flat/raw acquisition of a
+/// Windows host has no `PAGE` crash-dump magic, so [`detect_os`] returns
+/// [`TargetOs::Unknown`] for it. Once `build_reader` has auto-resolved the
+/// kernel symbols, the profile itself reveals the OS. `PsActiveProcessHead`
+/// is a Windows-kernel-only symbol (the head of the active `EPROCESS` list);
+/// its presence is a reliable Windows signal.
+#[must_use]
+pub fn profile_is_windows(symbols: &dyn memf_symbols::SymbolResolver) -> bool {
+    symbols.symbol_address("PsActiveProcessHead").is_some()
+}
+
+/// Resolve the effective dispatch OS from the format-derived OS and the
+/// resolved profile.
+///
+/// A definitive format OS ([`TargetOs::Linux`] / [`TargetOs::Windows`]) is
+/// always trusted. Only when the format is [`TargetOs::Unknown`] (a Raw/flat
+/// dump) does the resolved profile decide: a Windows profile routes to the
+/// Windows walkers; otherwise the OS stays `Unknown` and the caller keeps its
+/// Linux best-effort fallback. This is the single routing decision the memf
+/// command makes, kept pure so it is unit-testable without a real dump.
+#[must_use]
+pub fn resolve_target_os(format_os: TargetOs, profile_is_windows: bool) -> TargetOs {
+    match format_os {
+        TargetOs::Linux | TargetOs::Windows => format_os,
+        TargetOs::Unknown if profile_is_windows => TargetOs::Windows,
+        TargetOs::Unknown => TargetOs::Unknown,
+    }
+}
+
 /// The memory forensic sub-command to execute.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MemfCommand {
@@ -187,10 +218,16 @@ pub fn run_memf_command(args: &MemfArgs) -> anyhow::Result<()> {
     let reader_result = build_reader(&args.dump_path, args.profile.as_deref(), args.cr3);
 
     // Detect OS from format for dispatch routing.
-    let os = detect_os(fmt);
+    let format_os = detect_os(fmt);
 
     if let Ok((_reader_fmt, ref reader)) = reader_result {
         // Real walker dispatch — only reached when dump has CR3 + ISF profile.
+        //
+        // Route by the RESOLVED profile, not just the container format: a
+        // flat/raw acquisition of a Windows host detects as `Raw` (OS
+        // Unknown) yet auto-resolves a Windows kernel profile, so it must
+        // dispatch to the Windows walkers — not the Linux fallback.
+        let os = resolve_target_os(format_os, profile_is_windows(reader.symbols()));
         if args.command == MemfCommand::All {
             for cmd in &[
                 MemfCommand::Ps,
