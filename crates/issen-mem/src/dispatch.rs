@@ -687,6 +687,103 @@ pub fn dispatch_linux_timeline(
 // Windows dispatch functions
 // ---------------------------------------------------------------------------
 
+/// Resolve the absolute (already-relocated) VA of `PsActiveProcessHead`.
+///
+/// Prefer the crash-dump metadata's `ps_active_process_head`: it is the
+/// absolute virtual address of the list head. The ISF symbol table only carries
+/// the un-relocated RVA, so using it directly walks a bogus VA and fails
+/// translation ("page not present"). Fall back to the symbol address only when
+/// the dump exposes no metadata head (e.g. a raw / auto-profiled dump where the
+/// symbol value happens to already be absolute).
+///
+/// This is the `#35` un-relocated-symbol fix, shared by every walker that needs
+/// the active-process list head (`ps`, malfind/`scan`).
+///
+/// # Errors
+///
+/// Returns `Err` when neither the dump metadata nor the symbol table yields a
+/// list head.
+pub fn resolve_ps_active_process_head(
+    reader: &ObjectReader<Box<dyn PhysicalMemoryProvider>>,
+) -> anyhow::Result<u64> {
+    reader
+        .vas()
+        .physical()
+        .metadata()
+        .and_then(|m| m.ps_active_process_head)
+        .or_else(|| reader.symbols().symbol_address("PsActiveProcessHead"))
+        .ok_or_else(|| anyhow!("missing PsActiveProcessHead (no dump metadata head, no symbol)"))
+}
+
+/// Returns `true` when a captured memory region begins with the `MZ` DOS
+/// signature (`0x4D 0x5A`) — i.e. a classic injected PE/DLL image.
+///
+/// Note: Meterpreter / shellcode injections (the verified Total Recall case)
+/// begin with zeros, so a `false` here does NOT mean the region is benign — it
+/// only means the region is not a PE image. MEM_PRIVATE + RWX remains the
+/// primary malfind signal; this is a sub-classifier.
+#[must_use]
+pub fn is_injected_pe_header(first_bytes: &[u8]) -> bool {
+    matches!(first_bytes, [0x4D, 0x5A, ..])
+}
+
+/// Classify a malfind RWX-private region by its captured leading bytes.
+///
+/// `"injected-PE"` when the region starts with an `MZ` header; otherwise
+/// `"injected-code"` (RWX-private shellcode, or no header bytes captured).
+#[must_use]
+pub fn classify_malfind_region(first_bytes: &[u8]) -> &'static str {
+    if is_injected_pe_header(first_bytes) {
+        "injected-PE"
+    } else {
+        "injected-code"
+    }
+}
+
+/// Returns `true` when a remote address string is a routable external host —
+/// non-empty, not the IPv4/IPv6 wildcard, and not loopback.
+#[must_use]
+pub fn is_external_endpoint(remote_addr: &str) -> bool {
+    !remote_addr.is_empty()
+        && remote_addr != "0.0.0.0"
+        && remote_addr != "::"
+        && remote_addr != "127.0.0.1"
+        && remote_addr != "::1"
+        && !remote_addr.starts_with("127.")
+}
+
+/// Returns `true` for remote ports commonly used by offensive C2 frameworks.
+///
+/// Conservative by design: only flags ports whose *number itself* is a strong
+/// signal (Metasploit's default `4444`). Benign-looking ports (443, 22) are not
+/// flagged on the number alone — the `ESTABLISHED`-external test carries those.
+#[must_use]
+pub fn is_suspicious_remote_port(remote_port: u16) -> bool {
+    matches!(remote_port, 4444)
+}
+
+/// Classify a TCP connection for the netstat `Note` column.
+///
+/// Returns `"suspicious-c2-port"` for an established external connection on a
+/// known-C2 port, `"external-established"` for any other established external
+/// connection, or `""` (not flagged) for listening / loopback / wildcard rows.
+#[must_use]
+pub fn classify_connection(
+    state: memf_windows::WinTcpState,
+    remote_addr: &str,
+    remote_port: u16,
+) -> &'static str {
+    use memf_windows::WinTcpState;
+    if state != WinTcpState::Established || !is_external_endpoint(remote_addr) {
+        return "";
+    }
+    if is_suspicious_remote_port(remote_port) {
+        "suspicious-c2-port"
+    } else {
+        "external-established"
+    }
+}
+
 /// Walk Windows processes and return headers + rows.
 ///
 /// # Errors
@@ -696,18 +793,7 @@ pub fn dispatch_windows_ps(
     reader: &ObjectReader<Box<dyn PhysicalMemoryProvider>>,
 ) -> anyhow::Result<(Vec<&'static str>, Vec<Vec<String>>)> {
     let headers = vec!["PID", "PPID", "Name", "State"];
-    // Prefer the crash-dump metadata's PsActiveProcessHead: it is the absolute
-    // (already-relocated) virtual address of the list head. The ISF symbol
-    // table only carries the un-relocated RVA, so using it directly walks a
-    // bogus VA and fails translation ("page not present"). Fall back to the
-    // symbol address only when the dump exposes no metadata head.
-    let ps_head = reader
-        .vas()
-        .physical()
-        .metadata()
-        .and_then(|m| m.ps_active_process_head)
-        .or_else(|| reader.symbols().symbol_address("PsActiveProcessHead"))
-        .ok_or_else(|| anyhow!("missing PsActiveProcessHead (no dump metadata head, no symbol)"))?;
+    let ps_head = resolve_ps_active_process_head(reader)?;
     let procs = memf_windows::process::walk_processes(reader, ps_head)
         .map_err(|e| anyhow!("windows ps walk failed: {e}"))?;
     let rows = procs
@@ -768,7 +854,15 @@ pub fn dispatch_windows_modules(
 pub fn dispatch_windows_netstat(
     reader: &ObjectReader<Box<dyn PhysicalMemoryProvider>>,
 ) -> anyhow::Result<(Vec<&'static str>, Vec<Vec<String>>)> {
-    let headers = vec!["Proto", "Local", "Remote", "State", "PID", "Process"];
+    let headers = vec![
+        "Proto", "Local", "Remote", "State", "PID", "Process", "Note",
+    ];
+    // `TcpPortPool` / `TcpNumTablePartitions` are tcpip.sys symbols. Unlike the
+    // ntoskrnl active-process list head, the crash-dump metadata carries no
+    // relocated anchor for them, so the symbol value is the only available
+    // anchor; it is consumed as-is. (If a future raw/auto-profiled dump exposes
+    // an un-relocated tcpip RVA, this is the site to apply the #35 metadata-first
+    // fix — see `resolve_ps_active_process_head`.)
     let table_vaddr = reader.symbols().symbol_address("TcpPortPool");
     let bucket_sym = reader.symbols().symbol_address("TcpNumTablePartitions");
 
@@ -786,6 +880,7 @@ pub fn dispatch_windows_netstat(
                     c.state.to_string(),
                     c.pid.to_string(),
                     c.process_name.clone(),
+                    classify_connection(c.state, &c.remote_addr, c.remote_port).to_string(),
                 ]
             })
             .collect();
@@ -796,6 +891,7 @@ pub fn dispatch_windows_netstat(
             String::new(),
             String::new(),
             "TCP pool symbols unavailable".into(),
+            String::new(),
             String::new(),
             String::new(),
         ]];
@@ -935,6 +1031,33 @@ pub fn dispatch_windows_scan(
                 ),
             ]);
         }
+    }
+
+    // Malfind — VAD regions that are MEM_PRIVATE + RWX (PAGE_EXECUTE_READWRITE /
+    // PAGE_EXECUTE_WRITECOPY): the classic process-injection signature. An MZ
+    // header (when captured) further classifies the region as an injected PE;
+    // a zeroed/non-MZ region is injected shellcode (the verified Total Recall
+    // vmtoolsd.exe / powershell.exe case). The active-process list head is
+    // sourced via the #35-correct metadata-first anchor.
+    match resolve_ps_active_process_head(reader) {
+        Ok(ps_head) => match memf_windows::vad::walk_malfind(reader, ps_head) {
+            Ok(items) => {
+                for m in &items {
+                    let size = m.end_vaddr.saturating_sub(m.start_vaddr).saturating_add(1);
+                    rows.push(vec![
+                        format!("malfind:{}", classify_malfind_region(&m.first_bytes)),
+                        format!("{:#018x}", m.start_vaddr),
+                        format!("{size:#x}"),
+                        format!(
+                            "pid={} {} {} private-RWX",
+                            m.pid, m.image_name, m.protection_str
+                        ),
+                    ]);
+                }
+            }
+            Err(e) => eprintln!("malfind walker error (skipped): {e}"),
+        },
+        Err(e) => eprintln!("malfind skipped (no process list head): {e}"),
     }
 
     // MBR scan — detect suspicious master boot records
@@ -1440,9 +1563,12 @@ mod tests {
 
     #[test]
     fn dispatch_windows_netstat_headers_are_correct() {
-        let expected = ["Proto", "Local", "Remote", "State", "PID", "Process"];
-        assert_eq!(expected.len(), 6);
+        let expected = [
+            "Proto", "Local", "Remote", "State", "PID", "Process", "Note",
+        ];
+        assert_eq!(expected.len(), 7);
         assert!(expected.contains(&"Process"));
+        assert!(expected.contains(&"Note"));
     }
 
     // -----------------------------------------------------------------------

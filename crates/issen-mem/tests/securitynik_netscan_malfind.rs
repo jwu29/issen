@@ -155,7 +155,11 @@ fn securitynik_malfind_flags_injected_processes() {
     let (_fmt, reader) = build_reader(&dmp, None, None).expect("build reader from dump");
 
     let (headers, rows) = dispatch_windows_scan(&reader).expect("windows scan walk");
-    eprintln!("scan produced {} rows ({} headers)", rows.len(), headers.len());
+    eprintln!(
+        "scan produced {} rows ({} headers)",
+        rows.len(),
+        headers.len()
+    );
 
     // Collect the malfind rows (Type column begins with "malfind").
     let type_col = headers
