@@ -993,4 +993,84 @@ detection:
         assert_eq!(summary.network_findings, 1);
         assert_eq!(summary.total_findings, 2);
     }
+
+    /// Build a `FileCreate` event carrying a timestomped `$SI`<`$FN` signature,
+    /// mirroring the metadata keys the MFT converters surface (`fn_created`,
+    /// `si_created`, `si_modified`, `si_accessed` in `datetime_to_display`
+    /// form). `$SI.created`/`$SI.modified` precede `$FN.created` by years — the
+    /// classic single-event timestomp lead that `detect_timestomp` flags.
+    fn timestomped_file_create() -> TimelineEvent {
+        // $SI birth 2010, $FN birth 2020 — $SI precedes $FN by a decade.
+        let si = "2010-01-01T00:00:00.000000000Z";
+        let fnc = "2020-01-01T00:00:00.000000000Z";
+        TimelineEvent::new(
+            1_262_304_000_000_000_000, // 2010-01-01T00:00:00Z ns
+            si.to_string(),
+            EventType::FileCreate,
+            ArtifactType::Mft,
+            "Users/victim/Desktop/evil.dll".to_string(),
+            "FileCreate: evil.dll".to_string(),
+            "case-001".to_string(),
+        )
+        .with_metadata("si_created", serde_json::json!(si))
+        .with_metadata("si_modified", serde_json::json!(si))
+        .with_metadata("si_accessed", serde_json::json!(si))
+        .with_metadata("fn_created", serde_json::json!(fnc))
+    }
+
+    #[test]
+    fn scan_phase_emits_single_event_timestomp_lead() {
+        // A FileCreate event whose $SI birth precedes its $FN birth must surface
+        // the T1070.006 single-event timestomp lead from `detect_timestomp` as a
+        // FindingRow — proving the detector is wired into the scan pipeline.
+        let engine = ScanEngine::new();
+        let dir = tempfile::tempdir().unwrap();
+
+        let (findings, summary) = run_scan_phase(&[timestomped_file_create()], &engine, dir.path());
+
+        let timestomp = findings
+            .iter()
+            .find(|f| f.engine == "Timestomp")
+            .expect("scan phase must emit a Timestomp FindingRow for an $SI<$FN FileCreate");
+        assert_eq!(timestomp.rule_name, "NTFS-TIMESTOMP-SI-FN-MISMATCH");
+        assert!(
+            timestomp.tags.contains("attack.t1070.006"),
+            "timestomp finding must carry the MITRE T1070.006 tag: {}",
+            timestomp.tags
+        );
+        // Deliberately an Info-severity lead, never escalated to High.
+        assert_eq!(timestomp.severity, "info");
+        assert!(
+            summary.total_findings >= 1,
+            "the timestomp lead must be counted in the phase summary"
+        );
+    }
+
+    #[test]
+    fn scan_phase_no_timestomp_lead_for_normal_ordering() {
+        // $SI birth AFTER $FN birth is normal — no timestomp lead.
+        let si = "2020-06-01T00:00:00.000000000Z";
+        let fnc = "2020-01-01T00:00:00.000000000Z";
+        let event = TimelineEvent::new(
+            1_590_969_600_000_000_000, // 2020-06-01 ns
+            si.to_string(),
+            EventType::FileCreate,
+            ArtifactType::Mft,
+            "Users/victim/x.txt".to_string(),
+            "FileCreate: x.txt".to_string(),
+            "case-001".to_string(),
+        )
+        .with_metadata("si_created", serde_json::json!(si))
+        .with_metadata("si_modified", serde_json::json!(si))
+        .with_metadata("fn_created", serde_json::json!(fnc));
+
+        let engine = ScanEngine::new();
+        let dir = tempfile::tempdir().unwrap();
+        let (findings, _summary) = run_scan_phase(&[event], &engine, dir.path());
+
+        assert!(
+            !findings.iter().any(|f| f.engine == "Timestomp"),
+            "normal $SI-after-$FN ordering must not emit a timestomp lead"
+        );
+    }
 }
