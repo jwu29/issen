@@ -8,7 +8,9 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use forensicnomicon::attack_events::FAILED_LOGON_BURST;
+use forensicnomicon::report::Finding;
 use issen_core::timeline::event::TimelineEvent;
+use issen_correlation::timestomp::detect_timestomp;
 use issen_signatures::attack_classifier::{
     classify_event, failed_logon_burst_finding, NativeEventSignature,
 };
@@ -25,6 +27,7 @@ pub struct ScanPhaseSummary {
     pub file_findings: usize,
     pub network_findings: usize,
     pub native_findings: usize,
+    pub timestomp_findings: usize,
     pub total_findings: usize,
 }
 
@@ -77,6 +80,40 @@ fn finding_to_row(
         description: finding.description.clone(),
         matched_indicator: finding.matched_indicator.clone(),
         tags: serde_json::to_string(&finding.tags).unwrap_or_else(|_| "[]".to_string()),
+    }
+}
+
+/// `$SI`/`$FN` timestomp tolerance: a one-day slack absorbs benign sub-second /
+/// timezone skew, matching the unit `detect_timestomp` is tested against (`DAY_NS`).
+const ONE_DAY_NS: i64 = 86_400_000_000_000;
+
+/// Convert a `forensicnomicon::report::Finding` (as emitted by the single-event
+/// timestomp detector) into a `FindingRow` for DuckDB storage. MITRE ATT&CK
+/// refs become `attack.<technique>` tags, mirroring the native ATT&CK phase.
+fn timestomp_finding_to_row(
+    finding: &Finding,
+    evidence_source_id: &str,
+    artifact_path: &str,
+) -> FindingRow {
+    let severity = finding
+        .severity
+        .map_or_else(|| "info".to_string(), |s| format!("{s}").to_lowercase());
+    let tags: Vec<String> = finding
+        .context
+        .external_refs
+        .iter()
+        .filter(|r| r.scheme == "mitre-attack")
+        .map(|r| format!("attack.{}", r.id.to_lowercase()))
+        .collect();
+    FindingRow {
+        evidence_source_id: evidence_source_id.to_string(),
+        artifact_path: artifact_path.to_string(),
+        engine: "Timestomp".to_string(),
+        severity,
+        rule_name: finding.code.to_string(),
+        description: finding.note.clone(),
+        matched_indicator: None,
+        tags: serde_json::to_string(&tags).unwrap_or_else(|_| "[]".to_string()),
     }
 }
 
@@ -214,6 +251,29 @@ pub fn run_scan_phase(
     let native = run_native_attack_phase(events);
     summary.native_findings += native.len();
     findings.extend(native);
+
+    // Phase 5: single-event $SI/$FN timestomp leads (MITRE T1070.006).
+    //
+    // Runs the layered, FP-suppressed detector over each FileCreate event,
+    // comparing the user-writable $STANDARD_INFORMATION birth time against the
+    // system-set $FILE_NAME birth time (`fn_created` metadata) the MFT converter
+    // surfaces. These are deliberately Info-graded *leads*, never escalated.
+    //
+    // This does NOT overlap with the coarser `temporal.timestomping-born-after-modify`
+    // TemporalRule: that rule lives in the `supertimeline` command, emits
+    // `TemporalFinding`s on a separate output channel, keys on $SI born-after-modify
+    // (not $SI-vs-$FN), and never reaches this scan_findings path. Distinct code,
+    // distinct severity tier, distinct output — no double-emit.
+    for event in events {
+        if let Some(finding) = detect_timestomp(event, ONE_DAY_NS) {
+            findings.push(timestomp_finding_to_row(
+                &finding,
+                &event.evidence_source_id,
+                &event.artifact_path,
+            ));
+            summary.timestomp_findings += 1;
+        }
+    }
 
     summary.total_findings = findings.len();
     (findings, summary)
@@ -1038,8 +1098,14 @@ detection:
             "timestomp finding must carry the MITRE T1070.006 tag: {}",
             timestomp.tags
         );
-        // Deliberately an Info-severity lead, never escalated to High.
-        assert_eq!(timestomp.severity, "info");
+        // A deliberately low-confidence lead — graded Info/Low/Medium by signal
+        // strength, but NEVER escalated to high/critical (that tier needs the
+        // USN/$LogFile corroboration the single-event detector lacks).
+        assert!(
+            ["info", "low", "medium"].contains(&timestomp.severity.as_str()),
+            "timestomp lead must stay a low-tier lead, got: {}",
+            timestomp.severity
+        );
         assert!(
             summary.total_findings >= 1,
             "the timestomp lead must be counted in the phase summary"
