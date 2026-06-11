@@ -827,6 +827,75 @@ mod tests {
         VecSource(disk)
     }
 
+    /// A 512-byte MBR with two NTFS partitions (type 0x07).
+    fn mbr_two_ntfs(lba1: u32, count1: u32, lba2: u32, count2: u32) -> [u8; SECTOR] {
+        let mut m = mbr_one_ntfs(lba1, count1);
+        let p = 0x1CE; // second partition entry
+        m[p + 4] = 0x07;
+        m[p + 8..p + 12].copy_from_slice(&lba2.to_le_bytes());
+        m[p + 12..p + 16].copy_from_slice(&count2.to_le_bytes());
+        m
+    }
+
+    /// Two synthetic NTFS volumes on one MBR disk — the Case 001 Desktop shape
+    /// (a Windows volume plus a recovery volume). The second volume's $MFT bytes
+    /// are made distinct so an extraction collision is detectable as content
+    /// loss, not just a path clash.
+    fn disk_with_two_volumes() -> VecSource {
+        let v1 = vol::build();
+        let mut v2 = vol::build();
+        let probe = b"hello world";
+        let pos = v2
+            .windows(probe.len())
+            .position(|w| w == probe)
+            .expect("synthetic volume carries the probe content");
+        v2[pos..pos + probe.len()].copy_from_slice(b"HELLO WORLD");
+
+        let lba1 = 2048u32;
+        let count1 = v1.len().div_ceil(SECTOR) as u32 + 1;
+        let lba2 = lba1 + count1;
+        let count2 = v2.len().div_ceil(SECTOR) as u32 + 1;
+        let total = (lba2 + count2) as usize * SECTOR;
+        let mut disk = vec![0u8; total];
+        disk[..SECTOR].copy_from_slice(&mbr_two_ntfs(lba1, count1, lba2, count2));
+        disk[lba1 as usize * SECTOR..][..v1.len()].copy_from_slice(&v1);
+        disk[lba2 as usize * SECTOR..][..v2.len()].copy_from_slice(&v2);
+        VecSource(disk)
+    }
+
+    /// The G1 root-cause regression (Case 001 Desktop): every NTFS partition
+    /// carries a `\$MFT`, and `triage_manifest` must keep them ALL — flattening
+    /// per-partition files into one temp dir keyed by NTFS path alone lets the
+    /// last partition's $MFT overwrite the Windows volume's (104,960 records
+    /// silently replaced by the recovery volume's 256).
+    #[test]
+    fn triage_manifest_keeps_same_named_artifacts_from_every_partition() {
+        let src = disk_with_two_volumes();
+        assert_eq!(
+            find_ntfs_partitions(&src).expect("find").len(),
+            2,
+            "fixture sanity: two NTFS partitions"
+        );
+
+        let manifest = triage_manifest(&src, "TEST").expect("manifest");
+        let mfts: Vec<_> = manifest
+            .artifacts
+            .iter()
+            .filter(|e| e.path.file_name() == Some(std::ffi::OsStr::new("$MFT")))
+            .collect();
+        assert_eq!(mfts.len(), 2, "one $MFT artifact per NTFS partition");
+        assert_ne!(
+            mfts[0].path, mfts[1].path,
+            "same-named artifacts from different partitions must not collide"
+        );
+        let d0 = std::fs::read(manifest.extracted_root.join(&mfts[0].path)).expect("read first");
+        let d1 = std::fs::read(manifest.extracted_root.join(&mfts[1].path)).expect("read second");
+        assert_ne!(
+            d0, d1,
+            "each partition's own $MFT bytes survive (no overwrite)"
+        );
+    }
+
     #[test]
     fn extracts_a_file_from_an_ntfs_partition() {
         let src = disk_with_volume(2048);
