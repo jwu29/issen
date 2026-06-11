@@ -377,6 +377,15 @@ coreupdater/spoolsv rows; netstat shows the `203.78.103.109` row (expected Note:
 structured-parse failure there is a *recorded finding of G2*, not a gate failure —
 it re-grades the Desktop-side memory assertions to the fallback path.
 
+**G2 FIRST CONTACT 2026-06-11 — failure mode recorded (gate not yet passed).** DC dump
+(`citadeldc01.mem`, raw WinPMEM, 2 GB): format detects as Raw, then every subcommand
+(ps/check) refuses with "dump has no embedded CR3; use --cr3" — **the memf-symbols
+header-less DTB scanner (#58/#62) is not wired into the Raw-dump dispatch path.** This is
+the concrete shape of self-flagged Risk 2: B1's components are unit-tested but the
+raw-dump → auto-CR3 wiring is missing, so every memory matrix row stays gated. New
+prerequisite (B1-wire, RED→GREEN): route Raw dumps through the memf-symbols DTB scan in
+`build_reader` before the CR3 bail-out; G2 re-runs after it lands.
+
 ---
 
 ## 6 · Prerequisites — PRE-1..6 (carried) + M-1/M-2 (new builds)
