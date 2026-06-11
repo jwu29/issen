@@ -659,7 +659,7 @@ mod tests {
     // --- GREEN: test for ntfs_core::usn::UsnRecord in check_usn_stream ---
 
     #[test]
-    fn usnjrnl_forensic_usn_record_works_in_check_usn_stream() {
+    fn ntfs_core_usn_record_works_in_check_usn_stream() {
         let record = UsnRecord {
             mft_entry: 100,
             mft_sequence: 1,

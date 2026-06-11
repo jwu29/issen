@@ -161,7 +161,6 @@ flate2       = "1"
 tar          = "0.4"
 
 # Forensic artifact parsers
-usnjrnl-forensic = { path = "../usnjrnl-forensic", default-features = false }
 srum-parser      = { path = "../srum-forensic/crates/srum-parser" }
 srum-core        = { path = "../srum-forensic/crates/srum-core" }
 goblin       = { version = "0.10", default-features = false, features = ["pe32", "pe64", "std"] }

@@ -1,4 +1,4 @@
-//! USN Journal parser — ForensicParser impl using usnjrnl-forensic.
+//! USN Journal parser — ForensicParser impl using ntfs_core::usn.
 //!
 //! Registers via `inventory::submit!` so the pipeline discovers it automatically.
 

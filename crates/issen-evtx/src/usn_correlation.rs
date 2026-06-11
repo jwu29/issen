@@ -11,7 +11,7 @@ use forensicnomicon::heuristics::evtx::{
 };
 use winevt_core::EvtxEvent;
 
-/// A parsed USN journal record, consumed from usnjrnl-forensic output.
+/// A parsed USN journal record, consumed from ntfs_core::usn output.
 #[derive(Debug, Clone)]
 pub struct UsnEntry {
     /// File name (not full path — USN provides FRN-based paths).

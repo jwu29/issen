@@ -5,7 +5,7 @@
 //! "Is the system compromised?", "Is there a rootkit?", "When did it happen?"
 //!
 //! Follows the Question → Evidence → Confidence → Interpretation pattern
-//! from usnjrnl-forensic's triage system, adapted for Linux/Windows UAC data.
+//! from the ntfs-core USN triage system, adapted for Linux/Windows UAC data.
 
 use super::alerts::{Alert, AlertInput, AlertSeverity};
 

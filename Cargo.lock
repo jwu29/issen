@@ -2695,29 +2695,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "env_filter"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32e90c2accc4b07a8456ea0debdc2e7587bdd890680d71173a15d4ae604f6eef"
-dependencies = [
- "log",
- "regex",
-]
-
-[[package]]
-name = "env_logger"
-version = "0.11.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0621c04f2196ac3f488dd583365b9c09be011a4ab8b9f37248ffcc8f6198b56a"
-dependencies = [
- "anstream",
- "anstyle",
- "env_filter",
- "jiff",
- "log",
-]
-
-[[package]]
 name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3050,10 +3027,6 @@ checksum = "f66c898c0f3813cb476c7d1f9e78919566e753b8ce5d581ca8d0f364a55b04b5"
 dependencies = [
  "serde",
 ]
-
-[[package]]
-name = "forensicnomicon"
-version = "0.4.0"
 
 [[package]]
 name = "forensicnomicon"
@@ -4401,7 +4374,7 @@ dependencies = [
  "duckdb",
  "flate2",
  "forensic-pivot",
- "forensicnomicon 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "forensicnomicon 0.4.0",
  "inventory",
  "is-terminal",
  "issen-core",
@@ -4464,7 +4437,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "flate2",
- "forensicnomicon 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "forensicnomicon 0.4.0",
  "issen-core",
  "reqwest",
  "serde",
@@ -4510,7 +4483,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "evtx",
- "forensicnomicon 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "forensicnomicon 0.4.0",
  "issen-core",
  "rusqlite",
  "schemars",
@@ -4691,14 +4664,13 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tracing",
- "usnjrnl-forensic",
 ]
 
 [[package]]
 name = "issen-parser-pe"
 version = "0.1.0"
 dependencies = [
- "forensicnomicon 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "forensicnomicon 0.4.0",
  "goblin 0.10.5",
  "thiserror 2.0.18",
 ]
@@ -4902,7 +4874,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "csv",
- "forensicnomicon 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "forensicnomicon 0.4.0",
  "hex",
  "insta",
  "ipnet",
@@ -4930,7 +4902,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "duckdb",
- "forensicnomicon 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "forensicnomicon 0.4.0",
  "insta",
  "issen-core",
  "rusqlite",
@@ -10275,29 +10247,6 @@ dependencies = [
  "idna",
  "percent-encoding",
  "serde",
-]
-
-[[package]]
-name = "usnjrnl-forensic"
-version = "0.7.3"
-dependencies = [
- "anyhow",
- "bitflags 2.11.1",
- "chrono",
- "clap",
- "csv",
- "env_logger",
- "forensicnomicon 0.3.1",
- "log",
- "ntfs-core",
- "ntfs-forensic",
- "rayon",
- "regex",
- "rusqlite",
- "serde",
- "serde_json",
- "shrinkpath",
- "tempfile",
 ]
 
 [[package]]
