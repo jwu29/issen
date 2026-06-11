@@ -9,7 +9,7 @@
 ## Executive Summary
 
 Empirical measurement on the **real Case 001 artifacts, both hosts**
-([`../workshops/3hr/issen-measured-coverage.md`](../workshops/3hr/issen-measured-coverage.md))
+([`../workshop-3hr/issen-measured-coverage.md`](../workshop-3hr/issen-measured-coverage.md))
 scored **11 WORKS / 3 PARTIAL / 5 GAP** of 18 questions (Desktop added lateral movement, USN moves,
 and Desktop persistence/users). **A Codex pass against the live code (2026-06-09) overturned the
 original symptom reading** — the gaps are *wiring + stubs + one insert bug*, NOT missing capability.
