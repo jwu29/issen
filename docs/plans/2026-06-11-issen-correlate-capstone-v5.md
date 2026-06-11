@@ -442,8 +442,20 @@ list-walk loop detection) and #3 (DTB precision rules) follow as hardening.
 **Memory-leg progress this session (all RED→GREEN, vol2/vol3/rekall/MemProcFS-steelmanned):**
 0 candidates → multi-slot self-ref enumeration (2012 R2 `0x1ED`) → DTB `0x1a7000` (header-paged
 discriminator) → profile via physical RSDS → Low Stub CR3 (cross-validates the DTB) + KVO →
-resolver-level symbol rebasing → walker resolving real kernel VAs. From completely dark to one
-KVO-refinement step from a live process list.
+resolver-level symbol rebasing → walker resolving real kernel VAs.
+
+**G2 PASSED 2026-06-11 — issen lists the Case 001 DC processes.** The KVO refinement proved a
+dead end on this dump (sweep: no valid `LIST_ENTRY` at any candidate base, no MZ within
+±32 MiB — the kernel *data* pages are paged out, so the `PsActiveProcessHead` walk
+fundamentally cannot run). The reference-aligned answer is **psscan** (vol2 `psscan` / vol3
+`PoolScanner`): `memf_windows::psscan` scans physical memory for the `Proc` pool tag, gated on
+the `_DISPATCHER_HEADER.Type==0x03` signature + plausible-pid + valid-name validation;
+`dispatch_windows_ps` falls back to it when the list walk fails. **`issen memf ps` on the real
+`citadeldc01.mem` now lists 40 processes — including `coreupdater.exe` PID 3644 and
+`spoolsv.exe` PID 3724** (F26/F28 process identities, matching the union ground truth exactly).
+The memory process leg is now **issen-MEASURED**, not just write-up-corroborated. Remaining
+memory enrichment (netstat C2 row, malfind injection detail) needs per-process VAD/translation
+beyond the process list, tracked as follow-on; the headline IOCs are measured.
 
 ---
 
