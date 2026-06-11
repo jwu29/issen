@@ -133,6 +133,21 @@ impl TimelineStore {
         Ok(updated)
     }
 
+    /// Insert a batch tagged by a forensicnomicon `[H]` ordering key — the native
+    /// `[H]`-aware ingest path (#43).
+    ///
+    /// The epoch label is derived from `lsn` via
+    /// [`crate::epoch::epoch_label_for`], so a WAL commit's epoch is its salt-qualified
+    /// position: a checkpoint reset (salt roll) yields a distinct epoch and never dedups
+    /// against the prior generation. Thin wrapper over [`Self::insert_batch_at_epoch`].
+    pub fn insert_batch_at_lsn(
+        &self,
+        events: &[TimelineEvent],
+        lsn: &forensicnomicon::history::epoch::LsnKind,
+    ) -> Result<u64, TimelineStoreError> {
+        self.insert_batch_at_epoch(events, &crate::epoch::epoch_label_for(lsn))
+    }
+
     /// Register an evidence source for chain-of-custody tracking.
     pub fn register_evidence_source(
         &self,
