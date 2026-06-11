@@ -401,12 +401,33 @@ B1-wire shipped (issen-mem `03cf932`): `build_reader` resolves CR3 via embedded 
    RSDS at file offset `0x2219698`), but its PE-header page is paged out, so a
    header-anchored discriminator rejects all 41 genuine DTBs.
 
-**Next prerequisite (B1-kerneldtb, design):** drop the resident-ntoskrnl-header assumption —
-either (a) confirm a candidate maps kernel space via *any* verifiable kernel-space PE+RSDS
-(drivers prove it) then select by lowest-physical, or (b) anchor on the physically-located
-kernel RSDS and pick the DTB mapping a kernel-half VA onto that page. Sole remaining gate on
-the memory leg; until it lands, F26–F37 stand write-up-corroborated in
-`docs/case001-union-answers.md`, not yet issen-measured.
+**B1-kerneldtb — LANDED 2026-06-11 (option a), steelmanned against Volatility 2/3, Rekall,
+MemProcFS.** Dropped the resident-ntoskrnl-header assumption: a self-ref candidate is a
+genuine page-table root if it maps *any* kernel-space PE+RSDS (`dtb_maps_kernel_space`,
+`memf-symbols 19cb1c3`), selected by lowest-physical; the kernel **profile** is recovered by
+a physical RSDS sweep when the header is paged (`scan_physical_for_kernel_rsds`, `22ac1a6`),
+gated on a 64-bit DTB (the architecture gate vol3 applies at the DTB layer). On the real DC
+dump: DTB `0x1a7000`, profile `ntkrnlmp.pdb` resolved, ISF downloaded — and the **ps walker
+now runs**, failing one layer deeper at VA `0x2b00a0` (the bare RVA of `PsActiveProcessHead`).
+
+**Steelman (`memory-forensic/docs/steelman-vs-reference-tools.md`, `88b5756`):** our core
+algorithms track the reference tools (self-ref DTB ≈ vol3 `DtbSelfReferential`; physical RSDS
+≈ vol3 `pdbscan`). The `0x2b00a0` failure is a *missing step*: nothing adds the kernel base
+virtual address (KVO) to symbol RVAs. **Fix landed — the x64 Low Stub** (`find_low_stub`,
+`dce43bb`; vol3 `method_low_stub`, clean-room from the `PROCESSOR_START_BLOCK` layout): scans
+the lower 1 MiB for the boot processor block carrying the kernel CR3 (`+0xA0`) and the
+LmTarget kernel VA (`+0x70`). On the real DC dump it returns **`cr3=0x1a7000`** (cross-validating
+the self-ref DTB exactly) and **`kernel_base_va=0xfffff800cbe00000`** — the KVO (ntoskrnl sits
+at `0xcbe00000`, a different region than the drivers at `0x64xxxxxx`, which is why the VA MZ
+scan never found it).
+
+**Sole remaining gate (B1-kvo, next RED→GREEN):** thread the Low Stub KVO into the symbol
+resolver so `symbol_address` returns `kvo + rva` by construction (secure-by-design — no call
+site can obtain an un-rebased RVA; steelman fix #1). Then `PsActiveProcessHead` resolves to
+`0xfffff800cc0b00a0` and the EPROCESS walk lists processes. Until it lands, F26–F37 stand
+write-up-corroborated in `docs/case001-union-answers.md`, not yet issen-measured. Steelman
+fixes #2 (vol3 `seen`-set list-walk loop detection) and #3 (DTB precision: exactly-one-self-ref,
+reserved-bit reject, `0x1a0000–0x1b0000` prior) follow as hardening.
 
 ---
 
