@@ -820,21 +820,55 @@ pub fn dispatch_windows_ps(
     reader: &ObjectReader<Box<dyn PhysicalMemoryProvider>>,
 ) -> anyhow::Result<(Vec<&'static str>, Vec<Vec<String>>)> {
     let headers = vec!["PID", "PPID", "Name", "State"];
-    let ps_head = resolve_ps_active_process_head(reader)?;
-    let procs = memf_windows::process::walk_processes(reader, ps_head)
-        .map_err(|e| anyhow!("windows ps walk failed: {e}"))?;
-    let rows = procs
+
+    // Preferred: walk the active-process linked list (gives PPID + run state).
+    // It depends on PsActiveProcessHead and the kernel data pages being resident.
+    let active = resolve_ps_active_process_head(reader)
+        .and_then(|ps_head| {
+            memf_windows::process::walk_processes(reader, ps_head)
+                .map_err(|e| anyhow!("windows ps walk failed: {e}"))
+        })
+        .ok()
+        .filter(|p| !p.is_empty());
+
+    if let Some(procs) = active {
+        let rows = procs
+            .iter()
+            .map(|p| {
+                vec![
+                    p.pid.to_string(),
+                    p.ppid.to_string(),
+                    p.image_name.clone(),
+                    if p.exit_time == 0 {
+                        "Running".into()
+                    } else {
+                        "Exited".into()
+                    },
+                ]
+            })
+            .collect();
+        return Ok((headers, rows));
+    }
+
+    // Fallback: physical pool-tag scan (psscan). Independent of
+    // PsActiveProcessHead and a page-resident kernel — the robust path on dumps
+    // whose kernel data is paged out (it also surfaces exited/unlinked processes).
+    let mut scanned = memf_windows::psscan::psscan(reader);
+    scanned.sort_by_key(|p| p.pid);
+    if scanned.is_empty() {
+        return Err(anyhow!(
+            "windows ps: active-process list unavailable and pool-tag scan found \
+             no processes"
+        ));
+    }
+    let rows = scanned
         .iter()
         .map(|p| {
             vec![
                 p.pid.to_string(),
-                p.ppid.to_string(),
-                p.image_name.clone(),
-                if p.exit_time == 0 {
-                    "Running".into()
-                } else {
-                    "Exited".into()
-                },
+                "?".to_string(),
+                p.name.clone(),
+                "scanned".to_string(),
             ]
         })
         .collect();
