@@ -386,6 +386,28 @@ raw-dump → auto-CR3 wiring is missing, so every memory matrix row stays gated.
 prerequisite (B1-wire, RED→GREEN): route Raw dumps through the memf-symbols DTB scan in
 `build_reader` before the CR3 bail-out; G2 re-runs after it lands.
 
+**G2 DEEP DIAGNOSIS 2026-06-11 (two memf-symbols fixes landed, one blocker isolated).**
+B1-wire shipped (issen-mem `03cf932`): `build_reader` resolves CR3 via embedded → `--cr3` →
+`memf_symbols::scan_for_kernel_dtb`. A `probe_dtb` example walked the real DC dump:
+1. **Enumeration was keyed to one self-map slot (`0x1F9`)**, but the DC is Windows Server
+   2012 R2 (self-map `0x1ED`), so the scan found **zero** candidates. Fixed RED→GREEN
+   (`memf-symbols fb32f86`): scan every kernel-half slot `0x100..0x200`. Now **41**
+   self-ref PML4 candidates surface, all at `0x1ED`.
+2. **Paging walk + large-page translation verified** — the lowest candidate reaches 14
+   kernel-half MZ images.
+3. **Blocker isolated:** `try_kernel_at_va` anchors verification on *ntoskrnl's* MZ header,
+   which is **not page-table-resident** in this dump — the 14 reachable images are all boot
+   drivers; a 64 KiB sweep finds no `nt*`. ntoskrnl *is* physically present (`ntkrnlmp.pdb`
+   RSDS at file offset `0x2219698`), but its PE-header page is paged out, so a
+   header-anchored discriminator rejects all 41 genuine DTBs.
+
+**Next prerequisite (B1-kerneldtb, design):** drop the resident-ntoskrnl-header assumption —
+either (a) confirm a candidate maps kernel space via *any* verifiable kernel-space PE+RSDS
+(drivers prove it) then select by lowest-physical, or (b) anchor on the physically-located
+kernel RSDS and pick the DTB mapping a kernel-half VA onto that page. Sole remaining gate on
+the memory leg; until it lands, F26–F37 stand write-up-corroborated in
+`docs/case001-union-answers.md`, not yet issen-measured.
+
 ---
 
 ## 6 · Prerequisites — PRE-1..6 (carried) + M-1/M-2 (new builds)

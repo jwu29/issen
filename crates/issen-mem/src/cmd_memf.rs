@@ -204,7 +204,7 @@ pub fn run_memf_command(args: &MemfArgs) -> anyhow::Result<()> {
         .with_context(|| format!("detecting format of {}", args.dump_path.display()))?;
 
     eprintln!(
-        "[rt-mem] dump={} format={fmt} command={}",
+        "[mem4n6] dump={} format={fmt} command={}",
         args.dump_path.display(),
         args.command,
     );
@@ -237,11 +237,11 @@ pub fn run_memf_command(args: &MemfArgs) -> anyhow::Result<()> {
                 MemfCommand::Scan,
                 MemfCommand::Creds,
             ] {
-                eprintln!("[rt-mem] dispatching {cmd}");
+                eprintln!("[mem4n6] dispatching {cmd}");
                 let result = dispatch_command(os, cmd, reader);
                 match result {
                     Ok((hdrs, rows)) => print_table(&hdrs, &rows, args.output),
-                    Err(e) => eprintln!("[rt-mem] {cmd} failed: {e}"),
+                    Err(e) => eprintln!("[mem4n6] {cmd} failed: {e}"),
                 }
             }
         } else {
@@ -253,7 +253,7 @@ pub fn run_memf_command(args: &MemfArgs) -> anyhow::Result<()> {
 
     // Graceful degradation: no CR3 or no profile — emit structured placeholder.
     if let Err(ref e) = reader_result {
-        eprintln!("[rt-mem] walker unavailable: {e}");
+        eprintln!("[mem4n6] walker unavailable: {e}");
     }
 
     let headers: &[&str] = match args.command {
