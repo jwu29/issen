@@ -1409,6 +1409,27 @@ mod tests {
         );
     }
 
+    /// G2 / B1-wire: a Raw dump with no embedded CR3 and no `--cr3` override
+    /// must attempt the memf-symbols header-less DTB scan (self-referencing
+    /// PML4 discriminator) before giving up — the real Case 001 WinPMEM dumps
+    /// carry no metadata, so the old immediate "use --cr3" bail-out left the
+    /// whole memory leg dead. On a dump where the scan finds nothing the error
+    /// must name the scan, not just demand --cr3.
+    #[test]
+    fn build_reader_scans_for_dtb_before_demanding_cr3() {
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        f.write_all(&[0u8; 64 * 1024]).unwrap(); // raw, no metadata, no PML4
+        f.flush().unwrap();
+
+        let result = build_reader(f.path(), None, None);
+        assert!(result.is_err(), "no kernel anywhere — must still fail");
+        let msg = result.err().unwrap().to_string().to_lowercase();
+        assert!(
+            msg.contains("dtb") || msg.contains("scan"),
+            "the CR3 fallback must attempt the DTB scan and say so, got: {msg}"
+        );
+    }
+
     /// The literal `"auto"` sentinel is treated identically to `None`: it
     /// selects the auto-profile path, not a file named `auto`.
     #[test]
