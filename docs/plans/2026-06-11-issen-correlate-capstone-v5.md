@@ -349,6 +349,23 @@ recording is the point: it is the PRE-3/PRE-5 RED baseline). Outputs: re-measure
 literals for every §2.1 "Measured members today" cell; any row whose literal moves gets
 re-pinned in the same commit.
 
+**G1 RAN 2026-06-11 — PASSED, with one root-cause fix landed.** Both ingests complete
+(DC01 15 s, Desktop ~30 s — #23's batched insert holds at scale). DC01: 689,605 events
+(Mft 349,136 / Registry 193,636 / EventLog 85,342 / **UsnJournal 61,491** — F13's USN leg
+fires). Desktop initially produced **Mft = 124** — G1 caught the true #26 root cause:
+`triage_manifest` flattened every partition's files into one temp dir keyed by NTFS path,
+so the recovery partition's 256-record `$MFT` overwrote C:'s 104,960-record table (DC01
+passed only by partition order). Fixed RED→GREEN (`issen-disk`: per-partition
+`part-<offset>/` namespacing; commits 136f6f6/28a68f3). Re-run: Desktop **768,862** events
+(Mft 417,628) — `Windows/System32/coreupdater.exe` FileCreate `2020-09-19T03:40:00Z` and
+its Prefetch file creation `03:40:59Z` now surface. Re-pinned literals: attacker-IP
+`194.61.24.102` on **611** events (metadata); first attacker `LogonSuccess`
+`2020-09-19T03:21:48Z`; LogonFailure 107. **Re-grades:** (1) registry is NOT zero-events
+(193,636 / 271,245) — PRE-3's "zero events" RED baseline is stale; PRE-3 re-scopes to the
+named-value table only. (2) `ServiceStart`+coreupdater matches 0 — the F17 7045 literal
+needs re-pinning against the actual 7045 event shape before Tier D. (3) prefetch/amcache/
+lnk/shimcache event sources are absent as expected — the PRE-5 RED baseline stands.
+
 ### G2 — first end-to-end memory run (both dumps)
 Run `issen memf ps|netstat|scan|creds` against the DC and Desktop dumps at HEAD.
 Validates B1 auto-profile (CR3 + RSDS resolution) on real WinPMEM-acquired images.
