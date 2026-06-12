@@ -1,94 +1,92 @@
-//! Prefetch header parsing for Windows `.pf` files.
+//! Prefetch (`.pf`) parsing for Issen.
 //!
-//! Parses the fixed 84-byte SCCA header and emits one [`TimelineEvent`] per
-//! file.  Timestamps require deeper parsing (MAM/format-specific offsets) and
-//! are stubbed to 0.
-//!
-//! Header layout (all values little-endian):
-//!
-//! | Offset | Size | Field         |
-//! |--------|------|---------------|
-//! | 0      | 4    | Signature     | "SCCA"
-//! | 4      | 4    | Version       | 17=XP, 23=7, 26=8, 30=10/11
-//! | 8      | 4    | File size     |
-//! | 12     | 60   | Exe name      | UTF-16LE, null-terminated
-//! | 72     | 4    | Prefetch hash |
-//! | 76     | 8    | (padding)     |
+//! Decoding is delegated to our published `prefetch-forensic` fleet crate, which
+//! handles the `MAM`/Xpress-Huffman wrapper and the SCCA v30/31 structure
+//! (executable, run count, up to eight last-run times, volume serial, loaded
+//! files) and grades masquerade / suspicious-location execution. We emit one
+//! `ProcessExec` [`TimelineEvent`] per recorded run time (each a distinct
+//! execution), or a single existence event when no run time is present.
 
 use std::path::Path;
 
+use forensicnomicon::report::Observation;
 use issen_core::artifacts::ArtifactType;
 use issen_core::timeline::event::{EventType, TimelineEvent};
 
-/// Minimum number of bytes needed to parse the SCCA header.
-const HEADER_LEN: usize = 84;
-/// Expected four-byte signature at offset 0.
-const SCCA_SIG: &[u8; 4] = b"SCCA";
-/// Byte length of the UTF-16LE executable name field.
-const EXE_NAME_BYTES: usize = 60;
+/// 100-ns ticks between the Windows `FILETIME` epoch (1601-01-01) and the Unix
+/// epoch (1970-01-01).
+const FILETIME_EPOCH_DIFF: i64 = 116_444_736_000_000_000;
+
+/// Convert a Windows `FILETIME` to (unix-nanoseconds, RFC 3339 display).
+fn filetime_to_unix(ft: i64) -> (i64, String) {
+    let ns = ft.saturating_sub(FILETIME_EPOCH_DIFF).saturating_mul(100);
+    let display = chrono::DateTime::from_timestamp_nanos(ns).to_rfc3339();
+    (ns, display)
+}
 
 /// Parse a Windows Prefetch file and return [`TimelineEvent`]s.
 ///
-/// Returns `Ok(vec![])` for:
-/// - Files shorter than [`HEADER_LEN`] bytes.
-/// - Files whose first four bytes are not `"SCCA"`.
+/// Returns `Ok(vec![])` for nonexistent / empty files and for anything that is
+/// not a recognized prefetch container (bad signature, decompression failure).
 ///
 /// # Errors
-/// Returns `Err` only on unrecoverable I/O failures.
+/// Returns `Err` only on unrecoverable I/O failures other than not-found.
 pub fn parse_prefetch(path: &Path, source_id: &str) -> anyhow::Result<Vec<TimelineEvent>> {
-    // Read the raw file bytes; avoid reading more than needed.
-    let raw = match std::fs::read(path) {
-        Ok(b) => b,
+    let bytes = match std::fs::read(path) {
+        Ok(b) if !b.is_empty() => b,
+        Ok(_) => return Ok(vec![]),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(vec![]),
         Err(e) => return Err(e.into()),
     };
 
-    if raw.len() < HEADER_LEN {
-        return Ok(vec![]);
-    }
+    let (rec, anomalies) = match prefetch_forensic::audit_bytes(&bytes) {
+        Ok(parsed) => parsed,
+        Err(_) => return Ok(vec![]),
+    };
 
-    // Validate signature.
-    if &raw[0..4] != SCCA_SIG {
-        return Ok(vec![]);
-    }
+    // Carry the masquerade / suspicious-path signal on the timeline as the
+    // finding codes (the analyzer narrative; hash matching stays elsewhere).
+    let anomaly_codes: Vec<String> =
+        anomalies.iter().map(|a| a.code().to_string()).collect();
+    let volume_serial = rec.volume_serial.map(|s| format!("{s:08X}"));
+    let image_path = rec
+        .image_path
+        .clone()
+        .unwrap_or_else(|| rec.executable.clone());
 
-    // Parse fixed fields.
-    let version = u32::from_le_bytes(raw[4..8].try_into().expect("4 bytes"));
-    let file_size = u32::from_le_bytes(raw[8..12].try_into().expect("4 bytes"));
-    let hash = u32::from_le_bytes(raw[72..76].try_into().expect("4 bytes"));
+    let make_event = |timestamp_ns: i64, timestamp_display: String| {
+        TimelineEvent::new(
+            timestamp_ns,
+            timestamp_display,
+            EventType::ProcessExec,
+            ArtifactType::Prefetch,
+            image_path.clone(),
+            format!(
+                "Prefetch: {} executed (run count {})",
+                rec.executable, rec.run_count
+            ),
+            source_id.to_string(),
+        )
+        .with_metadata("executable", serde_json::json!(rec.executable))
+        .with_metadata("run_count", serde_json::json!(rec.run_count))
+        .with_metadata("image_path", serde_json::json!(rec.image_path))
+        .with_metadata("volume_serial", serde_json::json!(volume_serial))
+        .with_metadata("loaded_files", serde_json::json!(rec.loaded_file_count))
+        .with_metadata("anomalies", serde_json::json!(anomaly_codes))
+    };
 
-    // Decode UTF-16LE executable name (60 bytes = up to 30 UTF-16 code units).
-    let exe_name = decode_utf16le_name(&raw[12..12 + EXE_NAME_BYTES]);
+    let events = if rec.last_run_filetimes.is_empty() {
+        // No recorded run time — emit a single existence event.
+        vec![make_event(0, String::new())]
+    } else {
+        rec.last_run_filetimes
+            .iter()
+            .map(|&ft| {
+                let (ns, display) = filetime_to_unix(ft);
+                make_event(ns, display)
+            })
+            .collect()
+    };
 
-    let description = format!("Prefetch: {exe_name} (hash: {hash:08x})");
-
-    let event = TimelineEvent::new(
-        0, // timestamps require deeper parsing; stub with 0
-        String::new(),
-        EventType::ProcessExec,
-        ArtifactType::Prefetch,
-        exe_name.clone(),
-        description,
-        source_id.to_string(),
-    )
-    .with_metadata("version", serde_json::json!(version))
-    .with_metadata("file_size", serde_json::json!(file_size))
-    .with_metadata("hash", serde_json::json!(format!("0x{hash:08X}")));
-
-    Ok(vec![event])
-}
-
-/// Decode a null-terminated UTF-16LE byte slice into a `String`.
-///
-/// Stops at the first null code unit (0x0000). Invalid surrogates are replaced
-/// with U+FFFD.
-fn decode_utf16le_name(bytes: &[u8]) -> String {
-    let words: Vec<u16> = bytes
-        .chunks_exact(2)
-        .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
-        .take_while(|&w| w != 0)
-        .collect();
-    char::decode_utf16(words)
-        .map(|r| r.unwrap_or('\u{FFFD}'))
-        .collect()
+    Ok(events)
 }

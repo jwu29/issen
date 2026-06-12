@@ -8,6 +8,11 @@ license.workspace = true
 [dependencies]
 anyhow = { workspace = true }
 issen-core = { path = "../../issen-core" }
+# Decode prefetch (MAM/Xpress-Huffman + SCCA v30/31) via OUR published fleet
+# crate — the real reader, not the old MAM-skipping header stub.
+prefetch-forensic = "0.1"
+forensicnomicon = { workspace = true }
+chrono = { workspace = true }
 serde_json = { workspace = true }
 inventory = { workspace = true }
 

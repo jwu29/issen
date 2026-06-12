@@ -29,8 +29,7 @@ impl PrefetchParser {
     pub fn can_parse(path: &Path) -> bool {
         path.extension()
             .and_then(|e| e.to_str())
-            .map(|e| e.eq_ignore_ascii_case("pf"))
-            .unwrap_or(false)
+            .is_some_and(|e| e.eq_ignore_ascii_case("pf"))
     }
 }
 
@@ -144,68 +143,49 @@ mod tests {
         );
     }
 
-    #[test]
-    fn parse_valid_header_emits_one_event() {
-        // Construct a minimal 84-byte SCCA prefetch header.
-        // Layout (all little-endian):
-        //   [0..4]   signature: "SCCA"
-        //   [4..8]   version: 30 (Win10/11)
-        //   [8..12]  file_size: 84
-        //   [12..72] exe name: "NOTEPAD.EXE" in UTF-16LE, null-padded to 60 bytes
-        //   [72..76] prefetch hash: 0xABCD1234
-        //   [76..84] padding
-        let mut data = vec![0u8; 84];
-        data[0..4].copy_from_slice(b"SCCA");
-        data[4..8].copy_from_slice(&30u32.to_le_bytes()); // version = Win10
-        data[8..12].copy_from_slice(&84u32.to_le_bytes()); // file_size
-        // "NOTEPAD.EXE" as UTF-16LE into bytes 12..72 (60 bytes = 30 UTF-16 code units)
-        let exe = "NOTEPAD.EXE";
+    /// A minimal valid Win10 (v30) SCCA payload: `[u32 version][b"SCCA"]`, the
+    /// executable name at offset 16, one last-run FILETIME, and a run count.
+    /// Empty filename/volume blocks (offsets 0) decode gracefully to nothing.
+    fn minimal_scca(exe: &str, run_time: i64, run_count: u32) -> Vec<u8> {
+        let mut p = vec![0u8; 84 + 224];
+        p[0..4].copy_from_slice(&30u32.to_le_bytes());
+        p[4..8].copy_from_slice(b"SCCA");
         for (i, c) in exe.encode_utf16().enumerate() {
-            let off = 12 + i * 2;
-            data[off..off + 2].copy_from_slice(&c.to_le_bytes());
+            p[16 + i * 2..16 + i * 2 + 2].copy_from_slice(&c.to_le_bytes());
         }
-        data[72..76].copy_from_slice(&0xABCD_1234u32.to_le_bytes()); // hash
+        let fi = 84;
+        p[fi + 44..fi + 52].copy_from_slice(&run_time.to_le_bytes()); // run time[0]
+        p[fi + 124..fi + 128].copy_from_slice(&run_count.to_le_bytes()); // old-format run count
+        p
+    }
 
+    #[test]
+    fn parse_real_layout_scca_emits_run_event() {
+        // FILETIME 2020-09-19 (the Stolen Szechuan Sauce era).
+        let data = minimal_scca("NOTEPAD.EXE", 132_449_604_494_103_203, 3);
         let mut tmp = tempfile::NamedTempFile::new().expect("tempfile");
         tmp.write_all(&data).expect("write");
         tmp.flush().expect("flush");
 
         let events = parser::parse_prefetch(tmp.path(), "test-source")
-            .expect("parse_prefetch must not Err on valid header");
+            .expect("parse_prefetch must not Err on a valid SCCA");
 
-        assert_eq!(events.len(), 1, "expected exactly one event");
+        assert_eq!(events.len(), 1, "one run time → one event");
         let ev = &events[0];
-
+        assert_eq!(ev.source, ArtifactType::Prefetch);
+        assert!(ev.description.contains("NOTEPAD.EXE"), "{}", ev.description);
+        assert!(ev.timestamp_ns > 0, "run time must be decoded, not stubbed to 0");
         assert_eq!(
-            ev.source,
-            ArtifactType::Prefetch,
-            "event source must be Prefetch"
-        );
-        assert!(
-            ev.artifact_path.contains("NOTEPAD.EXE"),
-            "artifact_path should contain exe name, got: {}",
-            ev.artifact_path
-        );
-        assert!(
-            ev.description.contains("NOTEPAD.EXE"),
-            "description should contain exe name, got: {}",
-            ev.description
-        );
-        assert!(
-            ev.description.to_lowercase().contains("abcd1234"),
-            "description should contain hash, got: {}",
-            ev.description
-        );
-        assert_eq!(ev.timestamp_ns, 0, "timestamp_ns should be 0 (stub)");
-        assert_eq!(
-            ev.metadata.get("version").and_then(|v| v.as_u64()),
-            Some(30),
-            "metadata version should be 30"
+            ev.metadata
+                .get("run_count")
+                .and_then(serde_json::Value::as_u64),
+            Some(3)
         );
         assert_eq!(
-            ev.metadata.get("file_size").and_then(|v| v.as_u64()),
-            Some(84),
-            "metadata file_size should be 84"
+            ev.metadata
+                .get("executable")
+                .and_then(serde_json::Value::as_str),
+            Some("NOTEPAD.EXE")
         );
     }
 }

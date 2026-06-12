@@ -2957,9 +2957,9 @@ dependencies = [
 
 [[package]]
 name = "forensicnomicon"
-version = "0.4.0"
+version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e08a75adbb7f006c36d44673921600f95ab143cf2b5dc1efb2f694285dbaa930"
+checksum = "31fc3fd6ea4521b9048dd62dd210dafe3cdd319840810909238b5c665a0e09da"
 
 [[package]]
 name = "form_urlencoded"
@@ -4301,7 +4301,7 @@ dependencies = [
  "duckdb",
  "flate2",
  "forensic-pivot",
- "forensicnomicon 0.4.0",
+ "forensicnomicon 0.4.1",
  "inventory",
  "is-terminal",
  "issen-core",
@@ -4367,7 +4367,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "flate2",
- "forensicnomicon 0.4.0",
+ "forensicnomicon 0.4.1",
  "issen-core",
  "reqwest",
  "serde",
@@ -4413,7 +4413,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "evtx",
- "forensicnomicon 0.4.0",
+ "forensicnomicon 0.4.1",
  "issen-core",
  "rusqlite",
  "schemars",
@@ -4601,7 +4601,7 @@ dependencies = [
 name = "issen-parser-pe"
 version = "0.1.0"
 dependencies = [
- "forensicnomicon 0.4.0",
+ "forensicnomicon 0.4.1",
  "goblin 0.10.5",
  "thiserror 2.0.18",
 ]
@@ -4611,8 +4611,11 @@ name = "issen-parser-prefetch"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
+ "forensicnomicon 0.4.1",
  "inventory",
  "issen-core",
+ "prefetch-forensic",
  "serde_json",
  "tempfile",
 ]
@@ -4806,7 +4809,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "csv",
- "forensicnomicon 0.4.0",
+ "forensicnomicon 0.4.1",
  "hex",
  "insta",
  "ipnet",
@@ -4834,7 +4837,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "duckdb",
- "forensicnomicon 0.4.0",
+ "forensicnomicon 0.4.1",
  "insta",
  "issen-core",
  "rusqlite",
@@ -6909,6 +6912,25 @@ checksum = "d0de1b847b39c8131db0467e9df1ff60e6d0562ab8e9a16e568ad0fdb372e2f2"
 dependencies = [
  "predicates-core",
  "termtree",
+]
+
+[[package]]
+name = "prefetch-core"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ce0e0c1336e28565047c7b519ed4ae8d6b97d2f075995dc541e0ff12b3e8d63c"
+dependencies = [
+ "xpress-huffman",
+]
+
+[[package]]
+name = "prefetch-forensic"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "42c68dc85844c01734c4c3796860bb7b19dd080d303908aef3fbd02c9ff73dcc"
+dependencies = [
+ "forensicnomicon 0.4.1",
+ "prefetch-core",
 ]
 
 [[package]]
@@ -11090,7 +11112,7 @@ name = "winreg-artifacts"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "forensicnomicon 0.4.0",
+ "forensicnomicon 0.4.1",
  "serde",
  "winreg-core",
  "winreg-discover",
@@ -11316,6 +11338,12 @@ name = "xmlwriter"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec7a2a501ed189703dba8b08142f057e887dfc4b2cc4db2d343ac6376ba3e0b9"
+
+[[package]]
+name = "xpress-huffman"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7db36564308ced066dfa8972d844e85647f9c3588c57a1cecda89f76e8700907"
 
 [[package]]
 name = "xtask"
