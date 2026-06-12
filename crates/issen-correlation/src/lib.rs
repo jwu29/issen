@@ -3,6 +3,7 @@ pub mod attack_flow;
 pub mod cluster;
 pub mod correlation;
 pub mod engine;
+pub mod evaluator;
 pub mod skew;
 pub mod enrich;
 pub mod feeds;
