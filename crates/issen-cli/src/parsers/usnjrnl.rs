@@ -8,7 +8,7 @@ use issen_core::plugin::registry::ParserRegistration;
 use issen_core::plugin::traits::{
     DataSource, EventEmitter, ForensicParser, ParseStats, ParserCapabilities,
 };
-use issen_core::timeline::event::{EventType, TimelineEvent};
+use issen_core::timeline::event::{EntityRef, EventType, TimelineEvent};
 use ntfs_core::usn::{parse_usn_record_v2, UsnReason, UsnRecord};
 
 /// USN Journal parser — implements ForensicParser for Issen.
@@ -168,6 +168,8 @@ fn record_to_event(record: &UsnRecord, evidence_source_id: &str) -> TimelineEven
         "file_attributes",
         serde_json::json!(record.file_attributes.bits()),
     )
+    // PRE-2: the file path as a typed correlation join key.
+    .with_entity_ref(EntityRef::FilePath(record.filename.clone()))
 }
 
 // Compile-time registration with the parser inventory.

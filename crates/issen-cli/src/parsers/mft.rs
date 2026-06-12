@@ -9,7 +9,7 @@ use issen_core::plugin::registry::ParserRegistration;
 use issen_core::plugin::traits::{
     DataSource, EventEmitter, ForensicParser, ParseStats, ParserCapabilities,
 };
-use issen_core::timeline::event::{EventType, TimelineEvent};
+use issen_core::timeline::event::{EntityRef, EventType, TimelineEvent};
 use mft::attribute::x10::StandardInfoAttr;
 use mft::attribute::x30::FileNameAttr;
 use mft::attribute::MftAttributeContent;
@@ -58,6 +58,8 @@ fn mace_event(
     )
     .with_metadata("mft_entry_id", serde_json::json!(entry_id))
     .with_metadata("is_directory", serde_json::json!(is_dir))
+    // PRE-2: the file path as a typed correlation join key.
+    .with_entity_ref(EntityRef::FilePath(full_path.to_string()))
 }
 
 /// Extract the `$STANDARD_INFORMATION` attribute from an MFT entry.
