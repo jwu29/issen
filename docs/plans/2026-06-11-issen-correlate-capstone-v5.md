@@ -866,3 +866,31 @@ That is the Case-001 DC RDP brute-force, correctly account-keyed; the earlier
 link-local false positive is gone. Pipeline still completes E2E on 691k events in
 ~35 s. Four real-data defects total found-and-fixed under TDD this pass
 (disk-image discovery, 100k truncation, O(n²) evaluator, brute-force join key).
+
+### Update — disk rules unblocked; precision tuning is the remaining tail (2026-06-13)
+
+Two more real-data root causes fixed under TDD:
+- **7045 ServiceInstall carried no ImagePath** (`4cd7aee`/`28f867f`): record_to_event
+  now uses the service ImagePath as artifact_path, surfacing the real malware
+  service binaries (`coreupdater.exe`, the `cmd.exe /c echo … \\.\pipe\…` PsExec
+  pipes, `ad_driver.sys`) and giving PERSIST a joinable stem.
+- **SameHost rejected unknown hosts** (`1955ff1`/`daf2287`): every MFT/USN disk
+  event has hostname=NULL while EVTX carries the host, so `SameHost::admits`
+  dropped every disk↔log pair. It now admits when either host is None.
+
+Result on the real DC: the genuine attack chain is **detected** —
+`CORR-MALWARE-PERSIST` fires on the real coreupdater drop (03:24:12) → service
+install (03:27:49), alongside the real `CORR-BRUTEFORCE-LOGON`. But total
+correlations jumped to 350: PERSIST (326) and PERSIST-REGCONFIRM (23) now also
+pair every **boot-time legitimate** Windows service install with same-stem
+system-binary creates inside their 24h window. The true positives are present but
+buried.
+
+**Remaining #37 work — detection-precision (the scoped tail, on a now
+structurally-complete pipeline):** the disk rules need suspicious-context guards
+(drop location outside system dirs / unsigned-or-recently-written image / tighter
+windows) so they flag malicious persistence, not routine service installs — the
+same precision pass the brute-force rule received. Plus the full F1–F44 union
+across both hosts + the memory leg. All STRUCTURAL blockers are now removed
+(discovery, unbounded scan, O(n^2), join keys, host scope); what remains is rule
+precision + the multi-source run, not plumbing.
