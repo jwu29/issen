@@ -116,12 +116,26 @@ impl ForensicParser for SrumParser {
 
     fn parse(
         &self,
-        _input: &dyn DataSource,
-        _emitter: &dyn EventEmitter,
+        input: &dyn DataSource,
+        emitter: &dyn EventEmitter,
     ) -> Result<ParseStats, RtError> {
-        // The SRUM parser uses parse_path() directly (file-path based ESE access).
-        // The streaming DataSource interface does not apply to ESE database parsing.
-        Ok(ParseStats::new())
+        // SRUM is an ESE database: the parser seeks across B-tree pages, so it
+        // needs random-access *file* semantics, not the streaming byte view.
+        // When the source exposes its path (the orchestrator's FileDataSource
+        // does), drive the real ESE traversal through it; a byte-only source
+        // (no path) yields no events rather than failing.
+        let Some(path) = input.source_path() else {
+            return Ok(ParseStats::new());
+        };
+
+        let events = self
+            .parse_path(path)
+            .map_err(|e| RtError::InvalidData(format!("SRUM parse failed: {e}")))?;
+        let mut stats = ParseStats::new();
+        stats.events_emitted = events.len() as u64;
+        stats.bytes_processed = input.len();
+        emitter.emit_batch(events)?;
+        Ok(stats)
     }
 
     fn capabilities(&self) -> ParserCapabilities {

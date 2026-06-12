@@ -39,6 +39,17 @@ pub trait DataSource: Send + Sync {
 
     /// Read bytes at the given offset into `buf`. Returns bytes read.
     fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<usize, RtError>;
+
+    /// Filesystem path this source was opened from, if any.
+    ///
+    /// Defaults to `None` — most parsers consume the byte stream via `read_at`
+    /// and need no path. A parser that requires random-access *file* semantics
+    /// (e.g. an ESE/SQLite reader that seeks across B-tree pages, or registry
+    /// transaction-log replay) uses this to reach the underlying file. Sources
+    /// backed only by bytes return `None`, so such parsers degrade gracefully.
+    fn source_path(&self) -> Option<&std::path::Path> {
+        None
+    }
 }
 
 /// Parse statistics returned after a successful parse.
@@ -220,6 +231,14 @@ mod tests {
         let source = MemorySource::new(vec![]);
         assert_eq!(source.len(), 0);
         assert!(source.is_empty());
+    }
+
+    #[test]
+    fn test_data_source_source_path_defaults_to_none() {
+        // A byte-backed source advertises no path, so path-needing parsers
+        // (ESE/SQLite) degrade gracefully instead of misreading the stream.
+        let source = MemorySource::new(vec![1, 2, 3]);
+        assert!(source.source_path().is_none());
     }
 
     #[test]

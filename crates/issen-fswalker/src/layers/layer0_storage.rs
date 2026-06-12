@@ -49,6 +49,10 @@ impl DataSource for FileDataSource {
         let n = file.read(buf)?;
         Ok(n)
     }
+
+    fn source_path(&self) -> Option<&Path> {
+        Some(&self.path)
+    }
 }
 
 /// A byte-slice DataSource for testing and in-memory data.
@@ -134,5 +138,23 @@ mod tests {
     fn test_file_data_source_not_found() {
         let result = FileDataSource::open(Path::new("/nonexistent/file.bin"));
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_file_data_source_exposes_source_path() {
+        // The trait-level source_path() must yield the opened path so a
+        // path-needing parser (ESE/SRUM) can reach the file during parse().
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let path = dir.path().join("SRUDB.dat");
+        std::fs::write(&path, b"ese-ish bytes").expect("write");
+
+        let source = FileDataSource::open(&path).expect("open");
+        assert_eq!(source.source_path(), Some(path.as_path()));
+    }
+
+    #[test]
+    fn test_slice_data_source_has_no_source_path() {
+        let source = SliceDataSource::new(vec![1, 2, 3]);
+        assert!(source.source_path().is_none());
     }
 }
