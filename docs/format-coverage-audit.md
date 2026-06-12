@@ -1,150 +1,138 @@
 # Fleet Format-Coverage Audit — *implement the whole spec, not the first variant*
 
-*Scoping document, 2026-06-12. Trigger: the Case-001 DC01 shimcache bug — a
-parser built around the one header we'd seen (Win10 `0x34`) silently returned a
-sentinel on the documented Win8.1/Server-2012-R2 header. The format set was
-closed and published; we'd implemented one member of it. This audit sizes how
-widespread that pattern is across the fleet's format readers.*
+*Verified 2026-06-12 by a 7-cluster read-only audit fan-out. Trigger: the
+Case-001 DC01 shimcache bug — a parser built around the one header we'd seen
+(Win10 `0x34`) silently sentineled the documented Win8.1/Server-2012-R2 header on
+real evidence. This document is the fleet-wide coverage matrix that resulted.*
 
 ## Executive summary
 
-**The failure mode:** a `*-core` reader implements the format variant(s) present
-in its first test corpus, and **silently degrades** (empty result / sentinel /
-best-effort garbage) on the *other documented variants* of the same format. The
-spec is finite and known; the gap is latent until a real artifact of the
-unimplemented vintage shows up in a case — at which point the tool produces
-**silent wrong output**, the most expensive bug class.
+The fleet is **strong at the container/format layer** (fail-loud is already the
+norm: vhd, vmdk, qcow2, dmg, kdump, winevt, winreg-core, apm) and **weak at two
+specific layers** — *compression/encoding within a recognised format*, and
+*OS-structure/schema variants across builds*. The audit's single most important
+result is that **two different failure species hide under "we only implemented
+one variant," and they need opposite treatment:**
 
-**Why this is not YAGNI:** these formats are **closed, published specifications**,
-not speculative features. Each unimplemented documented variant is a known
-latent bug, not a "might need it later." Completeness against a spec is the
-correctness bar for an evidence parser — a DFIR tool that can't read a Win7
-ShimCache or an Ex01 image is incomplete for real casework, where legacy systems
-are the norm, not the exception.
+- **Honest-incomplete (fail loud):** the reader meets a documented variant it
+  can't decode and **says so** with an explicit error. Annoying, not dangerous.
+  *Examples: prefetch v17/v23/v26 (`UnsupportedVersion`), qcow2 zstd/LUKS, dmg
+  bzip2/LZFSE, kdump LZO.* → **backlog item.**
+- **Silent wrong output (bug):** the code path runs to completion and emits
+  **confident garbage** — no error, no sentinel. *Examples: hfsplus decmpfs,
+  ntfs LZNT1, sqlite UTF-16, memf EPROCESS offsets.* → **bug to fix.**
 
-**Three binding principles this audit enforces (beyond just "decode more"):**
-1. **Fail loud on recognized-but-unimplemented.** A reader that recognizes a
-   documented header it can't yet decode must say so (`unsupported <format>
-   <build>`), never return a blank/sentinel that reads as "nothing here."
-2. **Validate each variant against a *real* artifact of that vintage.** Synthetic
-   fixtures hid the Win8.1 bug. Implementing XP/Win7 from the spec and testing
-   only against self-built fixtures repeats the trap. Real-hive validation is the
-   actual gate — and the actual cost.
-3. **Delete unspecified guesswork.** Parser branches matching no published layout
-   (e.g. shimcache's legacy `0x80`/`parse_win10`) are worse than an honest gap.
+Making **F (fail-loud) a first-class axis** is what separates these. The shimcache
+gap and the prefetch gap are *identical* at the D−I level (one variant
+implemented); prefetch is safe because it fails loud, shimcache was dangerous
+because it sentineled. **The remediation that matters is not "decode everything" —
+it is "never emit silent wrong output," then decode by prevalence.**
 
-## The assessment rubric (four axes per reader)
+A third, systemic finding cuts across every cluster: **the V axis is near-empty.**
+Almost all validation is synthetic fixtures — the exact trap that hid the Win8.1
+bug. Real-artifact validation exists for only a handful (winevt, prefetch v30/v31,
+xpress-huffman, apm, dar, ntfs boot sector, shimcache-DC01). Sourcing a real
+corpus per format is the actual gate for every fix below.
 
-For every `<format>` a reader claims to parse, the audit records:
+## The rubric (four axes per reader)
 
 | Axis | Question |
 |---|---|
-| **D — Documented set** | What variants/versions does the authoritative spec define? (enumerate, cite) |
-| **I — Implemented** | Which of D does the reader actually decode? |
-| **V — Validated** | Which of I are confirmed against a *real* artifact (not just a synthetic fixture)? |
-| **F — Fail-loud** | On a variant in D but not I, does the reader error explicitly, or silently sentinel? |
+| **D — Documented set** | what variants/versions does the authoritative spec define? |
+| **I — Implemented** | which of D does the reader decode? |
+| **V — Validated** | which of I are confirmed against a *real* artifact (not a synthetic fixture)? |
+| **F — Fail-loud** | on a `D − I` variant, does the reader error explicitly, or silently sentinel/garble? |
 
-A reader is **complete** when `I = D`, **honest** when `F = loud` for any `D − I`,
-and **trustworthy** when `V = I`. The shimcache exemplar before this session:
-`D = {XP, 2003, 7, 8.0, 8.1, 10×3}`, `I = {10}`, `V = {10}`, `F = silent` — i.e.
-failing on every axis.
+Complete = `I=D` · honest = `F=loud` on the gap · trustworthy = `V=I`.
 
-## In-scope readers (grounded inventory, ~30 repos)
+## Verified coverage matrix
 
-Grouped by the layer hierarchy. **Status** is a *scoping estimate* (domain
-knowledge + this session), confidence-marked — the fan-out produces the verified
-matrix. `✓`=confirmed, `~`=inferred, `?`=undetermined.
+`✓` clean · `⚠` gap, fails loud (honest-incomplete) · `🔴` gap, **silent wrong output** · `—` not implemented (stub)
 
-### CONTAINER (disk-image decoders)
-| Reader | Documented variant set (D) | Suspected gap | Conf |
+### Clean passers — complete, fail-loud, *and* real-artifact-validated
+| Reader | Note |
+|---|---|
+| **winevt-forensic** ✓ | all 24 BinXML value-types + arrays + embedded BinXML; loud `UnknownType`; real EVTX corpus |
+| **winreg-core** ✓ | all 5 REGF versions, 8 cell types, all value types, big-data; loud `UnsupportedVersion` |
+| **apm-partition-forensic** ✓ | complete, real hdiutil artifact, *and* honors variable sector size (reads block size from DDM) |
+
+### Honest-incomplete — fail loud, real validation debt only (backlog, low risk)
+| Reader | `D − I` (fails loud ✓) | Validation |
+|---|---|---|
+| prefetch-forensic ⚠ | SCCA v17/v23/v26 (`UnsupportedVersion`) | v30/v31 REAL ✓ |
+| vmdk-forensic ⚠ | SEsparse, vmfs (`UnsupportedVersion`/`Compressed`) | v1–v3 ~real |
+| qcow2-forensic ⚠ | zstd, LUKS, backing, snapshots (explicit rejects) | v2/v3 zlib ~real |
+| dmg ⚠ | bzip2, LZFSE block types (loud `Unsupported`) | zlib REAL ✓ |
+| kdump (memf-format) ⚠ | LZO (explicit "not yet supported") | synthetic |
+| dar-forensic ⚠ | formats 2–6 (deprecated band) | 1+7–11 REAL ✓ |
+
+### 🔴 Silent wrong output — the bug class (ranked by prevalence × undetectability)
+| Reader | Silent gap | Why it's dangerous | Cheapest honest fix |
 |---|---|---|---|
-| **ewf** / ewf-forensic | EWF-E01, **EWF2-Ex01**, L01/Lx01, S01; deflate + **bzip2** compression; encryption | Ex01/L01, bzip2, encryption | ~ |
-| **vhdx**-forensic | dynamic, fixed, **differencing**; log replay; BAT | differencing chains | ~ |
-| **vmdk**-forensic | monolithicSparse/Flat, twoGbMaxExtent×2, streamOptimized, **SEsparse**, **vmfs**, descriptor-only | SEsparse, vmfs extents | ~ |
-| **qcow2**-forensic | v2, v3; zlib + **zstd** compression; AES + **LUKS** encryption; backing; internal snapshots | zstd, LUKS, internal snapshots | ~ |
-| **vhd** | fixed, dynamic, differencing (footer+sparse header) | differencing | ? |
-| **dd** | raw/split-raw | (likely complete) | ~ |
-| **aff4** | AFF4 zip volumes, image streams, maps | map streams | ? |
-| **iso9660**-forensic | ISO9660, **Joliet**, **Rock Ridge**, El Torito | Joliet/Rock Ridge extensions | ~ |
-| **udf**-forensic | UDF 1.02–2.60 revisions | revision spread | ? |
-| **dmg** | UDIF: zlib/bzip2/**LZFSE**/raw blocks; **APFS**/HFS payloads | LZFSE blocks | ? |
-| **dar**-forensic | DAR archive format/versions | version spread | ? |
+| **memf-windows / memf-linux** 🔴 | EPROCESS/VAD/task_struct via **hardcoded offsets, no build/kernel dispatch** | a Win7/8/11 or non-matching-kernel dump yields a *plausible* wrong PID/PPID — **undetectable** | guard: unknown struct-profile → error, never walk with wrong offsets |
+| **ntfs-core** 🔴 | **LZNT1** `decompress()` exists but is **never wired** into the reader; WofCompressed reparse skipped | compressed `$DATA` / Compact-OS files (ubiquitous Win10+) return garbage/empty | wire `is_compressed()`→`decompress()`; the decoder already exists (≈30 min fail-loud, ≈2 d full) |
+| **hfsplus-forensic** 🔴 | **decmpfs** (zlib/LZVN/LZFSE) entirely absent | ~70% of macOS system files are compressed → garbage bytes read as success | detect decmpfs xattr → error (1 h); full decode 3–5 d |
+| **sqlite-forensic** 🔴 | **text encoding** (header byte 56) never read; `from_utf8_lossy` unconditional | UTF-16 SQLite DBs (Windows/legacy) → U+FFFD mojibake, no error (`core/src/lib.rs:2702`) | read byte 56, route to `from_utf16` (≈0.5 d) |
+| **journald-forensic** 🔴 | **LZ4/XZ/ZSTD** flags recognised, **no decompressor deps at all** | modern journals (ZSTD default on 2023+ distros) → objects silently skipped | add lz4-flex/xz2/zstd + decompress |
+| **browser-forensic** 🔴~ | schema-version drift unhandled (single fixed column map) | Chrome v70 vs v100 History → NULL columns silently | read `schema_version`, version-routed column maps |
+| **git-forensic** 🔴 | only loose objects; **packfiles** unimplemented | every post-`gc` repo → misleading "object not found" (not "unsupported") | fail-loud guard on `pack/*.idx`; or pack v2 reader |
+| **vhdx-forensic** 🔴 | **differencing** disks — no parent-locator guard | Hyper-V checkpoint → corrupt/missing data, no error | detect parent-locator → `DifferencingNotSupported` |
+| **xpress-huffman** 🔴 | only [MS-XCA] §2.2 Huffman; **§2.1 plain LZ77 absent** | format-3 input mis-reported as "Huffman table truncated" (corruption) | format-byte dispatch + decode or loud `Unsupported(XPRESS)` |
+| **shimcache** 🔴 | genuinely-unrecognised header → **empty-path sentinel** (not error) | XP/2003/Vista/7 cache reads as "no entries" — the original exemplar, residual | replace sentinel with `UnsupportedFormat`; implement Win7 next |
 
-### FILESYSTEM
-| Reader | Documented variant set (D) | Suspected gap | Conf |
-|---|---|---|---|
-| **ntfs**-forensic | attr types ($SI,$FN,$DATA,$ATTRIBUTE_LIST,$INDEX_*,$REPARSE,$EA,$LOGGED_UTILITY); resident/non-resident; **LZNT1 compression**; sparse; ADS; $LogFile; $UsnJrnl | compression, reparse, $EA, $LogFile transactions | ~ |
-| **ext4fs**-forensic | ext4 extents **+ ext2/3 indirect block maps**; 64-bit; **inline data**; htree dirs; journal | ext2/3 indirect, inline data | ~ |
-| **hfsplus**-forensic | HFS+, HFSX; compression (decmpfs: zlib/**LZVN**/LZFSE); catalog/extents B-trees | decmpfs variants | ? |
-| **usnjrnl**-forensic | $UsnJrnl:$J record v2 **+ v3 (128-bit FRN) + v4 (ranges)** | v3/v4 records | ~ |
+### Mixed / lookup-miss (NOT the bug class — see severity note)
+| Reader | Finding | My grade |
+|---|---|---|
+| mbr / gpt partition | unknown type-code / type-GUID → "Unknown" | **informational, not a bug** — an open-registry lookup miss; the partition is fully readable. Surface as an *observation*, not a parse error. (Audit G over-graded this CRITICAL; I'm down-grading it.) |
+| mbr / gpt partition | **no hybrid MBR/GPT cross-validation; 4Kn sector assumed 512** | ⚠ genuine — the MBR/GPT inconsistency *is* forensic evidence; 4Kn geometry off by 8× |
+| usnjrnl v4 | recognised, silently skipped (no timeline value) | ⚠ minor — should log/observe the skip, not drop silently |
+| ntfs $REPARSE/$EA | returned as opaque blob | ⚠ honest-ish — present but uninterpreted (not garbage) |
+| ext4fs HTree, unwritten extents | flag detected, passed through | ⚠ minor |
 
-### REGISTRY
-| Reader | Documented variant set (D) | Suspected gap | Conf |
-|---|---|---|---|
-| **winreg-core** | cell types nk/vk/sk/lf/lh/li/ri/**db**; hive minor v1.3–1.6; big-data | big-data **fixed this session**; minor-version spread | ✓ |
-| winreg-artifacts::**shimcache** | XP/2003/Vista/**7**/8.0/8.1/10×3 | **7/XP/2003 (known gap)** | ✓ |
-| winreg-artifacts::**amcache** | Win8 (`File`) vs **Win10 (`InventoryApplicationFile`)** schema | schema variant | ~ |
-| winreg-artifacts::**userassist**, **sam**, run_keys, … | ROT13 v3/v5; SAM F/V record versions | version spread | ? |
+### Stubs (no code → no silent-failure surface; defer until artifact-driven)
+vsc-forensic (VSS — research only), snapshot-forensic (format catalog only).
 
-### LOG / APP ARTIFACT
-| Reader | Documented variant set (D) | Suspected gap | Conf |
-|---|---|---|---|
-| **prefetch**-forensic | SCCA v17 (XP), **v23 (Vista/7)**, **v26 (8.1)**, v30 (10), v31 (11); MAM(Xpress-Huff) wrapper | **v17/v23/v26 (suspected)** | ~ |
-| **winevt**-forensic | EVTX BinXML token/value-type set; chunk/record; templates | value-type completeness | ~ |
-| ese-core (**srum**) | ESE page versions; long-values; multi-values; **column compression (7-bit, LZXPRESS, Unicode)**; tagged cols | compression variants | ~ |
-| **sqlite**-forensic | page sizes; overflow; WAL/rollback; freelist; schema fmt 1–4; **text enc UTF8/16LE/16BE**; serial types | text-encoding, freelist edge | ~ |
-| **browser**-forensic | Chrome/Firefox/Safari schema versions over time | schema-version drift | ? |
-| **journald**-forensic | journal file format versions; **LZ4/XZ/zstd** object compression | compression variants | ? |
-| **exec-pe**-forensic | PE32/PE32+; section/import/export/reloc/resource/debug dirs | directory completeness | ? |
+## Ranked remediation backlog
 
-### CODEC
-| Reader | Documented variant set (D) | Suspected gap | Conf |
-|---|---|---|---|
-| **xpress-huffman** | [MS-XCA]: LZ77+Huffman **and plain LZ77 (XPRESS, no Huffman)** | **plain-LZ77 variant** | ~ |
+**Tier 0 — silent wrong output on COMMON modern evidence (do first; cheap fail-loud guard buys safety even before full decode):**
+1. **memf-windows/linux** build/kernel-profile guard — highest undetectability.
+2. **ntfs-core** wire LZNT1 (decoder already exists) + WofCompressed.
+3. **hfsplus** decmpfs (fail-loud guard in 1 h; full decode after).
+4. **sqlite** UTF-16 text encoding.
 
-### `[H]` STATE-HISTORY / GRAPH
-vsc-forensic (VSS), snapshot-forensic, git-forensic — version/format spreads `?`.
+**Tier 1 — silent skip / misleading error on common evidence:**
+5. journald LZ4/XZ/ZSTD · 6. git-forensic packfiles (or guard) · 7. vhdx differencing guard · 8. xpress-huffman plain-LZ77 + dispatch · 9. browser schema-version routing.
 
-## Prioritization (prevalence in real casework × silent-failure risk)
+**Tier 2 — honest-incomplete, implement as a real artifact is sourced:**
+shimcache 7/XP/2003 (+ make its fallback fail loud) · prefetch v17/v23/v26 · amcache Win8 `File` schema · usnjrnl v4 decode · ntfs $REPARSE/$EA · ext4 HTree.
 
-1. **prefetch v17/v23/v26**, **shimcache 7/XP/2003** — execution-evidence parsers
-   silently blank on pre-Win10 hosts; Win7 is everywhere in IR. *Highest.*
-2. **ewf Ex01/L01**, **ntfs LZNT1 compression / reparse** — common modern evidence
-   that silently under-reads.
-3. **ese compression**, **usnjrnl v3/v4**, **ext2/3 indirect**, **amcache schema** —
-   real but narrower.
-4. The long tail (udf revisions, dmg LZFSE, aff4 maps, journald compression, …) —
-   implement as artifacts surface; **fail loud** in the meantime.
+**Tier 3 — validation debt (the V axis, fleet-wide):** every reader gets a
+`docs/validation.md` naming the **real** artifact behind each validated variant;
+sourcing the real corpus is the gate for Tiers 0–2.
 
-## Execution plan — read-only fan-out (the audit itself)
+## Cross-cutting fleet actions
+- **Fail-loud convention (lint/standard):** a reader's format dispatch must end in
+  an explicit `Unsupported(<recognised-variant>)` error — never a silent empty,
+  sentinel, or garbled result. Violators found: shimcache (sentinel), usnjrnl v4
+  (skip), memf offsets (garbage), ntfs LZNT1 (garbage), hfsplus decmpfs (garbage),
+  sqlite UTF-16 (mojibake), journald/git (silent skip / misleading error).
+- **The "misleading error" sub-species is worse than silence** — git's "object not
+  found" and xpress's "table truncated" send the analyst chasing the wrong cause.
+  An `Unsupported` error must *name the format*, not masquerade as corruption.
+- **Triage by species, not by D−I:** honest-incomplete = backlog; silent-wrong =
+  bug. Don't let the larger honest-incomplete list bury the smaller bug list.
 
-The verified matrix is produced by a **read-only agent fan-out** (zero write
-contention — the safe concurrency pattern), one agent per cluster. Each agent,
-per reader in its cluster:
-1. **Research the authoritative spec** → enumerate the full documented variant set
-   `D` (cite: format spec / libyal `*-kb` / Zimmerman / [MS-*] / on-disk-format docs).
-2. **Read the reader's code** → the implemented set `I` and the dispatch site.
-3. **Assess `V`** (which variants have a real-artifact test) and **`F`** (does an
-   unimplemented documented variant fail loud or silently sentinel?).
-4. Return a per-reader row: `D / I / V / F`, the silent-failure risk, and the
-   cheapest fix (fail-loud guard vs full decode + which real artifact validates it).
+## The shimcache precedent (worked example, fixed 2026-06-12)
+`forensicnomicon::appcompatcache` (0.4.2) holds the full documented header/entry
+table (XP→11) with citations; `winreg-artifacts::shimcache` decodes Win10 + Win8.x,
+validated on the real DC01 hive (140/140 timestamps). Residual is in Tier 2:
+implement 7/XP/2003 and replace the sentinel fallback with a loud `UnsupportedFormat`.
 
-**Proposed clusters (7 agents):** A CONTAINER · B FILESYSTEM · C REGISTRY · D
-LOG/APP-artifact · E MEMORY (memf profile/struct coverage across Windows builds)
-· F CODEC+misc · G PARTITION (mbr/gpt/apm type-code coverage). Synthesis → this
-doc's matrix filled to `✓`, plus a ranked remediation backlog.
-
-**Cross-cutting deliverables regardless of decode work:**
-- A fleet lint/convention: a reader's format dispatch must end in an explicit
-  `Unsupported(<recognised-format>)` arm, never a silent empty/sentinel default.
-- A `docs/validation.md` line per reader naming the **real** artifact behind each
-  validated variant (`V`), exposing the synthetic-only gaps.
-
-## The shimcache precedent (worked example, done 2026-06-12)
-
-`forensicnomicon::appcompatcache` now holds the full documented header/entry-body
-table (XP→11) with citations; `winreg-artifacts::shimcache` decodes Win10 + Win8.x
-(`I` grew from {10} to {10, 8.0~, 8.1}), validated on the real DC01 hive
-(`V`={10,8.1}). Residual on this one reader, folded into priority 1 above:
-implement 7/XP/2003 (`D − I`), make the unimplemented arms fail loud, delete the
-unspec'd `0x80` legacy parser, source a real Win7 hive for `V`.
+---
+*Methodology: 7 parallel read-only audit agents (CONTAINER, FILESYSTEM, REGISTRY,
+LOG/APP, MEMORY, CODEC, PARTITION), each enumerating each reader's documented
+variant set from the authoritative spec (libyal `*-kb`, [MS-*], UEFI, kernel.org,
+TN1150, sqlite.org, systemd.io, Zimmerman), reading the dispatch site for `I`,
+classifying test provenance for `V`, and quoting the fallback arm for `F`.
+Severity re-graded by the orchestrator where an agent conflated a lookup-table
+miss with an undecodable structural variant.*
