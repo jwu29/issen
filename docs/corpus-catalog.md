@@ -329,6 +329,18 @@ Deterministic xorshift-PRNG corpus (regenerable from seed `0xDEADBEEF`).
 Integration-manifest roundtrip fixture (synthetic); android/twitter/instagram fixture dirs
 undetermined.
 
+### D8 · sqlite-forensic text-encoding fixtures — `sqlite-forensic/tests/data/` · REAL-self ✓
+Genuine `sqlite3`-engine output validating per-encoding TEXT decode (header byte 56).
+Generators (the `PRAGMA encoding` must precede any table):
+```
+sqlite3 utf8.sqlite    "PRAGMA page_size=512; PRAGMA encoding='UTF-8';    CREATE TABLE t(s TEXT); INSERT INTO t VALUES('héllo wörld');"
+sqlite3 utf16le.sqlite "PRAGMA page_size=512; PRAGMA encoding='UTF-16le'; CREATE TABLE t(s TEXT); INSERT INTO t VALUES('héllo wörld');"
+sqlite3 utf16be.sqlite "PRAGMA page_size=512; PRAGMA encoding='UTF-16be'; CREATE TABLE t(s TEXT); INSERT INTO t VALUES('héllo wörld');"
+```
+MD5: `utf8` 1d0923bb2ad0fee1c6f8cd8140a9ac61 · `utf16le` f2c418e5a1e14ce7f56e28b0e2266f9f ·
+`utf16be` 8f260ddb30f34b7de3c9e13a23f7981a. Consumed by `core/tests/utf16_text_tests.rs`
+(skip-if-absent). Header byte 56 = 1/2/3 respectively.
+
 ---
 
 ## E. issen-internal & misc
