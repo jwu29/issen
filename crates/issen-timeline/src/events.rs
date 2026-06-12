@@ -188,6 +188,18 @@ impl EventQuery {
     pub fn limit_value(&self) -> u64 {
         self.limit
     }
+
+    /// True when the query opts out of the row cap entirely (`limit(u64::MAX)`).
+    ///
+    /// This is the explicit, greppable full-scan opt-in for the one caller that
+    /// legitimately needs every row — the cross-artifact correlation pass. An
+    /// ordinary query keeps [`DEFAULT_LIMIT`], so it can never accidentally
+    /// full-scan; only this sentinel drops the `LIMIT` clause in
+    /// [`TimelineStore::fetch_events`].
+    #[must_use]
+    pub fn is_unbounded(&self) -> bool {
+        self.limit == u64::MAX
+    }
 }
 
 /// A burst is a dense run of same-type events that exceeds a threshold count.
@@ -293,8 +305,13 @@ impl TimelineStore {
             sql.push_str(" AND entity_refs LIKE ?");
             params.push(Box::new(format!("%{fragment}%")));
         }
-        sql.push_str(" ORDER BY timestamp_ns ASC LIMIT ?");
-        params.push(Box::new(q.limit));
+        sql.push_str(" ORDER BY timestamp_ns ASC");
+        // The unbounded sentinel (correlation full-scan) omits the cap entirely;
+        // every other query keeps its row limit so it can never full-scan.
+        if !q.is_unbounded() {
+            sql.push_str(" LIMIT ?");
+            params.push(Box::new(q.limit));
+        }
 
         let param_refs: Vec<&dyn duckdb::ToSql> = params.iter().map(|p| p.as_ref()).collect();
         let mut stmt = self.connection().prepare(&sql)?;

@@ -170,6 +170,16 @@ fn ip_of(event: &StoredEvent) -> Option<EntityRef> {
         .cloned()
 }
 
+/// The event query the correlation pass scans: the whole timeline, unbounded.
+///
+/// Cross-artifact rules must see every event — anchors and their consequents can
+/// sit anywhere in the timeline (on the Case-001 DC the attack window is the last
+/// half of 691k events). So this opts out of the default row cap explicitly,
+/// rather than silently truncating to the earliest [`DEFAULT_LIMIT`] rows.
+fn correlation_query() -> EventQuery {
+    EventQuery::within(1, i64::MAX).limit(u64::MAX)
+}
+
 /// Synthesize a `LogonFailureBurst` anchor for each identified burst whose
 /// members share one source IP.
 fn burst_anchors(events: &[StoredEvent]) -> Vec<BurstAnchor> {
@@ -200,7 +210,7 @@ impl TimelineStore {
     /// (Tier C) rules are not run here — the runner leaves an additive seam for
     /// them (see [`run_correlations`]).
     pub fn run_and_persist(&self) -> Result<Vec<Correlation>, TimelineStoreError> {
-        let events = self.fetch_events(&EventQuery::within(1, i64::MAX))?;
+        let events = self.fetch_events(&correlation_query())?;
 
         // Partition the fetched events: memory rows feed the Tier-C matchers as
         // projected MemEvents; everything else (disk/log) feeds the disk-leg
