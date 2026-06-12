@@ -4889,6 +4889,7 @@ dependencies = [
  "forensicnomicon 0.4.2",
  "insta",
  "issen-core",
+ "issen-correlation",
  "rusqlite",
  "serde",
  "serde_json",

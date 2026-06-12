@@ -41,6 +41,7 @@
     clippy::missing_panics_doc,
     clippy::must_use_candidate
 )]
+pub mod correlations;
 pub mod epoch;
 pub mod export;
 pub mod findings;

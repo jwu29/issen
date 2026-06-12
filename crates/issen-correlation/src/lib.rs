@@ -1,6 +1,7 @@
 pub mod artifact_correlation;
 pub mod attack_flow;
 pub mod cluster;
+pub mod correlation;
 pub mod engine;
 pub mod skew;
 pub mod enrich;
