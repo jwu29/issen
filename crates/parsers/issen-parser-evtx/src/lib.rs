@@ -47,7 +47,7 @@ use issen_core::plugin::registry::ParserRegistration;
 use issen_core::plugin::traits::{
     DataSource, EventEmitter, ForensicParser, ParseStats, ParserCapabilities,
 };
-use issen_core::timeline::event::{EventType, TimelineEvent};
+use issen_core::timeline::event::{EntityRef, EventType, TimelineEvent};
 use serde_json::Value;
 use tracing::warn;
 
@@ -237,6 +237,36 @@ pub fn record_to_event(
         if let Some(lt) = flat.get("LogonType").and_then(|s| s.parse::<u64>().ok()) {
             event = event.with_metadata("logon_type", serde_json::json!(lt));
         }
+    }
+
+    // PRE-2: typed entity refs — the cross-artifact correlation join keys. The
+    // account (4688 uses Subject*, logon/logoff/NTLM use Target*), source IP,
+    // logon session, and created-process image. Placeholder/local values
+    // ("-", "::1", "127.0.0.1", empty) are skipped so they never become spurious
+    // join keys that would over-correlate unrelated events.
+    let account_field = if event_id == 4688 {
+        "SubjectUserName"
+    } else {
+        "TargetUserName"
+    };
+    if let Some(user) = flat.get(account_field).filter(|s| !s.is_empty() && s.as_str() != "-") {
+        event = event.with_entity_ref(EntityRef::User(user.clone()));
+    }
+    if let Some(ip) = flat
+        .get("IpAddress")
+        .filter(|s| !matches!(s.as_str(), "" | "-" | "::1" | "127.0.0.1"))
+    {
+        event = event.with_entity_ref(EntityRef::Ip(ip.clone()));
+    }
+    if let Some(sid) = flat
+        .get("TargetLogonId")
+        .or_else(|| flat.get("SubjectLogonId"))
+        .and_then(|s| parse_logon_id(s))
+    {
+        event = event.with_entity_ref(EntityRef::Session(sid));
+    }
+    if let Some(proc_name) = flat.get("NewProcessName").filter(|s| !s.is_empty()) {
+        event = event.with_entity_ref(EntityRef::Process(proc_name.clone()));
     }
 
     event
