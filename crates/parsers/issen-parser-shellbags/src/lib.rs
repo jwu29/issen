@@ -26,70 +26,22 @@ use issen_core::plugin::traits::{
 use issen_core::timeline::event::{EventType, TimelineEvent};
 
 // ---------------------------------------------------------------------------
-// BagMRU key paths to try (NTUSER.DAT first, then UsrClass.dat)
-// ---------------------------------------------------------------------------
-
-const NTUSER_BAGMRU: &str = "Software\\Microsoft\\Windows\\Shell\\BagMRU";
-const USRCLASS_BAGMRU: &str =
-    "Local Settings\\Software\\Microsoft\\Windows\\Shell\\BagMRU";
-
-// ---------------------------------------------------------------------------
 // Core parsing logic
 // ---------------------------------------------------------------------------
 
-/// Recursively walk BagMRU subkeys, emitting one [`TimelineEvent`] per subkey.
-fn walk_bagmru(
-    key: &mut notatin::cell_key_node::CellKeyNode,
-    parser: &mut notatin::parser::Parser,
-    hive_name: &str,
-    source_id: &str,
-    events: &mut Vec<TimelineEvent>,
-) {
-    let subkeys = key.read_sub_keys(parser);
-    for mut subkey in subkeys {
-        let ts: chrono::DateTime<chrono::Utc> = subkey.last_key_written_date_and_time();
-        let timestamp_ns = ts.timestamp_nanos_opt().unwrap_or(0);
-        let timestamp_display = ts.to_rfc3339();
-
-        let key_path = subkey.path.clone();
-        let description = format!("Shellbag access: {key_path}");
-
-        let event = TimelineEvent::new(
-            timestamp_ns,
-            timestamp_display,
-            EventType::FileAccess,
-            ArtifactType::Shellbags,
-            key_path.clone(),
-            description,
-            source_id.to_string(),
-        )
-        .with_metadata("hive", serde_json::json!(hive_name))
-        .with_metadata("key_path", serde_json::json!(key_path));
-
-        events.push(event);
-
-        // Recurse into children (BagMRU hierarchy mirrors folder hierarchy).
-        walk_bagmru(&mut subkey, parser, hive_name, source_id, events);
-    }
-}
-
 /// Parse shellbags from an `NTUSER.DAT` or `UsrClass.dat` hive file.
 ///
-/// Returns one [`TimelineEvent`] per BagMRU subkey found.
-/// Returns `Ok(vec![])` for corrupt, empty, or non-shellbag hives.
+/// BagMRU location + walk is delegated to our own `winreg-artifacts::shellbags`
+/// (over `winreg-core`) — the registry-artifact home for the fleet — never
+/// third-party notatin. Returns one [`TimelineEvent`] per BagMRU subkey;
+/// `Ok(vec![])` for corrupt, empty, or non-shellbag hives.
 pub fn parse_shellbags(path: &Path, source_id: &str) -> anyhow::Result<Vec<TimelineEvent>> {
-    use notatin::parser_builder::ParserBuilder;
-
-    // Zero-byte or nonexistent files — return empty without error.
-    let size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
-    if size == 0 {
-        return Ok(vec![]);
-    }
-
-    // Build notatin parser; any error (bad magic, corrupt header) → empty.
-    let owned = path.to_path_buf();
-    let mut parser = match ParserBuilder::from_path(owned).build() {
-        Ok(p) => p,
+    let bytes = match std::fs::read(path) {
+        Ok(b) if !b.is_empty() => b,
+        _ => return Ok(vec![]),
+    };
+    let hive = match winreg_core::hive::Hive::from_bytes(bytes) {
+        Ok(h) => h,
         Err(_) => return Ok(vec![]),
     };
 
@@ -98,16 +50,32 @@ pub fn parse_shellbags(path: &Path, source_id: &str) -> anyhow::Result<Vec<Timel
         .and_then(|n| n.to_str())
         .unwrap_or("unknown.dat");
 
-    let mut events: Vec<TimelineEvent> = Vec::new();
+    let events = winreg_artifacts::shellbags::parse(&hive)
+        .into_iter()
+        .map(|e| {
+            let (timestamp_ns, timestamp_display) = e
+                .last_written
+                .as_deref()
+                .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                .map_or((0, String::new()), |dt| {
+                    (dt.timestamp_nanos_opt().unwrap_or(0), dt.to_rfc3339())
+                });
 
-    // Try NTUSER.DAT path first, then UsrClass.dat path.
-    for bagmru_path in &[NTUSER_BAGMRU, USRCLASS_BAGMRU] {
-        if let Ok(Some(mut bagmru_key)) = parser.get_key(bagmru_path, false) {
-            walk_bagmru(&mut bagmru_key, &mut parser, hive_name, source_id, &mut events);
-            // Found a BagMRU root — no need to try the second path.
-            break;
-        }
-    }
+            let label = if e.path.is_empty() { &e.key_path } else { &e.path };
+            TimelineEvent::new(
+                timestamp_ns,
+                timestamp_display,
+                EventType::FileAccess,
+                ArtifactType::Shellbags,
+                e.key_path.clone(),
+                format!("Shellbag access: {label}"),
+                source_id.to_string(),
+            )
+            .with_metadata("hive", serde_json::json!(hive_name))
+            .with_metadata("key_path", serde_json::json!(e.key_path))
+            .with_metadata("path", serde_json::json!(e.path))
+        })
+        .collect();
 
     Ok(events)
 }

@@ -8,7 +8,10 @@ license.workspace = true
 [dependencies]
 issen-core = { workspace = true }
 issen-plugin-sdk = { workspace = true }
-notatin = { workspace = true }
+# Amcache.hve is a registry hive — decode it with OUR winreg-forensic fleet
+# crates (winreg-artifacts::amcache over winreg-core), never third-party notatin.
+winreg-core = { workspace = true }
+winreg-artifacts = { workspace = true }
 anyhow = { workspace = true }
 chrono = { workspace = true }
 inventory = { workspace = true }

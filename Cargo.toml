@@ -176,9 +176,8 @@ hadris-iso   = "1"
 aff4         = { path = "../aff4/aff4" }
 evtx         = { version = "0.11", default-features = false }
 mft          = "0.6"
-notatin      = "1.0"
 
-# Registry — our own winreg-forensic fleet crates (prefer over third-party notatin)
+# Registry — our own winreg-forensic fleet crates (notatin fully removed)
 winreg-core      = { path = "../winreg-forensic/crates/winreg-core" }
 winreg-artifacts = { path = "../winreg-forensic/crates/winreg-artifacts" }
 
@@ -209,4 +208,3 @@ pedantic = { level = "warn", priority = -1 }
 unwrap_used = "deny"
 
 [patch.crates-io]
-notatin = { path = "vendor/notatin" }

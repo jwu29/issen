@@ -8,7 +8,11 @@ license.workspace = true
 [dependencies]
 issen-core = { workspace = true }
 issen-plugin-sdk = { workspace = true }
-notatin = { workspace = true }
+# Shellbags live in NTUSER.DAT / UsrClass.dat hives — decode via OUR
+# winreg-forensic fleet crates (winreg-artifacts::shellbags over winreg-core),
+# never third-party notatin.
+winreg-core = { workspace = true }
+winreg-artifacts = { workspace = true }
 anyhow = { workspace = true }
 chrono = { workspace = true }
 inventory = { workspace = true }
