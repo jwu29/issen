@@ -43,6 +43,7 @@
 )]
 pub mod correlations;
 pub mod epoch;
+pub mod events;
 pub mod export;
 pub mod findings;
 pub mod ingest;
