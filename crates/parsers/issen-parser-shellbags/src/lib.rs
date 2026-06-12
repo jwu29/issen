@@ -110,7 +110,10 @@ impl ForensicParser for ShellbagsParser {
     }
 
     fn supported_artifacts(&self) -> &[ArtifactType] {
-        &[ArtifactType::Shellbags]
+        // NTUSER.DAT / UsrClass.dat are discovered as `Registry` (so the generic
+        // registry walker also processes them); match that and self-filter to
+        // BagMRU. (`ArtifactType::Shellbags` is never assigned by discovery.)
+        &[ArtifactType::Registry]
     }
 
     fn parse(

@@ -15,6 +15,7 @@ extern crate issen_parser_uac;
 extern crate issen_parser_prefetch;
 extern crate issen_parser_amcache;
 extern crate issen_parser_shimcache;
+extern crate issen_parser_shellbags;
 extern crate issen_parser_velociraptor;
 
 // Link disk image container crates so their CollectionProvider registrations survive.

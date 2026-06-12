@@ -35,6 +35,7 @@ issen-parser-uac = { workspace = true }
 issen-parser-prefetch = { workspace = true }
 issen-parser-amcache = { workspace = true }
 issen-parser-shimcache = { workspace = true }
+issen-parser-shellbags = { workspace = true }
 issen-parser-srum = { workspace = true }
 issen-correlation = { workspace = true, features = ["remote"] }
 issen-unpack = { workspace = true }

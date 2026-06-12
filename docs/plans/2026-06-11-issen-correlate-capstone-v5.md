@@ -735,3 +735,11 @@ registry walker on a `Registry`-typed hive, starving the shimcache adapter; OR t
 AppCompatCache decode returns empty on this hive (needs standalone check). **Shellbags = 0**
 — not force-linked + NTUSER/UsrClass not discovered as `Shellbags`. Both scoped in
 `docs/fleet-capability-inventory.md` §1.
+
+### #1 wiring complete — shimcache + shellbags un-darked
+
+- **shellbags**: 0 → **55 events** (force-linked + `supported_artifacts → [Registry]` so NTUSER/UsrClass, discovered as Registry, dispatch to it).
+- **shimcache**: 0 → **1** (the AppCompatCache blob is now FOUND — fixed the winreg-artifacts ControlSet bug: offline SYSTEM hives have no `CurrentControlSet`; resolve via `Select\Current`→`ControlSet00N`, RED/GREEN TDD). **Caveat:** the 1 entry is a raw sentinel (empty path) — the Win10 AppCompatCache *blob-entry decoder* doesn't yet parse this format into N executables; separate follow-up in `winreg-artifacts::shimcache`.
+- **usnjrnl**: confirmed NOT dark (39,076 USN events; the inventory audit conflated "not force-linked as a parser" with dark — issen-disk handles MFT/USN/EVTX directly).
+
+Full Desktop ingest now: Prefetch 636, AmCache 97, Shellbags 55, Shimcache 1(blob-found).

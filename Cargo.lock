@@ -4316,6 +4316,7 @@ dependencies = [
  "issen-parser-evtx",
  "issen-parser-prefetch",
  "issen-parser-registry",
+ "issen-parser-shellbags",
  "issen-parser-shimcache",
  "issen-parser-srum",
  "issen-parser-uac",
