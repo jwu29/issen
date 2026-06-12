@@ -180,7 +180,20 @@ Reference: `~/src/_refs/Prefetch-Browser` (kacos2000) — `Local_PfAp.ps1` shows
 - **`prefetch-forensic`**: `audit(&PrefetchFile) -> Vec<Finding>` via `impl Observation`. Anomaly codes (scheme-prefixed, published contract): `PF-HASH-MISMATCH` (filename hash ≠ computed path hash — copied/renamed `.pf`), `PF-VERSION-UNKNOWN`, `PF-TRUNCATED`, `PF-RUNTIME-FUTURE` (run time after acquisition), `PF-RUNCOUNT-ZERO-WITH-TIMES`. All graded; observations, never verdicts.
 - **issen wrap:** `issen-parser-prefetch` becomes a thin adapter — `prefetch-core` record → one `ProcessExec` `TimelineEvent` **per run timestamp** (metadata: `run_count`, `run_index`, `volume_serial`; `EntityRef::Process(exe)`, `EntityRef::FilePath`), plus module-list events on demand; `prefetch-forensic` findings → `Report`.
 
-### 4.2 `~/src/amcache-shimcache-forensic` — hive-derived evidence of execution
+### 4.2 ~~`~/src/amcache-shimcache-forensic`~~ — SUPERSEDED: fold into `winreg-artifacts`
+
+> **Decision (2026-06-12): do NOT build a standalone repo.** Amcache and Shimcache
+> are registry-hive artifacts, and the fleet already owns the registry-artifact home:
+> `winreg-artifacts` (in `winreg-forensic`) already ships `amcache.rs` and
+> `shimcache.rs` decoders over `winreg-core` — no notatin. A separate repo would
+> duplicate them and contradicts §5-A ("extend `winreg-forensic`"). **Done:** the
+> issen `issen-parser-amcache` / `-shimcache` / `-shellbags` parsers now delegate to
+> `winreg-artifacts` and notatin is fully removed from the issen dep tree
+> (`cargo tree -i notatin` → no match). **Remaining:** add the forensic *findings*
+> layer (the `AMC-*` / `SHIM-*` codes below, `EOE-PRESENT-NOT-EXECUTED`) to
+> `winreg-forensic`'s analyzer, and converge the memory leg
+> (`memf-windows::shimcache`) on the shared `ShimcacheEntry`. The reference notes
+> below are retained as the spec for that analyzer work.
 
 Reference: Eric Zimmerman's [AmcacheParser](https://github.com/EricZimmerman/AmcacheParser) and [AppCompatCacheParser](https://github.com/EricZimmerman/AppCompatCacheParser) (format knowledge — key layouts, version discrimination, value semantics; not cloned locally, cite per detail).
 
