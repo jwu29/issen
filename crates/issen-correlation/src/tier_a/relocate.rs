@@ -7,9 +7,7 @@
 //! move. ATT&CK: T1036.005 (masquerading: match legitimate name/location).
 
 use crate::correlation::Correlation;
-use crate::evaluator::{EventView, RuleSpec, ScopeRule};
-
-use super::basename_entity;
+use crate::evaluator::{evaluate, EventView, RuleSpec, ScopeRule};
 
 /// Examiner-facing note — an observation, never a verdict.
 pub const RELOCATE_NOTE: &str =
@@ -40,17 +38,27 @@ pub fn relocate_rule() -> RuleSpec {
 /// `true` when `path` is a user-writable / temp location an initial drop lands
 /// in (Downloads, Temp, a user profile, `%APPDATA%`, `/tmp`).
 #[must_use]
-pub fn is_user_writable_path(_path: &str) -> bool {
-    // RED stub — implemented in the GREEN commit.
-    false
+pub fn is_user_writable_path(path: &str) -> bool {
+    let p = path.to_ascii_lowercase().replace('\\', "/");
+    p.contains("/users/")
+        || p.contains("/downloads/")
+        || p.contains("/temp/")
+        || p.contains("/tmp/")
+        || p.contains("/appdata/")
+        || p.starts_with("/tmp/")
+        || p.contains("/documents and settings/")
 }
 
 /// `true` when `path` is a protected system directory a relocation hides in
-/// (System32, SysWOW64, `C:\Windows`, `/usr`, `/sbin`).
+/// (`System32`, `SysWOW64`, `/usr`, `/sbin`, `/bin`).
 #[must_use]
-pub fn is_system_path(_path: &str) -> bool {
-    // RED stub — implemented in the GREEN commit.
-    false
+pub fn is_system_path(path: &str) -> bool {
+    let p = path.to_ascii_lowercase().replace('\\', "/");
+    p.contains("/windows/system32/")
+        || p.contains("/windows/syswow64/")
+        || p.starts_with("/usr/")
+        || p.starts_with("/sbin/")
+        || p.starts_with("/bin/")
 }
 
 /// Evaluate the relocate rule against a create anchor and rename candidates,
@@ -67,21 +75,28 @@ pub fn is_system_path(_path: &str) -> bool {
 /// engine — no parallel evaluation path.
 #[must_use]
 pub fn evaluate_relocate<A, C>(
-    _anchor: &A,
-    _anchor_path: &str,
-    _candidates: &[(C, String)],
+    anchor: &A,
+    anchor_path: &str,
+    candidates: &[(C, String)],
 ) -> Option<Correlation>
 where
     A: EventView,
-    C: EventView,
+    C: EventView + Clone,
 {
-    // RED stub — implemented in the GREEN commit.
-    None
+    if !is_user_writable_path(anchor_path) {
+        return None;
+    }
+    let system_targets: Vec<C> = candidates
+        .iter()
+        .filter(|(_, path)| is_system_path(path))
+        .map(|(ev, _)| ev.clone())
+        .collect::<Vec<_>>();
+    evaluate(&relocate_rule(), anchor, &system_targets)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::super::testkit::TestEvent;
+    use super::super::{basename_entity, testkit::TestEvent};
     use super::*;
     use crate::correlation::{CorrelationRole, CorrelationScope};
     use crate::evaluator::EventSource;
