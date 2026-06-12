@@ -179,10 +179,23 @@ pub fn record_to_event(
     let description =
         format!("EventID:{event_id} Provider:{provider} Channel:{channel} (Record {record_id})");
 
-    let artifact_path = if channel.is_empty() {
+    // Flatten the EventData/UserData payload once, up front, so artifact_path can
+    // use it: a 7045 service install exposes the service ImagePath (the binary)
+    // as its artifact_path, letting CORR-MALWARE-PERSIST join that binary's stem
+    // to its FileCreate. Every other event uses the channel.
+    let flat = winevt_extract::flatten_event_data(data);
+    let channel_path = if channel.is_empty() {
         "EventLog".to_string()
     } else {
         channel.to_string()
+    };
+    let artifact_path = if event_id == 7045 {
+        flat.get("ImagePath")
+            .filter(|s| !s.is_empty())
+            .cloned()
+            .unwrap_or(channel_path)
+    } else {
+        channel_path
     };
 
     let mut event = TimelineEvent::new(
@@ -212,8 +225,8 @@ pub fn record_to_event(
     // serialization shapes (named-attribute array + flat Sysmon object). This
     // makes every field — Image, CommandLine, TargetFilename, account/logon
     // fields, … — available to Sigma matching. Reserved System keys set above
-    // are never overwritten by crafted EventData.
-    let flat = winevt_extract::flatten_event_data(data);
+    // are never overwritten by crafted EventData. (`flat` is computed up front,
+    // above, so 7045's artifact_path can read ImagePath.)
     for (key, val) in &flat {
         if matches!(key.as_str(), "event_id" | "record_id" | "provider" | "channel") {
             continue;
