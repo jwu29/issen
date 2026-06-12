@@ -181,19 +181,92 @@ impl MemEvent {
     }
 }
 
-/// The bundled Tier-C / C′ matcher entry points run over a memory-event slice.
+/// The bundled Tier-C / C′ matcher entry points.
 ///
 /// `run_correlations` (the disk-leg runner) cannot feed these because it is
 /// generic over [`EventView`](crate::evaluator::EventView) and never sees the
 /// metadata these rules need; the store-facing wrapper passes the projected
-/// [`MemEvent`] slice here and appends the result to the same `Vec<Correlation>`.
+/// memory [`MemEvent`] slice (and the flat disk events for the cross-leg
+/// `CORR-PROC-DISK-MATCH`) here and appends the result to the same
+/// `Vec<Correlation>`.
+///
+/// The two same-dump memory rules (`CORR-INJECTED-C2`, `CORR-PROC-MIGRATION`)
+/// ignore `disk`; only `CORR-PROC-DISK-MATCH` reads it.
 #[must_use]
-pub fn run_memory_rules(events: &[MemEvent]) -> Vec<Correlation> {
+pub fn run_memory_rules<E>(memory: &[MemEvent], disk: &[E]) -> Vec<Correlation>
+where
+    E: crate::evaluator::EventView,
+{
     let mut out = Vec::new();
-    out.extend(injected_c2::injected_c2_pairs(events));
-    out.extend(proc_disk_match::proc_disk_matches(events));
-    out.extend(proc_migration::proc_migration_chains(events));
+    out.extend(injected_c2::injected_c2_pairs(memory));
+    out.extend(proc_disk_match::proc_disk_matches(memory, disk));
+    out.extend(proc_migration::proc_migration_chains(memory));
     out
+}
+
+#[cfg(test)]
+pub(crate) mod testkit {
+    use issen_core::timeline::event::EntityRef;
+
+    use crate::evaluator::{EventSource, EventView};
+
+    /// A synthetic *disk*-leg event for the cross-leg `CORR-PROC-DISK-MATCH`
+    /// test: a flat [`EventView`] carrying an `artifact_path` (the file the
+    /// create concerns) and a real source leg.
+    #[derive(Debug, Clone)]
+    pub struct DiskEvent {
+        pub id: u64,
+        pub ts: i64,
+        pub event_type: String,
+        pub entity_refs: Vec<EntityRef>,
+        pub host: Option<String>,
+        pub source: EventSource,
+        pub path: String,
+    }
+
+    impl DiskEvent {
+        pub fn new(id: u64, ts: i64, event_type: &str, host: &str, source: EventSource) -> Self {
+            Self {
+                id,
+                ts,
+                event_type: event_type.to_string(),
+                entity_refs: Vec::new(),
+                host: Some(host.to_string()),
+                source,
+                path: String::new(),
+            }
+        }
+
+        #[must_use]
+        pub fn at(mut self, p: &str) -> Self {
+            self.path = p.to_string();
+            self
+        }
+    }
+
+    impl EventView for DiskEvent {
+        fn id(&self) -> u64 {
+            self.id
+        }
+        fn timestamp_ns(&self) -> i64 {
+            self.ts
+        }
+        fn event_type(&self) -> &str {
+            &self.event_type
+        }
+        fn entity_refs(&self) -> &[EntityRef] {
+            &self.entity_refs
+        }
+        fn hostname(&self) -> Option<&str> {
+            self.host.as_deref()
+        }
+        fn source(&self) -> EventSource {
+            self.source
+        }
+        fn artifact_path(&self) -> &str {
+            &self.path
+        }
+    }
 }
 
 #[cfg(test)]
