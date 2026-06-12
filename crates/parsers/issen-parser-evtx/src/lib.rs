@@ -1082,6 +1082,34 @@ mod tests {
         assert!(events.is_empty());
     }
 
+    #[test]
+    fn service_install_7045_uses_image_path_as_artifact_path() {
+        // CORR-MALWARE-PERSIST joins a created executable to the 7045 service
+        // install naming it, on the image stem. The 7045's ImagePath (the service
+        // binary) must therefore be the event's artifact_path — not the bare
+        // "System" channel, which carries no joinable stem.
+        let data = serde_json::json!({
+            "Event": {
+                "System": {
+                    "EventID": 7045,
+                    "Channel": "System",
+                    "Computer": "DC01",
+                    "Provider": { "#attributes": { "Name": "Service Control Manager" } }
+                },
+                "EventData": {
+                    "ServiceName": "coreupdater",
+                    "ImagePath": "C:\\Windows\\System32\\coreupdater.exe"
+                }
+            }
+        });
+        let event = record_to_event(201, 0, "2020-09-19T03:30:00Z", &data, "evtx-src");
+        assert_eq!(event.event_type, EventType::ServiceInstall);
+        assert_eq!(
+            event.artifact_path, "C:\\Windows\\System32\\coreupdater.exe",
+            "7045 artifact_path must be the service ImagePath, not the channel"
+        );
+    }
+
     // ── PRE-2: typed entity refs (correlation join keys) ──
 
     #[test]
