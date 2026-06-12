@@ -8,7 +8,7 @@
 //! within 24 h, same host. ATT&CK: T1543.003 (Windows service).
 
 use crate::correlation::Correlation;
-use crate::evaluator::{EventView, RuleSpec, ScopeRule};
+use crate::evaluator::{evaluate, EventView, RuleSpec, ScopeRule};
 
 /// Examiner-facing note — an observation, never a verdict.
 pub const PERSIST_NOTE: &str =
@@ -43,13 +43,12 @@ pub fn persist_rule() -> RuleSpec {
 /// [`evaluate`](crate::evaluator::evaluate); both sides must already carry their
 /// `stem_entity` join key.
 #[must_use]
-pub fn evaluate_persist<A, C>(_anchor: &A, _candidates: &[C]) -> Option<Correlation>
+pub fn evaluate_persist<A, C>(anchor: &A, candidates: &[C]) -> Option<Correlation>
 where
     A: EventView,
     C: EventView,
 {
-    // RED stub — implemented in the GREEN commit.
-    None
+    evaluate(&persist_rule(), anchor, candidates)
 }
 
 #[cfg(test)]
