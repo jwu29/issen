@@ -68,6 +68,13 @@ pub enum Commands {
         collection_path: PathBuf,
     },
 
+    /// Ingest a case directory and surface cross-artifact Correlated Findings.
+    Correlate {
+        /// Path to the case directory holding the evidence to correlate.
+        #[arg(value_name = "CASE_DIR")]
+        case_dir: PathBuf,
+    },
+
     /// Ingest evidence and parse artifacts into a timeline.
     Ingest {
         /// Path to evidence directory or file.
@@ -440,6 +447,7 @@ fn main() -> ExitCode {
 
     let result = match cli.command {
         Commands::Analyse { collection_path } => commands::analyse::run(&collection_path),
+        Commands::Correlate { case_dir } => commands::correlate::run(&case_dir),
         Commands::Supertimeline { collection, format } => {
             commands::supertimeline::run(&collection, &format)
         }

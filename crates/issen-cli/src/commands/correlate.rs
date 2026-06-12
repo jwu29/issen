@@ -46,10 +46,54 @@ fn fmt_ns(ns: i64) -> String {
 /// with"), never a verdict, and the section carries a tribunal footer handing
 /// any legal conclusion back to the court.
 #[must_use]
-pub fn render_correlated_findings(_correlations: &[Correlation]) -> String {
-    // RED stub — implementation follows in the GREEN commit.
-    let _ = fmt_ns;
-    String::new()
+pub fn render_correlated_findings(correlations: &[Correlation]) -> String {
+    let mut out = String::new();
+    out.push_str("Correlated Findings\n");
+    out.push_str("===================\n\n");
+
+    if correlations.is_empty() {
+        out.push_str(
+            "No cross-artifact correlations fired. This is the absence of a matched \
+             pattern, not evidence that no such activity occurred.\n\n",
+        );
+    } else {
+        out.push_str(&format!(
+            "{} correlation(s) — each is an observation that a set of timeline events \
+             is consistent with a named behavior, never a verdict.\n\n",
+            correlations.len()
+        ));
+
+        for (i, corr) in correlations.iter().enumerate() {
+            out.push_str(&format!("[{}] {}\n", i + 1, corr.code));
+            let attack = corr
+                .attack_technique
+                .as_deref()
+                .map_or_else(|| "—".to_string(), ToString::to_string);
+            out.push_str(&format!("    ATT&CK     : {attack}\n"));
+            out.push_str(&format!("    Severity   : {}\n", corr.severity_str()));
+            out.push_str(&format!(
+                "    Time window: {} → {}\n",
+                fmt_ns(corr.first_ts),
+                fmt_ns(corr.last_ts)
+            ));
+            out.push_str(&format!("    Scope      : {}\n", corr.scope.as_str()));
+            let members: Vec<String> = corr
+                .members
+                .iter()
+                .map(|m| format!("#{} ({})", m.timeline_id, m.role.as_str()))
+                .collect();
+            out.push_str(&format!("    Members    : {}\n", members.join(", ")));
+            out.push_str(&format!("    Assessment : {}\n\n", corr.note));
+        }
+    }
+
+    out.push_str(
+        "These findings are observations consistent with the behaviors named; they are \
+         not legal conclusions. Whether the conduct they describe amounts to an offence, \
+         breach, or intrusion is a matter for the tribunal — the Court may draw its own \
+         conclusions.\n",
+    );
+    out
 }
 
 /// Run the correlate command: ingest the case dir, run + persist the disk-leg
