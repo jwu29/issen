@@ -20,8 +20,67 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
+use issen_core::error::RtError;
+use issen_core::plugin::traits::{DataSource, EventEmitter, ForensicParser};
+use issen_core::timeline::event::TimelineEvent;
 use issen_parser_srum::SrumParser;
+
+/// A path-bearing `DataSource` test double: reads the real file AND exposes its
+/// path via `source_path()`, mirroring the orchestrator's `FileDataSource`. This
+/// is what lets a random-access (ESE) parser reach the file in `parse()`.
+struct PathDataSource {
+    path: PathBuf,
+    bytes: Vec<u8>,
+}
+
+impl PathDataSource {
+    fn open(path: &Path) -> Self {
+        let bytes = std::fs::read(path).expect("read fixture");
+        Self {
+            path: path.to_path_buf(),
+            bytes,
+        }
+    }
+}
+
+impl DataSource for PathDataSource {
+    fn len(&self) -> u64 {
+        self.bytes.len() as u64
+    }
+
+    fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<usize, RtError> {
+        let offset = offset as usize;
+        if offset >= self.bytes.len() {
+            return Ok(0);
+        }
+        let n = buf.len().min(self.bytes.len() - offset);
+        buf[..n].copy_from_slice(&self.bytes[offset..offset + n]);
+        Ok(n)
+    }
+
+    fn source_path(&self) -> Option<&Path> {
+        Some(&self.path)
+    }
+}
+
+/// Collecting emitter for the trait-path test.
+struct CollectingEmitter {
+    events: Mutex<Vec<TimelineEvent>>,
+}
+
+impl EventEmitter for CollectingEmitter {
+    fn emit(&self, event: TimelineEvent) -> Result<(), RtError> {
+        self.events.lock().expect("lock").push(event);
+        Ok(())
+    }
+
+    fn emit_batch(&self, events: Vec<TimelineEvent>) -> Result<(), RtError> {
+        self.events.lock().expect("lock").extend(events);
+        Ok(())
+    }
+}
 
 /// Path to the real chainsaw SRUDB.dat in the sibling srum-forensic repo.
 fn chainsaw_srudb() -> Option<PathBuf> {
@@ -56,6 +115,38 @@ fn chainsaw_srudb_yields_network_events() {
         96,
         "chainsaw SRUDB must surface exactly 96 network-usage events, got {}",
         net_events.len()
+    );
+}
+
+/// The trait dispatch path the orchestrator actually uses: `parse()` (not
+/// `parse_path`) must surface the same real network events. This requires the
+/// `DataSource` to expose its file path so the ESE (random-access) reader can
+/// open it — the wiring that turns SRUM from "command-only" into an ingest
+/// stream.
+#[test]
+fn chainsaw_srudb_parse_trait_emits_network_events() {
+    let Some(path) = chainsaw_srudb() else { return };
+    let source = PathDataSource::open(&path);
+    let emitter = CollectingEmitter {
+        events: Mutex::new(Vec::new()),
+    };
+    let stats = SrumParser
+        .parse(&source, &emitter)
+        .expect("parse() must succeed on a path-bearing DataSource");
+
+    let events = emitter.events.into_inner().expect("lock");
+    let net_events = events
+        .iter()
+        .filter(|e| e.description.starts_with("SRUM NetworkUsage"))
+        .count();
+    assert_eq!(
+        net_events, 96,
+        "parse() via DataSource::source_path must surface all 96 network events, got {net_events}"
+    );
+    assert_eq!(
+        stats.events_emitted,
+        events.len() as u64,
+        "reported events_emitted must match what was emitted"
     );
 }
 
