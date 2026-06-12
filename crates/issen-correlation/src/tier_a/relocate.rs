@@ -32,6 +32,8 @@ pub fn relocate_rule() -> RuleSpec {
         window_ns: RELOCATE_WINDOW_NS,
         scope: ScopeRule::SameHost,
         note: RELOCATE_NOTE,
+        ordered: true,
+        guard: None,
     }
 }
 

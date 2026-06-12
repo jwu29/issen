@@ -34,6 +34,8 @@ pub fn persist_rule() -> RuleSpec {
         window_ns: PERSIST_WINDOW_NS,
         scope: ScopeRule::SameHost,
         note: PERSIST_NOTE,
+        ordered: true,
+        guard: None,
     }
 }
 

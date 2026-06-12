@@ -85,7 +85,27 @@ pub trait EventView {
     fn hostname(&self) -> Option<&str>;
     /// Which artifact leg this event came from.
     fn source(&self) -> EventSource;
+    /// The full artifact path the event concerns (e.g. the file an MFT/USN
+    /// event touched). Defaults to `""` so existing implementations need no
+    /// change; path-aware guards (e.g. user-writable-drop checks) read it.
+    ///
+    /// A size accessor is deliberately *not* part of this trait: `StoredEvent`
+    /// has no first-class byte-size column (size lives in artifact-specific
+    /// metadata JSON), so a generic `size()` hook would have nothing to return.
+    /// Rules needing size pass it alongside the event (see Tier-A `FileFacts`).
+    // The default body returns a `'static` literal, but overriding impls
+    // (e.g. `StoredEvent`) borrow from `&self`, so the signature must stay tied
+    // to the receiver lifetime — not narrowed to `&'static str`.
+    #[allow(clippy::unnecessary_literal_bound)]
+    fn artifact_path(&self) -> &str {
+        ""
+    }
 }
+
+/// An optional per-pair guard predicate for a [`RuleSpec`]: a candidate
+/// consequent matches only when this returns `true`. Applied in addition to the
+/// engine's entity-equality, ordering, window and scope checks.
+pub type GuardFn = fn(anchor: &dyn EventView, consequent: &dyn EventView) -> bool;
 
 /// How the host/dump scope constrains an anchor↔consequent pair.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -147,6 +167,15 @@ pub struct RuleSpec {
     pub scope: ScopeRule,
     /// Examiner-facing note — "consistent with", never a verdict.
     pub note: &'static str,
+    /// When `true` (the default for existing rules), a consequent must fall
+    /// strictly *after* the anchor. When `false`, the pair may occur in either
+    /// order within the window — the finding's window still spans earlier→later.
+    pub ordered: bool,
+    /// Optional per-pair guard predicate, applied *in addition to* entity
+    /// equality, ordering, window and scope: a candidate matches only when the
+    /// guard returns `true`. `None` (the default) imposes no extra constraint,
+    /// so rules that don't set it behave exactly as before.
+    pub guard: Option<GuardFn>,
 }
 
 /// Evaluate `rule` against `anchor` and a slice of candidate `consequents`.
@@ -173,11 +202,18 @@ where
     let mut best: Option<&C> = None;
     for candidate in consequents {
         let ts = candidate.timestamp_ns();
-        if ts <= 0
-            || candidate.event_type() != rule.consequent_event_type
-            || ts <= anchor_ts
-            || ts - anchor_ts > rule.window_ns
-        {
+        if ts <= 0 || candidate.event_type() != rule.consequent_event_type {
+            continue;
+        }
+        // Window check. Strict mode requires the consequent strictly after the
+        // anchor; either-order mode accepts |Δ| within the window (a
+        // simultaneous pair is still rejected — Δ == 0 is no temporal evidence).
+        let within_window = if rule.ordered {
+            ts > anchor_ts && ts - anchor_ts <= rule.window_ns
+        } else {
+            ts != anchor_ts && (ts - anchor_ts).abs() <= rule.window_ns
+        };
+        if !within_window {
             continue;
         }
         if !rule.scope.admits(anchor.hostname(), candidate.hostname()) {
@@ -186,16 +222,34 @@ where
         if !shares_entity(anchor.entity_refs(), candidate.entity_refs()) {
             continue;
         }
-        match best {
-            Some(current) if candidate.timestamp_ns() >= current.timestamp_ns() => {}
-            _ => best = Some(candidate),
+        if let Some(guard) = rule.guard {
+            if !guard(anchor, candidate) {
+                continue;
+            }
+        }
+        // Pick the consequent nearest the anchor in time (earliest in strict
+        // mode, smallest |Δ| in either-order mode).
+        let nearer = match best {
+            Some(current) => {
+                (ts - anchor_ts).abs() < (current.timestamp_ns() - anchor_ts).abs()
+            }
+            None => true,
+        };
+        if nearer {
+            best = Some(candidate);
         }
     }
 
     let consequent = best?;
+    let cons_ts = consequent.timestamp_ns();
+    let (first_ts, last_ts) = if anchor_ts <= cons_ts {
+        (anchor_ts, cons_ts)
+    } else {
+        (cons_ts, anchor_ts)
+    };
     let correlation = Correlation::new(rule.code, rule.severity)
         .with_scope(rule.scope.to_scope())
-        .with_window(anchor_ts, consequent.timestamp_ns())
+        .with_window(first_ts, last_ts)
         .with_note(rule.note)
         .with_member(CorrelationMember::new(anchor.id(), CorrelationRole::Anchor))
         .with_member(CorrelationMember::new(
@@ -275,6 +329,8 @@ mod tests {
             window_ns: 60_000_000_000, // 60s
             scope: ScopeRule::SameHost,
             note: "Failed-logon burst then success from the same IP is consistent with brute force.",
+            ordered: true,
+            guard: None,
         }
     }
 
