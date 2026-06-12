@@ -431,4 +431,81 @@ mod tests {
             "run_and_persist must fetch the whole timeline, not the first DEFAULT_LIMIT rows"
         );
     }
+
+    /// A failed logon carrying only an account (no source IP) — the shape the
+    /// Case-001 RDP brute-force takes (95 Administrator 4625s, Session 0, no IP).
+    fn logon_failure_acct(ts: i64, user: &str) -> TimelineEvent {
+        TimelineEvent::new(
+            ts,
+            format!("2026-01-01T00:00:00.{ts:09}Z"),
+            EventType::LogonFailure,
+            ArtifactType::EventLog,
+            "Security.evtx".to_string(),
+            "failed logon".to_string(),
+            "DC01".to_string(),
+        )
+        .with_hostname("DC01")
+        .with_entity_ref(EntityRef::User(user.to_string()))
+    }
+
+    fn logon_success_acct(ts: i64, user: &str, ip: &str) -> TimelineEvent {
+        TimelineEvent::new(
+            ts,
+            format!("2026-01-01T00:00:00.{ts:09}Z"),
+            EventType::LogonSuccess,
+            ArtifactType::EventLog,
+            "Security.evtx".to_string(),
+            "successful logon".to_string(),
+            "DC01".to_string(),
+        )
+        .with_hostname("DC01")
+        .with_entity_ref(EntityRef::User(user.to_string()))
+        .with_entity_ref(EntityRef::Ip(ip.to_string()))
+    }
+
+    #[test]
+    fn bruteforce_fires_on_account_when_failures_lack_a_source_ip() {
+        // Case-001 real-data shape: a dense run of Administrator failures that
+        // carry NO IP, then a successful Administrator logon. The brute-force
+        // burst must anchor on the shared ACCOUNT (the only shared join key) and
+        // link to the success — not silently miss it because there is no IP.
+        let store = TimelineStore::in_memory().expect("store");
+        let mut events: Vec<TimelineEvent> = (1..=5)
+            .map(|i| logon_failure_acct(i * 1_000_000_000, "Administrator"))
+            .collect();
+        events.push(logon_success_acct(6_000_000_000, "Administrator", "194.61.24.102"));
+        store.inseissen_batch(&events).expect("ingest");
+
+        let fired = store.run_and_persist().expect("run");
+        assert!(
+            fired.iter().any(|c| c.code == "CORR-BRUTEFORCE-LOGON"),
+            "account-keyed brute-force must fire; fired: {:?}",
+            fired.iter().map(|c| c.code.as_str()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn dense_logon_success_run_is_not_a_bruteforce_anchor() {
+        // FP guard: a dense run of LogonSuccess (e.g. a machine account over a
+        // link-local address) is NOT a failed-logon burst and must never seed a
+        // CORR-BRUTEFORCE-LOGON, even though the events share an IP.
+        let store = TimelineStore::in_memory().expect("store");
+        // A dense burst of 5 successes (1–5 s, the link-local IP), then a later
+        // success at 200 s — past the 60 s burst window (so it is not swept into
+        // the cluster) yet within the 30-min rule window. Pre-fix, the cluster
+        // was synthesized into a bogus LogonFailureBurst that matched the later
+        // success on the shared IP — the exact real-data false positive.
+        let mut events: Vec<TimelineEvent> = (1..=5)
+            .map(|i| logon_success(i * 1_000_000_000, "fe80::2dcf:e660:be73:d220"))
+            .collect();
+        events.push(logon_success(200_000_000_000, "fe80::2dcf:e660:be73:d220"));
+        store.inseissen_batch(&events).expect("ingest");
+
+        let fired = store.run_and_persist().expect("run");
+        assert!(
+            !fired.iter().any(|c| c.code == "CORR-BRUTEFORCE-LOGON"),
+            "a LogonSuccess run must not anchor a brute-force; fired: {:?}",
+            fired.iter().map(|c| c.code.as_str()).collect::<Vec<_>>()
+        );
+    }
 }
