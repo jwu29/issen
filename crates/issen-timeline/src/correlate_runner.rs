@@ -161,14 +161,6 @@ fn mem_event_from_stored(e: &StoredEvent) -> Option<MemEvent> {
     Some(me)
 }
 
-/// The IP a `LogonFailure` event carries, if any (the brute-force join key).
-fn ip_of(event: &StoredEvent) -> Option<EntityRef> {
-    event
-        .entity_refs
-        .iter()
-        .find(|e| matches!(e, EntityRef::Ip(_)))
-        .cloned()
-}
 
 /// The event query the correlation pass scans: the whole timeline, unbounded.
 ///
@@ -185,21 +177,56 @@ fn correlation_query() -> EventQuery {
 fn burst_anchors(events: &[StoredEvent]) -> Vec<BurstAnchor> {
     let mut anchors = Vec::new();
     for group in burst_windows(events, BURST_THRESHOLD, BURST_WINDOW) {
+        // Only a run of FAILED logons seeds a brute-force anchor. A dense run of
+        // any other type (e.g. machine-account LogonSuccess over a link-local
+        // address) must never masquerade as a LogonFailureBurst.
+        if group.first().map(|e| e.event_type.as_str()) != Some("LogonFailure") {
+            continue;
+        }
         // The latest member fronts the burst (its id keys the persisted member).
         let Some(last) = group.iter().max_by_key(|e| e.timestamp_ns) else {
             continue; // cov:unreachable: burst_windows never emits an empty group
         };
-        let Some(ip) = ip_of(last) else {
+        // Join on the entity every member shares: the source IP if present, else
+        // the account. RDP brute-force is frequently logged with Session 0 and no
+        // source IP, leaving the targeted account as the only shared join key.
+        let Some(join) = burst_join_entity(&group) else {
             continue;
         };
         anchors.push(BurstAnchor {
             id: last.id,
             timestamp_ns: last.timestamp_ns,
-            entity_refs: vec![ip],
+            entity_refs: vec![join],
             hostname: last.hostname.clone(),
         });
     }
     anchors
+}
+
+/// The entity every member of a failed-logon burst shares — the brute-force join
+/// key. Prefers a source IP; falls back to the targeted account when the burst
+/// carries no IP (the Case-001 4625 shape: Session 0, account only).
+fn burst_join_entity(group: &[&StoredEvent]) -> Option<EntityRef> {
+    let shared = |want_ip: bool| -> Option<EntityRef> {
+        let pick = |e: &StoredEvent| {
+            e.entity_refs
+                .iter()
+                .find(|r| {
+                    if want_ip {
+                        matches!(r, EntityRef::Ip(_))
+                    } else {
+                        matches!(r, EntityRef::User(_))
+                    }
+                })
+                .cloned()
+        };
+        let candidate = group.first().and_then(|e| pick(e))?;
+        group
+            .iter()
+            .all(|m| m.entity_refs.contains(&candidate))
+            .then_some(candidate)
+    };
+    shared(true).or_else(|| shared(false))
 }
 
 impl TimelineStore {
