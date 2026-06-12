@@ -124,10 +124,16 @@ impl ScopeRule {
     /// `true` when the pair's host attribution satisfies this scope rule.
     fn admits(self, anchor_host: Option<&str>, consequent_host: Option<&str>) -> bool {
         match self {
-            // Same-host / same-dump require a known, equal label on both sides.
-            Self::SameHost | Self::SameDump => {
-                matches!((anchor_host, consequent_host), (Some(a), Some(b)) if a == b)
-            }
+            // Same-host / same-dump: two known labels must be equal, but an
+            // unknown (None) host on either side is admitted — disk artifacts
+            // (MFT/USN) carry no hostname, and within one image every event is the
+            // same host. The entity + time-window join still constrains the pair;
+            // requiring a known label here silently dropped every disk-to-log
+            // correlation (the Case-001 PERSIST/RELOCATE miss).
+            Self::SameHost | Self::SameDump => match (anchor_host, consequent_host) {
+                (Some(a), Some(b)) => a == b,
+                _ => true,
+            },
             // Cross-host requires two known, distinct labels.
             Self::CrossHost => {
                 matches!((anchor_host, consequent_host), (Some(a), Some(b)) if a != b)

@@ -542,10 +542,13 @@ mod tests {
 
     #[test]
     fn relocate_fires_when_both_disk_events_have_unknown_host() {
-        // FileCreate and FileRename both come from MFT/USN with no hostname.
+        // FileCreate and FileRename both come from MFT/USN with no hostname; the
+        // user-drop -> system-dir relocate must still fire (the scope admits the
+        // unknown host). (Full-path reconstruction from USN is a separate concern;
+        // here both paths carry their directory so the relocate semantics hold.)
         let events = vec![
             Ev::new(1, 1_000, "FileCreate", "", EventSource::Disk)
-                .at("coreupdater.exe")
+                .at("C:\\Users\\beth\\Downloads\\coreupdater.exe")
                 .host_none(),
             Ev::new(2, 2_000, "FileRename", "", EventSource::Disk)
                 .at("C:\\Windows\\System32\\coreupdater.exe")
