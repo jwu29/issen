@@ -15,7 +15,8 @@ use std::time::Duration;
 
 use issen_correlation::correlation::Correlation;
 use issen_correlation::evaluator::{EventSource, EventView};
-use issen_correlation::runner::run_correlations;
+use issen_correlation::runner::run_correlations_with_memory;
+use issen_correlation::tier_c::MemEvent;
 use issen_core::timeline::event::EntityRef;
 
 use crate::events::{burst_windows, EventQuery, StoredEvent};
@@ -115,6 +116,51 @@ impl EventView for RunInput {
     }
 }
 
+/// Project a stored *memory* event into the richer [`MemEvent`] the Tier-C
+/// matchers consume; `None` for any non-memory (disk/log) event.
+///
+/// Only memory rows ([`EventSource::Memory`]) carry the `pid` / `ppid` /
+/// `thread_count` / `injection` / `state` metadata the memory rules need. The
+/// identity/ordering fields come straight off the row; the memory-specific
+/// fields are parsed out of the `metadata` JSON object PRE-1 writes. A
+/// missing or un-parseable field is simply left `None` — never a panic.
+fn mem_event_from_stored(e: &StoredEvent) -> Option<MemEvent> {
+    if EventView::source(e) != EventSource::Memory {
+        return None;
+    }
+
+    let mut me = MemEvent {
+        id: e.id,
+        timestamp_ns: e.timestamp_ns,
+        event_type: e.event_type.clone(),
+        entity_refs: e.entity_refs.clone(),
+        hostname: e.hostname.clone(),
+        source: EventSource::Memory,
+        pid: None,
+        ppid: None,
+        thread_count: None,
+        injection: None,
+        state: None,
+    };
+
+    if let Some(meta) = e
+        .metadata
+        .as_deref()
+        .and_then(|m| serde_json::from_str::<serde_json::Value>(m).ok())
+    {
+        me.pid = meta.get("pid").and_then(serde_json::Value::as_u64).and_then(|v| u32::try_from(v).ok());
+        me.ppid = meta.get("ppid").and_then(serde_json::Value::as_u64).and_then(|v| u32::try_from(v).ok());
+        me.thread_count = meta
+            .get("thread_count")
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|v| u32::try_from(v).ok());
+        me.injection = meta.get("injection").and_then(serde_json::Value::as_str).map(ToString::to_string);
+        me.state = meta.get("state").and_then(serde_json::Value::as_str).map(ToString::to_string);
+    }
+
+    Some(me)
+}
+
 /// The IP a `LogonFailure` event carries, if any (the brute-force join key).
 fn ip_of(event: &StoredEvent) -> Option<EntityRef> {
     event
@@ -156,12 +202,24 @@ impl TimelineStore {
     pub fn run_and_persist(&self) -> Result<Vec<Correlation>, TimelineStoreError> {
         let events = self.fetch_events(&EventQuery::within(1, i64::MAX))?;
 
-        let mut inputs: Vec<RunInput> = events.iter().cloned().map(RunInput::Stored).collect();
+        // Partition the fetched events: memory rows feed the Tier-C matchers as
+        // projected MemEvents; everything else (disk/log) feeds the disk-leg
+        // rules. Memory rows are deliberately kept *out* of `inputs` (the
+        // disk-rule pass) — they have no flat-EventView rule — but the disk
+        // events are passed to the memory pass too, since CORR-PROC-DISK-MATCH
+        // joins a memory process to a disk FileCreate.
+        let memory: Vec<MemEvent> = events.iter().filter_map(mem_event_from_stored).collect();
+        let disk: Vec<&StoredEvent> = events
+            .iter()
+            .filter(|e| EventView::source(*e) != EventSource::Memory)
+            .collect();
+
+        let mut inputs: Vec<RunInput> = disk.iter().map(|e| RunInput::Stored((*e).clone())).collect();
         for anchor in burst_anchors(&events) {
             inputs.push(RunInput::Burst(anchor));
         }
 
-        let correlations = run_correlations(&inputs);
+        let correlations = run_correlations_with_memory(&inputs, &memory);
         for corr in &correlations {
             let members: Vec<(u64, &str)> = corr
                 .members
