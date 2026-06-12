@@ -41,6 +41,7 @@
     clippy::missing_panics_doc,
     clippy::must_use_candidate
 )]
+pub mod correlate_runner;
 pub mod correlations;
 pub mod epoch;
 pub mod events;
