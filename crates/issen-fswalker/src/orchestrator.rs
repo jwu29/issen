@@ -99,18 +99,19 @@ pub fn detect_artifact_type(path: &Path) -> Option<ArtifactType> {
         return Some(ArtifactType::Prefetch);
     }
 
-    // Registry hives
-    if name == "system"
-        || name == "software"
-        || name == "sam"
-        || name == "security"
-        || name == "ntuser.dat"
-        || name == "usrclass.dat"
+    // Registry hives. NTUSER.DAT / UsrClass.dat are unambiguous hive filenames
+    // that live in the user profile root / AppData — NEVER under a `config`
+    // directory — so gating them on a "config"/"registry" path substring
+    // silently drops every per-user hive (and with it UserAssist, ShellBags,
+    // the MRUs). Recognize them by name unconditionally; keep the directory
+    // gate only for the generically-named machine hives.
+    if name == "ntuser.dat" || name == "usrclass.dat" {
+        return Some(ArtifactType::Registry);
+    }
+    if (name == "system" || name == "software" || name == "sam" || name == "security")
+        && (full.contains("registry") || full.contains("config"))
     {
-        // Only if they're in a registry-related directory
-        if full.contains("registry") || full.contains("config") {
-            return Some(ArtifactType::Registry);
-        }
+        return Some(ArtifactType::Registry);
     }
 
     // Amcache
@@ -180,39 +181,49 @@ pub fn run_pipeline(
     };
 
     for artifact in &artifacts {
-        // Find a parser that supports this artifact type.
-        let parser = parsers
+        // Run EVERY parser that supports this artifact type, not just the first.
+        // Multiple parsers can claim one type — e.g. the registry walker and the
+        // Shimcache parser both consume the SYSTEM hive as ArtifactType::Registry;
+        // a `.find()` here silently starved all but the first.
+        let matching: Vec<_> = parsers
             .iter()
-            .find(|p| p.supported_artifacts().contains(&artifact.artifact_type));
-
-        let Some(parser) = parser else {
+            .filter(|p| p.supported_artifacts().contains(&artifact.artifact_type))
+            .map(|p| p.as_ref())
+            .collect();
+        if matching.is_empty() {
             continue;
+        }
+
+        // Open the source once and share it across the matching parsers (reads
+        // are random-access, so no per-parser reset is needed).
+        let source = match FileDataSource::open(&artifact.path) {
+            Ok(source) => source,
+            Err(e) => {
+                result
+                    .errors
+                    .push(format!("Failed to open {}: {e}", artifact.path.display()));
+                progress.record_error();
+                continue;
+            }
         };
 
-        match FileDataSource::open(&artifact.path) {
-            // A1: run each parser under isolation so a panicking/erroring artifact
-            // is captured and skipped — the pipeline always terminates.
-            Ok(source) => {
-                let unit = artifact.path.display().to_string();
-                match run_isolated(unit, || parser.parse(&source, &emitter)) {
-                    Isolated::Completed(stats) => {
-                        result.artifacts_parsed += 1;
-                        result.total_events += stats.events_emitted;
-                        result.total_bytes += stats.bytes_processed;
-                        progress.add_events(stats.events_emitted);
-                        progress.add_bytes(stats.bytes_processed);
-                        progress.complete_artifact();
-                    }
-                    Isolated::Failed(failure) => {
-                        result.errors.push(failure.describe());
-                        progress.record_error();
-                    }
+        for parser in matching {
+            // A1: run each parser under isolation so a panicking/erroring one is
+            // captured and skipped — the pipeline always terminates.
+            let unit = format!("{} [{}]", artifact.path.display(), parser.name());
+            match run_isolated(unit, || parser.parse(&source, &emitter)) {
+                Isolated::Completed(stats) => {
+                    result.artifacts_parsed += 1;
+                    result.total_events += stats.events_emitted;
+                    result.total_bytes += stats.bytes_processed;
+                    progress.add_events(stats.events_emitted);
+                    progress.add_bytes(stats.bytes_processed);
+                    progress.complete_artifact();
                 }
-            }
-            Err(e) => {
-                let msg = format!("Failed to open {}: {e}", artifact.path.display());
-                result.errors.push(msg);
-                progress.record_error();
+                Isolated::Failed(failure) => {
+                    result.errors.push(failure.describe());
+                    progress.record_error();
+                }
             }
         }
     }
@@ -285,31 +296,40 @@ pub fn run_pipeline_parallel(
 
     // Each artifact is dispatched in parallel. The emitter is Sync (Mutex-backed).
     // ProgressReporter is Sync (Arc<AtomicU64>-backed).
-    let parse_results: Vec<Option<Result<_, String>>> = artifacts
+    // Run EVERY matching parser per artifact (see run_pipeline) — each artifact
+    // maps to a Vec of per-parser results that the aggregation below flattens.
+    let parse_results: Vec<Vec<Result<_, String>>> = artifacts
         .par_iter()
         .map(|artifact| {
-            let parser = parsers
+            let matching: Vec<_> = parsers
                 .iter()
-                .find(|p| p.supported_artifacts().contains(&artifact.artifact_type))?;
-
-            match FileDataSource::open(&artifact.path) {
-                Ok(source) => match parser.parse(&source, &emitter) {
+                .filter(|p| p.supported_artifacts().contains(&artifact.artifact_type))
+                .map(|p| p.as_ref())
+                .collect();
+            if matching.is_empty() {
+                return Vec::new();
+            }
+            let source = match FileDataSource::open(&artifact.path) {
+                Ok(source) => source,
+                Err(e) => {
+                    return vec![Err(format!(
+                        "Failed to open {}: {e}",
+                        artifact.path.display()
+                    ))]
+                }
+            };
+            matching
+                .into_iter()
+                .map(|parser| match parser.parse(&source, &emitter) {
                     Ok(stats) => {
                         progress.add_events(stats.events_emitted);
                         progress.add_bytes(stats.bytes_processed);
                         progress.complete_artifact();
-                        Some(Ok(stats))
+                        Ok(stats)
                     }
-                    Err(e) => Some(Err(format!(
-                        "Parse error on {}: {e}",
-                        artifact.path.display()
-                    ))),
-                },
-                Err(e) => Some(Err(format!(
-                    "Failed to open {}: {e}",
-                    artifact.path.display()
-                ))),
-            }
+                    Err(e) => Err(format!("Parse error on {}: {e}", artifact.path.display())),
+                })
+                .collect()
         })
         .collect();
 
