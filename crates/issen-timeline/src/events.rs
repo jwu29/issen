@@ -57,6 +57,9 @@ impl issen_correlation::evaluator::EventView for StoredEvent {
     fn event_type(&self) -> &str {
         &self.event_type
     }
+    fn artifact_path(&self) -> &str {
+        &self.artifact_path
+    }
     fn entity_refs(&self) -> &[EntityRef] {
         &self.entity_refs
     }
