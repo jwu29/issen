@@ -1,7 +1,8 @@
 # Windows Endpoint Artifact Expansion — Coverage Matrix + New `-core`/`-forensic` Repos
 
-**Date:** 2026-06-12 · **Status:** DESIGN (no code) · **Scope:** issen + three new fleet repos
+**Date:** 2026-06-12 · **Status:** DESIGN (no code) · **Scope:** issen wiring + three Phase-1 fleet repos + the Phase-2+ A–E build-strategy roadmap
 **Companion docs:** [capstone v5](2026-06-11-issen-correlate-capstone-v5.md) (PRE-1..6, G1/G2 gates) · [case001-union-answers](../case001-union-answers.md) (the honest-coverage accounting this plan closes)
+**Structure:** (1) exec summary + gap · (2) full IWE coverage matrix · (3) Wave 0 wiring · (4) Phase 1 = the 3 committed repos · (5) Phase 2+ = the A–E roadmap grouped by build strategy · (6) sequencing · (7) cross-cutting integration (orchestrator fix, migration, super-timeline/correlation)
 
 ---
 
@@ -9,13 +10,13 @@
 
 issen today parses **4 disk artifact families** on real evidence — $MFT, $UsnJrnl, registry hive walk, EVTX — plus SRUM (wired 2026-06-11) and a memory process list, and it measures only **~11 of the 44 Case-001 union findings**. Audited against the "Investigating Windows Endpoints" (IWE) artifact taxonomy, that is **5 of 59 artifacts wired** (≈ 8%). The single biggest gap is **evidence of execution** — Prefetch run counts/times, Amcache SHA-1s, Shimcache presence — and **LNK/Jump Lists**, which several Case-001 questions genuinely require ("was `coreupdater.exe` run, how many times, at what times"; the `Loot.lnk`/`Secret.lnk` staging answers). Four parser crates for exactly these artifacts already exist under `crates/parsers/` but are dead code: registered via `inventory::submit!` yet never force-linked into the binary (the PRE-5 gap, verified 0 events on both hosts).
 
-The build strategy is three-tracked, cheapest-first:
+The build strategy is **Wave 0 (wire) → Phase 1 (three repos) → Phase 2+ (the A–E roadmap), cheapest-first**:
 
-1. **WIRE (days, issen-only — PRE-5+):** force-link the four dead parsers, add the missing `.lnk` discovery arm, fix two discovery/dispatch bugs found during this audit (the `NTUSER.DAT` path-gate miss and the `.find()` single-parser dispatch that structurally starves Shimcache). This makes amcache/shimcache/lnk measurable immediately. Prefetch stays a stub (it emits `timestamp_ns = 0` — verified) until track 2.
-2. **BUILD (the committed near-term repos):** three new fleet workspaces in `~/src`, each on the vmdk/ewf `core/` + `forensic/` pattern, each a clean-room Rust reimplementation studying a named reference — **`prefetch-forensic`** (pure-Rust Xpress-Huffman/MAM + SCCA reader — the real fix for the execution answers; ref kacos2000/Prefetch-Browser), **`amcache-shimcache-forensic`** (both hive-derived EoE artifacts, reading hives via our `winreg-core`; ref Eric Zimmerman's AmcacheParser/AppCompatCacheParser), and **`lnk-jumplist-forensic`** (members `lnk-core` + `jumplist-core` + a shared analyzer — Jump Lists structurally embed LNK, so the family versions together; refs EricZimmerman/LECmd + kacos2000/Jumplist-Browser). These supersede the four issen-parser-* crates, which become thin wrappers and are then retired.
-3. **EXTEND (winreg-artifacts + mappers):** every remaining registry-derived IWE artifact (BAM/DAM, UserAssist surfacing, MUICache, RecentDocs, MRUs, USB, TaskCache, NetworkList) lands as a module in our existing `winreg-artifacts` — never as a new registry parser (fleet rule: prefer our own crates). EVTX channel semantics (TerminalServices, PowerShell, Sysmon, WMI-Activity) are mapper arms in `issen-parser-evtx`. ESE-based artifacts (WebCache, UAL, Windows.edb) build on `srum-forensic`'s published `ese-core`.
+- **Wave 0 — WIRE (days, issen-only — PRE-5+):** force-link the four dead parsers, add the missing `.lnk` discovery arm, fix two discovery/dispatch bugs found during this audit (the `NTUSER.DAT` path-gate miss and the `.find()` single-parser dispatch that structurally starves Shimcache). This makes amcache/shimcache/lnk measurable immediately. Prefetch stays a stub (it emits `timestamp_ns = 0` — verified) until Phase 1. (§3)
+- **Phase 1 — BUILD the three committed repos (§4):** three new fleet workspaces in `~/src`, each on the vmdk/ewf `core/` + `forensic/` pattern, each a clean-room Rust reimplementation studying a named reference — **`prefetch-forensic`** (pure-Rust Xpress-Huffman/MAM + SCCA reader — the real fix for the execution answers; ref kacos2000/Prefetch-Browser), **`amcache-shimcache-forensic`** (both hive-derived EoE artifacts, reading hives via our `winreg-core`; ref Eric Zimmerman's AmcacheParser/AppCompatCacheParser), and **`lnk-jumplist-forensic`** (members `lnk-core` + `jumplist-core` + a shared analyzer — Jump Lists structurally embed LNK; refs EricZimmerman/LECmd + kacos2000/Jumplist-Browser). These supersede the four issen-parser-* crates, which become thin wrappers and are then retired.
+- **Phase 2+ — the prioritized roadmap, grouped by build strategy (§5):** the actionable spine, ordered by leverage. **A. EXTEND `winreg-forensic`** (highest leverage — ~10 registry-derived artifacts unlock at once; we already own the reader and already extract the hives, so the work is analyzers + wiring, not new readers). **B. New `<x>-core`/`<x>-forensic` repos** for genuinely new formats (`recyclebin-forensic`, `thumbcache-forensic`, `scheduledtask-forensic`, `wmi-forensic`). **C. Ride `sqlite-forensic`** for SQLite-backed artifacts (ActivitiesCache.db; plus trivial shell-history text). **D. Extend `ntfs-forensic`** for NTFS internals ($LogFile, $I30 INDX slack, $Bitmap/$Boot). **E. Already in the fleet — WIRE/verify, don't build** (SRUM, EVTX channel mappers, browser-forensic + the Edge/IE WebCache ESE gap, VSS → state-history, SetupAPI).
 
-Target after waves 0–2 below: **~30 of 59 artifacts producing timeline events**, with every Case-001-required artifact (P0/P1 rows) covered.
+Target after Wave 0 + Phase 1 + Group A: **~30 of 59 artifacts producing timeline events**, with every Case-001-required artifact (P0/P1 rows) covered.
 
 ---
 
@@ -79,8 +80,9 @@ One row per artifact named by the IWE knowledge base (`~/brain2/01_Projects/Inve
 | 16 | TypedPaths (NTUSER `...\Explorer\TypedPaths`) | paths typed into the Explorer address bar | — | EXTEND `winreg-artifacts` | P2 |
 | 17 | WordWheelQuery (NTUSER) | Explorer search terms | — | EXTEND `winreg-artifacts` | P3 |
 | 18 | TypedURLs (NTUSER `Software\Microsoft\Internet Explorer\TypedURLs`) | typed IE URLs | `winreg-artifacts::typed_urls` decodes; not surfaced | EXTEND `issen-parser-registry` to emit | P2 |
-| 19 | Windows Activity Timeline (`ActivitiesCache.db`, WxTCmd-equivalent) | app focus/usage, cross-device activity | — (SQLite; `sqlite-forensic` fleet repo is the base) | FUTURE BUILD on `sqlite-core` | P3 |
-| 20 | Thumbs.db / `thumbcache_*.db` | viewed-media existence surviving deletion | — | FUTURE BUILD (CFB reader shared with jump lists) | P3 |
+| 19 | Windows Activity Timeline (`ActivitiesCache.db`, WxTCmd-equivalent) | app focus/usage, cross-device activity | — (SQLite; `sqlite-forensic` fleet repo is the base) | RIDE `sqlite-forensic` + schema (§5 Group C) | P3 |
+| 19b | PowerShell `ConsoleHost_history.txt` (PSReadLine) | typed PowerShell commands per user | — | BUILD `issen-parser-pshistory` (trivial text; §5 Group C) | P2 |
+| 20 | Thumbs.db / `thumbcache_*.db` | viewed-media existence surviving deletion | — | BUILD `thumbcache-forensic` (§5 Group B; CFB reader shared with `jumplist-core`) | P2 |
 | 21 | Windows Search Index (`Windows.edb`) | indexed file/content existence incl. deleted | — (ESE; `ese-core` is the base) | FUTURE BUILD on `ese-core` | P3 |
 
 ### 2.3 Registry — system profile, devices, persistence keys (IWE modules 03, 05)
@@ -95,7 +97,7 @@ One row per artifact named by the IWE knowledge base (`~/brain2/01_Projects/Inve
 | 27 | Run/RunOnce keys | F17 persistence | `winreg-artifacts::run_keys` (+ `classify_run_entry`); not surfaced | PRE-3 surface | **P0** |
 | 28 | `Services\<name>` | F17 `coreupdater` service persistence | `winreg-artifacts::svc_diff`; not surfaced | PRE-3 surface | **P0** |
 | 29 | SAM hive (users, last login, RID) | account questions | `winreg-artifacts::sam`; not surfaced | EXTEND surface | P1 |
-| 30 | TaskCache (`Schedule\TaskCache\Tasks` + `Tree`) | scheduled-task persistence (registry side) | — | EXTEND `winreg-artifacts` (`taskcache.rs`) | P1 |
+| 30 | TaskCache (`Schedule\TaskCache\Tasks` + `Tree`) + `\System32\Tasks\*` XML | scheduled-task persistence | — | EXTEND `winreg-artifacts` (`taskcache.rs`, §5-A) + BUILD `scheduledtask-forensic` for the XML side (§5 Group B); join on GUID | P1 |
 | 31 | NetworkList (SOFTWARE) | network profiles, first/last connect | — | EXTEND `winreg-artifacts` | P2 |
 | 32 | USBSTOR/USB enum + Properties `0064/0066/0067` | device, serial, first-install / last-arrival / last-removal | — | EXTEND `winreg-artifacts` (`usb.rs`) | P2 |
 | 33 | MountedDevices (SYSTEM) | volume ↔ device ↔ drive-letter mapping | — | EXTEND `winreg-artifacts` | P2 |
@@ -116,8 +118,9 @@ One row per artifact named by the IWE knowledge base (`~/brain2/01_Projects/Inve
 | 43 | WMI-Activity/Operational | WMI lateral movement / persistence | partial (same) | EXTEND mappers | P2 |
 | 44 | Defender/Operational (1116/1117) | detection/remediation history | partial (same) | EXTEND mappers | P2 |
 | 45 | DriverFrameworks-UserMode + Kernel-PnP | USB connect/disconnect times | partial (same) | EXTEND mappers (pairs with #32) | P3 |
-| 46 | UAL (`System32\LogFiles\SUM\Current.mdb` + `<GUID>.mdb`) | server: role/user/IP access counts (lateral movement) | — (ESE) | FUTURE BUILD on `ese-core` | P2 |
+| 46 | UAL (`System32\LogFiles\SUM\Current.mdb` + `<GUID>.mdb`) | server: role/user/IP access counts (lateral movement) | — (ESE) | BUILD `ual-forensic` on `ese-core` (§5 Group E, future) | P2 |
 | 47 | ESENT log evidence of `ntdsutil` (NTDS.dit staging) | DC credential-theft staging | partial — Application EVTX parses; no mapper | EXTEND mappers | P2 |
+| 47b | WMI repository (`OBJECTS.DATA` — `__EventConsumer`/`__FilterToConsumerBinding`) | permanent (fileless) WMI-event persistence | — | BUILD `wmi-forensic` (§5 Group B) | P2 |
 
 ### 2.5 NTFS, deletion, recovery, timelining (IWE modules 06, 07, 09)
 
@@ -126,7 +129,7 @@ One row per artifact named by the IWE knowledge base (`~/brain2/01_Projects/Inve
 | 48 | $MFT ($SI/$FN MACB, resident data) | file timeline; timestomp inputs | ✅ wired | migrate onto `ntfs-core` per the existing parity-gate plan | — |
 | 49 | $UsnJrnl:$J | create/delete/rename truth | ✅ wired (+ standalone `usnjrnl-forensic` fleet repo) | consolidate later | — |
 | 50 | Timestomp detection ($SI < $FN) | tamper lead (deliberately Info-graded) | ✅ wired | layered redesign (staged elsewhere) | P2 |
-| 51 | $Recycle.Bin `$I`/`$R` (+ legacy RECYCLER) | who deleted what, when, original path | — | BUILD `issen-parser-recyclebin` (tiny fixed binary format) | P1 |
+| 51 | $Recycle.Bin `$I`/`$R` (+ legacy INFO2/RECYCLER) | who deleted what, when, original path | — | BUILD `recyclebin-forensic` (§5 Group B; oracle = RBCmd) — **answers Case-001 Beth-file deletion** | **P1** |
 | 52 | $LogFile | low-level op replay; resurrect short-lived files | — | FUTURE BUILD in `ntfs-forensic` | P2 |
 | 53 | $I30 slack (INDEX_ROOT/INDEX_ALLOCATION) | deleted directory entries with $FN timestamps | partial — `ntfs-core` parses index buffers; slack carving not surfaced | EXTEND `ntfs-forensic` → issen | P2 |
 | 54 | ADS (`:streamname`) | hidden payloads, Zone.Identifier provenance | partial — MFT parser sees attributes; no ADS events | EXTEND issen MFT parsing | P2 |
@@ -138,10 +141,10 @@ One row per artifact named by the IWE knowledge base (`~/brain2/01_Projects/Inve
 | # | Artifact | Answers it yields | Where it lives today | Action | Pri |
 |---|---|---|---|---|---|
 | 57 | Chrome/Edge/Firefox history, cache, cookies | F10 download corroboration | — in issen (`browser-forensic` fleet repo is mature standalone) | BUILD `issen-parser-browser` wrapper over `browser-forensic` | P1 |
-| 58 | IE/legacy `WebCacheV01.dat` | F10 download corroboration on 2012R2/Win10 IE | — (ESE) | FUTURE BUILD on `ese-core` | P2 |
+| 58 | IE/legacy `WebCacheV01.dat` | F10 download corroboration on 2012R2/Win10 IE | — (ESE; browser-forensic has no Edge/IE crate) | BUILD `webcache-forensic` on `ese-core` (§5 Group E gap) | P2 |
 | 59 | PE metadata (compile time, signatures, anomalies) | binary provenance | `issen-parser-pe` DEAD; `exec-pe-forensic` fleet repo exists | CONSOLIDATE onto `exec-pe-forensic`, wire | P2 |
 
-**Tallies:** 59 rows. Wired today ✅: **5** (+2 NTFS detections riding them). `partial` (capability exists somewhere in the fleet but not surfaced as issen events, or stub): **17**. — none: **37**. Action mix: WIRE 7 · BUILD-committed-repo 6 rows (3 repos, §4) · EXTEND winreg-artifacts 14 · EXTEND evtx mappers 7 · PRE-3 6 · FUTURE BUILD 9 · small issen parsers 3.
+**Tallies:** 62 rows (incl. 19b/47b/added). Wired today ✅: **5** (+2 NTFS detections riding them). `partial` (capability exists somewhere in the fleet but not surfaced as issen events, or stub): **17**. — none: rest. Strategy-group mix (§5): WIRE/Phase-0 7 · Phase-1 committed repos 6 rows (3 repos, §4) · **Group A** EXTEND winreg-artifacts ~12 · **Group B** new repos 4 · **Group C** sqlite-ride 2 · **Group D** ntfs-extend 3 · **Group E** wire-existing 7 · EVTX mappers 7 · PRE-3 6.
 
 ---
 
@@ -159,7 +162,7 @@ What PRE-5+ buys for Case-001: F21 LNK staging leg, F10 Amcache leg, shimcache p
 
 ---
 
-## 4. The Committed Near-Term Repos (decided)
+## 4. Phase 1 — The Committed Near-Term Repos (decided)
 
 Three new workspaces in `~/src`, each exactly on the vmdk/ewf fleet pattern: one repo named `<x>-forensic`, members `core/` (raw reader, `Path`/`&[u8]` in, typed records out, **no findings**) + `forensic/` (anomaly analyzer emitting `forensicnomicon::report::Finding` via `impl Observation`), optional `cli/`. Every repo carries the full standard from `issen/CLAUDE.md`: Paranoid-Gatekeeper workspace lints (`unsafe_code = forbid`, `unwrap_used`/`expect_used = deny`, panic-free bounds-checked reads, allocation caps), `fuzz/` with one target per parsed structure + a full-pipeline target, 100% `--lib` line coverage gated with `// cov:unreachable` exemptions only, `deny.toml`/`clippy.toml`/`rustfmt.toml`/`.gitleaks.toml`/`renovate.json`/`LICENSE` (Apache-2.0), README to the SecurityRonin standard with live docs site at publish, and `docs/validation.md` recording real-artifact validation. **Validation corpus:** the real Case-001 Desktop Win10 artifacts (`*.pf`, `Amcache.hve`, `SYSTEM`, `Recent\*.lnk`, jump lists) are the acceptance fixtures; each repo also validates against the established oracle (PECmd, AppCompatCacheParser/AmcacheParser, LECmd, JLECmd) — reconcile counts and contents, explain divergences. Catalog every fixture in `issen/docs/corpus-catalog.md` + the repo's `tests/data/README.md` in the same change.
 
@@ -213,17 +216,78 @@ One workspace, not two: Jump Lists structurally *embed* full LNK records, so the
 
 ---
 
-## 5. Future Repos and Extensions (the breadth tail — NOT committed now)
+## 5. Phase 2+ — The Prioritized Roadmap, Grouped by Build Strategy
 
-Kept in the matrix with owners so nothing silently drops; each starts only when a case/gate demands it (YAGNI):
+This is the actionable spine. After Phase 1 (the three repos in §4), everything else sequences into five build-strategy groups **A–E, ordered by leverage** (effort-to-coverage ratio, cheapest first). Each item carries a priority tied to **IWE frequency** (how central the artifact is across the IWE modules) and **Case-001 relevance**. The fleet location of every "already own it" claim was verified by reading the code on 2026-06-12 (see the Appendix ledger).
 
-- **`winreg-artifacts` extension pack** (P1→P3, §2 rows 6–8, 13–17, 30–36): `bam.rs`, `muicache.rs`, `recentdocs.rs`, `comdlg32.rs`, `runmru.rs`, `typedpaths.rs`, `wordwheel.rs`, `taskcache.rs`, `network_list.rs`, `usb.rs`, `mounted_devices.rs`, `mountpoints2.rs`, `portable_devices.rs`, `wdigest.rs`. Same module shape as the existing fourteen (`pub struct XEntry` + `pub fn parse(&Hive) -> Vec<XEntry>`). issen surfaces them through `issen-parser-registry` — one hive read, N decoders (the dispatch-to-all fix makes the alternative unnecessary).
-- **ESE family on `ese-core`** (P2/P3): `webcache-forensic` (IE/Edge `WebCacheV01.dat`, F10), `ual-forensic` (SUM `Current.mdb`), Windows Search (`Windows.edb`). New repos depending on the published `ese-core` from srum-forensic.
-- **`ntfs-forensic` deepening** (P2): $LogFile replay, $I30 slack carving surfaced as issen events, ADS events.
-- **`vsc-forensic`** (P2): VSS store decode — the [P^H] state-history leaf; `~/src/vsc-forensic` is currently a research stub (RESEARCH.md only).
-- **Small issen-internal parsers** (trivial formats that do not earn repo overhead): `issen-parser-recyclebin` ($I fixed layout — P1), `issen-parser-pca` (pipe-delimited text — P3), scheduled-task XML (P1, pairs with `taskcache.rs`). Promotion rule: deep binary format + standalone analyst value → fleet repo; registry-derived → winreg-artifacts module; trivial text/fixed-struct → issen parser.
-- **Wrappers over existing fleet repos** (P1/P2): `issen-parser-browser` over `browser-forensic`; PE consolidation onto `exec-pe-forensic`.
-- **EVTX channel mappers** (P1/P2): TerminalServices 21/22/25/1149 (encode the IWE caveat: 1149 ≠ authentication), PowerShell 4103/4104, Sysmon, WMI-Activity, Defender 1116/1117, DriverFrameworks/Kernel-PnP USB events.
+The promotion rule that assigns each artifact to a group: *registry-derived → EXTEND winreg-artifacts (A); genuinely new binary format with standalone analyst value → new `-core`/`-forensic` repo (B); SQLite-backed → ride `sqlite-forensic` (C); NTFS-internal → extend ntfs-forensic (D); already in the fleet → WIRE/verify, never rebuild (E).*
+
+### Group A — Registry-derived → EXTEND `~/src/winreg-forensic` (HIGHEST LEVERAGE)
+
+**Why first:** ~10 artifacts unlock from *one* substrate we already fully own — `winreg-core` reads the hive, issen already extracts the hives during the G1 walk, and `winreg-artifacts` already has the module pattern (`pub struct XEntry` + `pub fn parse(&Hive) -> Vec<XEntry>`). The work is **analyzers + issen event-emission, not new readers**. No new repo, no new format decoder for the hive itself.
+
+**Verified state of `winreg-artifacts` (read 2026-06-12 — 15 modules present):** the following decoders **already exist** and only need *surfacing* as issen timeline events (the decode is done): `userassist` (with `rot13_decode`), `shellbags`, `run_keys` (Run/RunOnce **and** Winlogon Shell/Userinit), `svc_diff` (services), `typed_urls`, `shimcache`, `amcache`, `sam`, `com_hijacking`, `lsadump`, `catalog_scan`, `lxss`. The following are **absent and need adding as new modules** (grep confirmed zero hits): `bam`/`dam`, `muicache`, `recentdocs`, `runmru`, `typedpaths`, the ComDlg32 MRUs (`opensave`/`lastvisited`), `wordwheel`, `usbstor`, `mounteddevices`.
+
+| Item | winreg-artifacts state | Work | IWE freq | Case-001 | Pri |
+|---|---|---|---|---|---|
+| UserAssist (ROT13 run-counts, focus time) | **decoder exists** (`userassist.rs`) | surface → issen events | high (module 04 EoE) | per-user GUI exec | **P1** |
+| ShellBags (folder navigation, incl. deleted/UNC/ZIP) | **decoder exists** (`shellbags.rs`) | surface; deep shellitem decode later | high (module 03) | folder-access leads | **P1** |
+| Run/RunOnce/Winlogon persistence | **decoder exists** (`run_keys.rs` + `classify_run_entry`) | surface (rides PRE-3) | high (module 05) | **F17** coreupdater Run key | **P0** |
+| Services persistence | **decoder exists** (`svc_diff.rs`) | surface (rides PRE-3) | high (module 05) | **F17** coreupdater service | **P0** |
+| BAM/DAM (per-SID last-run + full path) | **absent** — add `bam.rs` | new module + surface | medium (not an IWE lesson; std EoE) | per-user exec timeline | P1 |
+| MUICache (app ran ≥ once per user) | **absent** — add `muicache.rs` | new module + surface | medium (module 04) | corroborating EoE | P2 |
+| RecentDocs (recently opened docs, MRU order) | **absent** — add `recentdocs.rs` | new module + surface | medium (module 03) | file-access leads | P2 |
+| MRUs: RunMRU / TypedPaths / OpenSaveMRU / LastVisitedMRU / ComDlg32 / WordWheelQuery | **absent** — add `runmru.rs`, `typedpaths.rs`, `comdlg32.rs`, `wordwheel.rs` | new modules + surface | medium (module 03) | typed-command & dialog leads | P2 |
+| TypedURLs (IE typed URLs) | **decoder exists** (`typed_urls.rs`) | surface | low (module 03) | download corroboration | P2 |
+| USBSTOR + MountedDevices (device, serial, first/last connect, drive-letter map) | **absent** — add `usbstor.rs`, `mounted_devices.rs` | new modules + surface; pairs with EVTX DriverFrameworks (Group E) | medium (module 03) | USB exfil profiling | P2 |
+
+**issen wiring for all of Group A:** one hive read, N decoders — surfaced through `issen-parser-registry`, made possible by the §3 dispatch-to-all fix (so NTUSER.DAT → walk + shellbags + UserAssist + MRUs in a single pass). Each decoder's `XEntry` → typed `TimelineEvent` per §7.1.
+
+### Group B — New `<x>-core`/`<x>-forensic` repos (genuinely new formats)
+
+**Why:** these are binary formats not derived from a hive, a SQLite DB, or the NTFS metafiles — they earn the full repo treatment (deep format + standalone analyst value, per the promotion rule). All four are **ABSENT** today (verified: no `thumbcache-forensic`/`recyclebin-forensic`/`wmi-forensic`/`scheduledtask-forensic` directory in `~/src`). Each follows the §4 standard (core/forensic, Paranoid Gatekeeper, fuzz, 100% lib coverage, clean-room with cited reference + oracle validation).
+
+| Repo | Format / IWE basis | Reader API sketch | IWE freq | Case-001 | Pri |
+|---|---|---|---|---|---|
+| **`recyclebin-forensic`** | `$I`/`$R` (Vista+) + legacy `INFO2`/RECYCLER — IWE module 07 "The Recycle Bin" (RBCmd) | `RecycleEntry { original_path, deleted_at: FILETIME, original_size, sid }`; one `$I` = fixed 24/28-byte header + UTF-16 path; oracle = RBCmd | high (module 07, dedicated lesson) | **directly answers Case-001 Beth-file deletion** (who deleted what, when, original path) | **P1** |
+| **`thumbcache-forensic`** | `thumbcache_*.db` (Win Vista+ CFB-ish cache) + legacy `Thumbs.db` (OLE/CFB) — IWE module 10 | `ThumbEntry { cache_id, signature, hash, image_bytes }`; reuses the CFB reader factored from `jumplist-core` (§4.3) for `Thumbs.db`; oracle = Thumbcache Viewer | medium (module 10, dedicated lesson) | viewed-media existence surviving deletion | P2 |
+| **`scheduledtask-forensic`** | `\System32\Tasks\*` task XML + the registry `TaskCache` (Tree/Tasks) cross-check — IWE module 05 (exam cram: "each task is an XML file; KAPE-collectable") | `ScheduledTask { name, author, triggers, action, last_run, registration_time }`; XML reader + TaskCache GUID join | high (module 05 persistence) | scheduled-task persistence | P1 |
+| **`wmi-forensic`** | `OBJECTS.DATA` (CIM repository) — `__EventFilter` / `__EventConsumer` / `__FilterToConsumerBinding` permanent-WMI-event persistence — IWE module 05 (WMI-Activity) | `CimObject` walk → consumer-binding triples; the standard fileless-persistence artifact | medium (module 05) | WMI persistence (none in Case-001, but core technique) | P2 |
+
+Note: `scheduledtask-forensic`'s registry-`TaskCache` leg also surfaces via a small `taskcache.rs` in Group A (the registry side); the repo owns the **XML file** side. The two join on task GUID — designed together.
+
+### Group C — SQLite-backed → ride `~/src/sqlite-forensic` + a schema (no new format repo)
+
+**Why:** `sqlite-forensic` exists (`core`/`forensic`/`cli`, verified) and already does panic-free SQLite page parsing + deleted-record carving. SQLite-backed Windows artifacts are a **schema mapping on top of `sqlite-core`**, not a new format reader.
+
+| Item | Basis | Work | IWE freq | Pri |
+|---|---|---|---|---|
+| Windows Activity Timeline (`ActivitiesCache.db`) | SQLite, `Activity`/`ActivityOperation` tables — IWE module 10 (WxTCmd) | schema map over `sqlite-core` → app focus/usage events; carve deleted rows for free | medium (module 10) | P3 |
+| PowerShell `ConsoleHost_history.txt` | trivial plain text (PSReadLine), not SQLite | one-line text reader in issen (`issen-parser-pshistory`) — listed here as the SQLite-group "while we're in user-shell-history land" companion | medium (module 05) | P2 |
+
+### Group D — NTFS internals → extend `~/src/ntfs-forensic`
+
+**Why:** `ntfs-forensic` (`core`/`forensic`) already parses the boot sector, MFT, attributes, runlists, **a `logfile/` module (with `usn_extractor`), `index.rs`, and `carve.rs`** (verified). These items are *new surfaces on the existing reader*, not a new repo.
+
+| Item | ntfs-core state | Work | IWE freq | Pri |
+|---|---|---|---|---|
+| `$LogFile` (transaction log replay — resurrect short-lived files) | `logfile/` module **exists** (currently USN-extraction focused) | extend to full LSN/redo-undo replay → issen events | medium (module 06/07) | P2 |
+| `$I30` INDX slack (deleted directory entries with $FN MACB) | `index.rs` parses index buffers | surface slack-region carving as issen events | medium (module 06) | P2 |
+| `$Bitmap` / `$Boot` (cluster allocation state, volume serial/geometry) | `boot.rs` exists; no `$Bitmap` surfacing | add `$Bitmap` allocation map (carving support) + `$Boot` profile event | low (module 06) | P3 |
+
+### Group E — Already in the fleet → WIRE / verify, don't build
+
+**Why:** the capability exists; the only work is wiring or filling a small gap. Building anything new here would violate the fleet "prefer our own crates" rule.
+
+| Item | Fleet location (verified) | Work | Pri |
+|---|---|---|---|
+| SRUM (`SRUDB.dat`) | `issen-parser-srum` → `srum-forensic` (wired) | verify table coverage; push network-usage rows as events | P1 |
+| EVTX | `issen-parser-evtx` (wired) + `winevt-forensic` fleet repo | add the channel mappers (Group A pairs with USB; TS/RDP, PowerShell, Sysmon, WMI-Activity, Defender) | P1/P2 |
+| Browser history/cache/cookies | `browser-forensic` (Chrome/Firefox/Safari crates present) | BUILD `issen-parser-browser` wrapper; **gap: no Edge/IE WebCache (ESE) crate** — that ESE leg builds on `srum-forensic`'s `ese-core` (new `webcache-forensic`), not browser-forensic | P1 (wrapper) / P2 (ESE gap) |
+| VSS (Volume Shadow Copies) | `vsc-forensic` = RESEARCH.md only; `state-history-forensic` is a real crate; `snapshot-forensic` = docs only | FUTURE BUILD `vsc-forensic` as the `[P^H]` state-history leaf onto `state-history-forensic` | P2 |
+| SetupAPI (`setupapi.dev.log`) | `issen-parser-setupapi` exists but **mis-registers as `ArtifactType::Registry`** (verified `lib.rs:192-193`) | WIRE: give it its own `ArtifactType::SetupApi` + discovery arm (§7.2); USB first-install times surviving registry wipes | P2 |
+| UAL (`Current.mdb`/`<GUID>.mdb`) | ESE — `ese-core` exists in `srum-forensic` | FUTURE BUILD `ual-forensic` on `ese-core` (server lateral-movement access counts) | P2 |
+| PE metadata | `issen-parser-pe` DEAD; `exec-pe-forensic` fleet repo exists | CONSOLIDATE onto `exec-pe-forensic`, wire | P2 |
 
 ---
 
@@ -232,28 +296,27 @@ Kept in the matrix with owners so nothing silently drops; each starts only when 
 ```mermaid
 flowchart LR
     W0["Wave 0 — days
-PRE-5+ wiring
+PRE-5+ wiring (§3)
 dispatch-to-all
-discovery fixes"] --> W1["Wave 1 — committed builds
+discovery fixes"] --> P1["Phase 1 — committed builds (§4)
 prefetch-forensic
 amcache-shimcache-forensic
 lnk-jumplist-forensic (lnk-core leg)
-+ PRE-3 named values"] --> W2["Wave 2 — surface + corroborate
-jumplist-core leg (on lnk-core)
-UserAssist/SAM/run-keys surfacing
-recyclebin · browser wrapper
-TS/RDP mappers · TaskCache"] --> W3["Wave 3 — breadth
-winreg extension pack (USB, MRUs, BAM)
-ese family (WebCache, UAL)
-$LogFile · $I30 · VSS"]
++ PRE-3 named values"] --> W2["Wave 2 — Group A + B-P1 + E-P1
+A: UserAssist/ShellBags/Run/Services surface
+B: recyclebin-forensic · scheduledtask-forensic
+jumplist-core leg · browser wrapper · TS/RDP mappers"] --> W3["Wave 3 — breadth (A-tail, B-P2, C, D, E-future)
+A: USB · MRUs · BAM · MUICache
+B: thumbcache · wmi  C: ActivitiesCache
+D: \$LogFile · \$I30  E: WebCache/UAL ESE · VSS"]
 ```
 
-| Wave | Items | Union findings / questions served | IWE module |
-|---|---|---|---|
-| 0 | PRE-5+ (§3) | F10 Amcache leg, F21 LNK leg; shimcache corroboration | 04, 08 |
-| 1 | prefetch-forensic + amcache-shimcache-forensic + lnk-jumplist-forensic `lnk-core` leg (§4.1–4.3) + PRE-3 | **the execution answers** (run count/times of `coreupdater.exe` — Prefetch; SHA-1 — Amcache F9-adjacent), F1–F3/F22 (OS/host/IP), F17/F19 (Run*/Services) | 03, 04, 08 |
-| 2 | `jumplist-core` leg (§4.3, on `lnk-core`); UserAssist + SAM + TypedURLs surfacing; recycle bin; `issen-parser-browser`; TS/RDP + 4776 mappers; TaskCache + task XML | F10 webcache corroboration, RDP session truth (F6/F20), account questions, deletion questions | 02, 03, 05, 07, 08 |
-| 3 | winreg extension pack (BAM, MUICache, RecentDocs, MRUs, USB, NetworkList); ese family; $LogFile/$I30; VSS; PowerShell/Sysmon/WMI/Defender mappers; WMI repository | breadth beyond Case-001: USB exfil, search terms, server lateral movement (UAL), historical states | 02, 03, 05, 06, 10 |
+| Wave | Strategy groups | Items | Union findings / questions served | IWE module |
+|---|---|---|---|---|
+| 0 | (pre-build) | PRE-5+ (§3) | F10 Amcache leg, F21 LNK leg; shimcache corroboration | 04, 08 |
+| Phase 1 | the 3 repos (§4) | prefetch-forensic + amcache-shimcache-forensic + lnk-jumplist-forensic `lnk-core` leg + PRE-3 | **the execution answers** (run count/times of `coreupdater.exe` — Prefetch; SHA-1 — Amcache F9-adjacent), F1–F3/F22 (OS/host/IP), F17/F19 (Run*/Services) | 03, 04, 08 |
+| 2 | **A** (P0/P1 surface) · **B** (P1) · **E** (P1) | Run/Services/UserAssist/ShellBags surfacing (decoders already exist); `recyclebin-forensic`, `scheduledtask-forensic`; `jumplist-core` leg; `issen-parser-browser`; TS/RDP + 4776 mappers; SRUM verify | **F17/F19** persistence, F10 download corroboration, RDP session truth (F6/F20), **Case-001 Beth-file deletion** | 02, 03, 05, 07, 08 |
+| 3 | **A** (P2 tail) · **B** (P2) · **C** · **D** · **E** (future) | winreg add-modules (BAM, MUICache, RecentDocs, MRUs, USBSTOR/MountedDevices); `thumbcache-forensic`, `wmi-forensic`; ActivitiesCache + shell history; `$LogFile`/`$I30`/`$Bitmap`; WebCache/UAL ESE; VSS | breadth beyond Case-001: USB exfil, search terms, WMI persistence, server lateral movement (UAL), historical states | 02, 03, 05, 06, 10 |
 
 Within every wave, Case-001-relevant items run first; each repo build follows strict TDD with the Case-001 real artifacts as the GREEN acceptance fixtures and separate RED/GREEN commits per the global discipline.
 
@@ -292,7 +355,7 @@ New `ArtifactType` variants needed (enum at `issen-core/src/artifacts/types.rs:5
 | `windows.edb` | SearchIndex |
 | `$LogFile` | (NTFS deepening) |
 
-Dispatch runs **all** matching parsers per artifact (§3.3) — the structural prerequisite for hive-multiplexing (SYSTEM → walk + shimcache; NTUSER.DAT → walk + shellbags + UserAssist + MRUs).
+Dispatch runs **all** matching parsers per artifact (§3, item 3) — the structural prerequisite for hive-multiplexing (SYSTEM → walk + shimcache; NTUSER.DAT → walk + shellbags + UserAssist + MRUs) and thus for all of §5 Group A.
 
 ### 7.3 Findings
 
@@ -316,3 +379,8 @@ Analyzer output (`prefetch-forensic`, `amcache-shimcache-forensic`, `lnk-jumplis
 - Coverage claim "~11 of 44": `docs/case001-union-answers.md:48-56` ("issen coverage today — honest accounting").
 - PRE definitions and sequencing: `docs/plans/2026-06-11-issen-correlate-capstone-v5.md` §6.1/§6.3.
 - Reference implementations present at `~/src/_refs/`: `Prefetch-Browser/` (incl. `Local_PfAp.ps1`, `Xpress.dll`), `LECmd/`, `Jumplist-Browser/` (incl. `AppIdlist.csv`, CustomDestinations format doc) — verified by directory listing 2026-06-12.
+- **§5 Group A** — winreg-artifacts present decoders (read `crates/winreg-artifacts/src/` 2026-06-12): `amcache, catalog_scan, com_hijacking, lsadump, lxss, path_expansion, registry_keys, run_keys, sam, shellbags, shimcache, svc_diff, typed_urls, userassist` (+ `lib`); `userassist.rs` has `rot13_decode`; `run_keys.rs` covers Run/RunOnce **and** Winlogon. **Absent** (grep zero hits, need new modules): `bam/dam, muicache, recentdocs, runmru, typedpaths, comdlg/opensave/lastvisited, wordwheel, usbstor, mounteddevices`.
+- **§5 Group B** — `thumbcache-forensic`, `recyclebin-forensic`, `wmi-forensic`, `scheduledtask-forensic` all ABSENT from `~/src` (verified). IWE basis confirmed: module 07 "The Recycle Bin" ($I/$R, RBCmd), module 10 "Thumbs.db and Thumbcache", exam-cram `\System32\Tasks\*` XML + TaskCache.
+- **§5 Group C** — `sqlite-forensic` EXISTS (`core`/`forensic`/`cli`, verified).
+- **§5 Group D** — `ntfs-forensic` core has `logfile/` (with `usn_extractor.rs`), `index.rs`, `carve.rs`, `boot.rs` (verified `ls core/src`); no `$Bitmap` surfacing.
+- **§5 Group E** — `browser-forensic` members are Chrome/Firefox/Safari (+snss); **no WebCache/ESE/Edge crate** (verified workspace members). `issen-parser-setupapi` registers `ArtifactType::Registry` at `src/lib.rs:192-193` (the mis-registration). `vsc-forensic` = RESEARCH.md only; `state-history-forensic` is a real crate; `snapshot-forensic` = docs only.
