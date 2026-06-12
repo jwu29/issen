@@ -2957,9 +2957,9 @@ dependencies = [
 
 [[package]]
 name = "forensicnomicon"
-version = "0.4.1"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "31fc3fd6ea4521b9048dd62dd210dafe3cdd319840810909238b5c665a0e09da"
+checksum = "beb5aa5a16edfc4fb436fad2602d63da02a9bc9bdd7ed5e23a56f63bbccefc10"
 
 [[package]]
 name = "form_urlencoded"
@@ -4301,7 +4301,7 @@ dependencies = [
  "duckdb",
  "flate2",
  "forensic-pivot",
- "forensicnomicon 0.4.1",
+ "forensicnomicon 0.4.2",
  "inventory",
  "is-terminal",
  "issen-core",
@@ -4371,7 +4371,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "flate2",
- "forensicnomicon 0.4.1",
+ "forensicnomicon 0.4.2",
  "issen-core",
  "reqwest",
  "serde",
@@ -4417,7 +4417,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "evtx",
- "forensicnomicon 0.4.1",
+ "forensicnomicon 0.4.2",
  "issen-core",
  "rusqlite",
  "schemars",
@@ -4605,7 +4605,7 @@ dependencies = [
 name = "issen-parser-pe"
 version = "0.1.0"
 dependencies = [
- "forensicnomicon 0.4.1",
+ "forensicnomicon 0.4.2",
  "goblin 0.10.5",
  "thiserror 2.0.18",
 ]
@@ -4616,7 +4616,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
- "forensicnomicon 0.4.1",
+ "forensicnomicon 0.4.2",
  "inventory",
  "issen-core",
  "prefetch-forensic",
@@ -4858,7 +4858,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "csv",
- "forensicnomicon 0.4.1",
+ "forensicnomicon 0.4.2",
  "hex",
  "insta",
  "ipnet",
@@ -4886,7 +4886,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "duckdb",
- "forensicnomicon 0.4.1",
+ "forensicnomicon 0.4.2",
  "insta",
  "issen-core",
  "rusqlite",
@@ -6978,7 +6978,7 @@ version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42c68dc85844c01734c4c3796860bb7b19dd080d303908aef3fbd02c9ff73dcc"
 dependencies = [
- "forensicnomicon 0.4.1",
+ "forensicnomicon 0.4.2",
  "prefetch-core",
 ]
 
@@ -11161,7 +11161,7 @@ name = "winreg-artifacts"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "forensicnomicon 0.4.1",
+ "forensicnomicon 0.4.2",
  "serde",
  "winreg-core",
  "winreg-discover",
