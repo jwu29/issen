@@ -1051,4 +1051,73 @@ mod tests {
         let events = emitter.into_events();
         assert!(events.is_empty());
     }
+
+    // ── PRE-2: typed entity refs (correlation join keys) ──
+
+    #[test]
+    fn logon_event_carries_user_ip_session_entity_refs() {
+        use issen_core::timeline::event::EntityRef;
+        let data = serde_json::json!({
+            "Event": {
+                "System": { "EventID": 4624, "Channel": "Security", "Computer": "DC01" },
+                "EventData": {
+                    "TargetUserName": "Administrator",
+                    "IpAddress": "194.61.24.102",
+                    "TargetLogonId": "0x59b61",
+                    "LogonType": "10"
+                }
+            }
+        });
+        let event = record_to_event(7, 0, "2020-09-19T03:21:48Z", &data, "evtx-src");
+        assert!(
+            event.entity_refs.contains(&EntityRef::User("Administrator".to_string())),
+            "user ref: {:?}",
+            event.entity_refs
+        );
+        assert!(event.entity_refs.contains(&EntityRef::Ip("194.61.24.102".to_string())));
+        assert!(event.entity_refs.contains(&EntityRef::Session(0x59b61)));
+    }
+
+    #[test]
+    fn process_create_carries_process_entity_ref() {
+        use issen_core::timeline::event::EntityRef;
+        let data = serde_json::json!({
+            "Event": {
+                "System": { "EventID": 4688 },
+                "EventData": {
+                    "NewProcessName": "C:\\Windows\\System32\\coreupdater.exe",
+                    "SubjectUserName": "SYSTEM",
+                    "SubjectLogonId": "0x3e7"
+                }
+            }
+        });
+        let event = record_to_event(8, 0, "2020-09-19T03:24:06Z", &data, "src");
+        assert!(
+            event
+                .entity_refs
+                .iter()
+                .any(|e| matches!(e, EntityRef::Process(p) if p.contains("coreupdater.exe"))),
+            "process ref: {:?}",
+            event.entity_refs
+        );
+    }
+
+    #[test]
+    fn local_logon_skips_placeholder_ip() {
+        use issen_core::timeline::event::EntityRef;
+        // A local logon records IpAddress "-"; it must NOT become an Ip entity.
+        let data = serde_json::json!({
+            "Event": {
+                "System": { "EventID": 4624 },
+                "EventData": { "TargetUserName": "SYSTEM", "IpAddress": "-", "TargetLogonId": "0x3e7" }
+            }
+        });
+        let event = record_to_event(9, 0, "t", &data, "src");
+        assert!(
+            !event.entity_refs.iter().any(|e| matches!(e, EntityRef::Ip(_))),
+            "no Ip ref for '-': {:?}",
+            event.entity_refs
+        );
+        assert!(event.entity_refs.contains(&EntityRef::User("SYSTEM".to_string())));
+    }
 }
