@@ -63,12 +63,12 @@ fn remote_endpoint(conn: &MemEvent) -> Option<&str> {
     conn.ip_subjects().next()
 }
 
-/// Collect the `ProcessExec` rows that carry pid/ppid/thread_count, scoped to one
-/// dump (host label).
-fn proc_rows<'a>(events: &'a [MemEvent], host: &Option<String>) -> Vec<ProcRow<'a>> {
+/// Collect the `ProcessExec` rows that carry `pid` / `ppid` / `thread_count`,
+/// scoped to one dump (host label).
+fn proc_rows<'a>(events: &'a [MemEvent], host: Option<&str>) -> Vec<ProcRow<'a>> {
     events
         .iter()
-        .filter(|e| e.event_type == PROCESS_EXEC_EVENT_TYPE && &e.hostname == host)
+        .filter(|e| e.event_type == PROCESS_EXEC_EVENT_TYPE && e.hostname.as_deref() == host)
         .filter_map(|e| {
             Some(ProcRow {
                 ev: e,
@@ -84,13 +84,13 @@ fn proc_rows<'a>(events: &'a [MemEvent], host: &Option<String>) -> Vec<ProcRow<'
 /// `endpoint`.
 fn conn_for<'a>(
     events: &'a [MemEvent],
-    host: &Option<String>,
+    host: Option<&str>,
     pid: u32,
     endpoint: &str,
 ) -> Option<&'a MemEvent> {
     events.iter().find(|e| {
         e.event_type == NETWORK_CONNECT_EVENT_TYPE
-            && &e.hostname == host
+            && e.hostname.as_deref() == host
             && e.pid == Some(pid)
             && remote_endpoint(e) == Some(endpoint)
     })
@@ -102,9 +102,70 @@ fn conn_for<'a>(
 /// endpoint but the dead PID is name-linked to the injected image stem.
 #[must_use]
 pub fn proc_migration_chains(events: &[MemEvent]) -> Vec<Correlation> {
-    // RED stub — replaced by the real matcher in the GREEN commit.
-    let _ = events;
-    Vec::new()
+    let mut out = Vec::new();
+
+    // Distinct dump labels present among the memory events.
+    let hosts: BTreeSet<Option<&str>> = events.iter().map(|e| e.hostname.as_deref()).collect();
+
+    for host in hosts {
+        let procs = proc_rows(events, host);
+        // The dump's process-PID set (for the orphan check) and live-PID set.
+        let pid_set: BTreeSet<u32> = procs.iter().map(|p| p.pid).collect();
+        let live_pids: BTreeSet<u32> = procs
+            .iter()
+            .filter(|p| p.thread_count > 0)
+            .map(|p| p.pid)
+            .collect();
+
+        // Dead-and-orphaned processes: 0 threads AND parent absent from the set.
+        let dead_orphans: Vec<&ProcRow> = procs
+            .iter()
+            .filter(|p| p.thread_count == 0 && !pid_set.contains(&p.ppid))
+            .collect();
+
+        // Injections on a *live*, distinct PID in this dump.
+        let injections: Vec<&MemEvent> = events
+            .iter()
+            .filter(|e| {
+                e.event_type == MEMORY_INJECTION_EVENT_TYPE
+                    && e.hostname.as_deref() == host
+                    && e.pid.is_some_and(|pid| live_pids.contains(&pid))
+            })
+            .collect();
+
+        for dead in &dead_orphans {
+            for inj in &injections {
+                let Some(live_pid) = inj.pid else {
+                    continue; // cov:unreachable: injections were filtered to pid in live_pids
+                };
+                if live_pid == dead.pid {
+                    continue;
+                }
+                // The live injected PID's connection (the shared endpoint).
+                for conn in events.iter().filter(|e| {
+                    e.event_type == NETWORK_CONNECT_EVENT_TYPE
+                        && e.hostname.as_deref() == host
+                        && e.pid == Some(live_pid)
+                }) {
+                    let Some(endpoint) = remote_endpoint(conn) else {
+                        continue; // cov:unreachable: netstat rows in the corpus always carry a peer Ip
+                    };
+                    // Strong form: the dead PID *itself* reaches the same endpoint.
+                    if let Some(dead_conn) = conn_for(events, host, dead.pid, endpoint) {
+                        out.push(strong_chain(dead.ev, inj, conn, dead_conn));
+                        break;
+                    }
+                    // Degraded form: no dead-PID socket, but the dead process is
+                    // name-linked to the injected image stem.
+                    if same_image_stem(dead.ev, inj) {
+                        out.push(degraded_chain(dead.ev, inj, conn));
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    out
 }
 
 /// `true` when the dead process and the injection name the same image stem
@@ -168,11 +229,11 @@ mod tests {
     const DUMP: &str = "DUMP-A";
     const C2: &str = "203.78.103.109";
 
-    fn proc(id: u64, image: &str, pid: u32, ppid: u32, threads: u32) -> MemEvent {
+    fn proc(id: u64, image: &str, pid: u32, parent_pid: u32, threads: u32) -> MemEvent {
         MemEvent::new(id, 1_000, PROCESS_EXEC_EVENT_TYPE, DUMP)
             .with_entity(EntityRef::Process(image.to_string()))
             .with_pid(pid)
-            .with_ppid(ppid)
+            .with_ppid(parent_pid)
             .with_thread_count(threads)
     }
 

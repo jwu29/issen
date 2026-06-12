@@ -280,6 +280,7 @@ mod tests {
             injected_c2::INJECTED_C2_NOTE,
             proc_disk_match::PROC_DISK_MATCH_NOTE,
             proc_migration::PROC_MIGRATION_NOTE,
+            proc_migration::PROC_MIGRATION_DEGRADED_NOTE,
         ];
         for note in notes {
             let lower = note.to_ascii_lowercase();

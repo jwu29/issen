@@ -34,10 +34,14 @@
 //!
 //! ## Tier-C seam
 //!
-//! Memory-leg (Tier C / C′) rules are NOT run here — they need the dump's
-//! process/netstat/malfind rows, not flat timeline events. The
-//! [`run_correlations`] return value is additive: a future `run_memory_rules`
-//! pass appends its `Correlation`s to the same vector before persistence.
+//! Memory-leg (Tier C / C′) rules need the dump's process/netstat/malfind rows —
+//! the `thread_count` / `ppid` / `injection` fields that the [`EventView`] trait
+//! deliberately does not surface — so they cannot run inside the generic
+//! [`run_correlations`] pass. They are matched instead over a projected
+//! [`MemEvent`] slice ([`run_memory_rules`]); the store-facing wrapper that owns
+//! `StoredEvent` (and its metadata) builds that slice. [`run_correlations_with_memory`]
+//! is the wiring point that runs the disk-leg pass and appends the memory-leg
+//! firings to the same `Vec<Correlation>` before persistence.
 
 use issen_core::timeline::event::EntityRef;
 
@@ -51,6 +55,7 @@ use crate::tier_b::bruteforce::evaluate_bruteforce;
 use crate::tier_b::exfil_stage::evaluate_exfil_stage;
 use crate::tier_b::logon_malware::evaluate_logon_malware;
 use crate::tier_b_prime::regconfirm::evaluate_regconfirm;
+use crate::tier_c::{run_memory_rules, MemEvent};
 use crate::tier_d::lateral_move::evaluate_lateral_move;
 
 /// An owned projection of an [`EventView`] the runner controls.
@@ -137,6 +142,25 @@ where
     out.extend(run_exfil_stage(events));
     out.extend(run_regconfirm(events));
     out.extend(run_lateral_move(events));
+    out
+}
+
+/// Run every disk-leg rule over `events` **and** every memory-leg (Tier C / C′)
+/// rule over `memory`, returning all firings in one vector.
+///
+/// This is the full correlation pass: the disk-leg rules consume the flat
+/// timeline events (`events`), the memory-leg rules consume the projected
+/// [`MemEvent`] slice (`memory`, carrying the `pid` / `ppid` / `thread_count` /
+/// `injection` fields parsed from each memory event's metadata), and the
+/// cross-leg `CORR-PROC-DISK-MATCH` reads both. The memory firings are appended
+/// to the disk firings on the same `Vec<Correlation>` — the additive Tier-C seam.
+#[must_use]
+pub fn run_correlations_with_memory<E>(events: &[E], memory: &[MemEvent]) -> Vec<Correlation>
+where
+    E: EventView,
+{
+    let mut out = run_correlations(events);
+    out.extend(run_memory_rules(memory, events));
     out
 }
 
@@ -464,5 +488,47 @@ mod tests {
                 .at("D:\\b\\photo.jpg"),
         ];
         assert!(run_correlations(&events).is_empty(), "{:?}", run_correlations(&events));
+    }
+
+    #[test]
+    fn run_with_memory_appends_memory_firings_to_disk_firings() {
+        use issen_core::timeline::event::EntityRef;
+        // Disk leg: a persistence pair (FileCreate -> ServiceInstall, same stem).
+        let events = vec![
+            Ev::new(1, 1_000, "FileCreate", "DC01", EventSource::Disk)
+                .at("C:\\Windows\\System32\\coreupdater.exe"),
+            Ev::new(2, 2_000, "ServiceInstall", "DC01", EventSource::Evtx)
+                .at("C:\\Windows\\System32\\coreupdater.exe"),
+        ];
+        // Memory leg: an injected process beaconing to C2 in one dump.
+        let memory = vec![
+            MemEvent::new(10, 5_000, "Other(\"MemoryInjection\")", "DUMP-A")
+                .with_entity(EntityRef::Process("spoolsv.exe".to_string()))
+                .with_pid(880)
+                .with_injection("injected-PE"),
+            MemEvent::new(11, 5_000, "NetworkConnect", "DUMP-A")
+                .with_entity(EntityRef::Process("spoolsv.exe".to_string()))
+                .with_entity(EntityRef::Ip("203.78.103.109".to_string()))
+                .with_pid(880)
+                .with_state("ESTABLISHED"),
+        ];
+        let corrs = run_correlations_with_memory(&events, &memory);
+        // Both a disk-leg and a memory-leg rule fire, in one vector.
+        assert!(has_code(&corrs, "CORR-MALWARE-PERSIST"), "{:?}", codes(&corrs));
+        assert!(has_code(&corrs, "CORR-INJECTED-C2"), "{:?}", codes(&corrs));
+    }
+
+    #[test]
+    fn run_with_memory_matches_a_resident_process_to_its_on_disk_create() {
+        use issen_core::timeline::event::EntityRef;
+        // A disk FileCreate of coreupdater.exe and a memory ProcessExec for the
+        // same image -> the cross-leg CORR-PROC-DISK-MATCH fires through the seam.
+        let events = vec![Ev::new(1, 500, "FileCreate", "DC01", EventSource::Disk)
+            .at("C:\\Windows\\System32\\coreupdater.exe")];
+        let memory = vec![MemEvent::new(10, 5_000, "ProcessExec", "DUMP-A")
+            .with_entity(EntityRef::Process("coreupdater.exe".to_string()))
+            .with_pid(3644)];
+        let corrs = run_correlations_with_memory(&events, &memory);
+        assert!(has_code(&corrs, "CORR-PROC-DISK-MATCH"), "{:?}", codes(&corrs));
     }
 }
