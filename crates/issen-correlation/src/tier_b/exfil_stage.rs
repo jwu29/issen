@@ -98,13 +98,12 @@ pub fn exfil_stage_rule() -> RuleSpec {
 /// wrapper over the generic engine; both sides carry the session-owner join
 /// entity, and the pair may appear in either temporal order.
 #[must_use]
-pub fn evaluate_exfil_stage<A, C>(_archive: &A, _artifacts: &[C]) -> Option<Correlation>
+pub fn evaluate_exfil_stage<A, C>(archive: &A, artifacts: &[C]) -> Option<Correlation>
 where
     A: EventView,
     C: EventView,
 {
-    // RED stub — implemented in the GREEN commit.
-    None
+    evaluate(&exfil_stage_rule(), archive, artifacts)
 }
 
 #[cfg(test)]
