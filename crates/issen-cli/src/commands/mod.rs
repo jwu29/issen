@@ -1,5 +1,6 @@
 pub mod analyse;
 pub mod correlate;
+pub mod correlate_mem;
 pub mod feed;
 pub mod info;
 pub mod ingest;
