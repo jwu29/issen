@@ -405,4 +405,45 @@ mod tests {
         expected.sort();
         assert_eq!(epochs, expected);
     }
+
+    #[test]
+    fn entity_refs_persist_through_the_batch_path() {
+        // PRE-4: correlation rules join events on shared entities (process, IP,
+        // file, user, session). The in-memory event carries `entity_refs`; the
+        // store must persist them so `fetch_events` can read them back. The batch
+        // path (the production ingest) is the one that must carry the column.
+        use issen_core::timeline::event::EntityRef;
+        let store = TimelineStore::in_memory().expect("store");
+        let event = sample_event(1000, "malware process beacon")
+            .with_entity_ref(EntityRef::Process("coreupdater.exe".to_string()))
+            .with_entity_ref(EntityRef::Ip("203.78.103.109".to_string()));
+        store.inseissen_batch(&[event.clone()]).expect("batch insert");
+
+        let mut stmt = store
+            .connection()
+            .prepare("SELECT entity_refs FROM timeline WHERE record_hash = ?")
+            .expect("prepare");
+        let json: String = stmt
+            .query_row([&event.record_hash], |row| row.get(0))
+            .expect("query entity_refs");
+        assert!(json.contains("coreupdater.exe"), "process ref persisted: {json}");
+        assert!(json.contains("203.78.103.109"), "ip ref persisted: {json}");
+    }
+
+    #[test]
+    fn entity_refs_default_empty_when_absent() {
+        // An event with no entity_refs persists an empty JSON array, never NULL
+        // garbage — the column is always a valid array for downstream parsing.
+        let store = TimelineStore::in_memory().expect("store");
+        let event = sample_event(2000, "plain event");
+        store.inseissen_batch(&[event.clone()]).expect("batch insert");
+        let mut stmt = store
+            .connection()
+            .prepare("SELECT entity_refs FROM timeline WHERE record_hash = ?")
+            .expect("prepare");
+        let json: String = stmt
+            .query_row([&event.record_hash], |row| row.get(0))
+            .expect("query");
+        assert_eq!(json, "[]");
+    }
 }
