@@ -259,14 +259,17 @@ mkfs.ext4 -F -L forensic-test -O has_journal,metadata_csum,64bit,extents -b 4096
 HFS+ volumes created via macOS `hdiutil create -layout SPUD`; real Apple filesystem structures
 with known files (`HELLO.TXT` = "hello hfs"). Asserted in `tests/catalog.rs`.
 
-### C4b · hfsplus-forensic decmpfs — `tests/data/decmpfs/` (~4.3 MB) · REAL-self + SYNTHETIC ✓
-HFS+/APFS transparent-compression (`decmpfs`) fixtures. **REAL-self:** `lzvn.rsrc`+`lzvn.expected`
-(a `ditto --hfsCompression` resource fork, decmpfs **type 8 LZVN**, 2×64 KiB chunks, 80000 B) and
-`hfs_decmpfs_volume.bin` (a 4 MiB layout-NONE HFS+ volume with `comp.bin` = type-8 LZVN 262144 B +
-`plain.bin` uncompressed control; payload = an LCG block ×32 regenerated in-test). **SYNTHETIC** (independent
-oracle = Python `zlib`, not the `flate2` under test): `zlib_type4.rsrc` (type-4 zlib block table, 3×64 KiB)
-and `zlib_type3_{inline,stored}.payload`. macOS hides `com.apple.decmpfs`; type read via
-`getxattr(..., XATTR_SHOWCOMPRESSION)`. Full generators in `hfsplus-forensic/tests/data/README.md`.
+### C4b · hfsplus-forensic decmpfs — `tests/data/decmpfs/` (~4.3 MB) · REAL-self ✓
+HFS+/APFS transparent-compression (`decmpfs`) fixtures — **every codec validated against REAL
+macOS-produced bytes** (oracle = the original file). **LZVN (7/8):** `lzvn.rsrc`+`lzvn.expected`
+(`ditto --hfsCompression`, type-8, 2×64 KiB, 80000 B) and `hfs_decmpfs_volume.bin` (4 MiB layout-NONE
+HFS+ volume: `comp.bin` = type-8 LZVN 262144 B + `plain.bin` uncompressed control; payload = LCG block
+×32 regenerated in-test). **zlib (3/4) + LZFSE (11/12):** `real_{zlib,lzfse}_rsrc.rsrc` and
+`real_{zlib,lzfse}_inline.payload`, minted via `afsctool -c -T ZLIB|LZFSE` (Apple's real compressor —
+macOS ships only LZVN). Only synthetic fixture: `zlib_type3_stored.payload` (the `0xFF` "stored" marker,
+which the real compressor never emits). macOS hides `com.apple.decmpfs`; type read via
+`getxattr(..., XATTR_SHOWCOMPRESSION)`. Real data caught 2 bugs synthetic fixtures masked (zlib offset
+base = headerSize+4; LZFSE zero-padded chunk table). Generators in `hfsplus-forensic/tests/data/README.md`.
 Asserted in `core` lib tests + `tests/decmpfs_integration.rs`.
 
 ### C5 · apm-partition-forensic — `forensic/tests/data/apm_map.bin` (2 KB) · REAL-self ✓
