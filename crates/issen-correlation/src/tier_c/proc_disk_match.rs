@@ -46,12 +46,46 @@ fn process_stem(p: &MemEvent) -> Option<EntityRef> {
 /// disk leg must be a non-memory `FileCreate`; the join is on the lowercased,
 /// extension-stripped image stem.
 #[must_use]
-pub fn proc_disk_matches<E>(_memory: &[MemEvent], _disk: &[E]) -> Vec<Correlation>
+pub fn proc_disk_matches<E>(memory: &[MemEvent], disk: &[E]) -> Vec<Correlation>
 where
     E: EventView,
 {
-    // RED stub — replaced by the real matcher in the GREEN commit.
-    Vec::new()
+    let processes = memory
+        .iter()
+        .filter(|e| e.event_type == PROCESS_EXEC_EVENT_TYPE);
+    let creates: Vec<&E> = disk
+        .iter()
+        .filter(|e| {
+            e.event_type() == FILE_CREATE_EVENT_TYPE && e.source() != EventSource::Memory
+        })
+        .collect();
+
+    let mut out = Vec::new();
+    for proc in processes {
+        let Some(proc_stem) = process_stem(proc) else {
+            continue;
+        };
+        for create in &creates {
+            if stem_entity(create.artifact_path()) != proc_stem {
+                continue;
+            }
+            let (first, last) = if proc.timestamp_ns <= create.timestamp_ns() {
+                (proc.timestamp_ns, create.timestamp_ns())
+            } else {
+                (create.timestamp_ns(), proc.timestamp_ns)
+            };
+            out.push(
+                Correlation::new("CORR-PROC-DISK-MATCH", Severity::Medium)
+                    .with_attack_technique("T1055")
+                    .with_scope(CorrelationScope::SameHost)
+                    .with_window(first, last)
+                    .with_note(PROC_DISK_MATCH_NOTE)
+                    .with_member(CorrelationMember::new(proc.id, CorrelationRole::Anchor))
+                    .with_member(CorrelationMember::new(create.id(), CorrelationRole::Consequent)),
+            );
+        }
+    }
+    out
 }
 
 #[cfg(test)]
