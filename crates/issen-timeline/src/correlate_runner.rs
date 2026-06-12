@@ -235,6 +235,46 @@ mod tests {
         .with_entity_ref(EntityRef::Ip(ip.to_string()))
     }
 
+    /// A memory `MemoryInjection` (malfind) row, persisted exactly as PRE-1's
+    /// `issen-mem` `memory_events` builds it: `EventType::Other("MemoryInjection")`,
+    /// `ArtifactType::RootkitScan` (→ `EventSource::Memory`), a `Process` ref, and
+    /// `pid` / `injection` metadata.
+    fn mem_injection(ts: i64, proc_name: &str, pid: u32, dump: &str) -> TimelineEvent {
+        TimelineEvent::new(
+            ts,
+            format!("2026-01-01T00:00:00.{ts:09}Z"),
+            EventType::Other("MemoryInjection".to_string()),
+            ArtifactType::RootkitScan,
+            format!("pid:{pid}"),
+            "injected region".to_string(),
+            dump.to_string(),
+        )
+        .with_hostname(dump)
+        .with_entity_ref(EntityRef::Process(proc_name.to_string()))
+        .with_metadata("pid", serde_json::json!(pid))
+        .with_metadata("injection", serde_json::json!("injected-PE"))
+    }
+
+    /// A memory ESTABLISHED `NetworkConnect` (netstat) row, persisted exactly as
+    /// PRE-1's `memory_events` builds it: `EventType::NetworkConnect`,
+    /// `ArtifactType::NetworkState` (→ `EventSource::Memory`), `Process` + `Ip`
+    /// refs, and `state` metadata.
+    fn mem_netconn(ts: i64, proc_name: &str, remote_ip: &str, dump: &str) -> TimelineEvent {
+        TimelineEvent::new(
+            ts,
+            format!("2026-01-01T00:00:00.{ts:09}Z"),
+            EventType::NetworkConnect,
+            ArtifactType::NetworkState,
+            "pid:3724".to_string(),
+            "established connection".to_string(),
+            dump.to_string(),
+        )
+        .with_hostname(dump)
+        .with_entity_ref(EntityRef::Process(proc_name.to_string()))
+        .with_entity_ref(EntityRef::Ip(remote_ip.to_string()))
+        .with_metadata("state", serde_json::json!("ESTABLISHED"))
+    }
+
     fn store_with(events: &[TimelineEvent]) -> TimelineStore {
         let store = TimelineStore::in_memory().expect("store");
         store.inseissen_batch(events).expect("ingest");
@@ -270,6 +310,40 @@ mod tests {
         for corr in &fired {
             assert!(!corr.members.is_empty(), "{} has members", corr.code);
         }
+    }
+
+    #[test]
+    fn run_and_persist_fires_a_memory_leg_rule_end_to_end() {
+        // A memory dump's injected process beaconing to C2: a MemoryInjection on
+        // one process plus an ESTABLISHED NetworkConnect to an external IP from
+        // the *same* process, both in one dump. This is the CORR-INJECTED-C2
+        // Tier-C rule — it can only fire if the memory leg is wired into
+        // run_and_persist (disk-only run_correlations never sees it).
+        let secs = 1_000_000_000i64;
+        let dump = "WIN-CASE001";
+        let events = vec![
+            mem_injection(20 * secs, "spoolsv.exe", 3724, dump),
+            mem_netconn(20 * secs, "spoolsv.exe", "203.78.103.109", dump),
+        ];
+
+        let store = store_with(&events);
+        let fired = store.run_and_persist().expect("run");
+
+        let injected = fired
+            .iter()
+            .find(|c| c.code == "CORR-INJECTED-C2")
+            .unwrap_or_else(|| panic!("CORR-INJECTED-C2 must fire; fired: {:?}",
+                fired.iter().map(|c| c.code.as_str()).collect::<Vec<_>>()));
+        assert_eq!(injected.members.len(), 2, "anchor + consequent members");
+
+        // It persisted and reads back with its members. Scan the persisted ids
+        // (1-based sequence) for the INJECTED-C2 row rather than assuming a fixed
+        // id, since other rules may also have fired and persisted.
+        let back = (1..=fired.len() as u64)
+            .filter_map(|id| store.correlation(id).expect("read"))
+            .find(|c| c.code == "CORR-INJECTED-C2")
+            .expect("CORR-INJECTED-C2 persisted and reads back");
+        assert_eq!(back.members.len(), 2);
     }
 
     #[test]
