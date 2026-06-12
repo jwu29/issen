@@ -1,0 +1,460 @@
+//! The disk-leg correlation runner (capstone task #37, plan v5 §7.1 phase 5).
+//!
+//! [`run_correlations`] invokes every disk-leg rule over a flat slice of events
+//! and collects their [`Correlation`] output. It is deliberately storage-free
+//! and generic over [`EventView`], so the core sequencing logic is unit-testable
+//! on synthetic events with no `DuckDB` dependency; the store-facing
+//! `run_and_persist` wrapper lives in `issen-timeline` (which depends *down* on
+//! this crate) and feeds it `StoredEvent`s.
+//!
+//! ## Which rules run here
+//!
+//! All disk-leg rules whose anchor/consequent are flat timeline events:
+//!
+//! - Tier A: `CORR-MALWARE-RELOCATE`, `CORR-MALWARE-PERSIST`, `CORR-COPY-DELETE`
+//! - Tier B: `CORR-BRUTEFORCE-LOGON`, `CORR-LOGON-MALWARE-WRITE`,
+//!   `CORR-EXFIL-STAGE`
+//! - Tier B′: `CORR-PERSIST-REGCONFIRM`
+//! - Tier D: `CORR-LATERAL-MOVE`
+//!
+//! `CORR-BRUTEFORCE-LOGON` anchors on a `LogonFailureBurst` event; the burst is
+//! identified upstream (`issen_timeline::burst_windows`) and supplied here as a
+//! synthetic anchor event already in the input slice — the runner does not
+//! re-derive bursts (that needs the storage type).
+//!
+//! ## The normalization seam
+//!
+//! Several rules join on a *normalized* entity that the raw ingest does not
+//! attach (the file basename for RELOCATE, the image/service stem for PERSIST /
+//! REGCONFIRM). The runner re-projects each candidate into a [`RunEvent`] that
+//! carries the right join entity for the rule being evaluated, derived from the
+//! event's `artifact_path`. Rules that join on an entity the ingest already
+//! attaches (the source IP for BRUTEFORCE, the account for LOGON-MALWARE /
+//! EXFIL-STAGE / LATERAL-MOVE) keep the event's own entity refs.
+//!
+//! ## Tier-C seam
+//!
+//! Memory-leg (Tier C / C′) rules are NOT run here — they need the dump's
+//! process/netstat/malfind rows, not flat timeline events. The
+//! [`run_correlations`] return value is additive: a future `run_memory_rules`
+//! pass appends its `Correlation`s to the same vector before persistence.
+
+use issen_core::timeline::event::EntityRef;
+
+use crate::correlation::Correlation;
+use crate::evaluator::{EventSource, EventView};
+use crate::tier_a::copy_delete::{copy_delete_pairs, FileFacts};
+use crate::tier_a::persist::evaluate_persist;
+use crate::tier_a::relocate::evaluate_relocate;
+use crate::tier_a::{basename_entity, stem_entity};
+use crate::tier_b::bruteforce::evaluate_bruteforce;
+use crate::tier_b::exfil_stage::evaluate_exfil_stage;
+use crate::tier_b::logon_malware::evaluate_logon_malware;
+use crate::tier_b_prime::regconfirm::evaluate_regconfirm;
+use crate::tier_d::lateral_move::evaluate_lateral_move;
+
+/// An owned projection of an [`EventView`] the runner controls.
+///
+/// It carries the same `id`/`timestamp_ns`/`event_type`/`hostname`/`source`/
+/// `artifact_path` as the source event, plus a *re-derived* set of entity refs
+/// (the normalized join key for the rule it feeds). Building it owns its strings
+/// so the runner can synthesize join entities without borrowing the source.
+#[derive(Debug, Clone)]
+pub struct RunEvent {
+    id: u64,
+    timestamp_ns: i64,
+    event_type: String,
+    entity_refs: Vec<EntityRef>,
+    hostname: Option<String>,
+    source: EventSource,
+    artifact_path: String,
+}
+
+impl RunEvent {
+    /// Project a source event, keeping its own entity refs (for rules that join
+    /// on an entity the ingest already attaches).
+    fn from_view<E: EventView>(ev: &E) -> Self {
+        Self {
+            id: ev.id(),
+            timestamp_ns: ev.timestamp_ns(),
+            event_type: ev.event_type().to_string(),
+            entity_refs: ev.entity_refs().to_vec(),
+            hostname: ev.hostname().map(ToString::to_string),
+            source: ev.source(),
+            artifact_path: ev.artifact_path().to_string(),
+        }
+    }
+
+    /// Project a source event, replacing its entity refs with `join` (the
+    /// normalized basename/stem the rule joins on).
+    fn with_join<E: EventView>(ev: &E, join: EntityRef) -> Self {
+        let mut out = Self::from_view(ev);
+        out.entity_refs = vec![join];
+        out
+    }
+}
+
+impl EventView for RunEvent {
+    fn id(&self) -> u64 {
+        self.id
+    }
+    fn timestamp_ns(&self) -> i64 {
+        self.timestamp_ns
+    }
+    fn event_type(&self) -> &str {
+        &self.event_type
+    }
+    fn entity_refs(&self) -> &[EntityRef] {
+        &self.entity_refs
+    }
+    fn hostname(&self) -> Option<&str> {
+        self.hostname.as_deref()
+    }
+    fn source(&self) -> EventSource {
+        self.source
+    }
+    fn artifact_path(&self) -> &str {
+        &self.artifact_path
+    }
+}
+
+/// Run every disk-leg correlation rule over `events`, returning all firings.
+///
+/// Pure and storage-free: the same logic the store-facing `run_and_persist`
+/// drives, exercised here directly on synthetic events. Memory-leg rules are
+/// not run (see the module-level Tier-C seam note).
+#[must_use]
+pub fn run_correlations<E>(_events: &[E]) -> Vec<Correlation>
+where
+    E: EventView,
+{
+    // RED stub — implementation follows in the GREEN commit.
+    Vec::new()
+}
+
+/// Events of one type, projected with the given normalized join entity.
+fn projected<E, F>(events: &[E], event_type: &str, join: F) -> Vec<RunEvent>
+where
+    E: EventView,
+    F: Fn(&E) -> EntityRef,
+{
+    events
+        .iter()
+        .filter(|e| e.event_type() == event_type)
+        .map(|e| RunEvent::with_join(e, join(e)))
+        .collect()
+}
+
+/// Events of one type, projected keeping their own entity refs.
+fn of_type<E: EventView>(events: &[E], event_type: &str) -> Vec<RunEvent> {
+    events
+        .iter()
+        .filter(|e| e.event_type() == event_type)
+        .map(RunEvent::from_view)
+        .collect()
+}
+
+// ── Tier A ───────────────────────────────────────────────────────────────────
+
+/// `CORR-MALWARE-RELOCATE`: each `FileCreate` (user-writable drop) against the
+/// `FileRename` candidates (system-dir targets), joined on the file basename.
+fn run_relocate<E: EventView>(events: &[E]) -> Vec<Correlation> {
+    let creates = projected(events, "FileCreate", |e| basename_entity(e.artifact_path()));
+    let renames: Vec<(RunEvent, String)> = events
+        .iter()
+        .filter(|e| e.event_type() == "FileRename")
+        .map(|e| {
+            let path = e.artifact_path().to_string();
+            (RunEvent::with_join(e, basename_entity(&path)), path)
+        })
+        .collect();
+
+    let mut out = Vec::new();
+    for anchor in &creates {
+        if let Some(corr) = evaluate_relocate(anchor, anchor.artifact_path(), &renames) {
+            out.push(corr);
+        }
+    }
+    out
+}
+
+/// `CORR-MALWARE-PERSIST`: each executable `FileCreate` against `ServiceInstall`
+/// candidates, joined on the image stem.
+fn run_persist<E: EventView>(events: &[E]) -> Vec<Correlation> {
+    let creates = projected(events, "FileCreate", |e| stem_entity(e.artifact_path()));
+    let installs = projected(events, "ServiceInstall", |e| stem_entity(e.artifact_path()));
+
+    let mut out = Vec::new();
+    for anchor in &creates {
+        if let Some(corr) = evaluate_persist(anchor, &installs) {
+            out.push(corr);
+        }
+    }
+    out
+}
+
+/// `CORR-COPY-DELETE`: `FileDelete` ↔ `FileCreate` near-identical-copy pairs.
+fn run_copy_delete<E: EventView>(events: &[E]) -> Vec<Correlation> {
+    let deletes: Vec<(RunEvent, FileFacts)> = events
+        .iter()
+        .filter(|e| e.event_type() == "FileDelete")
+        .map(|e| (RunEvent::from_view(e), FileFacts::without_size(e.artifact_path())))
+        .collect();
+    let creates: Vec<(RunEvent, FileFacts)> = events
+        .iter()
+        .filter(|e| e.event_type() == "FileCreate")
+        .map(|e| (RunEvent::from_view(e), FileFacts::without_size(e.artifact_path())))
+        .collect();
+    copy_delete_pairs(&deletes, &creates)
+}
+
+// ── Tier B ───────────────────────────────────────────────────────────────────
+
+/// `CORR-BRUTEFORCE-LOGON`: a `LogonFailureBurst` anchor (identified upstream)
+/// against `LogonSuccess` candidates, joined on the source IP the ingest carries.
+fn run_bruteforce<E: EventView>(events: &[E]) -> Vec<Correlation> {
+    let bursts = of_type(events, "LogonFailureBurst");
+    let successes = of_type(events, "LogonSuccess");
+
+    let mut out = Vec::new();
+    for anchor in &bursts {
+        if let Some(corr) = evaluate_bruteforce(anchor, &successes) {
+            out.push(corr);
+        }
+    }
+    out
+}
+
+/// `CORR-LOGON-MALWARE-WRITE`: a `LogonSuccess` anchor against `FileCreate`
+/// candidates (the guard reads each candidate's path), joined on the account.
+fn run_logon_malware<E: EventView>(events: &[E]) -> Vec<Correlation> {
+    let logons = of_type(events, "LogonSuccess");
+    let writes = of_type(events, "FileCreate");
+
+    let mut out = Vec::new();
+    for anchor in &logons {
+        if let Some(corr) = evaluate_logon_malware(anchor, &writes) {
+            out.push(corr);
+        }
+    }
+    out
+}
+
+/// `CORR-EXFIL-STAGE`: an archive `FileCreate` anchor against nearby
+/// `FileCreate` artifacts (the guard reads paths), joined on the session owner.
+fn run_exfil_stage<E: EventView>(events: &[E]) -> Vec<Correlation> {
+    let creates = of_type(events, "FileCreate");
+
+    let mut out = Vec::new();
+    for (i, anchor) in creates.iter().enumerate() {
+        // Every FileCreate is a candidate anchor; the staging guard keeps only
+        // the archive↔loot-link pairs. Exclude the anchor itself from its own
+        // candidate slice so a single event never pairs with itself.
+        let candidates: Vec<RunEvent> = creates
+            .iter()
+            .enumerate()
+            .filter(|(j, _)| *j != i)
+            .map(|(_, e)| e.clone())
+            .collect();
+        if let Some(corr) = evaluate_exfil_stage(anchor, &candidates) {
+            out.push(corr);
+        }
+    }
+    out
+}
+
+// ── Tier B′ ──────────────────────────────────────────────────────────────────
+
+/// `CORR-PERSIST-REGCONFIRM`: a `ServiceInstall` anchor against `RegistryModify`
+/// candidates, joined on the image/service stem.
+fn run_regconfirm<E: EventView>(events: &[E]) -> Vec<Correlation> {
+    let installs = projected(events, "ServiceInstall", |e| stem_entity(e.artifact_path()));
+    let reg_writes = projected(events, "RegistryModify", |e| stem_entity(e.artifact_path()));
+
+    let mut out = Vec::new();
+    for anchor in &installs {
+        if let Some(corr) = evaluate_regconfirm(anchor, &reg_writes) {
+            out.push(corr);
+        }
+    }
+    out
+}
+
+// ── Tier D ───────────────────────────────────────────────────────────────────
+
+/// `CORR-LATERAL-MOVE`: an `RdpLogon` into host A against `RdpLogon`s into other
+/// hosts, joined on the account; the guard reads the IP entities the ingest
+/// carries, so the events keep their own entity refs.
+fn run_lateral_move<E: EventView>(events: &[E]) -> Vec<Correlation> {
+    let logons = of_type(events, "RdpLogon");
+
+    let mut out = Vec::new();
+    for (i, anchor) in logons.iter().enumerate() {
+        let candidates: Vec<RunEvent> = logons
+            .iter()
+            .enumerate()
+            .filter(|(j, _)| *j != i)
+            .map(|(_, e)| e.clone())
+            .collect();
+        if let Some(corr) = evaluate_lateral_move(anchor, &candidates) {
+            out.push(corr);
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use issen_core::timeline::event::EntityRef;
+
+    /// A synthetic source event with everything the runner reads.
+    #[derive(Debug, Clone)]
+    struct Ev {
+        id: u64,
+        ts: i64,
+        event_type: String,
+        entity_refs: Vec<EntityRef>,
+        host: Option<String>,
+        source: EventSource,
+        path: String,
+    }
+
+    impl Ev {
+        fn new(id: u64, ts: i64, et: &str, host: &str, source: EventSource) -> Self {
+            Self {
+                id,
+                ts,
+                event_type: et.to_string(),
+                entity_refs: Vec::new(),
+                host: Some(host.to_string()),
+                source,
+                path: String::new(),
+            }
+        }
+        fn ent(mut self, e: EntityRef) -> Self {
+            self.entity_refs.push(e);
+            self
+        }
+        fn at(mut self, p: &str) -> Self {
+            self.path = p.to_string();
+            self
+        }
+    }
+
+    impl EventView for Ev {
+        fn id(&self) -> u64 {
+            self.id
+        }
+        fn timestamp_ns(&self) -> i64 {
+            self.ts
+        }
+        fn event_type(&self) -> &str {
+            &self.event_type
+        }
+        fn entity_refs(&self) -> &[EntityRef] {
+            &self.entity_refs
+        }
+        fn hostname(&self) -> Option<&str> {
+            self.host.as_deref()
+        }
+        fn source(&self) -> EventSource {
+            self.source
+        }
+        fn artifact_path(&self) -> &str {
+            &self.path
+        }
+    }
+
+    fn codes(corrs: &[Correlation]) -> Vec<String> {
+        corrs.iter().map(|c| c.code.clone()).collect()
+    }
+
+    fn has_code(corrs: &[Correlation], code: &str) -> bool {
+        corrs.iter().any(|c| c.code == code)
+    }
+
+    #[test]
+    fn empty_input_fires_nothing() {
+        let events: Vec<Ev> = Vec::new();
+        assert!(run_correlations(&events).is_empty());
+    }
+
+    #[test]
+    fn relocate_fires_for_user_drop_then_system_rename() {
+        let events = vec![
+            Ev::new(1, 1_000, "FileCreate", "DC01", EventSource::Disk)
+                .at("C:\\Users\\beth\\Downloads\\coreupdater.exe"),
+            Ev::new(2, 2_000, "FileRename", "DC01", EventSource::Disk)
+                .at("C:\\Windows\\System32\\coreupdater.exe"),
+        ];
+        assert!(has_code(&run_correlations(&events), "CORR-MALWARE-RELOCATE"));
+    }
+
+    #[test]
+    fn persist_fires_for_create_then_service_install() {
+        let events = vec![
+            Ev::new(1, 1_000, "FileCreate", "DC01", EventSource::Disk)
+                .at("C:\\Windows\\System32\\coreupdater.exe"),
+            Ev::new(2, 2_000, "ServiceInstall", "DC01", EventSource::Evtx)
+                .at("C:\\Windows\\System32\\coreupdater.exe"),
+        ];
+        assert!(has_code(&run_correlations(&events), "CORR-MALWARE-PERSIST"));
+    }
+
+    #[test]
+    fn bruteforce_fires_for_burst_then_success_same_ip() {
+        let events = vec![
+            Ev::new(1, 1_000, "LogonFailureBurst", "DC01", EventSource::Evtx)
+                .ent(EntityRef::Ip("194.61.24.102".to_string())),
+            Ev::new(2, 2_000, "LogonSuccess", "DC01", EventSource::Evtx)
+                .ent(EntityRef::Ip("194.61.24.102".to_string())),
+        ];
+        assert!(has_code(&run_correlations(&events), "CORR-BRUTEFORCE-LOGON"));
+    }
+
+    #[test]
+    fn two_distinct_rules_fire_end_to_end() {
+        // A persistence pair AND a brute-force pair in one input — the capstone
+        // ">= 2 different rules" gate for the runner.
+        let events = vec![
+            Ev::new(1, 1_000, "FileCreate", "DC01", EventSource::Disk)
+                .at("C:\\Windows\\System32\\coreupdater.exe"),
+            Ev::new(2, 2_000, "ServiceInstall", "DC01", EventSource::Evtx)
+                .at("C:\\Windows\\System32\\coreupdater.exe"),
+            Ev::new(3, 5_000, "LogonFailureBurst", "DC01", EventSource::Evtx)
+                .ent(EntityRef::Ip("194.61.24.102".to_string())),
+            Ev::new(4, 6_000, "LogonSuccess", "DC01", EventSource::Evtx)
+                .ent(EntityRef::Ip("194.61.24.102".to_string())),
+        ];
+        let corrs = run_correlations(&events);
+        let fired = codes(&corrs);
+        assert!(fired.iter().any(|c| c == "CORR-MALWARE-PERSIST"), "persist: {fired:?}");
+        assert!(fired.iter().any(|c| c == "CORR-BRUTEFORCE-LOGON"), "bruteforce: {fired:?}");
+        let distinct: std::collections::BTreeSet<&str> =
+            fired.iter().map(String::as_str).collect();
+        assert!(distinct.len() >= 2, "at least two distinct rule codes: {fired:?}");
+    }
+
+    #[test]
+    fn regconfirm_fires_for_service_install_then_run_key() {
+        let events = vec![
+            Ev::new(1, 1_000, "ServiceInstall", "DC01", EventSource::Evtx)
+                .at("C:\\Windows\\System32\\coreupdater.exe"),
+            Ev::new(2, 2_000, "RegistryModify", "DC01", EventSource::Registry)
+                .at("C:\\Windows\\System32\\coreupdater.exe"),
+        ];
+        assert!(has_code(&run_correlations(&events), "CORR-PERSIST-REGCONFIRM"));
+    }
+
+    #[test]
+    fn unrelated_events_fire_nothing() {
+        // Two FileCreates that share no basename/stem and no staging context.
+        let events = vec![
+            Ev::new(1, 1_000, "FileCreate", "DC01", EventSource::Disk).at("C:\\a\\report.docx"),
+            Ev::new(2, 9_999_999_999_999, "FileCreate", "DC01", EventSource::Disk)
+                .at("D:\\b\\photo.jpg"),
+        ];
+        assert!(run_correlations(&events).is_empty(), "{:?}", run_correlations(&events));
+    }
+}

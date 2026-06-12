@@ -10,6 +10,7 @@ pub mod feeds;
 pub mod model;
 pub mod render;
 pub mod rules;
+pub mod runner;
 pub mod sync;
 pub mod temporal_checks;
 pub mod temporal_rule;
