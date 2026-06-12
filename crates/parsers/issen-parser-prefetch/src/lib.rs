@@ -44,10 +44,32 @@ impl ForensicParser for PrefetchParser {
 
     fn parse(
         &self,
-        _input: &dyn DataSource,
-        _emitter: &dyn EventEmitter,
+        input: &dyn DataSource,
+        emitter: &dyn EventEmitter,
     ) -> Result<ParseStats, RtError> {
-        Ok(ParseStats::new())
+        let mut stats = ParseStats::new();
+        let len = input.len();
+        if len == 0 {
+            return Ok(stats);
+        }
+        // Read the whole `.pf` into memory (prefetch files are small, ≤ tens of KB).
+        let mut bytes = vec![0u8; len as usize];
+        let mut off = 0u64;
+        while off < len {
+            let n = input.read_at(off, &mut bytes[off as usize..])?;
+            if n == 0 {
+                break;
+            }
+            off += n as u64;
+        }
+        stats.bytes_processed = off;
+
+        let events = parser::events_from_bytes(&bytes, "prefetch-evidence");
+        stats.events_emitted = events.len() as u64;
+        if !events.is_empty() {
+            emitter.emit_batch(events)?;
+        }
+        Ok(stats)
     }
 
     fn capabilities(&self) -> ParserCapabilities {
@@ -187,5 +209,54 @@ mod tests {
                 .and_then(serde_json::Value::as_str),
             Some("NOTEPAD.EXE")
         );
+    }
+
+    /// Drive the `ForensicParser::parse` ingest path (the one the orchestrator
+    /// calls) end-to-end over an in-memory `.pf`, proving it actually emits —
+    /// the wiring that was previously a stub returning `Ok(ParseStats::new())`.
+    #[test]
+    fn forensic_parser_parse_emits_via_emitter() {
+        use issen_core::error::RtError;
+        use issen_core::plugin::traits::DataSource;
+        use issen_core::timeline::event::TimelineEvent;
+        use std::sync::Mutex;
+
+        struct MemSource(Vec<u8>);
+        impl DataSource for MemSource {
+            fn len(&self) -> u64 {
+                self.0.len() as u64
+            }
+            fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<usize, RtError> {
+                let off = offset as usize;
+                let n = buf.len().min(self.0.len().saturating_sub(off));
+                buf[..n].copy_from_slice(&self.0[off..off + n]);
+                Ok(n)
+            }
+        }
+        #[derive(Default)]
+        struct Collector(Mutex<Vec<TimelineEvent>>);
+        impl EventEmitter for Collector {
+            fn emit(&self, e: TimelineEvent) -> Result<(), RtError> {
+                self.0.lock().unwrap().push(e);
+                Ok(())
+            }
+            fn emit_batch(&self, mut e: Vec<TimelineEvent>) -> Result<(), RtError> {
+                self.0.lock().unwrap().append(&mut e);
+                Ok(())
+            }
+        }
+
+        let data = tests::minimal_scca("NOTEPAD.EXE", 132_449_604_494_103_203, 5);
+        let source = MemSource(data);
+        let collector = Collector::default();
+        let stats = PrefetchParser
+            .parse(&source, &collector)
+            .expect("parse must not Err");
+
+        assert_eq!(stats.events_emitted, 1);
+        let events = collector.0.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        assert!(events[0].description.contains("NOTEPAD.EXE"));
+        assert!(events[0].timestamp_ns > 0);
     }
 }

@@ -38,10 +38,18 @@ pub fn parse_prefetch(path: &Path, source_id: &str) -> anyhow::Result<Vec<Timeli
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(vec![]),
         Err(e) => return Err(e.into()),
     };
+    Ok(events_from_bytes(&bytes, source_id))
+}
 
-    let (rec, anomalies) = match prefetch_forensic::audit_bytes(&bytes) {
+/// Build prefetch [`TimelineEvent`]s from raw `.pf` bytes — the shared core used
+/// by both [`parse_prefetch`] (path-based) and the `ForensicParser::parse`
+/// ingest path (`DataSource` bytes). Anything not a recognized prefetch container
+/// yields an empty vec.
+#[must_use]
+pub fn events_from_bytes(bytes: &[u8], source_id: &str) -> Vec<TimelineEvent> {
+    let (rec, anomalies) = match prefetch_forensic::audit_bytes(bytes) {
         Ok(parsed) => parsed,
-        Err(_) => return Ok(vec![]),
+        Err(_) => return Vec::new(),
     };
 
     // Carry the masquerade / suspicious-path signal on the timeline as the
@@ -88,5 +96,5 @@ pub fn parse_prefetch(path: &Path, source_id: &str) -> anyhow::Result<Vec<Timeli
             .collect()
     };
 
-    Ok(events)
+    events
 }
