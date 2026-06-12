@@ -1,4 +1,4 @@
-//! Ordered-window correlation evaluator (DuckDB-free).
+//! Ordered-window correlation evaluator (`DuckDB`-free).
 //!
 //! Given an *anchor* event and a slice of candidate *consequent* events
 //! (already fetched from the store), a [`RuleSpec`] decides whether they form a
@@ -12,11 +12,207 @@
 //! The evaluator is generic over [`EventView`] so it stays free of any storage
 //! type — `issen-timeline::events::StoredEvent` implements it; the unit tests
 //! use a synthetic event. This is the seam that keeps `issen-correlation`
-//! DuckDB-free while still consuming events read back from DuckDB.
+//! `DuckDB`-free while still consuming events read back from `DuckDB`.
 
+use forensicnomicon::report::Severity;
 use issen_core::timeline::event::EntityRef;
 
 use crate::correlation::{Correlation, CorrelationMember, CorrelationRole, CorrelationScope};
+
+/// Which artifact leg an event was reconstructed from.
+///
+/// The evaluator uses this for point-in-time / `SameDump` reasoning over the
+/// memory rules (a process-migration chain must stay within one dump). Disk and
+/// log legs are persistent; the `Memory` leg is a single acquisition snapshot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum EventSource {
+    /// Filesystem artifacts (MFT, USN, `$LogFile`, files on disk).
+    Disk,
+    /// Windows event log (EVTX) records.
+    Evtx,
+    /// Registry hive values.
+    Registry,
+    /// A point-in-time memory dump.
+    Memory,
+    /// Any other / unclassified leg.
+    Other,
+}
+
+impl EventSource {
+    /// The stable lowercase token for this leg.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Disk => "disk",
+            Self::Evtx => "evtx",
+            Self::Registry => "registry",
+            Self::Memory => "memory",
+            Self::Other => "other",
+        }
+    }
+
+    /// Parse a leg token; `None` for an unknown token.
+    #[allow(clippy::should_implement_trait)] // Option-returning parser, not std FromStr (Result)
+    #[must_use]
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "disk" => Some(Self::Disk),
+            "evtx" => Some(Self::Evtx),
+            "registry" => Some(Self::Registry),
+            "memory" => Some(Self::Memory),
+            "other" => Some(Self::Other),
+            _ => None,
+        }
+    }
+}
+
+/// The minimal read-only view the evaluator needs over an event.
+///
+/// `issen-timeline::events::StoredEvent` implements this; unit tests use a
+/// synthetic struct. Keeping the evaluator generic over this trait is the seam
+/// that lets `issen-correlation` consume `DuckDB`-read events without depending on
+/// the storage crate (which would also be a dependency cycle).
+pub trait EventView {
+    /// The persisted `timeline.id` (the correlation-member key).
+    fn id(&self) -> u64;
+    /// Event time in nanoseconds; non-positive is treated as "no clock".
+    fn timestamp_ns(&self) -> i64;
+    /// The event-type token (e.g. `"LogonFailure"`).
+    fn event_type(&self) -> &str;
+    /// The entity references this event carries.
+    fn entity_refs(&self) -> &[EntityRef];
+    /// Host attribution, if known.
+    fn hostname(&self) -> Option<&str>;
+    /// Which artifact leg this event came from.
+    fn source(&self) -> EventSource;
+}
+
+/// How the host/dump scope constrains an anchor↔consequent pair.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScopeRule {
+    /// Anchor and consequent must be attributed to the same host.
+    SameHost,
+    /// Anchor and consequent must be attributed to *different* hosts (a
+    /// lateral-move signal).
+    CrossHost,
+    /// Anchor and consequent must come from the same point-in-time dump
+    /// (identity proxied here by the host/dump label).
+    SameDump,
+}
+
+impl ScopeRule {
+    /// `true` when the pair's host attribution satisfies this scope rule.
+    fn admits(self, anchor_host: Option<&str>, consequent_host: Option<&str>) -> bool {
+        match self {
+            // Same-host / same-dump require a known, equal label on both sides.
+            Self::SameHost | Self::SameDump => {
+                matches!((anchor_host, consequent_host), (Some(a), Some(b)) if a == b)
+            }
+            // Cross-host requires two known, distinct labels.
+            Self::CrossHost => {
+                matches!((anchor_host, consequent_host), (Some(a), Some(b)) if a != b)
+            }
+        }
+    }
+
+    /// The persisted [`CorrelationScope`] this rule produces.
+    fn to_scope(self) -> CorrelationScope {
+        match self {
+            Self::SameHost => CorrelationScope::SameHost,
+            Self::CrossHost => CorrelationScope::CrossHost,
+            Self::SameDump => CorrelationScope::SameDump,
+        }
+    }
+}
+
+/// A declarative ordered-window correlation rule.
+///
+/// Static `&'static str` fields keep the bundled rule set allocation-free; the
+/// produced [`Correlation`] owns its strings.
+#[derive(Debug, Clone)]
+pub struct RuleSpec {
+    /// Stable scheme-prefixed code (e.g. `CORR-BRUTEFORCE-LOGON`).
+    pub code: &'static str,
+    /// ATT&CK technique the pattern is consistent with, if any.
+    pub attack_technique: Option<&'static str>,
+    /// Severity of an emitted finding.
+    pub severity: Severity,
+    /// Event-type token the anchor must match.
+    pub anchor_event_type: &'static str,
+    /// Event-type token a consequent must match.
+    pub consequent_event_type: &'static str,
+    /// Maximum (consequent − anchor) gap in nanoseconds (inclusive).
+    pub window_ns: i64,
+    /// Host/dump scope constraint.
+    pub scope: ScopeRule,
+    /// Examiner-facing note — "consistent with", never a verdict.
+    pub note: &'static str,
+}
+
+/// Evaluate `rule` against `anchor` and a slice of candidate `consequents`.
+///
+/// Returns a [`Correlation`] (anchor + earliest matching consequent) when the
+/// rule fires, or `None`. Matching is strict and ordered:
+///
+/// - the anchor must have a positive timestamp and match `anchor_event_type`;
+/// - a consequent must match `consequent_event_type`, have a positive timestamp
+///   *strictly after* the anchor and within `window_ns`, share at least one join
+///   entity with the anchor, and satisfy the scope rule;
+/// - the earliest such consequent wins.
+#[must_use]
+pub fn evaluate<A, C>(rule: &RuleSpec, anchor: &A, consequents: &[C]) -> Option<Correlation>
+where
+    A: EventView,
+    C: EventView,
+{
+    let anchor_ts = anchor.timestamp_ns();
+    if anchor_ts <= 0 || anchor.event_type() != rule.anchor_event_type {
+        return None;
+    }
+
+    let mut best: Option<&C> = None;
+    for candidate in consequents {
+        let ts = candidate.timestamp_ns();
+        if ts <= 0
+            || candidate.event_type() != rule.consequent_event_type
+            || ts <= anchor_ts
+            || ts - anchor_ts > rule.window_ns
+        {
+            continue;
+        }
+        if !rule.scope.admits(anchor.hostname(), candidate.hostname()) {
+            continue;
+        }
+        if !shares_entity(anchor.entity_refs(), candidate.entity_refs()) {
+            continue;
+        }
+        match best {
+            Some(current) if candidate.timestamp_ns() >= current.timestamp_ns() => {}
+            _ => best = Some(candidate),
+        }
+    }
+
+    let consequent = best?;
+    let correlation = Correlation::new(rule.code, rule.severity)
+        .with_scope(rule.scope.to_scope())
+        .with_window(anchor_ts, consequent.timestamp_ns())
+        .with_note(rule.note)
+        .with_member(CorrelationMember::new(anchor.id(), CorrelationRole::Anchor))
+        .with_member(CorrelationMember::new(
+            consequent.id(),
+            CorrelationRole::Consequent,
+        ));
+    let correlation = match rule.attack_technique {
+        Some(technique) => correlation.with_attack_technique(technique),
+        None => correlation,
+    };
+    Some(correlation)
+}
+
+/// `true` when the two entity-ref slices share at least one identical entity.
+fn shares_entity(a: &[EntityRef], b: &[EntityRef]) -> bool {
+    a.iter().any(|x| b.iter().any(|y| x == y))
+}
 
 #[cfg(test)]
 mod tests {

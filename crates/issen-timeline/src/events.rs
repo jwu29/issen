@@ -47,6 +47,35 @@ impl StoredEvent {
     }
 }
 
+impl issen_correlation::evaluator::EventView for StoredEvent {
+    fn id(&self) -> u64 {
+        self.id
+    }
+    fn timestamp_ns(&self) -> i64 {
+        self.timestamp_ns
+    }
+    fn event_type(&self) -> &str {
+        &self.event_type
+    }
+    fn entity_refs(&self) -> &[EntityRef] {
+        &self.entity_refs
+    }
+    fn hostname(&self) -> Option<&str> {
+        self.hostname.as_deref()
+    }
+    fn source(&self) -> issen_correlation::evaluator::EventSource {
+        use issen_correlation::evaluator::EventSource;
+        // Map the persisted `ArtifactType` Debug token to a correlation leg.
+        match self.source.as_str() {
+            "EventLog" => EventSource::Evtx,
+            "Registry" | "Shellbags" | "Amcache" | "Bam" => EventSource::Registry,
+            "Mft" | "UsnJournal" | "Prefetch" | "Lnk" | "JumpLists" => EventSource::Disk,
+            "ProcessList" | "NetworkState" | "RootkitScan" => EventSource::Memory,
+            _ => EventSource::Other,
+        }
+    }
+}
+
 /// A bounded query over the timeline for correlation candidate retrieval.
 ///
 /// **Bounded by construction:** the only two ways to build an `EventQuery` are
@@ -437,6 +466,63 @@ mod tests {
         let events = store.fetch_events(&q).expect("fetch");
         let bursts = burst_windows(&events, 3, Duration::from_secs(2));
         assert!(bursts.is_empty(), "no cluster reaches the threshold");
+    }
+
+    // ── End-to-end seam: fetch_events → StoredEvent → evaluator ──────────────
+
+    #[test]
+    fn stored_events_drive_the_ordered_evaluator() {
+        use issen_correlation::evaluator::{evaluate, RuleSpec, ScopeRule};
+
+        let mut success = logon_failure(2_000, "203.0.113.5");
+        success.event_type = EventType::LogonSuccess;
+        let store = store_with(&[logon_failure(1_000, "203.0.113.5"), success]);
+
+        let anchors = store
+            .fetch_events(&EventQuery::within(0, 10_000).event_types(["LogonFailure"]))
+            .expect("anchors");
+        let consequents = store
+            .fetch_events(&EventQuery::within(0, 10_000).event_types(["LogonSuccess"]))
+            .expect("consequents");
+
+        let rule = RuleSpec {
+            code: "CORR-BRUTEFORCE-LOGON",
+            attack_technique: Some("T1110"),
+            severity: forensicnomicon::report::Severity::High,
+            anchor_event_type: "LogonFailure",
+            consequent_event_type: "LogonSuccess",
+            window_ns: 60_000_000_000,
+            scope: ScopeRule::SameHost,
+            note: "Failed-logon burst then success from the same IP is consistent with brute force.",
+        };
+
+        let corr = evaluate(&rule, &anchors[0], &consequents).expect("a correlation");
+        assert_eq!(corr.code, "CORR-BRUTEFORCE-LOGON");
+        assert_eq!(corr.members.len(), 2);
+        assert_eq!(corr.members[0].timeline_id, anchors[0].id);
+        assert_eq!(corr.members[1].timeline_id, consequents[0].id);
+
+        // And it persists + reads back through the timeline store.
+        let id = store
+            .persist_correlation(
+                &corr,
+                &[
+                    (corr.members[0].timeline_id, corr.members[0].role.as_str()),
+                    (corr.members[1].timeline_id, corr.members[1].role.as_str()),
+                ],
+            )
+            .expect("persist");
+        let back = store.correlation(id).expect("read").expect("present");
+        assert_eq!(back.code, "CORR-BRUTEFORCE-LOGON");
+        assert_eq!(back.members.len(), 2);
+    }
+
+    #[test]
+    fn stored_event_source_leg_maps_eventlog_to_evtx() {
+        use issen_correlation::evaluator::{EventSource, EventView};
+        let store = store_with(&[logon_failure(1_000, "203.0.113.5")]);
+        let events = store.fetch_events(&EventQuery::within(0, 5_000)).expect("fetch");
+        assert_eq!(events[0].source(), EventSource::Evtx);
     }
 
     #[test]
