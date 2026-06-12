@@ -72,7 +72,7 @@ impl FileFacts {
 #[must_use]
 pub fn tokenize_stem(stem_str: &str) -> BTreeSet<String> {
     stem_str
-        .split(|c: char| c == '_' || c == '-' || c == ' ' || c == '.')
+        .split(['_', '-', ' ', '.'])
         .filter(|t| !t.is_empty())
         .map(str::to_ascii_lowercase)
         .collect()
@@ -116,10 +116,7 @@ pub fn guards_hold(deleted: &FileFacts, created: &FileFacts) -> bool {
     if extension(&deleted.path) != extension(&created.path) {
         return false;
     }
-    match (deleted.size, created.size) {
-        (Some(x), Some(y)) if x != y => false,
-        _ => true,
-    }
+    !matches!((deleted.size, created.size), (Some(x), Some(y)) if x != y)
 }
 
 /// Pair `FileDelete` events with `FileCreate` events that satisfy all guards,
@@ -129,13 +126,64 @@ pub fn guards_hold(deleted: &FileFacts, created: &FileFacts) -> bool {
 /// consequent (member roles), with its window spanning the earlier→later of the
 /// pair. A delete pairs with its nearest-in-time qualifying create.
 #[must_use]
-pub fn copy_delete_pairs<E>(deletes: &[(E, FileFacts)], creates: &[(E, FileFacts)]) -> Vec<Correlation>
+pub fn copy_delete_pairs<E>(
+    deletes: &[(E, FileFacts)],
+    creates: &[(E, FileFacts)],
+) -> Vec<Correlation>
 where
     E: EventView,
 {
-    // RED stub — implemented in the GREEN commit.
-    let _ = (deletes, creates);
-    Vec::new()
+    let mut out = Vec::new();
+    for (del_ev, del_facts) in deletes {
+        let del_ts = del_ev.timestamp_ns();
+        if del_ts <= 0 {
+            continue;
+        }
+        let mut best: Option<&(E, FileFacts)> = None;
+        for candidate in creates {
+            let (cre_ev, cre_facts) = candidate;
+            let cre_ts = cre_ev.timestamp_ns();
+            if cre_ts <= 0 || del_ev.hostname() != cre_ev.hostname() {
+                continue;
+            }
+            if (cre_ts - del_ts).abs() > COPY_DELETE_WINDOW_NS {
+                continue;
+            }
+            if !guards_hold(del_facts, cre_facts) {
+                continue;
+            }
+            let nearer = match best {
+                Some((cur_ev, _)) => {
+                    (cre_ts - del_ts).abs() < (cur_ev.timestamp_ns() - del_ts).abs()
+                }
+                None => true,
+            };
+            if nearer {
+                best = Some(candidate);
+            }
+        }
+        if let Some((cre_ev, _)) = best {
+            let cre_ts = cre_ev.timestamp_ns();
+            let (first, last) = if del_ts <= cre_ts {
+                (del_ts, cre_ts)
+            } else {
+                (cre_ts, del_ts)
+            };
+            out.push(
+                Correlation::new("CORR-COPY-DELETE", forensicnomicon::report::Severity::Medium)
+                    .with_attack_technique("T1070")
+                    .with_scope(CorrelationScope::SameHost)
+                    .with_window(first, last)
+                    .with_note(COPY_DELETE_NOTE)
+                    .with_member(CorrelationMember::new(del_ev.id(), CorrelationRole::Anchor))
+                    .with_member(CorrelationMember::new(
+                        cre_ev.id(),
+                        CorrelationRole::Consequent,
+                    )),
+            );
+        }
+    }
+    out
 }
 
 #[cfg(test)]
