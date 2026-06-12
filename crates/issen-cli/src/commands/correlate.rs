@@ -1,0 +1,167 @@
+//! `issen correlate <case-dir>` — discover evidence, ingest the disk leg into
+//! one timeline, run the cross-artifact correlation rules, and render a
+//! "Correlated Findings" report (capstone task #37, plan v5 §7).
+//!
+//! This is a thin Humble-Object shell: the discovery/sequencing decisions and
+//! the report rendering are pulled into testable free functions
+//! ([`discover_evidence`], [`render_correlated_findings`]); `run` only wires
+//! ingest → `run_and_persist` → print.
+//!
+//! The memory leg (Tier C) is intentionally out of scope here — the runner it
+//! calls leaves an additive seam for memory-rule firings, so when that leg is
+//! wired its correlations flow into the same report section unchanged.
+
+use std::path::{Path, PathBuf};
+
+use anyhow::{Context, Result};
+use chrono::{TimeZone, Utc};
+use issen_correlation::correlation::Correlation;
+use issen_timeline::store::TimelineStore;
+
+/// Discover the evidence root to ingest under `case_dir`.
+///
+/// The current disk-leg ingest walks a directory or single file, so discovery
+/// is simply: the case dir itself is the ingest root. Returned as its own helper
+/// so the sequencing decision is unit-testable and so a future multi-image
+/// per-evidence walk slots in here without touching `run`.
+#[must_use]
+pub fn discover_evidence(case_dir: &Path) -> PathBuf {
+    case_dir.to_path_buf()
+}
+
+/// Format a nanosecond Unix timestamp as an RFC3339 UTC instant for display.
+fn fmt_ns(ns: i64) -> String {
+    let secs = ns.div_euclid(1_000_000_000);
+    let nanos = ns.rem_euclid(1_000_000_000) as u32;
+    match Utc.timestamp_opt(secs, nanos).single() {
+        Some(dt) => dt.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        None => format!("{ns}ns"),
+    }
+}
+
+/// Render the "Correlated Findings" report section for a set of correlations.
+///
+/// Pure and side-effect-free so the epistemics gate (plan v5 §7.5) can assert
+/// over its text: every finding is narrated as an observation ("consistent
+/// with"), never a verdict, and the section carries a tribunal footer handing
+/// any legal conclusion back to the court.
+#[must_use]
+pub fn render_correlated_findings(_correlations: &[Correlation]) -> String {
+    // RED stub — implementation follows in the GREEN commit.
+    let _ = fmt_ns;
+    String::new()
+}
+
+/// Run the correlate command: ingest the case dir, run + persist the disk-leg
+/// correlations, and print the Correlated Findings report.
+pub fn run(case_dir: &Path) -> Result<()> {
+    let evidence_root = discover_evidence(case_dir);
+    let db_path = case_dir.join("correlate.duckdb");
+
+    // Reuse the existing disk ingest — do not reimplement artifact parsing.
+    crate::commands::ingest::run(
+        &evidence_root,
+        &db_path,
+        None,
+        None,
+        false,
+        None,
+        None,
+        None,
+        None,
+    )
+    .with_context(|| format!("ingesting evidence under {}", case_dir.display()))?;
+
+    let store = TimelineStore::open(&db_path)
+        .with_context(|| format!("opening timeline database {}", db_path.display()))?;
+
+    let correlations = store
+        .run_and_persist()
+        .context("running cross-artifact correlation rules")?;
+
+    print!("{}", render_correlated_findings(&correlations));
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use forensicnomicon::report::Severity;
+    use issen_correlation::correlation::{Correlation, CorrelationMember, CorrelationRole};
+
+    fn sample_findings() -> Vec<Correlation> {
+        vec![
+            Correlation::new("CORR-MALWARE-PERSIST", Severity::High)
+                .with_attack_technique("T1543.003")
+                .with_window(1_000_000_000, 2_000_000_000)
+                .with_note(
+                    "An executable file create followed by a service install naming that \
+                     image is consistent with service-based persistence (T1543.003).",
+                )
+                .with_member(CorrelationMember::new(1, CorrelationRole::Anchor))
+                .with_member(CorrelationMember::new(2, CorrelationRole::Consequent)),
+            Correlation::new("CORR-BRUTEFORCE-LOGON", Severity::High)
+                .with_attack_technique("T1110")
+                .with_window(10_000_000_000, 16_000_000_000)
+                .with_note(
+                    "A failed-logon burst followed by a successful logon from the same \
+                     source IP is consistent with a successful brute-force attempt (T1110).",
+                )
+                .with_member(CorrelationMember::new(7, CorrelationRole::Anchor))
+                .with_member(CorrelationMember::new(8, CorrelationRole::Consequent)),
+        ]
+    }
+
+    #[test]
+    fn renders_each_finding_with_code_attack_severity_window_members() {
+        let report = render_correlated_findings(&sample_findings());
+        assert!(report.contains("Correlated Findings"));
+        // Codes
+        assert!(report.contains("CORR-MALWARE-PERSIST"));
+        assert!(report.contains("CORR-BRUTEFORCE-LOGON"));
+        // ATT&CK ids
+        assert!(report.contains("T1543.003"));
+        assert!(report.contains("T1110"));
+        // Severity
+        assert!(report.contains("high"));
+        // Members (timeline ids + roles)
+        assert!(report.contains("#1 (anchor)"));
+        assert!(report.contains("#8 (consequent)"));
+        // Time window rendered as instants
+        assert!(report.contains("→"));
+    }
+
+    #[test]
+    fn empty_findings_render_a_clean_absence_note() {
+        let report = render_correlated_findings(&[]);
+        assert!(report.contains("Correlated Findings"));
+        assert!(report.contains("No cross-artifact correlations fired"));
+        // Even with nothing fired, the tribunal footer is present.
+        assert!(report.contains("the tribunal"));
+    }
+
+    /// Epistemics gate (plan v5 §7.5): the rendered report narrates findings as
+    /// observations and hands legal conclusions to the tribunal — it must say
+    /// "consistent with" and must never assert a verdict.
+    #[test]
+    fn rendered_report_is_hedged_and_carries_a_tribunal_footer() {
+        let report = render_correlated_findings(&sample_findings()).to_ascii_lowercase();
+        assert!(report.contains("consistent with"), "must hedge with 'consistent with'");
+        assert!(
+            report.contains("the court may draw its own conclusions"),
+            "must hand legal conclusions to the tribunal"
+        );
+        for forbidden in ["confirm", "prove", "proof", "exceed", "undoubtedly", "certainly"] {
+            assert!(
+                !report.contains(forbidden),
+                "report must not assert a verdict ({forbidden:?})"
+            );
+        }
+    }
+
+    #[test]
+    fn discover_evidence_returns_the_case_dir_as_ingest_root() {
+        let root = discover_evidence(Path::new("/cases/case-001"));
+        assert_eq!(root, PathBuf::from("/cases/case-001"));
+    }
+}

@@ -1,4 +1,5 @@
 pub mod analyse;
+pub mod correlate;
 pub mod feed;
 pub mod info;
 pub mod ingest;
