@@ -427,4 +427,95 @@ mod tests {
         let m = CorrelationMember::new(1, CorrelationRole::Supporting);
         assert_eq!(m.timeline_id, 1);
     }
+
+    // ── Part A: engine guard-hook + either-order mode ────────────────────────
+
+    /// A guard that only admits a consequent whose host label is exactly
+    /// `"WANTED"` — proves the per-pair guard predicate gates a candidate the
+    /// entity/window/scope checks would otherwise accept.
+    fn host_must_be_wanted(_anchor: &dyn EventView, consequent: &dyn EventView) -> bool {
+        consequent.hostname() == Some("WANTED")
+    }
+
+    #[test]
+    fn guard_rejects_a_candidate_it_fails_even_when_entity_and_window_match() {
+        // Entity, ordering, window and scope all match; only the guard differs.
+        let rule = RuleSpec {
+            guard: Some(host_must_be_wanted),
+            ..brute_force_rule()
+        };
+        let anchor = ev(1, 1_000, "LogonFailure", "203.0.113.5", "DC01", EventSource::Evtx);
+        // SameHost scope means both sides must share a host; use "DC01" which the
+        // guard rejects, then "WANTED" which it accepts.
+        let rejected = vec![ev(
+            2, 2_000, "LogonSuccess", "203.0.113.5", "DC01", EventSource::Evtx,
+        )];
+        assert!(
+            evaluate(&rule, &anchor, &rejected).is_none(),
+            "guard must reject a candidate it fails"
+        );
+
+        let wanted_anchor =
+            ev(1, 1_000, "LogonFailure", "203.0.113.5", "WANTED", EventSource::Evtx);
+        let accepted = vec![ev(
+            2, 2_000, "LogonSuccess", "203.0.113.5", "WANTED", EventSource::Evtx,
+        )];
+        assert!(
+            evaluate(&rule, &wanted_anchor, &accepted).is_some(),
+            "guard must admit a candidate it passes"
+        );
+    }
+
+    #[test]
+    fn either_order_mode_fires_for_a_reversed_pair_that_strict_mode_misses() {
+        // Consequent BEFORE the anchor: strict mode rejects (see
+        // `rejects_a_reversed_pair`); either-order mode must accept it.
+        let strict = brute_force_rule();
+        let either = RuleSpec {
+            ordered: false,
+            ..brute_force_rule()
+        };
+        let anchor = ev(1, 5_000, "LogonFailure", "203.0.113.5", "DC01", EventSource::Evtx);
+        let consequents = vec![ev(
+            2, 1_000, "LogonSuccess", "203.0.113.5", "DC01", EventSource::Evtx,
+        )];
+        assert!(
+            evaluate(&strict, &anchor, &consequents).is_none(),
+            "strict mode must miss the reversed pair"
+        );
+        let corr = evaluate(&either, &anchor, &consequents).expect("either-order match");
+        // Window spans earlier→later regardless of which is anchor.
+        assert_eq!(corr.first_ts, 1_000);
+        assert_eq!(corr.last_ts, 5_000);
+    }
+
+    #[test]
+    fn either_order_mode_still_honors_the_window() {
+        // Reversed but outside the window: even either-order must reject.
+        let either = RuleSpec {
+            ordered: false,
+            ..brute_force_rule()
+        };
+        let anchor = ev(1, 999_000_000_000, "LogonFailure", "203.0.113.5", "DC01", EventSource::Evtx);
+        let consequents = vec![ev(
+            2, 1_000, "LogonSuccess", "203.0.113.5", "DC01", EventSource::Evtx,
+        )];
+        assert!(evaluate(&either, &anchor, &consequents).is_none());
+    }
+
+    #[test]
+    fn default_rulespec_fields_preserve_strict_no_guard_behavior() {
+        // A rule literal that omits the new fields via `..` of brute_force_rule
+        // must behave exactly as before: strict ordering, no guard.
+        let rule = brute_force_rule();
+        assert!(rule.guard.is_none());
+        assert!(rule.ordered, "default is strict ordered");
+    }
+
+    #[test]
+    fn event_view_artifact_path_defaults_to_empty() {
+        // The new accessor has a default so existing impls need no change.
+        let anchor = ev(1, 1_000, "LogonFailure", "203.0.113.5", "DC01", EventSource::Evtx);
+        assert_eq!(anchor.artifact_path(), "");
+    }
 }
