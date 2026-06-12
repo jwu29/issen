@@ -154,13 +154,23 @@ impl TimelineStore {
     /// (Tier C) rules are not run here — the runner leaves an additive seam for
     /// them (see [`run_correlations`]).
     pub fn run_and_persist(&self) -> Result<Vec<Correlation>, TimelineStoreError> {
-        // RED stub — implementation follows in the GREEN commit.
-        let _ = (
-            burst_anchors,
-            run_correlations::<RunInput>,
-            EventQuery::within(1, i64::MAX),
-        );
-        Ok(Vec::new())
+        let events = self.fetch_events(&EventQuery::within(1, i64::MAX))?;
+
+        let mut inputs: Vec<RunInput> = events.iter().cloned().map(RunInput::Stored).collect();
+        for anchor in burst_anchors(&events) {
+            inputs.push(RunInput::Burst(anchor));
+        }
+
+        let correlations = run_correlations(&inputs);
+        for corr in &correlations {
+            let members: Vec<(u64, &str)> = corr
+                .members
+                .iter()
+                .map(|m| (m.timeline_id, m.role.as_str()))
+                .collect();
+            self.persist_correlation(corr, &members)?;
+        }
+        Ok(correlations)
     }
 }
 
@@ -237,7 +247,7 @@ mod tests {
         // a brute-force pattern (a 4625 burst -> 4624 success from one IP).
         let secs = 1_000_000_000i64;
         let mut events = vec![
-            file_create(1 * secs, "C:\\Windows\\System32\\coreupdater.exe"),
+            file_create(secs, "C:\\Windows\\System32\\coreupdater.exe"),
             service_install(2 * secs, "C:\\Windows\\System32\\coreupdater.exe"),
         ];
         // Five failed logons within 60s from one IP -> a burst.
