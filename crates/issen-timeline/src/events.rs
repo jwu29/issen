@@ -493,6 +493,8 @@ mod tests {
             consequent_event_type: "LogonSuccess",
             window_ns: 60_000_000_000,
             scope: ScopeRule::SameHost,
+            guard: None,
+            ordered: true,
             note: "Failed-logon burst then success from the same IP is consistent with brute force.",
         };
 
@@ -523,6 +525,17 @@ mod tests {
         let store = store_with(&[logon_failure(1_000, "203.0.113.5")]);
         let events = store.fetch_events(&EventQuery::within(0, 5_000)).expect("fetch");
         assert_eq!(events[0].source(), EventSource::Evtx);
+    }
+
+    #[test]
+    fn stored_event_exposes_real_artifact_path_via_eventview() {
+        // The guarded rules (LOGON-MALWARE-WRITE, EXFIL-STAGE) read a candidate's
+        // path at runtime via the EventView trait — it must return the real
+        // persisted path, not the `""` trait default.
+        use issen_correlation::evaluator::EventView;
+        let store = store_with(&[logon_failure(1_000, "203.0.113.5")]);
+        let events = store.fetch_events(&EventQuery::within(0, 5_000)).expect("fetch");
+        assert_eq!(EventView::artifact_path(&events[0]), "Security.evtx");
     }
 
     #[test]
