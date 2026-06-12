@@ -40,17 +40,23 @@ pub fn parse_shellbags(path: &Path, source_id: &str) -> anyhow::Result<Vec<Timel
         Ok(b) if !b.is_empty() => b,
         _ => return Ok(vec![]),
     };
-    let hive = match winreg_core::hive::Hive::from_bytes(bytes) {
-        Ok(h) => h,
-        Err(_) => return Ok(vec![]),
-    };
-
     let hive_name = path
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("unknown.dat");
+    Ok(events_from_bytes(&bytes, hive_name, source_id))
+}
 
-    let events = winreg_artifacts::shellbags::parse(&hive)
+/// Build Shellbag [`TimelineEvent`]s from raw NTUSER.DAT/UsrClass.dat bytes —
+/// shared by [`parse_shellbags`] (path) and the `ForensicParser::parse` ingest path.
+#[must_use]
+pub fn events_from_bytes(bytes: &[u8], hive_name: &str, source_id: &str) -> Vec<TimelineEvent> {
+    let hive = match winreg_core::hive::Hive::from_bytes(bytes.to_vec()) {
+        Ok(h) => h,
+        Err(_) => return Vec::new(),
+    };
+
+    winreg_artifacts::shellbags::parse(&hive)
         .into_iter()
         .map(|e| {
             let (timestamp_ns, timestamp_display) = e
@@ -75,9 +81,7 @@ pub fn parse_shellbags(path: &Path, source_id: &str) -> anyhow::Result<Vec<Timel
             .with_metadata("key_path", serde_json::json!(e.key_path))
             .with_metadata("path", serde_json::json!(e.path))
         })
-        .collect();
-
-    Ok(events)
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -111,10 +115,30 @@ impl ForensicParser for ShellbagsParser {
 
     fn parse(
         &self,
-        _input: &dyn DataSource,
-        _emitter: &dyn EventEmitter,
+        input: &dyn DataSource,
+        emitter: &dyn EventEmitter,
     ) -> Result<ParseStats, issen_core::error::RtError> {
-        Ok(ParseStats::new())
+        let mut stats = ParseStats::new();
+        let len = input.len();
+        if len == 0 {
+            return Ok(stats);
+        }
+        let mut bytes = vec![0u8; len as usize];
+        let mut off = 0u64;
+        while off < len {
+            let n = input.read_at(off, &mut bytes[off as usize..])?;
+            if n == 0 {
+                break;
+            }
+            off += n as u64;
+        }
+        stats.bytes_processed = off;
+        let events = events_from_bytes(&bytes, "NTUSER.DAT", "shellbags-evidence");
+        stats.events_emitted = events.len() as u64;
+        if !events.is_empty() {
+            emitter.emit_batch(events)?;
+        }
+        Ok(stats)
     }
 
     fn capabilities(&self) -> ParserCapabilities {
