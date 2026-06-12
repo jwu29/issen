@@ -703,3 +703,24 @@ GUI all stay out.
 8. **13Cubed** — a dedicated Case-001 analysis could not be retrieved (corpus open Q1);
    if found later it may add findings — the union set would version to F45+ rather than
    renumber.
+
+---
+
+## G1 re-run 2026-06-12 — PREFETCH LEG CLOSED (GREEN)
+
+After building `prefetch-forensic` (real MAM/Xpress-Huffman + SCCA v30/31),
+migrating `issen-parser-prefetch` onto it, AND wiring `ForensicParser::parse()`
+(which was a stub `Ok(ParseStats::new())` — the reason prefetch stayed dark even
+once the parser worked), a fresh Desktop E01 ingest produces:
+
+- **636 prefetch execution events** (was **0**) across **107 distinct executables**,
+  each with real run count + last-run timestamps (the prior stub emitted `ts=0`).
+- The implant: **`COREUPDATER.EXE` executed 1× @ 2020-09-19T03:40:49Z** — the
+  evidence-of-execution answer several Case-001 questions require.
+
+DB: `g1-output/desktop-prefetch2.duckdb` · query: `description LIKE 'Prefetch:%'`.
+
+**Still dark (same stub-`parse()` gap, same one-each fix):** amcache / shimcache /
+shellbags decoders now run via `winreg-artifacts`, but their `ForensicParser::parse()`
+trait methods still return `Ok(ParseStats::new())` — so they emit nothing in ingest
+until wired like prefetch (read DataSource bytes → `events_from_*` → `emit_batch`).
