@@ -724,3 +724,14 @@ DB: `g1-output/desktop-prefetch2.duckdb` · query: `description LIKE 'Prefetch:%
 shellbags decoders now run via `winreg-artifacts`, but their `ForensicParser::parse()`
 trait methods still return `Ok(ParseStats::new())` — so they emit nothing in ingest
 until wired like prefetch (read DataSource bytes → `events_from_*` → `emit_batch`).
+
+### G1 re-run (cont.) — amcache LIT UP, shimcache/shellbags need discovery
+
+After wiring `ForensicParser::parse()` for amcache/shimcache/shellbags (same stub fix
+as prefetch): fresh Desktop ingest now emits **97 AmCache execution events** (SHA-1 +
+path + publisher; was 0). Prefetch holds at 636. **Shimcache = 0** despite the SYSTEM
+hive being discovered (12,253 registry events from it) — dispatch likely runs only the
+registry walker on a `Registry`-typed hive, starving the shimcache adapter; OR the
+AppCompatCache decode returns empty on this hive (needs standalone check). **Shellbags = 0**
+— not force-linked + NTUSER/UsrClass not discovered as `Shellbags`. Both scoped in
+`docs/fleet-capability-inventory.md` §1.
