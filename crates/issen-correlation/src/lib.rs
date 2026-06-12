@@ -17,6 +17,7 @@ pub mod temporal_rule;
 pub mod tier_a;
 pub mod tier_b;
 pub mod tier_b_prime;
+pub mod tier_c;
 pub mod tier_d;
 pub mod time_of_day;
 pub mod timestomp;
