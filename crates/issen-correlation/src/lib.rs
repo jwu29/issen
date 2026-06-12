@@ -13,6 +13,7 @@ pub mod rules;
 pub mod sync;
 pub mod temporal_checks;
 pub mod temporal_rule;
+pub mod tier_a;
 pub mod time_of_day;
 pub mod timestomp;
 pub mod warninglist;
