@@ -43,8 +43,17 @@ pub const PLACEHOLDER_ACQ_NS: i64 = 946_684_800_000_000_000;
 /// root. Returns a stable, sorted list so the ingest order is deterministic.
 /// A missing or unreadable directory yields an empty list (best-effort).
 #[must_use]
-pub fn discover_memory_dumps(_case_dir: &Path) -> Vec<PathBuf> {
-    todo!("RED: discover_memory_dumps not yet implemented")
+pub fn discover_memory_dumps(case_dir: &Path) -> Vec<PathBuf> {
+    let mut dumps: Vec<PathBuf> = match std::fs::read_dir(case_dir) {
+        Ok(rd) => rd
+            .filter_map(Result::ok)
+            .map(|e| e.path())
+            .filter(|p| p.is_file() && is_memory_dump_name(p))
+            .collect(),
+        Err(_) => Vec::new(),
+    };
+    dumps.sort();
+    dumps
 }
 
 /// Returns `true` when `path`'s file name marks it as a memory dump.
@@ -68,8 +77,12 @@ fn is_memory_dump_name(path: &Path) -> bool {
 /// `WIN-CASE001.mem` → `WIN-CASE001`). Falls back to the full file name, then to
 /// `"memory-dump"` for a path with no name component.
 #[must_use]
-pub fn dump_stem(_path: &Path) -> String {
-    todo!("RED: dump_stem not yet implemented")
+pub fn dump_stem(path: &Path) -> String {
+    path.file_stem()
+        .or_else(|| path.file_name())
+        .and_then(|s| s.to_str())
+        .unwrap_or("memory-dump")
+        .to_string()
 }
 
 /// Convert a Windows FILETIME (100ns intervals since 1601-01-01) into Unix
@@ -79,8 +92,10 @@ pub fn dump_stem(_path: &Path) -> String {
 /// A FILETIME of `0` (no system time recorded) is before the Unix epoch and so
 /// yields `None`, which the caller treats as "no metadata instant".
 #[must_use]
-pub fn acquisition_ns_from_filetime(_filetime: u64) -> Option<i64> {
-    todo!("RED: acquisition_ns_from_filetime not yet implemented")
+pub fn acquisition_ns_from_filetime(filetime: u64) -> Option<i64> {
+    let unix_100ns = filetime.checked_sub(FILETIME_UNIX_EPOCH_DELTA)?;
+    let ns = unix_100ns.checked_mul(100)?;
+    i64::try_from(ns).ok()
 }
 
 /// Resolve the acquisition instant (Unix ns) for a dump, in priority order:
@@ -92,10 +107,16 @@ pub fn acquisition_ns_from_filetime(_filetime: u64) -> Option<i64> {
 /// is passed in (already read by the shell) rather than read here.
 #[must_use]
 pub fn resolve_acquisition_ns(
-    _system_time_filetime: Option<u64>,
-    _mtime_ns: Option<i64>,
+    system_time_filetime: Option<u64>,
+    mtime_ns: Option<i64>,
 ) -> (i64, &'static str) {
-    todo!("RED: resolve_acquisition_ns not yet implemented")
+    if let Some(ns) = system_time_filetime.and_then(acquisition_ns_from_filetime) {
+        return (ns, "dump system_time");
+    }
+    if let Some(ns) = mtime_ns {
+        return (ns, "file mtime");
+    }
+    (PLACEHOLDER_ACQ_NS, "placeholder (2000-01-01)")
 }
 
 /// Read a file's modification time as Unix nanoseconds, or `None` if it is
@@ -115,8 +136,62 @@ fn file_mtime_ns(path: &Path) -> Option<i64> {
 /// correlate completes regardless.
 ///
 /// Returns the total number of memory rows persisted across all dumps.
-pub fn ingest_memory_leg(_store: &TimelineStore, _case_dir: &Path) -> u64 {
-    todo!("RED: ingest_memory_leg not yet implemented")
+pub fn ingest_memory_leg(store: &TimelineStore, case_dir: &Path) -> u64 {
+    let dumps = discover_memory_dumps(case_dir);
+    if dumps.is_empty() {
+        eprintln!(
+            "[correlate] no memory dumps found under {} — skipping memory leg",
+            case_dir.display()
+        );
+        return 0;
+    }
+
+    let mut total = 0u64;
+    for dump in &dumps {
+        match build_reader(dump, None, None) {
+            Ok((_fmt, reader)) => {
+                let stem = dump_stem(dump);
+                let system_time = reader
+                    .vas()
+                    .physical()
+                    .metadata()
+                    .and_then(|m| m.system_time);
+                let (acquired_at_ns, ts_source) =
+                    resolve_acquisition_ns(system_time, file_mtime_ns(dump));
+                if ts_source.starts_with("placeholder") {
+                    eprintln!(
+                        "[correlate] {}: no acquisition timestamp available; using {ts_source}",
+                        dump.display()
+                    );
+                }
+
+                // Best-effort dispatch: a walker that errors (missing symbols)
+                // yields an empty leg rather than aborting the dump.
+                let ps = dispatch_windows_ps(&reader).unwrap_or_default();
+                let netstat = dispatch_windows_netstat(&reader).unwrap_or_default();
+                let scan = dispatch_windows_scan(&reader).unwrap_or_default();
+
+                match ingest_memory_dump(store, &stem, acquired_at_ns, &ps, &netstat, &scan) {
+                    Ok(n) => {
+                        eprintln!(
+                            "[correlate] memory leg: {} ({stem}) → {n} event(s) [{ts_source}]",
+                            dump.display()
+                        );
+                        total += n;
+                    }
+                    Err(e) => eprintln!(
+                        "[correlate] {}: failed to persist memory events (skipped): {e}",
+                        dump.display()
+                    ),
+                }
+            }
+            Err(e) => eprintln!(
+                "[correlate] {}: could not open/profile dump (skipped): {e}",
+                dump.display()
+            ),
+        }
+    }
+    total
 }
 
 #[cfg(test)]

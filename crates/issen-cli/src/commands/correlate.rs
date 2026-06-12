@@ -119,6 +119,12 @@ pub fn run(case_dir: &Path) -> Result<()> {
     let store = TimelineStore::open(&db_path)
         .with_context(|| format!("opening timeline database {}", db_path.display()))?;
 
+    // Memory leg (Tier C): best-effort — discover and ingest any memory dumps in
+    // the case dir into the same timeline so the cross-artifact rules can join
+    // memory subjects against the disk leg. A missing or unprofilable dump is
+    // logged and skipped inside the shell; it never fails the correlate run.
+    crate::commands::correlate_mem::ingest_memory_leg(&store, case_dir);
+
     let correlations = store
         .run_and_persist()
         .context("running cross-artifact correlation rules")?;
