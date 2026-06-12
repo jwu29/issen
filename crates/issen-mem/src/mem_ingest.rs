@@ -84,8 +84,16 @@ fn split_endpoint(cell: &str) -> (String, u16) {
 /// symbols-unavailable / empty Name row maps through with an empty image (the
 /// converter then falls back to a `pid:<n>` subject).
 #[must_use]
-pub fn ps_rows_to_process_rows(_output: &DispatchOutput) -> Vec<MemProcessRow> {
-    todo!("RED: ps_rows_to_process_rows not yet implemented")
+pub fn ps_rows_to_process_rows(output: &DispatchOutput) -> Vec<MemProcessRow> {
+    let (headers, rows) = output;
+    rows.iter()
+        .map(|row| MemProcessRow {
+            pid: parse_u32(cell(headers, row, "PID")),
+            ppid: parse_u32(cell(headers, row, "PPID")),
+            image_name: cell(headers, row, "Name").to_string(),
+            thread_count: 0,
+        })
+        .collect()
 }
 
 /// Map `dispatch_windows_netstat` output into PRE-1 [`MemTcpRow`]s.
@@ -94,8 +102,24 @@ pub fn ps_rows_to_process_rows(_output: &DispatchOutput) -> Vec<MemProcessRow> {
 /// pre-joins them), split here on the last colon. The symbols-unavailable
 /// placeholder row (`Proto == "n/a"`) carries no real endpoint and is skipped.
 #[must_use]
-pub fn netstat_rows_to_tcp_rows(_output: &DispatchOutput) -> Vec<MemTcpRow> {
-    todo!("RED: netstat_rows_to_tcp_rows not yet implemented")
+pub fn netstat_rows_to_tcp_rows(output: &DispatchOutput) -> Vec<MemTcpRow> {
+    let (headers, rows) = output;
+    rows.iter()
+        .filter(|row| !cell(headers, row, "Proto").eq_ignore_ascii_case("n/a"))
+        .map(|row| {
+            let (local_addr, local_port) = split_endpoint(cell(headers, row, "Local"));
+            let (remote_addr, remote_port) = split_endpoint(cell(headers, row, "Remote"));
+            MemTcpRow {
+                pid: parse_u32(cell(headers, row, "PID")),
+                process_name: cell(headers, row, "Process").to_string(),
+                local_addr,
+                local_port,
+                remote_addr,
+                remote_port,
+                state: cell(headers, row, "State").to_string(),
+            }
+        })
+        .collect()
 }
 
 /// Extract `(pid, image_name)` from a `dispatch_windows_scan` malfind `Detail`
@@ -128,8 +152,20 @@ fn parse_malfind_detail(detail: &str) -> (u32, String) {
 /// `injection_class` is the suffix after `malfind:`; pid + image are parsed out
 /// of the `Detail` cell.
 #[must_use]
-pub fn scan_rows_to_malfind_rows(_output: &DispatchOutput) -> Vec<MemMalfindRow> {
-    todo!("RED: scan_rows_to_malfind_rows not yet implemented")
+pub fn scan_rows_to_malfind_rows(output: &DispatchOutput) -> Vec<MemMalfindRow> {
+    let (headers, rows) = output;
+    rows.iter()
+        .filter_map(|row| {
+            let ty = cell(headers, row, "Type");
+            let injection_class = ty.strip_prefix("malfind:")?;
+            let (pid, image_name) = parse_malfind_detail(cell(headers, row, "Detail"));
+            Some(MemMalfindRow {
+                pid,
+                image_name,
+                injection_class: injection_class.to_string(),
+            })
+        })
+        .collect()
 }
 
 /// Map all three Windows dispatch outputs → PRE-1 events → persist into the
