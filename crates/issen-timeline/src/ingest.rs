@@ -8,13 +8,15 @@ impl TimelineStore {
         let metadata_json =
             serde_json::to_string(&event.metadata).unwrap_or_else(|_| "{}".to_string());
         let tags_json = serde_json::to_string(&event.tags).unwrap_or_else(|_| "[]".to_string());
+        let entity_refs_json =
+            serde_json::to_string(&event.entity_refs).unwrap_or_else(|_| "[]".to_string());
 
         self.connection().execute(
             "INSERT INTO timeline (
                 timestamp_ns, timestamp_display, event_type, source,
                 artifact_path, description, metadata, user_account,
-                hostname, tags, record_hash, evidence_source
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                hostname, tags, record_hash, evidence_source, entity_refs
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             duckdb::params![
                 event.timestamp_ns,
                 event.timestamp_display,
@@ -28,6 +30,7 @@ impl TimelineStore {
                 tags_json,
                 event.record_hash,
                 event.evidence_source_id,
+                entity_refs_json,
             ],
         )?;
         Ok(())
@@ -64,7 +67,8 @@ impl TimelineStore {
                 timestamp_ns BIGINT, timestamp_display VARCHAR, event_type VARCHAR,
                 source VARCHAR, artifact_path VARCHAR, description VARCHAR,
                 metadata VARCHAR, user_account VARCHAR, hostname VARCHAR,
-                tags VARCHAR, record_hash VARCHAR, evidence_source VARCHAR
+                tags VARCHAR, record_hash VARCHAR, evidence_source VARCHAR,
+                entity_refs VARCHAR
             );
             DELETE FROM _ingest_stage;",
         )?;
@@ -75,6 +79,8 @@ impl TimelineStore {
                     serde_json::to_string(&event.metadata).unwrap_or_else(|_| "{}".to_string());
                 let tags_json =
                     serde_json::to_string(&event.tags).unwrap_or_else(|_| "[]".to_string());
+                let entity_refs_json =
+                    serde_json::to_string(&event.entity_refs).unwrap_or_else(|_| "[]".to_string());
                 appender.append_row(duckdb::params![
                     event.timestamp_ns,
                     event.timestamp_display,
@@ -88,6 +94,7 @@ impl TimelineStore {
                     tags_json,
                     event.record_hash,
                     event.evidence_source_id,
+                    entity_refs_json,
                 ])?;
             }
             appender.flush()?;
@@ -96,11 +103,11 @@ impl TimelineStore {
             "INSERT INTO timeline (
                 timestamp_ns, timestamp_display, event_type, source,
                 artifact_path, description, metadata, user_account,
-                hostname, tags, record_hash, evidence_source, epoch
+                hostname, tags, record_hash, evidence_source, entity_refs, epoch
             )
             SELECT timestamp_ns, timestamp_display, event_type, source,
                 artifact_path, description, metadata, user_account,
-                hostname, tags, record_hash, evidence_source, ?
+                hostname, tags, record_hash, evidence_source, entity_refs, ?
             FROM (
                 SELECT *, row_number() OVER (PARTITION BY record_hash) AS _rn
                 FROM _ingest_stage

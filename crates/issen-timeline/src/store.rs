@@ -63,9 +63,14 @@ impl TimelineStore {
                 tags            VARCHAR,
                 record_hash     VARCHAR NOT NULL,
                 evidence_source VARCHAR NOT NULL,
+                entity_refs     VARCHAR NOT NULL DEFAULT '[]',
                 epoch           VARCHAR NOT NULL DEFAULT 'live',
                 ingested_at     TIMESTAMP DEFAULT current_timestamp
             );
+
+            -- Backfill for timelines created before PRE-4 (additive migration;
+            -- existing rows get the '[]' default, new ingests populate it).
+            ALTER TABLE timeline ADD COLUMN IF NOT EXISTS entity_refs VARCHAR DEFAULT '[]';
 
             CREATE TABLE IF NOT EXISTS evidence_sources (
                 source_id       VARCHAR PRIMARY KEY,
