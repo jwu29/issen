@@ -103,3 +103,18 @@ by-product). It is a deliberate multi-session campaign. Recommended start: the
 **non-gated Phase 1 readers** (`ntfs-core`, `mbr/gpt-partition-core`,
 `winevt-core`, `browser-core`) — lowest risk, no inter-fleet deps — then walk up
 the phases, deferring memory-forensic until its tree is clean.
+
+## Progress log
+
+**2026-06-14 — Phase 1 partial (partition trio complete).** Published on
+forensicnomicon 0.5: `gpt-partition-core`/`-forensic` 0.5.0,
+`mbr-partition-core`/`-forensic` 0.5.0, `apm-partition-core`/`-forensic` 0.5.0
+(mbr's optional `gpt-partition-forensic` dep also aligned to 0.5.0). **Every bump
+was mechanical — no forensicnomicon 0.3→0.5 API breaks** (confirms the
+forward-compatible hypothesis). The partition trio now unblocks `disk-forensic`'s
+Phase-2 re-bump (still on 0.3.1).
+
+Remaining Phase-1 readers are blocked by **active uncommitted work** (do not
+clobber): `ntfs-forensic` (deleted fuzz target + lock), `winevt-forensic` (59
+dirty files). `browser-forensic` has only a dirty `Cargo.lock` (a multi-crate
+repo — browser-core/chrome/firefox/safari — left for a focused pass).
