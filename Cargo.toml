@@ -173,12 +173,12 @@ srum-parser      = "0.1.0"
 srum-core        = "0.1.0"
 goblin       = { version = "0.10", default-features = false, features = ["pe32", "pe64", "std"] }
 ewf          = "0.1"
-vhd          = { path = "../vhd/vhd" }
+vhd          = "0.1.0"
 vhdx         = { version = "0.2.1", package = "vhdx-core" }
 vmdk         = { version = "0.6.4", package = "vmdk-core" }
 qcow2        = { version = "0.2", package = "qcow2-core" }
 hadris-iso   = "1"
-aff4         = { path = "../aff4/aff4" }
+aff4         = "0.1.0"
 evtx         = { version = "0.11", default-features = false }
 mft          = "0.6"
 

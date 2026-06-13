@@ -55,6 +55,8 @@ dependencies = [
 [[package]]
 name = "aff4"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "15c89a05083da00cc0a1ecdf9a9420e53101712dc148b190222097321c53336e"
 dependencies = [
  "flate2",
  "lz4_flex",
@@ -2947,9 +2949,6 @@ name = "forensicnomicon"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f66c898c0f3813cb476c7d1f9e78919566e753b8ce5d581ca8d0f364a55b04b5"
-dependencies = [
- "serde",
-]
 
 [[package]]
 name = "forensicnomicon"
@@ -5652,7 +5651,7 @@ name = "memf-correlate"
 version = "0.2.0"
 dependencies = [
  "chrono",
- "forensicnomicon 0.3.1",
+ "forensicnomicon 0.5.4",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -5703,7 +5702,7 @@ dependencies = [
 name = "memf-linux"
 version = "0.1.0"
 dependencies = [
- "forensicnomicon 0.3.1",
+ "forensicnomicon 0.5.4",
  "goblin 0.9.3",
  "inventory",
  "memf-core",
@@ -5744,7 +5743,7 @@ dependencies = [
 name = "memf-windows"
 version = "0.1.0"
 dependencies = [
- "forensicnomicon 0.3.1",
+ "forensicnomicon 0.5.4",
  "goblin 0.9.3",
  "memf-core",
  "memf-correlate",
@@ -10280,6 +10279,8 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 [[package]]
 name = "vhd"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "964d16cac8aa5a06d00144f76a8d54ea067baae75e4abddbf3d0d67f0fd22324"
 dependencies = [
  "thiserror 2.0.18",
 ]
