@@ -173,7 +173,6 @@ srum-parser      = { path = "../srum-forensic/crates/srum-parser" }
 srum-core        = { path = "../srum-forensic/crates/srum-core" }
 goblin       = { version = "0.10", default-features = false, features = ["pe32", "pe64", "std"] }
 ewf          = "0.1"
-dd           = { path = "../dd/dd" }
 vhd          = { path = "../vhd/vhd" }
 vhdx         = { version = "0.2.1", package = "vhdx-core" }
 vmdk         = { version = "0.6.4", package = "vmdk-core" }

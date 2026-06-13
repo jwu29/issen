@@ -1,13 +1,14 @@
 //! Raw (dd) disk image reader for the Issen forensic pipeline.
 //!
-//! Wraps the [`dd`] crate to provide a [`DataSource`] implementation,
-//! enabling random-access reads over flat raw disk images (`.dd`, `.img`,
-//! `.raw`, `.bin`).
+//! A raw/dd image is a flat byte stream with no container format, so this reads
+//! it directly through [`std::fs::File`] (which is `Read + Seek`) to provide a
+//! [`DataSource`] for random-access reads over `.dd`, `.img`, `.raw`, `.bin`.
 
+use std::fs::File;
+use std::io::Read;
 use std::io::{Seek, SeekFrom};
 use std::path::Path;
 use std::sync::Mutex;
-use std::io::Read;
 
 use issen_core::error::RtError;
 use issen_core::plugin::traits::DataSource;
@@ -29,7 +30,7 @@ impl From<DdError> for RtError {
 
 /// A [`DataSource`] backed by a raw (dd) disk image.
 pub struct DdDataSource {
-    reader: Mutex<dd::DdReader>,
+    reader: Mutex<File>,
     size: u64,
 }
 
@@ -42,12 +43,14 @@ impl std::fmt::Debug for DdDataSource {
 }
 
 impl DdDataSource {
-    /// Open a raw disk image file.
+    /// Open a raw disk image file. The on-disk file length is the image size.
     pub fn open(path: &Path) -> Result<Self, DdError> {
-        let reader = dd::DdReader::open(path)
-            .map_err(|dd::DdError::Io(io)| DdError::Io(io))?;
-        let size = reader.virtual_disk_size();
-        Ok(Self { reader: Mutex::new(reader), size })
+        let reader = File::open(path).map_err(DdError::Io)?;
+        let size = reader.metadata().map_err(DdError::Io)?.len();
+        Ok(Self {
+            reader: Mutex::new(reader),
+            size,
+        })
     }
 }
 
@@ -73,7 +76,9 @@ impl DataSource for DdDataSource {
 
 // ── CollectionProvider ────────────────────────────────────────────────
 
-use issen_unpack::{CollectionManifest, CollectionMetadata, CollectionProvider, Confidence, OsType};
+use issen_unpack::{
+    CollectionManifest, CollectionMetadata, CollectionProvider, Confidence, OsType,
+};
 
 /// Format-recognition and manifest provider for raw (dd) disk images.
 ///
