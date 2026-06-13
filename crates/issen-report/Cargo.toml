@@ -11,6 +11,7 @@ repository.workspace = true
 remote = ["dep:reqwest"]
 
 [dependencies]
+forensicnomicon = { workspace = true }
 issen-core = { workspace = true }
 issen-timeline = { workspace = true }
 issen-correlation = { workspace = true }
