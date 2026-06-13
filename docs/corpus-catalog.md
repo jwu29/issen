@@ -379,6 +379,27 @@ generator command in
 - MD5: `real_bash_history` 2a4ead0e64d175c7414bb37f23dbed73 (epoch values differ per run; structure
   fixed).
 
+### D11 · lnk-forensic — `tests/data/` (committed) · SYNTHETIC (spec-exact) ✓
+Windows Shell Link (`.lnk`) + Jump List forensics. Four hand-authored fixtures (the build host is
+macOS and cannot author a real `.lnk`/Jump List); full per-file detail + the generators in
+[`lnk-forensic/tests/data/README.md`](https://github.com/SecurityRonin/lnk-forensic/blob/main/tests/data/README.md).
+- **`.lnk` fixtures** (`gen_lnk.rs`, dependency-free `rustc`): `removable_media.lnk`
+  (DRIVE_REMOVABLE, serial 0xDEADBEEF, label KINGSTON USB, TrackerDataBlock ANALYST-PC) +
+  `network_share.lnk` (CommonNetworkRelativeLink `\\SERVER\share`).
+- **Jump List fixtures** (`core/examples/gen_jumplist.rs`, needs the `cfb` crate — run
+  `cargo run --example gen_jumplist -p lnk-core`): `pinned_removable.automaticDestinations-ms` — a
+  real OLE/CFB compound file, DestList v2 (Win10) one pinned entry (hostname OTHER-PC, access count 7,
+  path `E:\report.docx`) + a hex-named LNK sub-stream (removable serial 0xDEADBEEF); and
+  `tasks.customDestinations-ms` — flat version-2 file, one user-tasks category, embedded LNK split by
+  the LNK CLSID + 0xBABFFBAB footer. All hostnames/serials/paths are synthetic placeholders; no real
+  user's `.lnk`/Jump List committed.
+- **Spec citations:** `[MS-SHLLINK]` (Shell Link); libyal `dtformats` *Jump lists format* (DestList /
+  CustomDestinations); kacos2000 `Jumplist-Browser` `AppIdlist.csv` (AppID map).
+- MD5: `removable_media.lnk` ba3dbe2429bdfa93d8a0a9be80ca0fbe · `network_share.lnk`
+  547e0d2686e6652d8d144fb1b767bf9a · `tasks.customDestinations-ms`
+  1a6d7de2e2e1be2ba8e8dd11531a5ac3 · `pinned_removable.automaticDestinations-ms`
+  b5683aa75b5425724b656681fe780906.
+
 ---
 
 ## E. issen-internal & misc
