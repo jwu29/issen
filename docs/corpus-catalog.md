@@ -354,6 +354,31 @@ MD5: `utf8` 1d0923bb2ad0fee1c6f8cd8140a9ac61 · `utf16le` f2c418e5a1e14ce7f56e28
 `utf16be` 8f260ddb30f34b7de3c9e13a23f7981a. Consumed by `core/tests/utf16_text_tests.rs`
 (skip-if-absent). Header byte 56 = 1/2/3 respectively.
 
+### D9 · peripheral-forensic — `tests/data/` (committed) · SYNTHETIC (spec-exact) ✓
+External-device (peripheral) connection forensics. Hand-authored `setupapi.dev.log` / `setupapi.log`
+fixtures matching the Microsoft SetupAPI text-log grammar — NO generator command (spec-exact bytes;
+the build host is macOS and has no real log). Consumed by `forensic/tests/real_data.rs`.
+- **Spec citations:** *SetupAPI Text Logs* + *Format of a Text Log Section Header*
+  (learn.microsoft.com/.../setupapi-text-logs); USB id grammar `USB\VID_v(4)&PID_d(4)&REV_r(4)`
+  (.../standard-usb-identifiers); OS-generated-serial rule (instance-id 2nd char `&`)
+  (.../instance-ids).
+- **Real-capture path:** mount a USB/FireWire/Thunderbolt device on a Windows VM, copy
+  `C:\Windows\INF\setupapi.dev.log` (Vista+) / `C:\Windows\setupapi.log` (XP). Never commit a real
+  person's log — it embeds every device serial they ever attached.
+- MD5: `setupapi.dev.log` 8e86d3a0c7e5d1209a4d7c81d3b0a023 ·
+  `setupapi_xp.log` d1bdd7199b5f134421143ce5dc445474.
+
+### D10 · useract-forensic — `tests/data/real_bash_history` (committed) · REAL-self ✓
+User-activity correlation layer (merges `shellhist-core` + `peripheral-core` into one `UserActivity`
+timeline). The one fixture is a genuine `.bash_history` authored by the `bash` shell's own history
+writer (`history -s` + `history -w`, `HISTTIMEFORMAT` set so bash emits `#<epoch>` lines), with a
+planted `curl … | sh` and `unset HISTFILE`; the device side of the test is a real
+`peripheral_core::DeviceConnection` built in-code (no fixture). Full per-file detail + verbatim
+generator command in
+[`useract-forensic/tests/data/README.md`](https://github.com/SecurityRonin/useract-forensic/blob/main/tests/data/README.md).
+- MD5: `real_bash_history` 2a4ead0e64d175c7414bb37f23dbed73 (epoch values differ per run; structure
+  fixed).
+
 ---
 
 ## E. issen-internal & misc
