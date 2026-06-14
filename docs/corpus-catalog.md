@@ -28,6 +28,7 @@ download/regenerate per the provenance notes; they are not committed._
 |---|---|---|---|
 | Magnet Virtual Summit 2023 CTF — Win11 (`PC-MUS-001.E01`) | 49 GB | REAL-ext | Magnet/Champlain DFA |
 | DEF CON DFIR CTF 2018 (`MaxPowersCDrive.E01`) | 29 GB | REAL-ext | DEF CON / D. Cowen |
+| Josh Hickman iOS 17.3 image (Apple Biome **SEGB** streams) | 22 GB (.tar.gz) | REAL-ext | Joshua Hickman / DigitalCorpora |
 | DFIR Madness "Stolen Szechuan Sauce" Case 001 (both hosts, full) | ~13 GB | REAL-ext | dfirmadness.com |
 | Hal Pomeranz "Linux Forensic Scenario" (UAC, incl. `avml.lime`) | 5.9 GB | REAL-ext | Hal Pomeranz / righteousit.com |
 | Collection-A380 (**Velociraptor**, Win11 24H2) | 2.2 GB | REAL-self | self, Velociraptor offline collector |
@@ -148,6 +149,30 @@ Redistribution: SecurityNik & Volatility public; CyberDefenders educational lice
 event terms — verify before redistribution.
 
 ---
+
+### A7 · Josh Hickman iOS 17.3 image — Apple Biome **SEGB** streams (22 GB `.tar.gz`) · REAL-ext ✓
+
+Public iOS file-system image by **Joshua Hickman** (The Binary Hick), hosted by **DigitalCorpora** —
+a synthetic test persona (`thisisdfir@gmail.com`), freely licensed for training/education/testing/
+research. iPhone 11 (A2111), **iOS 17.3 build 21D50**, Cellebrite UFED full-file-system extraction.
+Download (key-free S3):
+<https://digitalcorpora.s3.amazonaws.com/corpora/mobile/iOS17/iOS_17_Public_Image.tar.gz> (22 GB);
+image-creation doc (hashes, app list):
+<https://digitalcorpora.s3.amazonaws.com/corpora/mobile/iOS17/iOS17-ImageCreation.pdf>; announcement
+<https://thebinaryhick.blog/2024/09/14/triple-trouble-ios-16-android-14-and-ios-17-images-now-available/>.
+
+- **Why it's here:** the **only public, committable-provenance source of real Apple Biome SEGB files**.
+  iOS uses the *same* SEGB v1/v2 container as macOS (`/private/var/db/biome/streams/restricted/*/local`
+  and `/private/var/mobile/Library/Biome/...`). **Used by** `segb-core` to validate its SEGB container
+  reader against real Apple data + the ccl-segb reference oracle, publicly and reproducibly.
+- **Local-only prior validation (already done):** segb-core's SEGB v2 container matched ccl-segb
+  exactly (785/785 records, states + timestamps) on a *private* macOS 15.7 Biome stream — see
+  `segb-core/docs/validation.md`. This iOS image is the public/reproducible version of that check.
+- **MD5:** _computing on download completion (auto-finalize: extract `*[Bb]iome*`, hash the tar.gz,
+  reconcile segb-core vs `ccl_segb_cli.py` across the extracted SEGB files)._ Stored under
+  `issen/tests/data/Josh Hickman iOS 17 (Biome SEGB)/` (gitignored; only the biome subset is kept on
+  disk after extraction). Note: `App.MenuItem` is macOS-Tahoe-26-only, so it is **not** in this iOS
+  image — this validates the SEGB *container*, not the App.MenuItem protobuf field mapping.
 
 ## B. Disk-image / container-format fixtures
 

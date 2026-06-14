@@ -160,6 +160,23 @@ fls -i ewf -o 1026048 MaxPowersCDrive.E01 | grep -i hiberfil
 icat -i ewf -o 239616 PC-MUS-001.E01 54-128-1 > hiberfil.sys
 ```
 
+#### Josh Hickman iOS 17 (Biome SEGB)/iOS_17_Public_Image.tar.gz (22 GB)
+
+- **Source:** Joshua Hickman ("The Binary Hick"), hosted by DigitalCorpora — public iOS forensic
+  reference image, freely licensed for training/education/testing/research.
+- **Identity:** iPhone 11 (A2111), iOS 17.3 build 21D50, Cellebrite UFED full file-system extraction;
+  synthetic persona `thisisdfir@gmail.com`.
+- **Writeup:** <https://thebinaryhick.blog/2024/09/14/triple-trouble-ios-16-android-14-and-ios-17-images-now-available/>
+- **Original download:** <https://digitalcorpora.s3.amazonaws.com/corpora/mobile/iOS17/iOS_17_Public_Image.tar.gz>
+  (image-creation doc with hashes: <https://digitalcorpora.s3.amazonaws.com/corpora/mobile/iOS17/iOS17-ImageCreation.pdf>)
+- **MD5:** _computed on download completion (auto-finalize step)._
+- **Notable contents:** real **Apple Biome SEGB** streams under
+  `private/var/db/biome/streams/restricted/*/local` and `private/var/mobile/Library/Biome/...` — the
+  same SEGB v1/v2 container macOS uses. Only the biome subset is kept on disk after extraction.
+- **Used by:** `segb-core` — public/reproducible validation of the SEGB container reader vs the
+  ccl-segb reference (the container was already validated locally on a private macOS Biome stream,
+  785/785; see `segb-core/docs/validation.md`). `App.MenuItem` is macOS-Tahoe-26-only and absent here.
+
 ## Test path references
 
 Tests reference these files relative to the crate root (e.g., `../../tests/data/...`).
