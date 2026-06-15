@@ -116,14 +116,14 @@ winevt-extract  = "0.1"
 winevt-analysis = "0.1"
 
 # Memory forensic crates (path dependencies into sibling workspace)
-memf-core      = { path = "../memory-forensic/crates/memf-core" }
-memf-format    = { path = "../memory-forensic/crates/memf-format" }
-memf-symbols   = { path = "../memory-forensic/crates/memf-symbols" }
-memf-linux     = { path = "../memory-forensic/crates/memf-linux" }
-memf-windows   = { path = "../memory-forensic/crates/memf-windows" }
-memf-strings   = { path = "../memory-forensic/crates/memf-strings" }
-memf-correlate = { path = "../memory-forensic/crates/memf-correlate" }
-forensic-hashdb = { path = "../memory-forensic/crates/forensic-hashdb" }
+memf-core      = "0.1"
+memf-format    = "0.1"
+memf-symbols   = "0.1"
+memf-linux     = "0.1"
+memf-windows   = "0.1"
+memf-strings   = "0.1"
+memf-correlate = "0.2"
+forensic-hashdb = "0.1"
 browser-core    = { path = "../browser-forensic/crates/browser-core" }
 browser-chrome  = { path = "../browser-forensic/crates/browser-chrome" }
 browser-firefox = { path = "../browser-forensic/crates/browser-firefox" }
