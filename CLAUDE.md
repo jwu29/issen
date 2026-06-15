@@ -24,11 +24,19 @@ KNOWLEDGE
   state-history-forensic   zero-dep, [H] functor traits: HistoricalSource,
                            TemporalCohort<H>, ClockProvenance, ArtifactRef, …
   [repo: state-history-forensic]
+  jsonguard                output-sanitization utility leaf: RFC-4180 CSV /
+                           formula-injection guard, bidi/control stripping,
+                           serde JsonSafe<'_>; cross-cutting (memf uses it for
+                           safe CLI output) — not a forensic format reader
+  [repo: jsonguard]
 
 CONTAINER                  decode a raw source format → addressable data stream
   ewf                      E01/EWF/Ex01 → raw sector stream     [repo: ewf, issen-ewf]
   vhdx                     VHDX → raw sector stream             [repo: vhdx, issen-vhdx]
   dd                       raw/dd/img → flat sector stream      [repo: dd, issen-dd]
+  segb-core                Apple SEGB (Biome) container → v1/v2 record stream
+                           (state, timestamps, CRC, protobuf payload);
+                           App.MenuItem field walker  [repo: segb-forensic]
   [vmdk, qcow2, vhd, iso, aff4, dmg, apfs-container]          [planned]
   memf-format              memory dumps (WinPMEM, raw,          [repo: memory-forensic]
                            hiberfil.sys, ELF core) → raw page stream
@@ -82,10 +90,16 @@ PARSER                     interpret artifact records → forensic meaning
   browser-forensic         browser artifact files / SQLite pages → BrowserEvent
   winevt-forensic          EVTX records → EventRecord  (also in LOG FORMAT above)
   srum-forensic            ESE page bytes → SrumRecord
+  segb-forensic            SEGB (Biome) records → anomaly Findings
+                           (CRC-mismatch / timestamp-order); over segb-core
   [registry-forensic, prefetch-forensic, ...]
-  [repo: browser-forensic, winevt-forensic, srum-forensic, ...]
+  [repo: browser-forensic, winevt-forensic, srum-forensic, segb-forensic, ...]
 
 ORCHESTRATION
+  useract-forensic         user-activity correlation: merges shell-history +
+                           peripheral-device + Biome App.MenuItem events into
+                           one per-user timeline (consumes segb-core)
+  [repo: useract-forensic]
   Issen              wires all five paths, cross-artifact correlation,
                            TimelineEvent/Evidence, user-facing CLI
 ```

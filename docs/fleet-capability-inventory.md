@@ -130,6 +130,8 @@ GD-mismatch — evidence-chain + unclean-shutdown); MBR/GPT wipe + hidden-volume
 | USN journal full-path rewind | `usnjrnl-forensic` | create/modify/delete/rename w/ 100 ns precision | 🟡 partial |
 | EVTX + carving from unallocated (`ElfChnk` scan) | `winevt-forensic` | EventRecord + integrity Findings | 🟡 partial |
 | Prefetch (MAM+SCCA) | `prefetch-forensic` | execution evidence + graded findings | 🟢 wired |
+| **Apple Biome SEGB reader + anomaly analyzer** (macOS/iOS user-activity streams) | `segb-core` / `segb-forensic` | v1/v2 records (state/timestamp/CRC/protobuf) + CRC-mismatch / timestamp-order Findings | 🟢 published, 🔴 unwired |
+| **per-user activity timeline merge** (shell-history + peripherals + Biome) | `useract-forensic` | one per-user activity timeline (consumes segb-core) | 🟢 published, 🔴 unwired |
 
 **Top 3 for Case-001:** browser carving + history-clearing (delivery-mechanism timeline);
 SQLite deleted-row carving (chat/cache/credential rows issen's shallow parse misses);
@@ -150,6 +152,12 @@ SRUM user-presence (human engagement vs. silent C2 beacon) wired into ingest.
 **Top 3 for Case-001:** `playbooks` + `attack_flow` (artifact-driven chain reconstruction —
 issen's correlation engine is hand-rolled); `eventids` (logon-type-aware 4624/4648/4672
 enrichment); `persistence` paths (post-execution persistence triage).
+
+## 7 · fleet utilities (cross-cutting, not artifact analyzers)
+
+| Capability | Repo | Enables | issen |
+|---|---|---|---|
+| **fleet output-sanitization** (CSV/JSON injection + bidi guard) | `jsonguard` | RFC-4180 CSV / formula-injection guard, bidi/control stripping, serde `JsonSafe<'_>` for safe CLI/report output | 🟢 published (memf uses it; available fleet-wide) |
 
 ---
 
