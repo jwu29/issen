@@ -130,8 +130,8 @@ GD-mismatch — evidence-chain + unclean-shutdown); MBR/GPT wipe + hidden-volume
 | USN journal full-path rewind | `usnjrnl-forensic` | create/modify/delete/rename w/ 100 ns precision | 🟡 partial |
 | EVTX + carving from unallocated (`ElfChnk` scan) | `winevt-forensic` | EventRecord + integrity Findings | 🟡 partial |
 | Prefetch (MAM+SCCA) | `prefetch-forensic` | execution evidence + graded findings | 🟢 wired |
-| **Apple Biome SEGB reader + anomaly analyzer** (macOS/iOS user-activity streams) | `segb-core` / `segb-forensic` | v1/v2 records (state/timestamp/CRC/protobuf) + CRC-mismatch / timestamp-order Findings | 🟢 published, 🔴 unwired |
-| **per-user activity timeline merge** (shell-history + peripherals + Biome) | `useract-forensic` | one per-user activity timeline (consumes segb-core) | 🟢 published, 🔴 unwired |
+| **Apple Biome SEGB reader + anomaly analyzer** (macOS/iOS user-activity streams) | `segb-core` / `segb-forensic` | v1/v2 records (state/timestamp/CRC/protobuf) + CRC-mismatch / timestamp-order Findings | 🟢 wired (`issen-parser-biome` → `App.MenuItem`→`TimelineEvent`, `issen biome` command + ingest registry) |
+| **per-user activity timeline merge** (shell-history + peripherals + Biome) | `useract-forensic` | one per-user activity timeline (consumes segb-core) | 🟢 wired (`BiomeMenuItemSource` consumed by `issen-parser-biome`) |
 
 **Top 3 for Case-001:** browser carving + history-clearing (delivery-mechanism timeline);
 SQLite deleted-row carving (chat/cache/credential rows issen's shallow parse misses);
