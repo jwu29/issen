@@ -23,9 +23,11 @@ use issen_core::plugin::registry::ParserRegistration;
 use issen_core::plugin::traits::{
     DataSource, EventEmitter, ForensicParser, ParseStats, ParserCapabilities,
 };
-use issen_core::timeline::event::TimelineEvent;
+use issen_core::timeline::event::{EventType, TimelineEvent};
+use segb::common::EntryState;
+use std::io::Cursor;
 use std::path::Path;
-use useract_forensic::UserActivity;
+use useract_forensic::{ActivitySource, BiomeMenuItemSource, UserActivity};
 
 /// Biome `App.MenuItem` parser — ingests SEGB stream files.
 pub struct BiomeParser;
@@ -33,15 +35,32 @@ pub struct BiomeParser;
 impl BiomeParser {
     /// Read a SEGB file from disk and convert its `App.MenuItem` records into
     /// timeline events.
-    pub fn parse_path(&self, _path: &Path) -> anyhow::Result<Vec<TimelineEvent>> {
-        // RED stub — implemented in GREEN.
-        Ok(Vec::new())
+    pub fn parse_path(&self, path: &Path) -> anyhow::Result<Vec<TimelineEvent>> {
+        let bytes = std::fs::read(path)?;
+        Ok(self.parse_bytes(&bytes, &path.to_string_lossy()))
     }
 
     /// Decode SEGB bytes and map menu selections to timeline events.
-    pub fn parse_bytes(&self, _bytes: &[u8], _evidence_source: &str) -> Vec<TimelineEvent> {
-        // RED stub — implemented in GREEN.
-        Vec::new()
+    ///
+    /// Only `Written` records are decoded: a `Deleted` record's payload is wiped,
+    /// so it carries no recoverable menu label (this mirrors the `segb-forensic`
+    /// analyzer, which audits Written records only). Each record is decoded
+    /// independently — one malformed payload is skipped rather than dropping the
+    /// whole batch. Bytes that are not a valid SEGB container yield no events.
+    pub fn parse_bytes(&self, bytes: &[u8], evidence_source: &str) -> Vec<TimelineEvent> {
+        let mut cursor = Cursor::new(bytes);
+        let Ok(records) = segb::read_segb(&mut cursor) else {
+            return Vec::new();
+        };
+        let menu_items: Vec<segb::menuitem::AppMenuItemRecord> = records
+            .iter()
+            .filter(|r| r.state() == EntryState::Written)
+            .filter_map(|r| {
+                segb::menuitem::decode_app_menu_item(r.payload(), r.timestamp_unix()).ok()
+            })
+            .collect();
+        let activities = BiomeMenuItemSource::new(&menu_items, None).activities();
+        activities_to_events(&activities, evidence_source)
     }
 }
 
@@ -49,29 +68,67 @@ impl BiomeParser {
 ///
 /// Pure function (no I/O) so the mapping is unit-testable (Humble Object).
 pub fn activities_to_events(
-    _activities: &[UserActivity],
-    _evidence_source: &str,
+    activities: &[UserActivity],
+    evidence_source: &str,
 ) -> Vec<TimelineEvent> {
-    // RED stub — implemented in GREEN.
-    Vec::new()
+    activities
+        .iter()
+        .map(|a| {
+            let ts_ns = a.timestamp.map_or(0, |s| s.saturating_mul(1_000_000_000));
+            let ts_display = a
+                .timestamp
+                .and_then(|s| chrono::DateTime::from_timestamp(s, 0))
+                .map_or_else(|| "unknown".to_string(), |dt| dt.to_rfc3339());
+            TimelineEvent::new(
+                ts_ns,
+                ts_display,
+                EventType::Other("MenuSelected".into()),
+                ArtifactType::BiomeMenuItem,
+                evidence_source.to_string(),
+                format!("Biome App.MenuItem: {}", a.detail),
+                evidence_source.to_string(),
+            )
+            .with_metadata("action", serde_json::json!("MenuSelected"))
+            .with_metadata("subject", serde_json::json!(a.detail))
+        })
+        .collect()
 }
 
 impl ForensicParser for BiomeParser {
+    // The `ForensicParser` trait mandates `-> &str`; the impl signature cannot
+    // widen the return to `&'static str`, so the literal bound is unavoidable.
+    #[allow(clippy::unnecessary_literal_bound)]
     fn name(&self) -> &str {
-        "" // RED stub
+        "Biome App.MenuItem Parser"
     }
 
     fn supported_artifacts(&self) -> &[ArtifactType] {
-        &[] // RED stub
+        &[ArtifactType::BiomeMenuItem]
     }
 
     fn parse(
         &self,
-        _input: &dyn DataSource,
-        _emitter: &dyn EventEmitter,
+        input: &dyn DataSource,
+        emitter: &dyn EventEmitter,
     ) -> Result<ParseStats, RtError> {
-        // RED stub — implemented in GREEN.
-        Ok(ParseStats::new())
+        // A SEGB read needs the whole container in hand. Prefer the file path
+        // when the source exposes one (the orchestrator's FileDataSource does);
+        // otherwise pull the byte stream into memory and decode that.
+        let events = if let Some(path) = input.source_path() {
+            self.parse_path(path)
+                .map_err(|e| RtError::InvalidData(format!("Biome parse failed: {e}")))?
+        } else {
+            let len = usize::try_from(input.len()).unwrap_or(usize::MAX);
+            let mut buf = vec![0u8; len];
+            let n = input.read_at(0, &mut buf)?;
+            buf.truncate(n);
+            self.parse_bytes(&buf, "<memory>")
+        };
+        let mut stats = ParseStats::new();
+        stats.events_emitted = events.len() as u64;
+        stats.bytes_processed = input.len();
+        emitter.emit_batch(events)?;
+        Ok(stats)
     }
 
     fn capabilities(&self) -> ParserCapabilities {
@@ -101,7 +158,9 @@ mod tests {
             self.0.len() as u64
         }
         fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<usize, RtError> {
-            let start = usize::try_from(offset).unwrap_or(usize::MAX).min(self.0.len());
+            let start = usize::try_from(offset)
+                .unwrap_or(usize::MAX)
+                .min(self.0.len());
             let end = start.saturating_add(buf.len()).min(self.0.len());
             let n = end - start;
             buf[..n].copy_from_slice(&self.0[start..end]);
@@ -126,7 +185,7 @@ mod tests {
     }
 
     /// Build a minimal valid SEGB v1 file holding one Written `App.MenuItem`
-    /// record: application="Finder", menu_item="Move to Trash".
+    /// record: `application`="Finder", `menu_item`="Move to Trash".
     ///
     /// Layout follows `segb-core`: 56-byte file header (magic `b"SEGB"` at
     /// offsets 52–55, `end_of_data_offset` u32LE at 0), then a 32-byte record
@@ -138,25 +197,27 @@ mod tests {
         let mut payload = Vec::new();
         let app = b"Finder";
         payload.push(0x0A); // (1 << 3) | 2
-        payload.push(app.len() as u8);
+        payload.push(u8::try_from(app.len()).expect("app name fits u8"));
         payload.extend_from_slice(app);
         let item = b"Move to Trash";
         payload.push(0x12); // (2 << 3) | 2
-        payload.push(item.len() as u8);
+        payload.push(u8::try_from(item.len()).expect("menu item fits u8"));
         payload.extend_from_slice(item);
 
         // Record header (32 bytes): struct "<iiddIi".
         let mut rec = Vec::new();
-        rec.extend_from_slice(&(payload.len() as i32).to_le_bytes()); // 0: record_length
+        let record_length = i32::try_from(payload.len()).expect("payload fits i32");
+        rec.extend_from_slice(&record_length.to_le_bytes()); // 0: record_length
         rec.extend_from_slice(&1i32.to_le_bytes()); // 4: entry_state = 1 (Written)
-        // Cocoa time for unix 1_700_000_000 = 1_700_000_000 - 978_307_200.
+                                                    // Cocoa time for unix 1_700_000_000 = 1_700_000_000 - 978_307_200.
         rec.extend_from_slice(&721_692_800f64.to_le_bytes()); // 8: timestamp1
         rec.extend_from_slice(&721_692_800f64.to_le_bytes()); // 16: timestamp2
         rec.extend_from_slice(&0u32.to_le_bytes()); // 24: crc32 (not validated)
         rec.extend_from_slice(&0i32.to_le_bytes()); // 28: unknown
 
         let header_len = 56usize;
-        let end_of_data = (header_len + rec.len() + payload.len()) as u32;
+        let end_of_data =
+            u32::try_from(header_len + rec.len() + payload.len()).expect("fixture fits u32");
 
         let mut file = vec![0u8; header_len];
         file[0..4].copy_from_slice(&end_of_data.to_le_bytes());

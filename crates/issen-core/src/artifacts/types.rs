@@ -103,6 +103,11 @@ mod tests {
     }
 
     #[test]
+    fn test_biome_menu_item_display() {
+        assert_eq!(format!("{}", ArtifactType::BiomeMenuItem), "Biome MenuItem");
+    }
+
+    #[test]
     fn test_artifact_type_serde_roundtrip() {
         let original = ArtifactType::Bodyfile;
         let json = serde_json::to_string(&original).expect("serialize");
