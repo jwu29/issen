@@ -4322,6 +4322,7 @@ dependencies = [
  "issen-iso",
  "issen-mem",
  "issen-parser-amcache",
+ "issen-parser-biome",
  "issen-parser-evtx",
  "issen-parser-prefetch",
  "issen-parser-registry",

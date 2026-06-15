@@ -1,4 +1,5 @@
 pub mod analyse;
+pub mod biome;
 pub mod correlate;
 pub mod correlate_mem;
 pub mod feed;

@@ -309,6 +309,17 @@ pub enum Commands {
         format: String,
     },
 
+    /// Parse an Apple Biome `App.MenuItem` SEGB file and display macOS menu-bar selections.
+    Biome {
+        /// Path to the SEGB stream file (e.g. `.../Biome/streams/restricted/App.MenuItem/local`).
+        #[arg(value_name = "SEGB_PATH")]
+        biome_path: PathBuf,
+
+        /// Output format: text (default), json.
+        #[arg(long, default_value = "text")]
+        format: String,
+    },
+
     /// Rare-event frequency analysis over EVTX files (Events Ripper posh600 technique).
     Frequency {
         /// Directory to search recursively for .evtx files.
@@ -554,6 +565,9 @@ fn main() -> ExitCode {
         ),
         Commands::Srum { srudb_path, format } => {
             commands::srum::run(&srudb_path, &format)
+        }
+        Commands::Biome { biome_path, format } => {
+            commands::biome::run(&biome_path, &format)
         }
         Commands::Frequency { evtx_dir, evtx_file, cap, key, json } => {
             match commands::frequency::parse_key(&key) {
