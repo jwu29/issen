@@ -1094,6 +1094,8 @@ dependencies = [
 [[package]]
 name = "browser-chrome"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "82785980e0fe304f9cd6371866d4d62c480eeca15b376106b568e99b39eea54c"
 dependencies = [
  "anyhow",
  "browser-core",
@@ -1105,6 +1107,8 @@ dependencies = [
 [[package]]
 name = "browser-core"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3fb3bcad0d81a71f11f25adb0619a95dc392d21dddec1d1e9bcc75b7a7b94406"
 dependencies = [
  "forensicnomicon 0.5.4",
  "rusqlite",
@@ -1118,6 +1122,8 @@ dependencies = [
 [[package]]
 name = "browser-firefox"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "481223e5e3522faa74b65460f14e5f67da0129dc5e1c43e9df67cb858e33a4da"
 dependencies = [
  "anyhow",
  "browser-core",
@@ -1130,6 +1136,8 @@ dependencies = [
 [[package]]
 name = "browser-safari"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "70e852cc0021160e955f002b097c21e9b1579ba18faa9e9c9a0574c5bf9786da"
 dependencies = [
  "anyhow",
  "browser-core",
@@ -8822,6 +8830,8 @@ checksum = "1b6b67fb9a61334225b5b790716f609cd58395f895b3fe8b328786812a40bc3b"
 [[package]]
 name = "snss-core"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9e3785e094b7380928e000155a8973e2a7073a4e1759e504cc4e013a0887d089"
 
 [[package]]
 name = "socket2"

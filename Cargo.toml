@@ -124,10 +124,10 @@ memf-windows   = "0.1"
 memf-strings   = "0.1"
 memf-correlate = "0.2"
 forensic-hashdb = "0.1"
-browser-core    = { path = "../browser-forensic/crates/browser-core" }
-browser-chrome  = { path = "../browser-forensic/crates/browser-chrome" }
-browser-firefox = { path = "../browser-forensic/crates/browser-firefox" }
-browser-safari  = { path = "../browser-forensic/crates/browser-safari" }
+browser-core    = "0.1"
+browser-chrome  = "0.1"
+browser-firefox = "0.1"
+browser-safari  = "0.1"
 
 # External dependencies
 duckdb       = { version = "1", features = ["bundled"] }
