@@ -407,6 +407,33 @@ These crates parse **untrusted, attacker-controllable disk images**. The bar is:
 
 **Compliance (2026-06-08):** qcow2, vmdk, vhdx, ewf, ntfs-forensic all enforce the `unwrap_used`/`expect_used = deny` panic lints with panic-free bounds-checked readers, and all have `fuzz.yml`. Panic-free remediation counts: vhdx 80 reads, ewf 47, ntfs 44+2, qcow2 clean by construction. Residual debt to clear in a *separate* pass (not security — pre-existing pedantic/fmt style): vhdx ~30 pedantic warnings, ewf broad stylistic allow-list + fmt diffs. The safety lints are hard denies everywhere.
 
+## Batteries-Included — Compile Everything In (binding fleet default)
+
+A forensic tool in the field must do the whole job from one artifact — the analyst
+cannot `cargo build --features gpu,cloud` on an evidence workstation, and a capability
+that isn't compiled in is a capability that isn't there when it matters. So:
+
+- **`default-features = false` is BANNED as a way to slim a fleet dependency.** Depend on
+  fleet crates (and capability deps like `blazehash`) with their full default feature set;
+  the analyst gets a single static binary that can hash, carve, decompress, query, and
+  report without a rebuild. Slimming to "keep the dep tree small" or to dodge a gate is the
+  wrong instinct — it ships a tool that silently can't do the thing.
+- **When full features trip a gate, fix the GATE, not the feature set.** The canonical case:
+  `blazehash` pulls `xxhash-rust` (BSL-1.0), which fails a downstream `cargo deny` license
+  allowlist. The fix is to **allow BSL-1.0 in the fleet `deny.toml`** (xxhash is a legitimate
+  forensic hash), NOT to `default-features = false` blazehash and lose every other algorithm.
+  Same for a heavy transitive: address it in `deny.toml`/`Cargo.lock`, never by amputating
+  capability. (A genuine pre-release in the graph — e.g. `ml-dsa 0.1.0-rc.8` — is publish
+  hygiene: pin it, don't slim around it.)
+- **Commit `Cargo.lock` in every binary/app repo** so CI resolves the same batteries-included
+  graph the analyst ships, instead of a fresh resolution that can pull a broken or
+  license-tainted version. (This is what actually bit 4n6mount: no committed lock → fresh
+  resolution → CI red, mis-diagnosed as a blazehash compile bug — blazehash compiles fine.)
+- **Exception (the only one):** a genuinely optional, *rarely-wanted* heavy subsystem MAY be a
+  named non-default feature **as long as the shipping binary turns it on**. The library's
+  `default` may stay lean for third-party reuse, but every fleet binary that links it builds
+  with the full feature set. The slim path is for outside consumers, never for our own tools.
+
 ## README Standard (every forensic repo)
 
 Full rules live in the global `~/.claude/CLAUDE.personal.md` ("SecurityRonin Repository README Standard"); the load-bearing points for these crates:
