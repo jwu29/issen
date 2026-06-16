@@ -108,7 +108,7 @@ ORCHESTRATION
 - CONTAINER depends on KNOWLEDGE only
 - FILESYSTEM / PAGING / OS STRUCTURE / LOG FORMAT depend on their container + KNOWLEDGE
 - OS STRUCTURE (memf-windows) MAY call PARSER repos when it locates artifact bytes
-  in a VA region (e.g., SQLite page in hiberfil.sys → browser-carve)
+  in a VA region (e.g., SQLite page in hiberfil.sys → browser-forensic-carve)
 - PARSER depends on KNOWLEDGE only; accepts `Path` or `&[u8]` — never imports
   CONTAINER, FILESYSTEM, PAGING, OS STRUCTURE, or LOG FORMAT crates
 - QUERY ENGINE crates (issen-remote-access, velociraptor-parser) depend on KNOWLEDGE
@@ -133,7 +133,7 @@ ORCHESTRATION
 Live system      → OS opens Path normally            → browser-forensic(path)
 4n6mount         → FUSE exposes path transparently   → browser-forensic(path)
 ewf + ext4fs     → Issen extracts file bytes         → browser-forensic(bytes)
-memf-windows     → extracts SQLite page from VA      → browser-carve(bytes)
+memf-windows     → extracts SQLite page from VA      → browser-forensic-carve(bytes)
 winevt-forensic  → decodes EVTX record               → EventRecord
 cloudtrail-src   → streams CloudTrail events          → (future parser)(record)
 velociraptor     → executes VQL query                 → (parser)(result_rows)
@@ -324,6 +324,69 @@ the migrated analyzers and `forensicnomicon::report` to aggregate findings into 
 **`// cov:unreachable` — defence-in-depth over coverage purism (binding standard).** Panic-free parsers keep defensive guard arms (`let Some(x) = … else { continue }`, bounds-checked `.get()` fallbacks, length checks) that are *provably unreachable* under a dominating invariant but are kept so the code degrades gracefully if that invariant is ever broken by a future change. Such an arm cannot be exercised by any test. **Never delete or restructure a defensive guard solely to satisfy the coverage gate** — that trades robustness for a number, the exact opposite of the Paranoid Gatekeeper standard. Instead append `// cov:unreachable: <the dominating invariant>` to the uncovered line (the `continue;`/`return …;`/guard expression). The CI gate exempts only annotated lines; every other zero-hit line still fails. Prefer restructuring to *infallible-by-construction* (e.g. `split_at_mut` so there is no `Option` to guard) where it loses no defence; reach for a crafted-input test before annotating (only annotate genuinely-unreachable arms); the `code-coverage` CI job reads each `DA:n,0` line's source and fails unless it carries the marker.
 
 **Realignment status:** `vmdk`, `vhdx`, `ntfs`, and `qcow2` are all migrated to the workspace standard (vmdk-forensic, vhdx-forensic, ntfs-forensic, qcow2-forensic — each `core/` + `forensic/`).
+
+## Crate naming grammar (binding — applies to every fleet repo)
+
+Two repo shapes, two naming patterns. Decide which shape a repo is *before* naming its crates.
+
+**Pattern A — single-format repo** (containers/filesystems: vmdk, vhdx, ntfs, qcow2, segb).
+Exactly two crates: `<x>-core` (reader) + `<x>-forensic` (analyzer). The `<x>-forensic` *crate*
+name is reserved for this one-reader/one-analyzer shape (see the Crate-structure standard above).
+
+**Pattern B — multi-crate PARSER/domain suite** (browser, winevt, memf). Decompose *by concern*
+with role suffixes. The repo name is the **umbrella and is NOT itself a crate** — `memory-forensic`
+→ `memf-*`, `winevt-forensic` → `winevt-*`, `browser-forensic` → `browser-forensic-*` (its short form `browser-*` is a generic word → keep the full prefix; see the self-describing rule below); there is no
+`memory-forensic` / `winevt-forensic` / `browser-forensic` *crate*. Never rename a suite's analyzer
+to `<repo>-forensic` (it over-claims, collides with the repo name, and breaks Pattern B). Suffixes:
+
+| suffix | role | examples |
+|---|---|---|
+| `-core` | shared/domain types + format constants | browser-forensic-core, winevt-core |
+| *family name* | a reader (one format/source) | browser-forensic-chrome / -firefox / -safari |
+| `-carve` | recovery (free-page / WAL / record / unallocated) | browser-forensic-carve, winevt-carver |
+| `-memory` | pure byte-pattern scanner, **medium-agnostic** | browser-forensic-memory, winevt-memory |
+| `-integrity` | tamper / clearing / corruption detection (analyzer slot) | browser-forensic-integrity |
+| `-analysis` | semantic analysis (e.g. event-ID → ATT&CK) | winevt-analysis |
+| `-triage` | one-click **orchestrated report** (NOT `-rt`, NOT `-orchestrator`) | winevt-triage, browser-forensic-triage |
+| `-cli` | front-end: CLI tool (may carry an interactive TUI *mode*) | browser-forensic-cli (`br4n6`), winevt-cli (`ev4n6`) |
+| `-tui` | front-end: interactive TUI, no scriptable surface | *(pure-TUI only)* |
+| `-mcp` | front-end: MCP server (agent-facing) | browser-forensic-mcp |
+
+**Binding rules:**
+
+- **The suite prefix must be self-describing on crates.io.** A crate name is read *bare* — in search,
+  `cargo add`, and transitive dependency lists — with all repo/GitHub context stripped; the name alone
+  must claim a namespace. A *distinctive* short prefix (`memf-`, `winevt-`, `snss-`) stands alone and is
+  preferred for import brevity. A *generic-word* prefix does **not** stand alone, so that suite takes the
+  full `<repo>-*` form: `browser-forensic-*`, never `browser-*` (which reads as a generic browser lib).
+  The `repository` link is GitHub-only and never travels into the name.
+
+- **Name by the role the analyst recognizes (the outcome), not by internal mechanism.** The
+  orchestrated-report crate is `-triage` (what the user gets), never `-orchestrator` (how it is
+  built) — and "orchestration" is reserved for issen's fleet-wiring layer. *One concept, one name*
+  across the fleet: do not use `-rt` in one repo and `-triage` in another.
+- **Name by the knowledge the crate owns; the dependency arrow then follows.** A format's
+  byte-scanner is `<format>-memory` and lives **with the format parser**, depending DOWN on
+  `<format>-core` — never `memf-<format>`. `memf-*` owns *memory navigation* (VA→PA, EPROCESS,
+  VADs) and hands `&[u8]` across the boundary; the artifact-pattern knowledge is parser-side.
+  PARSER crates must never import PAGING/OS-STRUCTURE, so a `memf-browser` would invert the
+  dependency. (A memf-side *locator* that walks a process's VADs to find a region is a legitimately
+  separate crate that *feeds* `<format>-memory` its bytes — complementary, not a rename.)
+- **Front-end binaries follow the `<x>4n6` convention:** br4n6 (browser-forensic-cli), ev4n6 (winevt-cli),
+  sqlite4n6, mem4n6, disk4n6. The *binary* is `<x>4n6`; the *crate* is `<artifact>-cli` (a CLI tool,
+  which may carry an interactive TUI *mode*), `-tui` (pure-TUI only), or `-mcp` (agent-facing server).
+  A **dual-mode** tool is `-cli` for fleet consistency (the CLI is the primary surface; the TUI is a
+  mode), never `-tui` (that hides the CLI). **`-cli` is intentionally overloaded to cover dual-mode** —
+  one consistent suffix fleet-wide is worth more than the precision of a separate `-term` (deliberate,
+  non-purist; e.g. browser-forensic-cli is CLI + TUI yet stays `-cli`).
+- **A reconstructor/`-writer` is read-only-safe** only when it emits derived artifacts to NEW paths
+  (carved/repaired output), never the source. Prefer `-reconstruct` / `-rebuild` over `-writer` in
+  a read-only suite to avoid the "evidence editor" misread.
+
+**crates.io rename window:** a crate can be *deleted* (name freed, not merely yanked) within **72h
+of first publish**, or later only if single-owner + <500 downloads + no dependents. Settle names
+*before* publishing; if a rename is needed, do it inside the 72h window (delete + republish = clean,
+no orphan). After 72h, a yank leaves the old name as a permanent reserved orphan.
 
 ## Security & Robustness Standard — Paranoid Gatekeeper (MANDATORY for every `*-core` / `*-forensic` crate)
 
