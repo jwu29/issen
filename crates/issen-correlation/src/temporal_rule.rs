@@ -1704,7 +1704,7 @@ mod tests {
             "temporal.service-install-then-start-exec should_fire produced no finding: {fire:?}"
         );
 
-        let mut en0 = ev(
+        let en0 = ev(
             6000000000000,
             EventType::SystemBoot,
             ArtifactType::EventLog,
