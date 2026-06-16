@@ -222,3 +222,42 @@ fn print_row(row: &TimelineRow) {
         row.timestamp_display, row.event_type, row.source, desc
     );
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use issen_core::artifacts::ArtifactType;
+    use issen_core::timeline::event::{EventType, TimelineEvent};
+    use issen_timeline::store::TimelineStore;
+
+    #[test]
+    fn narrative_flags_hollow_process_pair() {
+        // The narrative-over-DB view (issen #110 Phase 1) loads persisted
+        // events and runs the bundled temporal rules. A 4688 process-creation
+        // from the Event Log with NO Prefetch FileModify within 5s must fire
+        // `temporal.hollow-process` — proving the view sees real DB events, not
+        // a hardcoded file set.
+        let store = TimelineStore::in_memory().expect("store");
+        let exec = TimelineEvent::new(
+            10_000_000_000,
+            "2026-01-01T00:00:10Z".to_string(),
+            EventType::ProcessExec,
+            ArtifactType::EventLog,
+            "Security.evtx".to_string(),
+            "evil.exe created (4688)".to_string(),
+            "CASE-001".to_string(),
+        );
+        store.inseissen_batch(&[exec]).expect("ingest");
+
+        let (events, findings) = collect_narrative_findings(&store).expect("narrative");
+        assert_eq!(events.len(), 1, "one event ingested");
+        assert!(
+            findings.iter().any(|f| f.rule_id == "temporal.hollow-process"),
+            "expected temporal.hollow-process finding; got {:?}",
+            findings
+                .iter()
+                .map(|f| f.rule_id.as_str())
+                .collect::<Vec<_>>()
+        );
+    }
+}
