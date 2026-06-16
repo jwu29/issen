@@ -12,10 +12,7 @@ use issen_core::timeline::event::{EntityRef, TimelineEvent};
 use serde::{Deserialize, Serialize};
 
 #[cfg(test)]
-use issen_core::{
-    artifacts::ArtifactType,
-    timeline::event::EventType,
-};
+use issen_core::{artifacts::ArtifactType, timeline::event::EventType};
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -168,6 +165,7 @@ pub struct TemporalFinding {
 /// `supertimeline` — evaluates the same rules over its events, instead of each
 /// keeping a private copy (issen #110 Phase 2).
 #[must_use]
+#[allow(clippy::too_many_lines)] // flat declarative registry — line count is inherent, splitting adds no clarity
 pub fn bundled_temporal_rules() -> Vec<TemporalRule> {
     vec![
         // Hollow process: 4688 event log entry with no Prefetch update within 5s.
@@ -251,6 +249,313 @@ pub fn bundled_temporal_rules() -> Vec<TemporalRule> {
             absent: vec![],
             discrepancy: vec![],
         },
+        // ── issen #110/#112 workflow-vetted temporal rules ──────────────────
+        // temporal.sam-security-hive-copy — T1003.002
+        TemporalRule {
+            id: "temporal.sam-security-hive-copy".into(),
+            title: "SAM/SECURITY/SYSTEM registry hive read by a process near a file-create — offline credential hive theft".into(),
+            severity: "high".into(),
+            description: Some(
+                "Credential Access — OS Credential Dumping: Security Account Manager (T1003.002). A read against \\config\\SAM co-occurring with a USN file-create within 60s is the on-host residue of copying the SAM/SECURITY/SYSTEM hives out for offline cracking (reg save, esentutl /y, VSS copy). Both the FileAccess and the USN FileCreate are durable host artifacts."
+                    .into(),
+            ),
+            within_seconds: 60,
+            anchor: EventTypeFilter::new("FileAccess").with_source("Event Log").with_description("\\config\\SAM"),
+            sequence: vec![
+                EventTypeFilter::new("FileCreate").with_source("USN Journal"),
+            ],
+            absent: vec![],
+            discrepancy: vec![],
+        },
+        // temporal.logon-failure-burst-then-success — T1110
+        TemporalRule {
+            id: "temporal.logon-failure-burst-then-success".into(),
+            title: "Successful logon immediately preceded by failed-logon burst — password brute force / spray success".into(),
+            severity: "high".into(),
+            description: Some(
+                "Credential Access — Brute Force (T1110). A run of failed Windows logons (Security 4625) within +/-120s of a success (4624) is the on-host residue of a password-guessing attack that landed — brute force, password spray, or credential stuffing. Both 4624 and 4625 are written to the Security event log and survive on a disk/log image (no packet capture). NOTE: the window is symmetric and the sequence clause is presence-only and account-agnostic, so a single failure on either side of the success is sufficient — a coarse high-severity lead, not a precise N-failures-same-user signal."
+                    .into(),
+            ),
+            within_seconds: 120,
+            anchor: EventTypeFilter::new("LogonSuccess").with_source("Event Log"),
+            sequence: vec![
+                EventTypeFilter::new("LogonFailure").with_source("Event Log"),
+            ],
+            absent: vec![],
+            discrepancy: vec![],
+        },
+        // temporal.exec-residue-predates-image-mft-birth — T1070.006
+        TemporalRule {
+            id: "temporal.exec-residue-predates-image-mft-birth".into(),
+            title: "Execution residue references a binary before its $MFT birth time — time-stomped or replaced executable".into(),
+            severity: "high".into(),
+            description: Some(
+                "Defense Evasion — Indicator Removal: Timestomp (T1070.006). Prefetch records the last-run time of an image identified by full path. If the $MFT $STANDARD_INFORMATION born time for that same path is LATER than the recorded execution, the binary appears to have run before it was created — impossible without timestomping or image replacement. The 'before' clause fires when anchor_ts + 60s < compare_ts. Strong Execution-integrity lead (consistent with, not proof of, $SI timestomping or binary substitution)."
+                    .into(),
+            ),
+            within_seconds: 86400,
+            anchor: EventTypeFilter::new("ProcessExec").with_source("Prefetch"),
+            sequence: vec![],
+            absent: vec![],
+            discrepancy: vec![
+                DiscrepancyClause {
+                    entity_role: "path".into(),
+                    compare_event_type: "FileCreate".into(),
+                    compare_source: "MFT".into(),
+                    min_delta_seconds: 60,
+                    direction: "before".into(),
+                },
+            ],
+        },
+        // temporal.amcache-exec-predates-mft-born — T1070.006
+        TemporalRule {
+            id: "temporal.amcache-exec-predates-mft-born".into(),
+            title: "Amcache first-execution predates the binary's $MFT born time — time-stomped executable".into(),
+            severity: "high".into(),
+            description: Some(
+                "Defense Evasion — Indicator Removal: Timestomp (T1070.006). Amcache records the first time a binary executed; a program cannot run before it exists on disk. When Amcache's execution timestamp precedes the same path's $MFT $SI born time by more than 60s, the born time was rolled forward — consistent with timestomping. Sibling of temporal.exec-residue-predates-image-mft-birth, using Amcache (first-run) instead of Prefetch (last-run) as the prior-existence oracle."
+                    .into(),
+            ),
+            within_seconds: 86400,
+            anchor: EventTypeFilter::new("ProcessExec").with_source("Amcache"),
+            sequence: vec![],
+            absent: vec![],
+            discrepancy: vec![
+                DiscrepancyClause {
+                    entity_role: "path".into(),
+                    compare_event_type: "FileCreate".into(),
+                    compare_source: "MFT".into(),
+                    min_delta_seconds: 60,
+                    direction: "before".into(),
+                },
+            ],
+        },
+        // temporal.persistence-created-then-dropper-deleted — T1070.004
+        TemporalRule {
+            id: "temporal.persistence-created-then-dropper-deleted".into(),
+            title: "Scheduled task created and a file deleted in the same window — possible dropper cleanup".into(),
+            severity: "high".into(),
+            description: Some(
+                "Defense Evasion — Indicator Removal: File Deletion (T1070.004). Persistence is registered (scheduled task created, EID 4698) and a file is deleted within +/-5 minutes on the USN Journal — the classic establish-persistence-then-scrub-the-dropper pattern. This is co-occurrence, not an entity-join: the sequence clause cannot prove the deleted file is the task's binary, so the 300s window keeps the coincidence rate low and an analyst confirms the path link."
+                    .into(),
+            ),
+            within_seconds: 300,
+            anchor: EventTypeFilter::new("ScheduledTaskCreate").with_source("Event Log"),
+            sequence: vec![
+                EventTypeFilter::new("FileDelete").with_source("USN Journal"),
+            ],
+            absent: vec![],
+            discrepancy: vec![],
+        },
+        // temporal.shadow-copy-deletion-near-mass-delete — T1490
+        TemporalRule {
+            id: "temporal.shadow-copy-deletion-near-mass-delete".into(),
+            title: "vssadmin shadow-copy deletion ran alongside file deletion — anti-recovery".into(),
+            severity: "critical".into(),
+            description: Some(
+                "Impact — Inhibit System Recovery (T1490). Overwhelmingly performed on Windows by invoking vssadmin.exe with the destructive `delete shadows` operation (e.g. `vssadmin delete shadows /all /quiet`), which leaves a durable Prefetch entry. Anchoring on a Prefetch ProcessExec whose description contains the OS-constant phrase 'delete shadows' (NOT merely 'vssadmin', which also matches the benign read-only `vssadmin list shadows`) and requiring a USN $J FileDelete within +/-5min ties recovery-inhibition to concurrent destructive file activity — the ransomware/wiper anti-recovery pattern. Both signals are pure host artifacts (Prefetch + USN Journal)."
+                    .into(),
+            ),
+            within_seconds: 300,
+            anchor: EventTypeFilter::new("ProcessExec").with_source("Prefetch").with_description("delete shadows"),
+            sequence: vec![
+                EventTypeFilter::new("FileDelete").with_source("USN Journal"),
+            ],
+            absent: vec![],
+            discrepancy: vec![],
+        },
+        // temporal.backup-catalog-deleted-near-archiver — T1490
+        TemporalRule {
+            id: "temporal.backup-catalog-deleted-near-archiver".into(),
+            title: "wbadmin delete catalog followed by WindowsImageBackup deletion — recovery inhibition".into(),
+            severity: "high".into(),
+            description: Some(
+                "Impact — Inhibit System Recovery (T1490) via the built-in Windows Server Backup CLI, performed with `wbadmin delete catalog -quiet` / `wbadmin delete systemstatebackup`, which destroys the backup catalog under %SystemDrive%\\WindowsImageBackup. The wbadmin.exe execution leaves a Prefetch entry whose recovered command line carries the destructive `delete catalog` subcommand, and the catalog/backup removal surfaces as USN FileDelete records against the WindowsImageBackup directory. Anchoring on the destructive subcommand (not merely the binary name) and targeting the catalog directory in the sequence ties backup destruction to filesystem deletion using only host artifacts, while excluding read-only invocations like `wbadmin get versions`."
+                    .into(),
+            ),
+            within_seconds: 120,
+            anchor: EventTypeFilter::new("ProcessExec").with_source("Prefetch").with_description("delete catalog"),
+            sequence: vec![
+                EventTypeFilter::new("FileDelete").with_source("USN Journal").with_description("WindowsImageBackup"),
+            ],
+            absent: vec![],
+            discrepancy: vec![],
+        },
+        // temporal.mass-file-modify-burst — T1486
+        TemporalRule {
+            id: "temporal.mass-file-modify-burst".into(),
+            title: "Mass file-modify burst — possible ransomware encryption".into(),
+            severity: "critical".into(),
+            description: Some(
+                "Impact — Data Encrypted for Impact (T1486). Ransomware encryption produces a dense USN $J burst: each victim file is read, rewritten (FileModify), an encrypted copy created (FileCreate), and the original removed (FileDelete) in tight succession. A FileModify anchor co-located within 60s with further USN modify, create, AND delete activity is the canonical host residue of mass encryption. All signals are USN Journal records, fully disk-recoverable."
+                    .into(),
+            ),
+            within_seconds: 60,
+            anchor: EventTypeFilter::new("FileModify").with_source("USN Journal"),
+            sequence: vec![
+                EventTypeFilter::new("FileModify").with_source("USN Journal"),
+                EventTypeFilter::new("FileCreate").with_source("USN Journal"),
+                EventTypeFilter::new("FileDelete").with_source("USN Journal"),
+            ],
+            absent: vec![],
+            discrepancy: vec![],
+        },
+        // temporal.service-install-then-start-exec — T1543.003
+        TemporalRule {
+            id: "temporal.service-install-then-start-exec".into(),
+            title: "Service installed then started with a fresh binary exec — SYSTEM-level service abuse".into(),
+            severity: "high".into(),
+            description: Some(
+                "Persistence — Create or Modify System Process: Windows Service (T1543.003). A new service installed (7045) and started (7036/7000) within the same minute, with a corresponding process-execution record (Prefetch ProcessExec or 4688), is the canonical Windows persistence/priv-esc move: services run as LOCAL SYSTEM, so install-then-immediately-start grants SYSTEM. The 7045 install and 7036 start are both in the System event log and the exec is in Prefetch/Security on disk."
+                    .into(),
+            ),
+            within_seconds: 60,
+            anchor: EventTypeFilter::new("ServiceInstall").with_source("Event Log"),
+            sequence: vec![
+                EventTypeFilter::new("ServiceStart"),
+                EventTypeFilter::new("ProcessExec"),
+            ],
+            absent: vec![],
+            discrepancy: vec![],
+        },
+        // temporal.scheduled-task-create-run-burst — T1053.005
+        TemporalRule {
+            id: "temporal.scheduled-task-create-run-burst".into(),
+            title: "Scheduled task created then immediately run and executed within 90s — create-then-fire-now burst".into(),
+            severity: "high".into(),
+            description: Some(
+                "Persistence — Scheduled Task/Job: Scheduled Task (T1053.005). A 4698 task-create immediately followed by a 4700/4702/200 task-run and a process exec inside 90s is the create-then-fire-now burst (schtasks /create then /run), distinct from a benign task created to run on a future schedule (where run and exec occur hours later, outside the window). Anchor (Event Log), task-run (Event Log / Task Scheduler operational), and exec (Prefetch) are all host artifacts."
+                    .into(),
+            ),
+            within_seconds: 90,
+            anchor: EventTypeFilter::new("ScheduledTaskCreate").with_source("Event Log"),
+            sequence: vec![
+                EventTypeFilter::new("ScheduledTaskRun"),
+                EventTypeFilter::new("ProcessExec"),
+            ],
+            absent: vec![],
+            discrepancy: vec![],
+        },
+        // temporal.crontab-modified-near-process-exec — T1053.003
+        TemporalRule {
+            id: "temporal.crontab-modified-near-process-exec".into(),
+            title: "Crontab modified within seconds of a process execution — scripted cron persistence".into(),
+            severity: "medium".into(),
+            description: Some(
+                "Persistence — Scheduled Task/Job: Cron (T1053.003). A crontab modification co-occurring with a process execution within 30s is the residue of scripted cron-based persistence — an implant editing a user/system crontab as part of its install. Both the crontab file modification and the process-execution residue are recoverable host artifacts on a disk image."
+                    .into(),
+            ),
+            within_seconds: 30,
+            anchor: EventTypeFilter::new("FileModify").with_source("Crontab"),
+            sequence: vec![
+                EventTypeFilter::new("ProcessExec"),
+            ],
+            absent: vec![],
+            discrepancy: vec![],
+        },
+        // temporal.scheduled-task-created-no-logon — T1053.005
+        TemporalRule {
+            id: "temporal.scheduled-task-created-no-logon".into(),
+            title: "Scheduled task created with no interactive logon present — unattended persistence".into(),
+            severity: "low".into(),
+            description: Some(
+                "Persistence — Scheduled Task/Job: Scheduled Task (T1053.005, Windows Event ID 4698). A task registered with NO interactive LogonSuccess inside a 2-minute window is more consistent with creation by an already-resident implant, a service/SYSTEM account, or remote code execution than with a fresh hands-on-keyboard admin session. Both 4698 and logon events are host-recoverable from the Event Log. Low severity reflects that long-lived logon sessions make the absence of a co-located logon a common, non-anomalous condition — this is a lead, not a verdict."
+                    .into(),
+            ),
+            within_seconds: 120,
+            anchor: EventTypeFilter::new("ScheduledTaskCreate").with_source("Event Log"),
+            sequence: vec![],
+            absent: vec![
+                EventTypeFilter::new("LogonSuccess"),
+            ],
+            discrepancy: vec![],
+        },
+        // temporal.new-admin-account-then-logon — T1136.001
+        TemporalRule {
+            id: "temporal.new-admin-account-then-logon".into(),
+            title: "New account created then immediately used to log on — possible rogue admin".into(),
+            severity: "high".into(),
+            description: Some(
+                "Persistence — Create Account: Local Account (T1136.001). Local-account creation (4720/4738) co-occurring with a privilege/policy change (4732 add-to-group, or 4719/4670 audit/rights edit) and a LogonSuccess (4624) within a symmetric 120s window — the classic create-rogue-admin-then-use-it burst. All three records are recoverable from the Security event log on a host image. NOTE: sequence filters are not entity-joined to the anchor account, so on busy hosts an unrelated logon/policy event in the window can produce a false positive; treat as a high-severity lead."
+                    .into(),
+            ),
+            within_seconds: 120,
+            anchor: EventTypeFilter::new("UserAccountChange").with_source("Event Log"),
+            sequence: vec![
+                EventTypeFilter::new("PolicyChange").with_source("Event Log"),
+                EventTypeFilter::new("LogonSuccess").with_source("Event Log"),
+            ],
+            absent: vec![],
+            discrepancy: vec![],
+        },
+        // temporal.exec-without-process-creation-log — T1070.001
+        TemporalRule {
+            id: "temporal.exec-without-process-creation-log".into(),
+            title: "Execution residue (Prefetch) with no process-creation log twin — possible event-log clearing or audit evasion".into(),
+            severity: "low".into(),
+            description: Some(
+                "Defense Evasion — Indicator Removal: Clear Windows Event Logs (T1070.001). A Prefetch ProcessExec entry exists but no Event Log process-creation (4688/Sysmon-1) event appears within a +/-60s window. Consistent with T1070.001 or T1562.002 (Disable Windows Event Logging) — but NOTE process-creation auditing is OFF by stock-Windows default, so a missing twin is the common baseline; treat as a low-grade evasion LEAD and corroborate with EVTX gap / Security-log-clear (1102) evidence before escalating."
+                    .into(),
+            ),
+            within_seconds: 60,
+            anchor: EventTypeFilter::new("ProcessExec").with_source("Prefetch"),
+            sequence: vec![],
+            absent: vec![
+                EventTypeFilter::new("ProcessExec").with_source("Event Log"),
+            ],
+            discrepancy: vec![],
+        },
+        // temporal.network-logon-then-service-install — T1021.002
+        TemporalRule {
+            id: "temporal.network-logon-then-service-install".into(),
+            title: "Network logon (type 3) immediately followed by service install — remote SCM abuse".into(),
+            severity: "high".into(),
+            description: Some(
+                "Lateral Movement — Remote Services: SMB/Windows Admin Shares (T1021.002). A network (type-3) logon (4624 LogonType 3) immediately followed by a service install (7045/4697) within 120s is the host residue of remote Service Control Manager abuse (PsExec/Impacket smbexec): authenticate over SMB, then push a service. Both the 4624 and the 7045/4697 are durable in host EVTX (Security/System logs), fully disk-recoverable."
+                    .into(),
+            ),
+            within_seconds: 120,
+            anchor: EventTypeFilter::new("LogonSuccess").with_source("Event Log").with_description("Type 3"),
+            sequence: vec![
+                EventTypeFilter::new("ServiceInstall").with_source("Event Log"),
+            ],
+            absent: vec![],
+            discrepancy: vec![],
+        },
+        // temporal.remote-scheduled-task-create-run — T1021.002
+        TemporalRule {
+            id: "temporal.remote-scheduled-task-create-run".into(),
+            title: "Scheduled task created then run within minutes — remote task execution (atexec-class)".into(),
+            severity: "high".into(),
+            description: Some(
+                "Lateral Movement — Remote Services (T1021.002). A scheduled task registered (Security 4698 / TaskScheduler 106) and triggered within +/-300s is the temporal signature of lateral movement via the Task Scheduler over RPC (schtasks /s, Impacket atexec, ATSVC). Both registration and execution are recorded in host EVTX, so no packet capture is required. Long-standing tasks (created and run far apart) and create-only events do not fire. NOTE: this is the create→run pair only; the create→run→exec burst (temporal.scheduled-task-create-run-burst) is the tighter persistence-lens sibling."
+                    .into(),
+            ),
+            within_seconds: 300,
+            anchor: EventTypeFilter::new("ScheduledTaskCreate").with_source("Event Log"),
+            sequence: vec![
+                EventTypeFilter::new("ScheduledTaskRun").with_source("Event Log"),
+            ],
+            absent: vec![],
+            discrepancy: vec![],
+        },
+        // temporal.service-install-then-start — T1569.002
+        TemporalRule {
+            id: "temporal.service-install-then-start".into(),
+            title: "Service installed and started within seconds — service-based execution (PsExec/Impacket-class)".into(),
+            severity: "high".into(),
+            description: Some(
+                "Execution — System Services: Service Execution (T1569.002). Service-based execution and remote-service lateral movement (PsExec, Impacket smbexec/atexec service variants) install a new service (System EID 7045 / Security 4697) and start it almost immediately to run the payload (EID 7036). A ServiceInstall co-occurring with a ServiceStart inside a 60s symmetric window is the load-bearing host temporal signature of code execution via the Service Control Manager; the install half also evidences service persistence (T1543.003). Both events are durable in host EVTX (System log), fully disk-recoverable with no packet capture. (The exec-twin variant temporal.service-install-then-start-exec adds the ProcessExec under the persistence lens.)."
+                    .into(),
+            ),
+            within_seconds: 60,
+            anchor: EventTypeFilter::new("ServiceInstall").with_source("Event Log"),
+            sequence: vec![
+                EventTypeFilter::new("ServiceStart").with_source("Event Log"),
+            ],
+            absent: vec![],
+            discrepancy: vec![],
+        },
     ]
 }
 
@@ -318,9 +623,11 @@ pub fn evaluate_temporal(rule: &TemporalRule, events: &[TimelineEvent]) -> Vec<T
 
             'outer: for clause in &rule.discrepancy {
                 // Find anchor entity refs matching the entity_role.
-                for anchor_ref in anchor.entity_refs.iter().filter(|r| {
-                    entity_role_matches(r, &clause.entity_role)
-                }) {
+                for anchor_ref in anchor
+                    .entity_refs
+                    .iter()
+                    .filter(|r| entity_role_matches(r, &clause.entity_role))
+                {
                     let anchor_key = entity_key(anchor_ref);
 
                     // Find a compare event in the FULL events slice (not window-restricted)
@@ -331,10 +638,8 @@ pub fn evaluate_temporal(rule: &TemporalRule, events: &[TimelineEvent]) -> Vec<T
                             && source_str_matches(e, &clause.compare_source)
                             && e.entity_refs.iter().any(|r| entity_key(r) == anchor_key)
                     }) {
-                        let delta_ns =
-                            (compare.timestamp_ns - anchor.timestamp_ns).abs();
-                        let min_delta_ns =
-                            clause.min_delta_seconds.saturating_mul(1_000_000_000);
+                        let delta_ns = (compare.timestamp_ns - anchor.timestamp_ns).abs();
+                        let min_delta_ns = clause.min_delta_seconds.saturating_mul(1_000_000_000);
 
                         let contradiction = match clause.direction.as_str() {
                             "after" => {
@@ -487,16 +792,35 @@ mod tests {
             discrepancy: vec![],
         };
 
-        let anchor = ev(100 * NS, EventType::ProcessExec, ArtifactType::EventLog, "cmd.exe");
+        let anchor = ev(
+            100 * NS,
+            EventType::ProcessExec,
+            ArtifactType::EventLog,
+            "cmd.exe",
+        );
         // FileCreate at T+30s — within 60s window
-        let create = ev(130 * NS, EventType::FileCreate, ArtifactType::UsnJournal, "output.exe");
+        let create = ev(
+            130 * NS,
+            EventType::FileCreate,
+            ArtifactType::UsnJournal,
+            "output.exe",
+        );
         // Far event outside window
-        let far = ev(300 * NS, EventType::FileCreate, ArtifactType::UsnJournal, "other.exe");
+        let far = ev(
+            300 * NS,
+            EventType::FileCreate,
+            ArtifactType::UsnJournal,
+            "other.exe",
+        );
 
         let events = vec![anchor, create, far];
         let findings = evaluate_temporal(&rule, &events);
 
-        assert_eq!(findings.len(), 1, "one anchor event should produce one finding");
+        assert_eq!(
+            findings.len(),
+            1,
+            "one anchor event should produce one finding"
+        );
         assert_eq!(findings[0].rule_id, "test.sequence");
         assert!(!findings[0].matched_record_hashes.is_empty());
     }
@@ -515,14 +839,27 @@ mod tests {
             discrepancy: vec![],
         };
 
-        let anchor = ev(100 * NS, EventType::ProcessExec, ArtifactType::EventLog, "cmd.exe");
+        let anchor = ev(
+            100 * NS,
+            EventType::ProcessExec,
+            ArtifactType::EventLog,
+            "cmd.exe",
+        );
         // FileCreate at T+200s — OUTSIDE 60s window
-        let too_late = ev(300 * NS, EventType::FileCreate, ArtifactType::UsnJournal, "late.exe");
+        let too_late = ev(
+            300 * NS,
+            EventType::FileCreate,
+            ArtifactType::UsnJournal,
+            "late.exe",
+        );
 
         let events = vec![anchor, too_late];
         let findings = evaluate_temporal(&rule, &events);
 
-        assert!(findings.is_empty(), "event outside window must not produce a finding");
+        assert!(
+            findings.is_empty(),
+            "event outside window must not produce a finding"
+        );
     }
 
     #[test]
@@ -648,7 +985,7 @@ mod tests {
 
         let path = "/lib/x86_64-linux-gnu/libymv.so.3";
         let t_boot: i64 = 1_711_228_560 * NS; // 2024-03-24 23:16:00 UTC
-        let t_mft: i64 = 1_711_229_040 * NS;  // 2024-03-24 23:24:00 UTC (+8min)
+        let t_mft: i64 = 1_711_229_040 * NS; // 2024-03-24 23:24:00 UTC (+8min)
 
         let boot_log = ev_path(
             t_boot,
@@ -668,9 +1005,16 @@ mod tests {
         let events = vec![boot_log, mft_create];
         let findings = evaluate_temporal(&rule, &events);
 
-        assert_eq!(findings.len(), 1, "boot log predating MFT born time is a critical finding");
+        assert_eq!(
+            findings.len(),
+            1,
+            "boot log predating MFT born time is a critical finding"
+        );
         assert_eq!(findings[0].severity, "critical");
-        let detail = findings[0].discrepancy.as_ref().expect("discrepancy detail must be set");
+        let detail = findings[0]
+            .discrepancy
+            .as_ref()
+            .expect("discrepancy detail must be set");
         assert!(
             detail.delta_ns >= 8 * 60 * NS,
             "delta must be at least 8 minutes"
@@ -688,15 +1032,17 @@ mod tests {
             description: None,
             within_seconds: 300,
             anchor: EventTypeFilter::new("SystemBoot"),
-            sequence: vec![
-                EventTypeFilter::new("FileCreate")
-                    .with_description("gid:7823"),
-            ],
+            sequence: vec![EventTypeFilter::new("FileCreate").with_description("gid:7823")],
             absent: vec![],
             discrepancy: vec![],
         };
 
-        let boot = ev(0, EventType::SystemBoot, ArtifactType::EventLog, "system boot");
+        let boot = ev(
+            0,
+            EventType::SystemBoot,
+            ArtifactType::EventLog,
+            "system boot",
+        );
         let rootkit_file = ev(
             60 * NS,
             EventType::FileCreate,
@@ -725,14 +1071,17 @@ mod tests {
             description: None,
             within_seconds: 10,
             anchor: EventTypeFilter::new("LogonSuccess"),
-            sequence: vec![
-                EventTypeFilter::new("FileCreate").with_description("/tmp/silly.txt"),
-            ],
+            sequence: vec![EventTypeFilter::new("FileCreate").with_description("/tmp/silly.txt")],
             absent: vec![],
             discrepancy: vec![],
         };
 
-        let logon = ev(100 * NS, EventType::LogonSuccess, ArtifactType::EventLog, "user root");
+        let logon = ev(
+            100 * NS,
+            EventType::LogonSuccess,
+            ArtifactType::EventLog,
+            "user root",
+        );
         let silly = ev(
             103 * NS,
             EventType::FileCreate,
@@ -761,9 +1110,7 @@ mod tests {
             description: None,
             within_seconds: 3600,
             anchor: EventTypeFilter::new("ProcessExec").with_source("Prefetch"),
-            sequence: vec![
-                EventTypeFilter::new("FileDelete").with_source("USN Journal"),
-            ],
+            sequence: vec![EventTypeFilter::new("FileDelete").with_source("USN Journal")],
             absent: vec![],
             discrepancy: vec![],
         };
@@ -882,25 +1229,54 @@ mod tests {
             .find(|r| r.id == "temporal.sam-security-hive-copy")
             .expect("rule temporal.sam-security-hive-copy must be registered");
 
-        let mut e0 = ev(3000000000000000, EventType::FileAccess, ArtifactType::EventLog, "handle to C:\\Windows\\System32\\config\\SAM opened");
-        e0 = e0.with_entity_ref(EntityRef::FilePath("C:\\Windows\\System32\\config\\SAM".to_string()));
-        let mut e1 = ev(3000020000000000, EventType::FileCreate, ArtifactType::UsnJournal, "USN CREATE: C:\\Users\\Public\\sam.save");
-        e1 = e1.with_entity_ref(EntityRef::FilePath("C:\\Users\\Public\\sam.save".to_string()));
+        let mut e0 = ev(
+            3000000000000000,
+            EventType::FileAccess,
+            ArtifactType::EventLog,
+            "handle to C:\\Windows\\System32\\config\\SAM opened",
+        );
+        e0 = e0.with_entity_ref(EntityRef::FilePath(
+            "C:\\Windows\\System32\\config\\SAM".to_string(),
+        ));
+        let mut e1 = ev(
+            3000020000000000,
+            EventType::FileCreate,
+            ArtifactType::UsnJournal,
+            "USN CREATE: C:\\Users\\Public\\sam.save",
+        );
+        e1 = e1.with_entity_ref(EntityRef::FilePath(
+            "C:\\Users\\Public\\sam.save".to_string(),
+        ));
         let fire_events = vec![e0, e1];
         let fire = evaluate_temporal(&rule, &fire_events);
         assert!(
-            fire.iter().any(|f| f.rule_id == "temporal.sam-security-hive-copy"),
+            fire.iter()
+                .any(|f| f.rule_id == "temporal.sam-security-hive-copy"),
             "temporal.sam-security-hive-copy should_fire produced no finding: {fire:?}"
         );
 
-        let mut en0 = ev(4000000000000000, EventType::FileAccess, ArtifactType::EventLog, "handle to C:\\Windows\\System32\\config\\SOFTWARE opened (not SAM)");
-        en0 = en0.with_entity_ref(EntityRef::FilePath("C:\\Windows\\System32\\config\\SOFTWARE".to_string()));
-        let mut en1 = ev(4000020000000000, EventType::FileCreate, ArtifactType::UsnJournal, "USN CREATE: C:\\Temp\\report.docx");
+        let mut en0 = ev(
+            4000000000000000,
+            EventType::FileAccess,
+            ArtifactType::EventLog,
+            "handle to C:\\Windows\\System32\\config\\SOFTWARE opened (not SAM)",
+        );
+        en0 = en0.with_entity_ref(EntityRef::FilePath(
+            "C:\\Windows\\System32\\config\\SOFTWARE".to_string(),
+        ));
+        let mut en1 = ev(
+            4000020000000000,
+            EventType::FileCreate,
+            ArtifactType::UsnJournal,
+            "USN CREATE: C:\\Temp\\report.docx",
+        );
         en1 = en1.with_entity_ref(EntityRef::FilePath("C:\\Temp\\report.docx".to_string()));
         let quiet_events = vec![en0, en1];
         let quiet = evaluate_temporal(&rule, &quiet_events);
         assert!(
-            !quiet.iter().any(|f| f.rule_id == "temporal.sam-security-hive-copy"),
+            !quiet
+                .iter()
+                .any(|f| f.rule_id == "temporal.sam-security-hive-copy"),
             "temporal.sam-security-hive-copy should_not unexpectedly fired: {quiet:?}"
         );
     }
@@ -912,23 +1288,41 @@ mod tests {
             .find(|r| r.id == "temporal.logon-failure-burst-then-success")
             .expect("rule temporal.logon-failure-burst-then-success must be registered");
 
-        let mut e0 = ev(5000000000000000, EventType::LogonFailure, ArtifactType::EventLog, "4625 failed logon: bad password (administrator)");
+        let mut e0 = ev(
+            5000000000000000,
+            EventType::LogonFailure,
+            ArtifactType::EventLog,
+            "4625 failed logon: bad password (administrator)",
+        );
         e0 = e0.with_entity_ref(EntityRef::User("administrator".to_string()));
-        let mut e1 = ev(5000030000000000, EventType::LogonSuccess, ArtifactType::EventLog, "4624 successful logon (administrator)");
+        let mut e1 = ev(
+            5000030000000000,
+            EventType::LogonSuccess,
+            ArtifactType::EventLog,
+            "4624 successful logon (administrator)",
+        );
         e1 = e1.with_entity_ref(EntityRef::User("administrator".to_string()));
         let fire_events = vec![e0, e1];
         let fire = evaluate_temporal(&rule, &fire_events);
         assert!(
-            fire.iter().any(|f| f.rule_id == "temporal.logon-failure-burst-then-success"),
+            fire.iter()
+                .any(|f| f.rule_id == "temporal.logon-failure-burst-then-success"),
             "temporal.logon-failure-burst-then-success should_fire produced no finding: {fire:?}"
         );
 
-        let mut en0 = ev(6000000000000000, EventType::LogonSuccess, ArtifactType::EventLog, "4624 clean interactive logon, no preceding failures");
+        let mut en0 = ev(
+            6000000000000000,
+            EventType::LogonSuccess,
+            ArtifactType::EventLog,
+            "4624 clean interactive logon, no preceding failures",
+        );
         en0 = en0.with_entity_ref(EntityRef::User("alice".to_string()));
         let quiet_events = vec![en0];
         let quiet = evaluate_temporal(&rule, &quiet_events);
         assert!(
-            !quiet.iter().any(|f| f.rule_id == "temporal.logon-failure-burst-then-success"),
+            !quiet
+                .iter()
+                .any(|f| f.rule_id == "temporal.logon-failure-burst-then-success"),
             "temporal.logon-failure-burst-then-success should_not unexpectedly fired: {quiet:?}"
         );
     }
@@ -940,10 +1334,24 @@ mod tests {
             .find(|r| r.id == "temporal.exec-residue-predates-image-mft-birth")
             .expect("rule temporal.exec-residue-predates-image-mft-birth must be registered");
 
-        let mut e0 = ev(1000000000000000, EventType::ProcessExec, ArtifactType::Prefetch, "Prefetch last-run time for image");
-        e0 = e0.with_entity_ref(EntityRef::FilePath("C:\\Windows\\Temp\\svc.exe".to_string()));
-        let mut e1 = ev(1000600000000000, EventType::FileCreate, ArtifactType::Mft, "$MFT $SI born time for the same image (600 s later)");
-        e1 = e1.with_entity_ref(EntityRef::FilePath("C:\\Windows\\Temp\\svc.exe".to_string()));
+        let mut e0 = ev(
+            1000000000000000,
+            EventType::ProcessExec,
+            ArtifactType::Prefetch,
+            "Prefetch last-run time for image",
+        );
+        e0 = e0.with_entity_ref(EntityRef::FilePath(
+            "C:\\Windows\\Temp\\svc.exe".to_string(),
+        ));
+        let mut e1 = ev(
+            1000600000000000,
+            EventType::FileCreate,
+            ArtifactType::Mft,
+            "$MFT $SI born time for the same image (600 s later)",
+        );
+        e1 = e1.with_entity_ref(EntityRef::FilePath(
+            "C:\\Windows\\Temp\\svc.exe".to_string(),
+        ));
         let fire_events = vec![e0, e1];
         let fire = evaluate_temporal(&rule, &fire_events);
         assert!(
@@ -951,10 +1359,24 @@ mod tests {
             "temporal.exec-residue-predates-image-mft-birth should_fire produced no finding: {fire:?}"
         );
 
-        let mut en0 = ev(2000000000000000, EventType::ProcessExec, ArtifactType::Prefetch, "Prefetch last-run time for a normally-installed image");
-        en0 = en0.with_entity_ref(EntityRef::FilePath("C:\\Program Files\\App\\app.exe".to_string()));
-        let mut en1 = ev(1999900000000000, EventType::FileCreate, ArtifactType::Mft, "$MFT born time precedes the run by 100 s (normal: created then run)");
-        en1 = en1.with_entity_ref(EntityRef::FilePath("C:\\Program Files\\App\\app.exe".to_string()));
+        let mut en0 = ev(
+            2000000000000000,
+            EventType::ProcessExec,
+            ArtifactType::Prefetch,
+            "Prefetch last-run time for a normally-installed image",
+        );
+        en0 = en0.with_entity_ref(EntityRef::FilePath(
+            "C:\\Program Files\\App\\app.exe".to_string(),
+        ));
+        let mut en1 = ev(
+            1999900000000000,
+            EventType::FileCreate,
+            ArtifactType::Mft,
+            "$MFT born time precedes the run by 100 s (normal: created then run)",
+        );
+        en1 = en1.with_entity_ref(EntityRef::FilePath(
+            "C:\\Program Files\\App\\app.exe".to_string(),
+        ));
         let quiet_events = vec![en0, en1];
         let quiet = evaluate_temporal(&rule, &quiet_events);
         assert!(
@@ -970,25 +1392,56 @@ mod tests {
             .find(|r| r.id == "temporal.amcache-exec-predates-mft-born")
             .expect("rule temporal.amcache-exec-predates-mft-born must be registered");
 
-        let mut e0 = ev(7000000000000000, EventType::ProcessExec, ArtifactType::Amcache, "Amcache first-execution time for image");
-        e0 = e0.with_entity_ref(EntityRef::FilePath("C:\\Users\\Public\\runner.exe".to_string()));
-        let mut e1 = ev(7000600000000000, EventType::FileCreate, ArtifactType::Mft, "$MFT $SI born time for the same image (600 s later)");
-        e1 = e1.with_entity_ref(EntityRef::FilePath("C:\\Users\\Public\\runner.exe".to_string()));
+        let mut e0 = ev(
+            7000000000000000,
+            EventType::ProcessExec,
+            ArtifactType::Amcache,
+            "Amcache first-execution time for image",
+        );
+        e0 = e0.with_entity_ref(EntityRef::FilePath(
+            "C:\\Users\\Public\\runner.exe".to_string(),
+        ));
+        let mut e1 = ev(
+            7000600000000000,
+            EventType::FileCreate,
+            ArtifactType::Mft,
+            "$MFT $SI born time for the same image (600 s later)",
+        );
+        e1 = e1.with_entity_ref(EntityRef::FilePath(
+            "C:\\Users\\Public\\runner.exe".to_string(),
+        ));
         let fire_events = vec![e0, e1];
         let fire = evaluate_temporal(&rule, &fire_events);
         assert!(
-            fire.iter().any(|f| f.rule_id == "temporal.amcache-exec-predates-mft-born"),
+            fire.iter()
+                .any(|f| f.rule_id == "temporal.amcache-exec-predates-mft-born"),
             "temporal.amcache-exec-predates-mft-born should_fire produced no finding: {fire:?}"
         );
 
-        let mut en0 = ev(8000000000000000, EventType::ProcessExec, ArtifactType::Amcache, "Amcache first-execution for a normally-installed image");
-        en0 = en0.with_entity_ref(EntityRef::FilePath("C:\\Program Files\\Tool\\tool.exe".to_string()));
-        let mut en1 = ev(7999900000000000, EventType::FileCreate, ArtifactType::Mft, "$MFT born time precedes the first run by 100 s (normal order)");
-        en1 = en1.with_entity_ref(EntityRef::FilePath("C:\\Program Files\\Tool\\tool.exe".to_string()));
+        let mut en0 = ev(
+            8000000000000000,
+            EventType::ProcessExec,
+            ArtifactType::Amcache,
+            "Amcache first-execution for a normally-installed image",
+        );
+        en0 = en0.with_entity_ref(EntityRef::FilePath(
+            "C:\\Program Files\\Tool\\tool.exe".to_string(),
+        ));
+        let mut en1 = ev(
+            7999900000000000,
+            EventType::FileCreate,
+            ArtifactType::Mft,
+            "$MFT born time precedes the first run by 100 s (normal order)",
+        );
+        en1 = en1.with_entity_ref(EntityRef::FilePath(
+            "C:\\Program Files\\Tool\\tool.exe".to_string(),
+        ));
         let quiet_events = vec![en0, en1];
         let quiet = evaluate_temporal(&rule, &quiet_events);
         assert!(
-            !quiet.iter().any(|f| f.rule_id == "temporal.amcache-exec-predates-mft-born"),
+            !quiet
+                .iter()
+                .any(|f| f.rule_id == "temporal.amcache-exec-predates-mft-born"),
             "temporal.amcache-exec-predates-mft-born should_not unexpectedly fired: {quiet:?}"
         );
     }
@@ -1000,10 +1453,22 @@ mod tests {
             .find(|r| r.id == "temporal.persistence-created-then-dropper-deleted")
             .expect("rule temporal.persistence-created-then-dropper-deleted must be registered");
 
-        let mut e0 = ev(1000000000000000, EventType::ScheduledTaskCreate, ArtifactType::EventLog, "EID 4698: scheduled task \\Updater registered");
+        let mut e0 = ev(
+            1000000000000000,
+            EventType::ScheduledTaskCreate,
+            ArtifactType::EventLog,
+            "EID 4698: scheduled task \\Updater registered",
+        );
         e0 = e0.with_entity_ref(EntityRef::FilePath("C:/Windows/Tasks/Updater".to_string()));
-        let mut e1 = ev(1000090000000000, EventType::FileDelete, ArtifactType::UsnJournal, "USN CLOSE+DELETE: C:/Users/Public/setup_tmp.exe");
-        e1 = e1.with_entity_ref(EntityRef::FilePath("C:/Users/Public/setup_tmp.exe".to_string()));
+        let mut e1 = ev(
+            1000090000000000,
+            EventType::FileDelete,
+            ArtifactType::UsnJournal,
+            "USN CLOSE+DELETE: C:/Users/Public/setup_tmp.exe",
+        );
+        e1 = e1.with_entity_ref(EntityRef::FilePath(
+            "C:/Users/Public/setup_tmp.exe".to_string(),
+        ));
         let fire_events = vec![e0, e1];
         let fire = evaluate_temporal(&rule, &fire_events);
         assert!(
@@ -1011,10 +1476,24 @@ mod tests {
             "temporal.persistence-created-then-dropper-deleted should_fire produced no finding: {fire:?}"
         );
 
-        let mut en0 = ev(1000000000000000, EventType::ScheduledTaskCreate, ArtifactType::EventLog, "EID 4698: GoogleUpdateTaskMachineCore registered");
-        en0 = en0.with_entity_ref(EntityRef::FilePath("C:/Windows/Tasks/GoogleUpdateTaskMachineCore".to_string()));
-        let mut en1 = ev(2000000000000000, EventType::FileDelete, ArtifactType::UsnJournal, "USN DELETE: C:/Windows/Temp/installer.log");
-        en1 = en1.with_entity_ref(EntityRef::FilePath("C:/Windows/Temp/installer.log".to_string()));
+        let mut en0 = ev(
+            1000000000000000,
+            EventType::ScheduledTaskCreate,
+            ArtifactType::EventLog,
+            "EID 4698: GoogleUpdateTaskMachineCore registered",
+        );
+        en0 = en0.with_entity_ref(EntityRef::FilePath(
+            "C:/Windows/Tasks/GoogleUpdateTaskMachineCore".to_string(),
+        ));
+        let mut en1 = ev(
+            2000000000000000,
+            EventType::FileDelete,
+            ArtifactType::UsnJournal,
+            "USN DELETE: C:/Windows/Temp/installer.log",
+        );
+        en1 = en1.with_entity_ref(EntityRef::FilePath(
+            "C:/Windows/Temp/installer.log".to_string(),
+        ));
         let quiet_events = vec![en0, en1];
         let quiet = evaluate_temporal(&rule, &quiet_events);
         assert!(
@@ -1030,10 +1509,22 @@ mod tests {
             .find(|r| r.id == "temporal.shadow-copy-deletion-near-mass-delete")
             .expect("rule temporal.shadow-copy-deletion-near-mass-delete must be registered");
 
-        let mut e0 = ev(9000000000000000, EventType::ProcessExec, ArtifactType::Prefetch, "VSSADMIN.EXE delete shadows /all /quiet");
+        let mut e0 = ev(
+            9000000000000000,
+            EventType::ProcessExec,
+            ArtifactType::Prefetch,
+            "VSSADMIN.EXE delete shadows /all /quiet",
+        );
         e0 = e0.with_entity_ref(EntityRef::Process("vssadmin.exe".to_string()));
-        let mut e1 = ev(9000060000000000, EventType::FileDelete, ArtifactType::UsnJournal, "USN DELETE: C:/Users/Bob/Documents/report.xlsx");
-        e1 = e1.with_entity_ref(EntityRef::FilePath("C:/Users/Bob/Documents/report.xlsx".to_string()));
+        let mut e1 = ev(
+            9000060000000000,
+            EventType::FileDelete,
+            ArtifactType::UsnJournal,
+            "USN DELETE: C:/Users/Bob/Documents/report.xlsx",
+        );
+        e1 = e1.with_entity_ref(EntityRef::FilePath(
+            "C:/Users/Bob/Documents/report.xlsx".to_string(),
+        ));
         let fire_events = vec![e0, e1];
         let fire = evaluate_temporal(&rule, &fire_events);
         assert!(
@@ -1041,9 +1532,19 @@ mod tests {
             "temporal.shadow-copy-deletion-near-mass-delete should_fire produced no finding: {fire:?}"
         );
 
-        let mut en0 = ev(10000000000000000, EventType::ProcessExec, ArtifactType::Prefetch, "VSSADMIN.EXE list shadows (read-only enumeration)");
+        let mut en0 = ev(
+            10000000000000000,
+            EventType::ProcessExec,
+            ArtifactType::Prefetch,
+            "VSSADMIN.EXE list shadows (read-only enumeration)",
+        );
         en0 = en0.with_entity_ref(EntityRef::Process("vssadmin.exe".to_string()));
-        let mut en1 = ev(10000060000000000, EventType::FileDelete, ArtifactType::UsnJournal, "USN DELETE: C:/Temp/cache.tmp");
+        let mut en1 = ev(
+            10000060000000000,
+            EventType::FileDelete,
+            ArtifactType::UsnJournal,
+            "USN DELETE: C:/Temp/cache.tmp",
+        );
         en1 = en1.with_entity_ref(EntityRef::FilePath("C:/Temp/cache.tmp".to_string()));
         let quiet_events = vec![en0, en1];
         let quiet = evaluate_temporal(&rule, &quiet_events);
@@ -1060,10 +1561,22 @@ mod tests {
             .find(|r| r.id == "temporal.backup-catalog-deleted-near-archiver")
             .expect("rule temporal.backup-catalog-deleted-near-archiver must be registered");
 
-        let mut e0 = ev(11000000000000000, EventType::ProcessExec, ArtifactType::Prefetch, "WBADMIN.EXE delete catalog -quiet");
+        let mut e0 = ev(
+            11000000000000000,
+            EventType::ProcessExec,
+            ArtifactType::Prefetch,
+            "WBADMIN.EXE delete catalog -quiet",
+        );
         e0 = e0.with_entity_ref(EntityRef::Process("wbadmin.exe".to_string()));
-        let mut e1 = ev(11000050000000000, EventType::FileDelete, ArtifactType::UsnJournal, "USN DELETE: C:/WindowsImageBackup/Catalog/BackupGlobalCatalog");
-        e1 = e1.with_entity_ref(EntityRef::FilePath("C:/WindowsImageBackup/Catalog/BackupGlobalCatalog".to_string()));
+        let mut e1 = ev(
+            11000050000000000,
+            EventType::FileDelete,
+            ArtifactType::UsnJournal,
+            "USN DELETE: C:/WindowsImageBackup/Catalog/BackupGlobalCatalog",
+        );
+        e1 = e1.with_entity_ref(EntityRef::FilePath(
+            "C:/WindowsImageBackup/Catalog/BackupGlobalCatalog".to_string(),
+        ));
         let fire_events = vec![e0, e1];
         let fire = evaluate_temporal(&rule, &fire_events);
         assert!(
@@ -1071,9 +1584,19 @@ mod tests {
             "temporal.backup-catalog-deleted-near-archiver should_fire produced no finding: {fire:?}"
         );
 
-        let mut en0 = ev(12000000000000000, EventType::ProcessExec, ArtifactType::Prefetch, "WBADMIN.EXE get versions (read-only)");
+        let mut en0 = ev(
+            12000000000000000,
+            EventType::ProcessExec,
+            ArtifactType::Prefetch,
+            "WBADMIN.EXE get versions (read-only)",
+        );
         en0 = en0.with_entity_ref(EntityRef::Process("wbadmin.exe".to_string()));
-        let mut en1 = ev(12000050000000000, EventType::FileDelete, ArtifactType::UsnJournal, "USN DELETE: C:/Temp/scratch.bin (not the backup catalog)");
+        let mut en1 = ev(
+            12000050000000000,
+            EventType::FileDelete,
+            ArtifactType::UsnJournal,
+            "USN DELETE: C:/Temp/scratch.bin (not the backup catalog)",
+        );
         en1 = en1.with_entity_ref(EntityRef::FilePath("C:/Temp/scratch.bin".to_string()));
         let quiet_events = vec![en0, en1];
         let quiet = evaluate_temporal(&rule, &quiet_events);
@@ -1090,27 +1613,57 @@ mod tests {
             .find(|r| r.id == "temporal.mass-file-modify-burst")
             .expect("rule temporal.mass-file-modify-burst must be registered");
 
-        let mut e0 = ev(13000000000000000, EventType::FileModify, ArtifactType::UsnJournal, "USN DATA_OVERWRITE: C:/Users/Bob/a.docx");
+        let mut e0 = ev(
+            13000000000000000,
+            EventType::FileModify,
+            ArtifactType::UsnJournal,
+            "USN DATA_OVERWRITE: C:/Users/Bob/a.docx",
+        );
         e0 = e0.with_entity_ref(EntityRef::FilePath("C:/Users/Bob/a.docx".to_string()));
-        let mut e1 = ev(13000005000000000, EventType::FileModify, ArtifactType::UsnJournal, "USN DATA_OVERWRITE: C:/Users/Bob/b.xlsx");
+        let mut e1 = ev(
+            13000005000000000,
+            EventType::FileModify,
+            ArtifactType::UsnJournal,
+            "USN DATA_OVERWRITE: C:/Users/Bob/b.xlsx",
+        );
         e1 = e1.with_entity_ref(EntityRef::FilePath("C:/Users/Bob/b.xlsx".to_string()));
-        let mut e2 = ev(13000008000000000, EventType::FileCreate, ArtifactType::UsnJournal, "USN CREATE: C:/Users/Bob/a.docx.locked");
-        e2 = e2.with_entity_ref(EntityRef::FilePath("C:/Users/Bob/a.docx.locked".to_string()));
-        let mut e3 = ev(13000010000000000, EventType::FileDelete, ArtifactType::UsnJournal, "USN DELETE: C:/Users/Bob/a.docx");
+        let mut e2 = ev(
+            13000008000000000,
+            EventType::FileCreate,
+            ArtifactType::UsnJournal,
+            "USN CREATE: C:/Users/Bob/a.docx.locked",
+        );
+        e2 = e2.with_entity_ref(EntityRef::FilePath(
+            "C:/Users/Bob/a.docx.locked".to_string(),
+        ));
+        let mut e3 = ev(
+            13000010000000000,
+            EventType::FileDelete,
+            ArtifactType::UsnJournal,
+            "USN DELETE: C:/Users/Bob/a.docx",
+        );
         e3 = e3.with_entity_ref(EntityRef::FilePath("C:/Users/Bob/a.docx".to_string()));
         let fire_events = vec![e0, e1, e2, e3];
         let fire = evaluate_temporal(&rule, &fire_events);
         assert!(
-            fire.iter().any(|f| f.rule_id == "temporal.mass-file-modify-burst"),
+            fire.iter()
+                .any(|f| f.rule_id == "temporal.mass-file-modify-burst"),
             "temporal.mass-file-modify-burst should_fire produced no finding: {fire:?}"
         );
 
-        let mut en0 = ev(14000000000000000, EventType::FileModify, ArtifactType::UsnJournal, "USN DATA_OVERWRITE: single document save");
+        let mut en0 = ev(
+            14000000000000000,
+            EventType::FileModify,
+            ArtifactType::UsnJournal,
+            "USN DATA_OVERWRITE: single document save",
+        );
         en0 = en0.with_entity_ref(EntityRef::FilePath("C:/Users/Bob/notes.txt".to_string()));
         let quiet_events = vec![en0];
         let quiet = evaluate_temporal(&rule, &quiet_events);
         assert!(
-            !quiet.iter().any(|f| f.rule_id == "temporal.mass-file-modify-burst"),
+            !quiet
+                .iter()
+                .any(|f| f.rule_id == "temporal.mass-file-modify-burst"),
             "temporal.mass-file-modify-burst should_not unexpectedly fired: {quiet:?}"
         );
     }
@@ -1122,28 +1675,61 @@ mod tests {
             .find(|r| r.id == "temporal.service-install-then-start-exec")
             .expect("rule temporal.service-install-then-start-exec must be registered");
 
-        let mut e0 = ev(5000000000000, EventType::ServiceInstall, ArtifactType::EventLog, "7045 A new service was installed in the system");
+        let mut e0 = ev(
+            5000000000000,
+            EventType::ServiceInstall,
+            ArtifactType::EventLog,
+            "7045 A new service was installed in the system",
+        );
         e0 = e0.with_entity_ref(EntityRef::Process("msupdate.exe".to_string()));
-        let mut e1 = ev(5008000000000, EventType::ServiceStart, ArtifactType::EventLog, "7036 service entered the running state");
+        let mut e1 = ev(
+            5008000000000,
+            EventType::ServiceStart,
+            ArtifactType::EventLog,
+            "7036 service entered the running state",
+        );
         e1 = e1.with_entity_ref(EntityRef::Process("msupdate.exe".to_string()));
-        let mut e2 = ev(5012000000000, EventType::ProcessExec, ArtifactType::Prefetch, "MSUPDATE.EXE first execution");
+        let mut e2 = ev(
+            5012000000000,
+            EventType::ProcessExec,
+            ArtifactType::Prefetch,
+            "MSUPDATE.EXE first execution",
+        );
         e2 = e2.with_entity_ref(EntityRef::Process("msupdate.exe".to_string()));
         let fire_events = vec![e0, e1, e2];
         let fire = evaluate_temporal(&rule, &fire_events);
         assert!(
-            fire.iter().any(|f| f.rule_id == "temporal.service-install-then-start-exec"),
+            fire.iter()
+                .any(|f| f.rule_id == "temporal.service-install-then-start-exec"),
             "temporal.service-install-then-start-exec should_fire produced no finding: {fire:?}"
         );
 
-        let mut en0 = ev(6000000000000, EventType::SystemBoot, ArtifactType::EventLog, "system boot");
-        let mut en1 = ev(6005000000000, EventType::ServiceStart, ArtifactType::EventLog, "7036 spooler entered running state");
+        let mut en0 = ev(
+            6000000000000,
+            EventType::SystemBoot,
+            ArtifactType::EventLog,
+            "system boot",
+        );
+        let mut en1 = ev(
+            6005000000000,
+            EventType::ServiceStart,
+            ArtifactType::EventLog,
+            "7036 spooler entered running state",
+        );
         en1 = en1.with_entity_ref(EntityRef::Process("spoolsv.exe".to_string()));
-        let mut en2 = ev(6007000000000, EventType::ProcessExec, ArtifactType::Prefetch, "SPOOLSV.EXE execution");
+        let mut en2 = ev(
+            6007000000000,
+            EventType::ProcessExec,
+            ArtifactType::Prefetch,
+            "SPOOLSV.EXE execution",
+        );
         en2 = en2.with_entity_ref(EntityRef::Process("spoolsv.exe".to_string()));
         let quiet_events = vec![en0, en1, en2];
         let quiet = evaluate_temporal(&rule, &quiet_events);
         assert!(
-            !quiet.iter().any(|f| f.rule_id == "temporal.service-install-then-start-exec"),
+            !quiet
+                .iter()
+                .any(|f| f.rule_id == "temporal.service-install-then-start-exec"),
             "temporal.service-install-then-start-exec should_not unexpectedly fired: {quiet:?}"
         );
     }
@@ -1155,27 +1741,55 @@ mod tests {
             .find(|r| r.id == "temporal.scheduled-task-create-run-burst")
             .expect("rule temporal.scheduled-task-create-run-burst must be registered");
 
-        let mut e0 = ev(12000000000000, EventType::ScheduledTaskCreate, ArtifactType::EventLog, "4698 a scheduled task was created");
+        let mut e0 = ev(
+            12000000000000,
+            EventType::ScheduledTaskCreate,
+            ArtifactType::EventLog,
+            "4698 a scheduled task was created",
+        );
         e0 = e0.with_entity_ref(EntityRef::Process("updater.exe".to_string()));
-        let mut e1 = ev(12010000000000, EventType::ScheduledTaskRun, ArtifactType::EventLog, "200 action started");
+        let mut e1 = ev(
+            12010000000000,
+            EventType::ScheduledTaskRun,
+            ArtifactType::EventLog,
+            "200 action started",
+        );
         e1 = e1.with_entity_ref(EntityRef::Process("updater.exe".to_string()));
-        let mut e2 = ev(12013000000000, EventType::ProcessExec, ArtifactType::Prefetch, "UPDATER.EXE execution");
+        let mut e2 = ev(
+            12013000000000,
+            EventType::ProcessExec,
+            ArtifactType::Prefetch,
+            "UPDATER.EXE execution",
+        );
         e2 = e2.with_entity_ref(EntityRef::Process("updater.exe".to_string()));
         let fire_events = vec![e0, e1, e2];
         let fire = evaluate_temporal(&rule, &fire_events);
         assert!(
-            fire.iter().any(|f| f.rule_id == "temporal.scheduled-task-create-run-burst"),
+            fire.iter()
+                .any(|f| f.rule_id == "temporal.scheduled-task-create-run-burst"),
             "temporal.scheduled-task-create-run-burst should_fire produced no finding: {fire:?}"
         );
 
-        let mut en0 = ev(13000000000000, EventType::ScheduledTaskCreate, ArtifactType::EventLog, "4698 daily backup task created");
+        let mut en0 = ev(
+            13000000000000,
+            EventType::ScheduledTaskCreate,
+            ArtifactType::EventLog,
+            "4698 daily backup task created",
+        );
         en0 = en0.with_entity_ref(EntityRef::Process("backup.exe".to_string()));
-        let mut en1 = ev(13003000000000, EventType::FileModify, ArtifactType::Mft, "task XML written under Tasks");
+        let mut en1 = ev(
+            13003000000000,
+            EventType::FileModify,
+            ArtifactType::Mft,
+            "task XML written under Tasks",
+        );
         en1 = en1.with_entity_ref(EntityRef::Process("backup.exe".to_string()));
         let quiet_events = vec![en0, en1];
         let quiet = evaluate_temporal(&rule, &quiet_events);
         assert!(
-            !quiet.iter().any(|f| f.rule_id == "temporal.scheduled-task-create-run-burst"),
+            !quiet
+                .iter()
+                .any(|f| f.rule_id == "temporal.scheduled-task-create-run-burst"),
             "temporal.scheduled-task-create-run-burst should_not unexpectedly fired: {quiet:?}"
         );
     }
@@ -1187,25 +1801,52 @@ mod tests {
             .find(|r| r.id == "temporal.crontab-modified-near-process-exec")
             .expect("rule temporal.crontab-modified-near-process-exec must be registered");
 
-        let mut e0 = ev(15000000000000000, EventType::FileModify, ArtifactType::CrontabConfig, "/var/spool/cron/crontabs/root modified");
-        e0 = e0.with_entity_ref(EntityRef::FilePath("/var/spool/cron/crontabs/root".to_string()));
-        let mut e1 = ev(15000010000000000, EventType::ProcessExec, ArtifactType::Bodyfile, "/tmp/.x execution");
+        let mut e0 = ev(
+            15000000000000000,
+            EventType::FileModify,
+            ArtifactType::CrontabConfig,
+            "/var/spool/cron/crontabs/root modified",
+        );
+        e0 = e0.with_entity_ref(EntityRef::FilePath(
+            "/var/spool/cron/crontabs/root".to_string(),
+        ));
+        let mut e1 = ev(
+            15000010000000000,
+            EventType::ProcessExec,
+            ArtifactType::Bodyfile,
+            "/tmp/.x execution",
+        );
         e1 = e1.with_entity_ref(EntityRef::Process("/tmp/.x".to_string()));
         let fire_events = vec![e0, e1];
         let fire = evaluate_temporal(&rule, &fire_events);
         assert!(
-            fire.iter().any(|f| f.rule_id == "temporal.crontab-modified-near-process-exec"),
+            fire.iter()
+                .any(|f| f.rule_id == "temporal.crontab-modified-near-process-exec"),
             "temporal.crontab-modified-near-process-exec should_fire produced no finding: {fire:?}"
         );
 
-        let mut en0 = ev(16000000000000000, EventType::FileModify, ArtifactType::CrontabConfig, "admin edits crontab by hand");
-        en0 = en0.with_entity_ref(EntityRef::FilePath("/var/spool/cron/crontabs/admin".to_string()));
-        let mut en1 = ev(16000600000000000, EventType::ProcessExec, ArtifactType::Bodyfile, "unrelated process 600s later");
+        let mut en0 = ev(
+            16000000000000000,
+            EventType::FileModify,
+            ArtifactType::CrontabConfig,
+            "admin edits crontab by hand",
+        );
+        en0 = en0.with_entity_ref(EntityRef::FilePath(
+            "/var/spool/cron/crontabs/admin".to_string(),
+        ));
+        let mut en1 = ev(
+            16000600000000000,
+            EventType::ProcessExec,
+            ArtifactType::Bodyfile,
+            "unrelated process 600s later",
+        );
         en1 = en1.with_entity_ref(EntityRef::Process("/usr/bin/vim".to_string()));
         let quiet_events = vec![en0, en1];
         let quiet = evaluate_temporal(&rule, &quiet_events);
         assert!(
-            !quiet.iter().any(|f| f.rule_id == "temporal.crontab-modified-near-process-exec"),
+            !quiet
+                .iter()
+                .any(|f| f.rule_id == "temporal.crontab-modified-near-process-exec"),
             "temporal.crontab-modified-near-process-exec should_not unexpectedly fired: {quiet:?}"
         );
     }
@@ -1217,23 +1858,41 @@ mod tests {
             .find(|r| r.id == "temporal.scheduled-task-created-no-logon")
             .expect("rule temporal.scheduled-task-created-no-logon must be registered");
 
-        let mut e0 = ev(20000000000000, EventType::ScheduledTaskCreate, ArtifactType::EventLog, "scheduled task registered (4698) by resident process");
+        let mut e0 = ev(
+            20000000000000,
+            EventType::ScheduledTaskCreate,
+            ArtifactType::EventLog,
+            "scheduled task registered (4698) by resident process",
+        );
         e0 = e0.with_entity_ref(EntityRef::Process("implant.exe".to_string()));
         let fire_events = vec![e0];
         let fire = evaluate_temporal(&rule, &fire_events);
         assert!(
-            fire.iter().any(|f| f.rule_id == "temporal.scheduled-task-created-no-logon"),
+            fire.iter()
+                .any(|f| f.rule_id == "temporal.scheduled-task-created-no-logon"),
             "temporal.scheduled-task-created-no-logon should_fire produced no finding: {fire:?}"
         );
 
-        let mut en0 = ev(21000000000000, EventType::LogonSuccess, ArtifactType::EventLog, "interactive logon: administrator");
+        let mut en0 = ev(
+            21000000000000,
+            EventType::LogonSuccess,
+            ArtifactType::EventLog,
+            "interactive logon: administrator",
+        );
         en0 = en0.with_entity_ref(EntityRef::User("administrator".to_string()));
-        let mut en1 = ev(21040000000000, EventType::ScheduledTaskCreate, ArtifactType::EventLog, "admin creates nightly backup task");
+        let mut en1 = ev(
+            21040000000000,
+            EventType::ScheduledTaskCreate,
+            ArtifactType::EventLog,
+            "admin creates nightly backup task",
+        );
         en1 = en1.with_entity_ref(EntityRef::Process("taskeng.exe".to_string()));
         let quiet_events = vec![en0, en1];
         let quiet = evaluate_temporal(&rule, &quiet_events);
         assert!(
-            !quiet.iter().any(|f| f.rule_id == "temporal.scheduled-task-created-no-logon"),
+            !quiet
+                .iter()
+                .any(|f| f.rule_id == "temporal.scheduled-task-created-no-logon"),
             "temporal.scheduled-task-created-no-logon should_not unexpectedly fired: {quiet:?}"
         );
     }
@@ -1245,25 +1904,48 @@ mod tests {
             .find(|r| r.id == "temporal.new-admin-account-then-logon")
             .expect("rule temporal.new-admin-account-then-logon must be registered");
 
-        let mut e0 = ev(17000000000000000, EventType::UserAccountChange, ArtifactType::EventLog, "4720 user account created: svc_backup");
+        let mut e0 = ev(
+            17000000000000000,
+            EventType::UserAccountChange,
+            ArtifactType::EventLog,
+            "4720 user account created: svc_backup",
+        );
         e0 = e0.with_entity_ref(EntityRef::User("svc_backup".to_string()));
-        let mut e1 = ev(17000030000000000, EventType::PolicyChange, ArtifactType::EventLog, "4732 member added to Administrators");
+        let mut e1 = ev(
+            17000030000000000,
+            EventType::PolicyChange,
+            ArtifactType::EventLog,
+            "4732 member added to Administrators",
+        );
         e1 = e1.with_entity_ref(EntityRef::User("svc_backup".to_string()));
-        let mut e2 = ev(17000060000000000, EventType::LogonSuccess, ArtifactType::EventLog, "4624 logon: svc_backup");
+        let mut e2 = ev(
+            17000060000000000,
+            EventType::LogonSuccess,
+            ArtifactType::EventLog,
+            "4624 logon: svc_backup",
+        );
         e2 = e2.with_entity_ref(EntityRef::User("svc_backup".to_string()));
         let fire_events = vec![e0, e1, e2];
         let fire = evaluate_temporal(&rule, &fire_events);
         assert!(
-            fire.iter().any(|f| f.rule_id == "temporal.new-admin-account-then-logon"),
+            fire.iter()
+                .any(|f| f.rule_id == "temporal.new-admin-account-then-logon"),
             "temporal.new-admin-account-then-logon should_fire produced no finding: {fire:?}"
         );
 
-        let mut en0 = ev(18000000000000000, EventType::UserAccountChange, ArtifactType::EventLog, "4720 user account created: intern1 (no privilege change, no logon)");
+        let mut en0 = ev(
+            18000000000000000,
+            EventType::UserAccountChange,
+            ArtifactType::EventLog,
+            "4720 user account created: intern1 (no privilege change, no logon)",
+        );
         en0 = en0.with_entity_ref(EntityRef::User("intern1".to_string()));
         let quiet_events = vec![en0];
         let quiet = evaluate_temporal(&rule, &quiet_events);
         assert!(
-            !quiet.iter().any(|f| f.rule_id == "temporal.new-admin-account-then-logon"),
+            !quiet
+                .iter()
+                .any(|f| f.rule_id == "temporal.new-admin-account-then-logon"),
             "temporal.new-admin-account-then-logon should_not unexpectedly fired: {quiet:?}"
         );
     }
@@ -1275,23 +1957,41 @@ mod tests {
             .find(|r| r.id == "temporal.exec-without-process-creation-log")
             .expect("rule temporal.exec-without-process-creation-log must be registered");
 
-        let mut e0 = ev(19000000000000000, EventType::ProcessExec, ArtifactType::Prefetch, "EVIL.EXE execution recorded in Prefetch");
+        let mut e0 = ev(
+            19000000000000000,
+            EventType::ProcessExec,
+            ArtifactType::Prefetch,
+            "EVIL.EXE execution recorded in Prefetch",
+        );
         e0 = e0.with_entity_ref(EntityRef::Process("evil.exe".to_string()));
         let fire_events = vec![e0];
         let fire = evaluate_temporal(&rule, &fire_events);
         assert!(
-            fire.iter().any(|f| f.rule_id == "temporal.exec-without-process-creation-log"),
+            fire.iter()
+                .any(|f| f.rule_id == "temporal.exec-without-process-creation-log"),
             "temporal.exec-without-process-creation-log should_fire produced no finding: {fire:?}"
         );
 
-        let mut en0 = ev(20000000000000000, EventType::ProcessExec, ArtifactType::Prefetch, "APP.EXE execution in Prefetch");
+        let mut en0 = ev(
+            20000000000000000,
+            EventType::ProcessExec,
+            ArtifactType::Prefetch,
+            "APP.EXE execution in Prefetch",
+        );
         en0 = en0.with_entity_ref(EntityRef::Process("app.exe".to_string()));
-        let mut en1 = ev(20000010000000000, EventType::ProcessExec, ArtifactType::EventLog, "4688 process creation: app.exe");
+        let mut en1 = ev(
+            20000010000000000,
+            EventType::ProcessExec,
+            ArtifactType::EventLog,
+            "4688 process creation: app.exe",
+        );
         en1 = en1.with_entity_ref(EntityRef::Process("app.exe".to_string()));
         let quiet_events = vec![en0, en1];
         let quiet = evaluate_temporal(&rule, &quiet_events);
         assert!(
-            !quiet.iter().any(|f| f.rule_id == "temporal.exec-without-process-creation-log"),
+            !quiet
+                .iter()
+                .any(|f| f.rule_id == "temporal.exec-without-process-creation-log"),
             "temporal.exec-without-process-creation-log should_not unexpectedly fired: {quiet:?}"
         );
     }
@@ -1303,25 +2003,48 @@ mod tests {
             .find(|r| r.id == "temporal.network-logon-then-service-install")
             .expect("rule temporal.network-logon-then-service-install must be registered");
 
-        let mut e0 = ev(21000000000000000, EventType::LogonSuccess, ArtifactType::EventLog, "4624 successful logon, Logon Type 3 (network)");
+        let mut e0 = ev(
+            21000000000000000,
+            EventType::LogonSuccess,
+            ArtifactType::EventLog,
+            "4624 successful logon, Logon Type 3 (network)",
+        );
         e0 = e0.with_entity_ref(EntityRef::User("admin".to_string()));
-        let mut e1 = ev(21000040000000000, EventType::ServiceInstall, ArtifactType::EventLog, "7045 A new service was installed");
+        let mut e1 = ev(
+            21000040000000000,
+            EventType::ServiceInstall,
+            ArtifactType::EventLog,
+            "7045 A new service was installed",
+        );
         e1 = e1.with_entity_ref(EntityRef::Process("PSEXESVC.exe".to_string()));
         let fire_events = vec![e0, e1];
         let fire = evaluate_temporal(&rule, &fire_events);
         assert!(
-            fire.iter().any(|f| f.rule_id == "temporal.network-logon-then-service-install"),
+            fire.iter()
+                .any(|f| f.rule_id == "temporal.network-logon-then-service-install"),
             "temporal.network-logon-then-service-install should_fire produced no finding: {fire:?}"
         );
 
-        let mut en0 = ev(22000000000000000, EventType::LogonSuccess, ArtifactType::EventLog, "4624 successful logon, Logon Type 2 (interactive)");
+        let mut en0 = ev(
+            22000000000000000,
+            EventType::LogonSuccess,
+            ArtifactType::EventLog,
+            "4624 successful logon, Logon Type 2 (interactive)",
+        );
         en0 = en0.with_entity_ref(EntityRef::User("admin".to_string()));
-        let mut en1 = ev(22000040000000000, EventType::ServiceInstall, ArtifactType::EventLog, "7045 vendor agent service installed");
+        let mut en1 = ev(
+            22000040000000000,
+            EventType::ServiceInstall,
+            ArtifactType::EventLog,
+            "7045 vendor agent service installed",
+        );
         en1 = en1.with_entity_ref(EntityRef::Process("agent.exe".to_string()));
         let quiet_events = vec![en0, en1];
         let quiet = evaluate_temporal(&rule, &quiet_events);
         assert!(
-            !quiet.iter().any(|f| f.rule_id == "temporal.network-logon-then-service-install"),
+            !quiet
+                .iter()
+                .any(|f| f.rule_id == "temporal.network-logon-then-service-install"),
             "temporal.network-logon-then-service-install should_not unexpectedly fired: {quiet:?}"
         );
     }
@@ -1333,25 +2056,48 @@ mod tests {
             .find(|r| r.id == "temporal.remote-scheduled-task-create-run")
             .expect("rule temporal.remote-scheduled-task-create-run must be registered");
 
-        let mut e0 = ev(23000000000000000, EventType::ScheduledTaskCreate, ArtifactType::EventLog, "4698 scheduled task created via RPC");
+        let mut e0 = ev(
+            23000000000000000,
+            EventType::ScheduledTaskCreate,
+            ArtifactType::EventLog,
+            "4698 scheduled task created via RPC",
+        );
         e0 = e0.with_entity_ref(EntityRef::Process("taskhost.exe".to_string()));
-        let mut e1 = ev(23000120000000000, EventType::ScheduledTaskRun, ArtifactType::EventLog, "4700/200 task action started");
+        let mut e1 = ev(
+            23000120000000000,
+            EventType::ScheduledTaskRun,
+            ArtifactType::EventLog,
+            "4700/200 task action started",
+        );
         e1 = e1.with_entity_ref(EntityRef::Process("taskhost.exe".to_string()));
         let fire_events = vec![e0, e1];
         let fire = evaluate_temporal(&rule, &fire_events);
         assert!(
-            fire.iter().any(|f| f.rule_id == "temporal.remote-scheduled-task-create-run"),
+            fire.iter()
+                .any(|f| f.rule_id == "temporal.remote-scheduled-task-create-run"),
             "temporal.remote-scheduled-task-create-run should_fire produced no finding: {fire:?}"
         );
 
-        let mut en0 = ev(24000000000000000, EventType::ScheduledTaskCreate, ArtifactType::EventLog, "4698 long-standing daily task created");
+        let mut en0 = ev(
+            24000000000000000,
+            EventType::ScheduledTaskCreate,
+            ArtifactType::EventLog,
+            "4698 long-standing daily task created",
+        );
         en0 = en0.with_entity_ref(EntityRef::Process("backup.exe".to_string()));
-        let mut en1 = ev(24086400000000000, EventType::ScheduledTaskRun, ArtifactType::EventLog, "task runs 24h later on its schedule");
+        let mut en1 = ev(
+            24086400000000000,
+            EventType::ScheduledTaskRun,
+            ArtifactType::EventLog,
+            "task runs 24h later on its schedule",
+        );
         en1 = en1.with_entity_ref(EntityRef::Process("backup.exe".to_string()));
         let quiet_events = vec![en0, en1];
         let quiet = evaluate_temporal(&rule, &quiet_events);
         assert!(
-            !quiet.iter().any(|f| f.rule_id == "temporal.remote-scheduled-task-create-run"),
+            !quiet
+                .iter()
+                .any(|f| f.rule_id == "temporal.remote-scheduled-task-create-run"),
             "temporal.remote-scheduled-task-create-run should_not unexpectedly fired: {quiet:?}"
         );
     }
@@ -1363,25 +2109,52 @@ mod tests {
             .find(|r| r.id == "temporal.service-install-then-start")
             .expect("rule temporal.service-install-then-start must be registered");
 
-        let mut e0 = ev(1718000000000000000, EventType::ServiceInstall, ArtifactType::EventLog, "New service installed via SCM (EID 7045)");
+        let mut e0 = ev(
+            1718000000000000000,
+            EventType::ServiceInstall,
+            ArtifactType::EventLog,
+            "New service installed via SCM (EID 7045)",
+        );
         e0 = e0.with_entity_ref(EntityRef::FilePath("C:/Windows/svc-a1b2.exe".to_string()));
-        let mut e1 = ev(1718000012000000000, EventType::ServiceStart, ArtifactType::EventLog, "Service entered the running state (EID 7036)");
+        let mut e1 = ev(
+            1718000012000000000,
+            EventType::ServiceStart,
+            ArtifactType::EventLog,
+            "Service entered the running state (EID 7036)",
+        );
         e1 = e1.with_entity_ref(EntityRef::FilePath("C:/Windows/svc-a1b2.exe".to_string()));
         let fire_events = vec![e0, e1];
         let fire = evaluate_temporal(&rule, &fire_events);
         assert!(
-            fire.iter().any(|f| f.rule_id == "temporal.service-install-then-start"),
+            fire.iter()
+                .any(|f| f.rule_id == "temporal.service-install-then-start"),
             "temporal.service-install-then-start should_fire produced no finding: {fire:?}"
         );
 
-        let mut en0 = ev(1718000000000000000, EventType::ServiceInstall, ArtifactType::EventLog, "Vendor agent service installed by MSI (EID 7045)");
-        en0 = en0.with_entity_ref(EntityRef::FilePath("C:/Program Files/Vendor/agent.exe".to_string()));
-        let mut en1 = ev(1718000600000000000, EventType::ServiceStart, ArtifactType::EventLog, "Vendor agent started 10 minutes later (EID 7036)");
-        en1 = en1.with_entity_ref(EntityRef::FilePath("C:/Program Files/Vendor/agent.exe".to_string()));
+        let mut en0 = ev(
+            1718000000000000000,
+            EventType::ServiceInstall,
+            ArtifactType::EventLog,
+            "Vendor agent service installed by MSI (EID 7045)",
+        );
+        en0 = en0.with_entity_ref(EntityRef::FilePath(
+            "C:/Program Files/Vendor/agent.exe".to_string(),
+        ));
+        let mut en1 = ev(
+            1718000600000000000,
+            EventType::ServiceStart,
+            ArtifactType::EventLog,
+            "Vendor agent started 10 minutes later (EID 7036)",
+        );
+        en1 = en1.with_entity_ref(EntityRef::FilePath(
+            "C:/Program Files/Vendor/agent.exe".to_string(),
+        ));
         let quiet_events = vec![en0, en1];
         let quiet = evaluate_temporal(&rule, &quiet_events);
         assert!(
-            !quiet.iter().any(|f| f.rule_id == "temporal.service-install-then-start"),
+            !quiet
+                .iter()
+                .any(|f| f.rule_id == "temporal.service-install-then-start"),
             "temporal.service-install-then-start should_not unexpectedly fired: {quiet:?}"
         );
     }
