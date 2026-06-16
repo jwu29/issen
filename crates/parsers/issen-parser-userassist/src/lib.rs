@@ -133,7 +133,9 @@ impl ForensicParser for UserAssistParser {
             off += n as u64;
         }
         stats.bytes_processed = off;
-        let events = events_from_bytes(&bytes, "NTUSER.DAT", "userassist-evidence");
+        // Truncate to bytes actually read — a short read (FUSE/remote/interrupted)
+        // must not feed trailing zeros downstream (mirror issen-parser-registry).
+        let events = events_from_bytes(&bytes[..off as usize], "NTUSER.DAT", "userassist-evidence");
         stats.events_emitted = events.len() as u64;
         if !events.is_empty() {
             emitter.emit_batch(events)?;
