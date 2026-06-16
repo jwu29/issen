@@ -1092,23 +1092,23 @@ dependencies = [
 ]
 
 [[package]]
-name = "browser-chrome"
+name = "browser-forensic-chrome"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "82785980e0fe304f9cd6371866d4d62c480eeca15b376106b568e99b39eea54c"
+checksum = "9d0b94e49ae18794846bec424a5f53e21c8531881b7f2306aef13302e126ac59"
 dependencies = [
  "anyhow",
- "browser-core",
+ "browser-forensic-core",
  "rusqlite",
  "serde_json",
  "snss-core",
 ]
 
 [[package]]
-name = "browser-core"
+name = "browser-forensic-core"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3fb3bcad0d81a71f11f25adb0619a95dc392d21dddec1d1e9bcc75b7a7b94406"
+checksum = "cd99f9129e8821cf40301980a0f2faa2812d1267178298c626889bc720ff64a1"
 dependencies = [
  "forensicnomicon 0.5.4",
  "rusqlite",
@@ -1120,13 +1120,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "browser-firefox"
+name = "browser-forensic-firefox"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "481223e5e3522faa74b65460f14e5f67da0129dc5e1c43e9df67cb858e33a4da"
+checksum = "1bac78351d8381c2075935a8cc35565c150b8572217074e354a0694c613dd2c3"
 dependencies = [
  "anyhow",
- "browser-core",
+ "browser-forensic-core",
  "forensicnomicon 0.5.4",
  "lz4_flex",
  "rusqlite",
@@ -1134,13 +1134,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "browser-safari"
+name = "browser-forensic-safari"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "70e852cc0021160e955f002b097c21e9b1579ba18faa9e9c9a0574c5bf9786da"
+checksum = "9cc96056f5b72d0063925e4eb2767ba65d2a6b0fa376e5463731208962676c3c"
 dependencies = [
  "anyhow",
- "browser-core",
+ "browser-forensic-core",
  "plist",
  "rusqlite",
  "serde",
@@ -4297,10 +4297,10 @@ name = "issen-browser"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "browser-chrome",
- "browser-core",
- "browser-firefox",
- "browser-safari",
+ "browser-forensic-chrome",
+ "browser-forensic-core",
+ "browser-forensic-firefox",
+ "browser-forensic-safari",
  "rusqlite",
  "serde",
  "serde_json",
