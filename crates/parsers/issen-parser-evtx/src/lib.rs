@@ -45,7 +45,7 @@ use issen_core::artifacts::ArtifactType;
 use issen_core::error::RtError;
 use issen_core::plugin::registry::ParserRegistration;
 use issen_core::plugin::traits::{
-    DataSource, EventEmitter, ForensicParser, ParseStats, ParserCapabilities,
+    DataSource, EventEmitter, ForensicParser, ParseCompletion, ParseStats, ParserCapabilities,
 };
 use issen_core::timeline::event::{EntityRef, EventType, TimelineEvent};
 use serde_json::Value;
@@ -309,6 +309,7 @@ impl ForensicParser for EvtxFileParser {
 
         let total_len = input.len();
         if total_len == 0 {
+            stats.completion = ParseCompletion::Unsupported;
             stats.duration = start.elapsed();
             return Ok(stats);
         }
@@ -332,6 +333,7 @@ impl ForensicParser for EvtxFileParser {
                 len = buffer.len(),
                 "Input too small to be a valid EVTX file, skipping"
             );
+            stats.completion = ParseCompletion::Unsupported;
             stats.duration = start.elapsed();
             return Ok(stats);
         }
@@ -341,6 +343,7 @@ impl ForensicParser for EvtxFileParser {
             Ok(p) => p,
             Err(e) => {
                 warn!(error = %e, "Failed to initialise EVTX parser");
+                stats.completion = ParseCompletion::Unsupported;
                 stats.duration = start.elapsed();
                 return Ok(stats);
             }
@@ -383,6 +386,19 @@ impl ForensicParser for EvtxFileParser {
             emitter.emit_batch(batch)?;
         }
 
+        // Declare the terminal state for resumable ingestion (issen #115).
+        stats.completion = if offset < total_len {
+            // The read loop broke on a zero-length read before consuming the
+            // declared length — a truncated / interrupted source.
+            ParseCompletion::Incomplete {
+                offset,
+                reason: "short read before end of EVTX file".to_string(),
+            }
+        } else if stats.errors_recovered > 0 {
+            ParseCompletion::CompleteWithRecoveries
+        } else {
+            ParseCompletion::Complete
+        };
         stats.duration = start.elapsed();
         Ok(stats)
     }
@@ -1062,6 +1078,30 @@ mod tests {
 
         let events = emitter.into_events();
         assert!(events.is_empty());
+    }
+
+    #[test]
+    fn invalid_inputs_declare_unsupported_not_complete() {
+        // issen #115 step 1.4: a lenient Ok on non-EVTX input must declare
+        // Unsupported, never look complete (resume must not skip a real log).
+        use issen_core::plugin::traits::ParseCompletion;
+        let parser = EvtxFileParser;
+        let garbage: Vec<u8> = (0..8192_u16).map(|i| (i % 251) as u8).collect();
+        for source in [
+            SliceSource(vec![]),                       // empty
+            SliceSource(vec![0x45, 0x6C, 0x66, 0x46]), // too small
+            SliceSource(garbage),                      // big enough, but not EVTX
+        ] {
+            let stats = parser
+                .parse(&source, &CollectingEmitter::new())
+                .expect("ok");
+            assert_eq!(
+                stats.completion,
+                ParseCompletion::Unsupported,
+                "non-EVTX input must declare Unsupported, got {:?}",
+                stats.completion
+            );
+        }
     }
 
     #[test]
