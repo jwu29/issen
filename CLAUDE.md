@@ -429,6 +429,17 @@ that isn't compiled in is a capability that isn't there when it matters. So:
   graph the analyst ships, instead of a fresh resolution that can pull a broken or
   license-tainted version. (This is what actually bit 4n6mount: no committed lock → fresh
   resolution → CI red, mis-diagnosed as a blazehash compile bug — blazehash compiles fine.)
+- **Lean library core, full binary (the preferred mechanism — binding).** When a capability
+  crate is both a heavy end-user tool AND something other fleet *libraries* link for one
+  primitive, split it the way the fleet splits readers: a lean `<x>-core` library carrying just
+  the primitives (e.g. `blazehash-core` = the hash algorithms, no GPU/cloud/DuckDB/yara), and the
+  full `<x>` app/binary crate (every feature compiled in) depending on `<x>-core`. Fleet
+  *libraries* that need only the primitive depend on `<x>-core` (lean, so no `default-features =
+  false` is ever needed); fleet *binaries* and the `<x>` tool itself stay batteries-included. One
+  `default` cannot be both lean-for-libraries and full-for-the-binary — the **split**, not
+  feature-juggling, is the answer. Reference: `blazehash` → `blazehash-core` (lean lib) +
+  `blazehash` (full binary); `ext4fs-core`/`ewf-forensic` depend on `blazehash-core` for
+  `algorithm::hash_bytes`, never the GPU+cloud app stack.
 - **Exception (the only one):** a genuinely optional, *rarely-wanted* heavy subsystem MAY be a
   named non-default feature **as long as the shipping binary turns it on**. The library's
   `default` may stay lean for third-party reuse, but every fleet binary that links it builds
