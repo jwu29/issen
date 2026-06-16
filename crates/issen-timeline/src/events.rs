@@ -376,6 +376,52 @@ mod tests {
         store
     }
 
+    #[test]
+    fn load_timeline_events_reconstructs_type_source_entities() {
+        // The narrative-over-DB path (issen #110 Phase 1) reads persisted rows
+        // back into real `TimelineEvent`s so the enum `Display` (e.g. "Event
+        // Log") drives temporal-rule source matching, and entity refs survive.
+        let store = TimelineStore::in_memory().expect("store");
+        let exec = TimelineEvent::new(
+            1_000,
+            "2026-01-01T00:00:01Z".to_string(),
+            EventType::ProcessExec,
+            ArtifactType::EventLog,
+            "Security.evtx".to_string(),
+            "powershell.exe started".to_string(),
+            "DC01".to_string(),
+        )
+        .with_entity_ref(EntityRef::Process("powershell.exe".to_string()));
+        let other = TimelineEvent::new(
+            2_000,
+            "2026-01-01T00:00:02Z".to_string(),
+            EventType::Other("SrumNetUsage".to_string()),
+            ArtifactType::Srum,
+            "SRUDB.dat".to_string(),
+            "net usage row".to_string(),
+            "DC01".to_string(),
+        );
+        store.inseissen_batch(&[exec, other]).expect("ingest");
+
+        let mut events = store.load_timeline_events().expect("load");
+        events.sort_by_key(|e| e.timestamp_ns);
+        assert_eq!(events.len(), 2);
+
+        let pe = &events[0];
+        assert_eq!(pe.event_type, EventType::ProcessExec);
+        assert_eq!(format!("{}", pe.source), "Event Log");
+        assert_eq!(
+            pe.entity_refs,
+            vec![EntityRef::Process("powershell.exe".to_string())]
+        );
+        assert_eq!(pe.description, "powershell.exe started");
+        assert_eq!(pe.timestamp_ns, 1_000);
+
+        let other = &events[1];
+        assert_eq!(other.event_type, EventType::Other("SrumNetUsage".to_string()));
+        assert_eq!(format!("{}", other.source), "SRUM");
+    }
+
     // ── EventQuery is bounded by construction ────────────────────────────────
 
     #[test]
