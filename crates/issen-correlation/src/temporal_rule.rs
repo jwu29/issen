@@ -759,4 +759,25 @@ mod tests {
             "born time (500s) later than modify time (100s) is a timestomping finding"
         );
     }
+
+    #[test]
+    fn bundled_temporal_rules_exposes_the_named_rule_set() {
+        // issen #110 Phase 2: the five bundled rules live here (shared registry)
+        // so `correlate` and `timeline --narrative` evaluate one set, not a
+        // CLI-private copy.
+        let rules = bundled_temporal_rules();
+        let ids: Vec<&str> = rules.iter().map(|r| r.id.as_str()).collect();
+        for expected in [
+            "temporal.hollow-process",
+            "temporal.boot-log-predates-mft",
+            "temporal.timestomping-born-after-modify",
+            "temporal.ran-then-deleted",
+            "temporal.pam-hook-artifact",
+        ] {
+            assert!(
+                ids.contains(&expected),
+                "registry missing {expected}; got {ids:?}"
+            );
+        }
+    }
 }
