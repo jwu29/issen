@@ -193,7 +193,9 @@ mod tests {
 
     #[test]
     fn can_parse_ntuser_lowercase() {
-        assert!(LxssParser::can_parse(&PathBuf::from("/evidence/ntuser.dat")));
+        assert!(LxssParser::can_parse(&PathBuf::from(
+            "/evidence/ntuser.dat"
+        )));
     }
 
     #[test]

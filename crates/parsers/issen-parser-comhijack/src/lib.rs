@@ -71,7 +71,10 @@ pub fn events_from_bytes(bytes: &[u8], hive_name: &str, source_id: &str) -> Vec<
                 "unknown".to_string(),
                 EventType::RegistryModify,
                 ArtifactType::Registry,
-                format!("{hive_name}\\Software\\Classes\\CLSID\\{}\\InprocServer32", e.clsid),
+                format!(
+                    "{hive_name}\\Software\\Classes\\CLSID\\{}\\InprocServer32",
+                    e.clsid
+                ),
                 format!("COM hijack: CLSID {} -> {}", e.clsid, e.hkcu_server),
                 source_id.to_string(),
             )

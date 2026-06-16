@@ -90,7 +90,10 @@ pub fn events_from_bytes(bytes: &[u8], hive_name: &str, source_id: &str) -> Vec<
                 EventType::RegistryModify,
                 ArtifactType::Registry,
                 format!("{hive_name}\\{}", h.key_path),
-                format!("{} ({}): {} = {}", h.artifact_name, h.meaning, value_name, h.value_data),
+                format!(
+                    "{} ({}): {} = {}",
+                    h.artifact_name, h.meaning, value_name, h.value_data
+                ),
                 source_id.to_string(),
             )
             .with_metadata("catalog_id", serde_json::json!(h.catalog_id))

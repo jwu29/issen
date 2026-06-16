@@ -176,7 +176,9 @@ mod tests {
 
     #[test]
     fn cannot_parse_system_hive() {
-        assert!(!LsaDumpParser::can_parse(&PathBuf::from("/evidence/SYSTEM")));
+        assert!(!LsaDumpParser::can_parse(&PathBuf::from(
+            "/evidence/SYSTEM"
+        )));
     }
 
     #[test]

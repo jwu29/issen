@@ -68,7 +68,10 @@ pub fn events_from_bytes(bytes: &[u8], hive_name: &str, source_id: &str) -> Vec<
                 EventType::ServiceInstall,
                 ArtifactType::Registry,
                 format!("{hive_name}\\CurrentControlSet\\Services\\{}", e.name),
-                format!("Service: {} ({}) -> {}", e.name, e.display_name, e.image_path),
+                format!(
+                    "Service: {} ({}) -> {}",
+                    e.name, e.display_name, e.image_path
+                ),
                 source_id.to_string(),
             )
             .with_metadata("name", serde_json::json!(e.name))
