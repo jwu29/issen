@@ -18,7 +18,7 @@ use issen_core::artifacts::ArtifactType;
 use issen_core::error::RtError;
 use issen_core::plugin::registry::ParserRegistration;
 use issen_core::plugin::traits::{
-    DataSource, EventEmitter, ForensicParser, ParseStats, ParserCapabilities,
+    DataSource, EventEmitter, ForensicParser, ParseCompletion, ParseStats, ParserCapabilities,
 };
 
 /// Windows Prefetch file parser.
@@ -50,6 +50,7 @@ impl ForensicParser for PrefetchParser {
         let mut stats = ParseStats::new();
         let len = input.len();
         if len == 0 {
+            stats.completion = ParseCompletion::Unsupported;
             return Ok(stats);
         }
         // Read the whole `.pf` into memory (prefetch files are small, ≤ tens of KB).
@@ -64,11 +65,28 @@ impl ForensicParser for PrefetchParser {
         }
         stats.bytes_processed = off;
 
-        let events = parser::events_from_bytes(&bytes, "prefetch-evidence");
-        stats.events_emitted = events.len() as u64;
+        // Truncate to bytes actually read (mode 6D); never feed trailing zeros.
+        let events = parser::events_from_bytes(&bytes[..off as usize], "prefetch-evidence");
+        let event_count = events.len() as u64;
+        stats.events_emitted = event_count;
         if !events.is_empty() {
             emitter.emit_batch(events)?;
         }
+
+        // Declare the terminal state for resumable ingestion (issen #115).
+        stats.completion = if off < len {
+            ParseCompletion::Incomplete {
+                offset: off,
+                reason: "short read before end of prefetch file".to_string(),
+            }
+        } else if event_count == 0 {
+            // A valid .pf always emits at least its run event; zero events from a
+            // non-empty, fully-read file means it is not a parseable prefetch
+            // (bad signature / wrong format).
+            ParseCompletion::Unsupported
+        } else {
+            ParseCompletion::Complete
+        };
         Ok(stats)
     }
 
@@ -163,6 +181,53 @@ mod tests {
             "expected empty vec for bad signature, got {} events",
             events.len()
         );
+    }
+
+    #[test]
+    fn completion_status_reflects_terminal_state() {
+        // issen #115 step 1.5: prefetch must declare a trustworthy terminal state.
+        use issen_core::error::RtError;
+        use issen_core::plugin::traits::{DataSource, EventEmitter, ParseCompletion};
+        use issen_core::timeline::event::TimelineEvent;
+
+        struct Bytes(Vec<u8>);
+        impl DataSource for Bytes {
+            fn len(&self) -> u64 {
+                self.0.len() as u64
+            }
+            fn read_at(&self, off: u64, buf: &mut [u8]) -> Result<usize, RtError> {
+                let o = off as usize;
+                if o >= self.0.len() {
+                    return Ok(0);
+                }
+                let n = buf.len().min(self.0.len() - o);
+                buf[..n].copy_from_slice(&self.0[o..o + n]);
+                Ok(n)
+            }
+        }
+        struct Noop;
+        impl EventEmitter for Noop {
+            fn emit(&self, _: TimelineEvent) -> Result<(), RtError> {
+                Ok(())
+            }
+            fn emit_batch(&self, _: Vec<TimelineEvent>) -> Result<(), RtError> {
+                Ok(())
+            }
+        }
+
+        let parser = PrefetchParser;
+        // Empty -> Unsupported.
+        let s = parser.parse(&Bytes(vec![]), &Noop).expect("ok");
+        assert_eq!(s.completion, ParseCompletion::Unsupported);
+        // Bad signature (non-empty, zero events) -> Unsupported.
+        let mut junk = vec![0u8; 84];
+        junk[0..4].copy_from_slice(b"JUNK");
+        let s = parser.parse(&Bytes(junk), &Noop).expect("ok");
+        assert_eq!(s.completion, ParseCompletion::Unsupported);
+        // A valid SCCA consumed cleanly -> Complete.
+        let scca = minimal_scca("NOTEPAD.EXE", 132_449_604_494_103_203, 3);
+        let s = parser.parse(&Bytes(scca), &Noop).expect("ok");
+        assert_eq!(s.completion, ParseCompletion::Complete);
     }
 
     /// A minimal valid Win10 (v30) SCCA payload: `[u32 version][b"SCCA"]`, the
