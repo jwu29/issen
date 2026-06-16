@@ -152,6 +152,10 @@ pub enum Commands {
         /// Output format: text, json, csv, bodyfile.
         #[arg(long, default_value = "text")]
         format: String,
+
+        /// Render a temporal-rule narrative — a pure view over the DB (never ingests).
+        #[arg(long)]
+        narrative: bool,
     },
 
     /// Show information about a timeline database.
@@ -493,6 +497,7 @@ fn main() -> ExitCode {
             flagged,
             min_severity,
             format,
+            narrative,
         } => commands::timeline::run(
             &db_path,
             event_type.as_deref(),
@@ -503,6 +508,7 @@ fn main() -> ExitCode {
             flagged,
             &min_severity,
             &format,
+            narrative,
         ),
         Commands::Info { db_path } => commands::info::run(&db_path),
         Commands::Feed { action } => commands::feed::run(&action.to_lib_action()),

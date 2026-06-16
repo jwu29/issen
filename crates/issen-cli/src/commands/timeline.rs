@@ -2,6 +2,8 @@ use std::io;
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use issen_core::timeline::event::TimelineEvent;
+use issen_correlation::temporal_rule::{evaluate_temporal, TemporalFinding};
 use issen_timeline::findings;
 use issen_timeline::query::{TimelineQuery, TimelineRow};
 use issen_timeline::store::TimelineStore;
@@ -20,9 +22,16 @@ pub fn run(
     flagged: bool,
     min_severity: &str,
     format: &str,
+    narrative: bool,
 ) -> Result<()> {
     let store = TimelineStore::open(db_path)
         .with_context(|| format!("Failed to open database: {}", db_path.display()))?;
+
+    // Handle --narrative: a pure view over the persisted DB — load events,
+    // run the bundled temporal rules, emit the narrative. Never ingests.
+    if narrative {
+        return run_narrative(&store, db_path);
+    }
 
     // Handle --flagged: show scan findings instead of timeline events.
     if flagged {
@@ -102,6 +111,34 @@ pub fn run(
     println!("\n{} event(s) displayed.", rows.len());
 
     Ok(())
+}
+
+/// `--narrative`: render the temporal-rule narrative as a pure view over the
+/// persisted DuckDB. Loads events, evaluates the bundled rules, and prints the
+/// same narrative `supertimeline` emits — without re-parsing any evidence.
+fn run_narrative(store: &TimelineStore, db_path: &Path) -> Result<()> {
+    let (events, findings) = collect_narrative_findings(store)?;
+    super::supertimeline::emit_narrative(&events, &findings, db_path);
+    Ok(())
+}
+
+/// Load the persisted timeline and evaluate the bundled temporal rules over it.
+///
+/// The decision core of the `--narrative` view (Humble Object): it returns the
+/// events and findings so it can be unit-tested without capturing stdout, while
+/// [`run_narrative`] stays a thin load-evaluate-print shell.
+fn collect_narrative_findings(
+    store: &TimelineStore,
+) -> Result<(Vec<TimelineEvent>, Vec<TemporalFinding>)> {
+    let events = store
+        .load_timeline_events()
+        .context("Failed to load events from the timeline database")?;
+    let rules = super::supertimeline::bundled_temporal_rules();
+    let findings: Vec<TemporalFinding> = rules
+        .iter()
+        .flat_map(|rule| evaluate_temporal(rule, &events))
+        .collect();
+    Ok((events, findings))
 }
 
 /// Show scan findings from the scan_findings table.

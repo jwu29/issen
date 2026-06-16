@@ -66,7 +66,11 @@ fn collect_events_from_dir(collection: &Path) -> Vec<TimelineEvent> {
 // ── Bundled temporal rules ────────────────────────────────────────────────────
 
 /// Return the bundled set of `TemporalRule`s for supertimeline evaluation.
-fn bundled_temporal_rules() -> Vec<TemporalRule> {
+///
+/// Shared with the `timeline --narrative` view (issen #110 Phase 1) so both
+/// the live-collection and over-DB narratives run one rule set. Phase 2 will
+/// relocate these into an `issen_correlation` registry.
+pub(crate) fn bundled_temporal_rules() -> Vec<TemporalRule> {
     vec![
         // Hollow process: 4688 event log entry with no Prefetch update within 5s.
         TemporalRule {
@@ -174,7 +178,7 @@ fn emit_csv(events: &[TimelineEvent]) {
     }
 }
 
-fn emit_narrative(
+pub(crate) fn emit_narrative(
     events: &[TimelineEvent],
     temporal_findings: &[issen_correlation::temporal_rule::TemporalFinding],
     collection: &Path,
