@@ -9,7 +9,8 @@
 
 use std::time::Duration;
 
-use issen_core::timeline::event::EntityRef;
+use issen_core::artifacts::ArtifactType;
+use issen_core::timeline::event::{EntityRef, EventType, TimelineEvent};
 
 use crate::store::{TimelineStore, TimelineStoreError};
 
@@ -346,6 +347,91 @@ impl TimelineStore {
         }
         Ok(results)
     }
+
+    /// Read every persisted row back into a canonical [`TimelineEvent`],
+    /// reconstructing the `EventType` / `ArtifactType` enums (so their `Display`
+    /// drives temporal-rule matching) and parsing the `entity_refs` JSON.
+    ///
+    /// This is the read substrate for the `timeline --narrative` view: parse
+    /// once at ingest, then analyze the persisted timeline many ways. Rows are
+    /// returned ordered by `timestamp_ns` for a deterministic chronological
+    /// timeline.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a row carries a `source` token this build's
+    /// `ArtifactType` does not recognize — surfaced loudly rather than silently
+    /// dropping the event from the timeline.
+    pub fn load_timeline_events(&self) -> Result<Vec<TimelineEvent>, TimelineStoreError> {
+        let mut stmt = self.connection().prepare(
+            "SELECT id, timestamp_ns, timestamp_display, event_type, source,
+                    artifact_path, description, user_account, hostname, tags,
+                    evidence_source, entity_refs
+             FROM timeline ORDER BY timestamp_ns ASC",
+        )?;
+        let raw_rows = stmt.query_map([], |row| {
+            Ok(RawTimelineRow {
+                id: row.get(0)?,
+                timestamp_ns: row.get(1)?,
+                timestamp_display: row.get(2)?,
+                event_type: row.get(3)?,
+                source: row.get(4)?,
+                artifact_path: row.get(5)?,
+                description: row.get(6)?,
+                user_account: row.get(7)?,
+                hostname: row.get(8)?,
+                tags: row.get(9)?,
+                evidence_source: row.get(10)?,
+                entity_refs: row.get(11)?,
+            })
+        })?;
+
+        let mut events = Vec::new();
+        for raw in raw_rows {
+            let r = raw?;
+            let source = ArtifactType::from_debug_str(&r.source).ok_or_else(|| {
+                TimelineStoreError::Query(format!(
+                    "timeline row {}: unknown source token {:?}; cannot reconstruct event",
+                    r.id, r.source
+                ))
+            })?;
+            let entity_refs: Vec<EntityRef> =
+                serde_json::from_str(&r.entity_refs).unwrap_or_default();
+            let tags: Vec<String> =
+                serde_json::from_str(r.tags.as_deref().unwrap_or("[]")).unwrap_or_default();
+            let mut event = TimelineEvent::new(
+                r.timestamp_ns,
+                r.timestamp_display,
+                EventType::from_debug_str(&r.event_type),
+                source,
+                r.artifact_path,
+                r.description,
+                r.evidence_source,
+            );
+            event.user = r.user_account;
+            event.hostname = r.hostname;
+            event.tags = tags;
+            event.entity_refs = entity_refs;
+            events.push(event);
+        }
+        Ok(events)
+    }
+}
+
+/// A raw timeline row as read from DuckDB, before enum reconstruction.
+struct RawTimelineRow {
+    id: u64,
+    timestamp_ns: i64,
+    timestamp_display: String,
+    event_type: String,
+    source: String,
+    artifact_path: String,
+    description: String,
+    user_account: Option<String>,
+    hostname: Option<String>,
+    tags: Option<String>,
+    evidence_source: String,
+    entity_refs: String,
 }
 
 #[cfg(test)]
