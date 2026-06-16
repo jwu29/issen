@@ -270,11 +270,29 @@ pub fn run_auto(
     path: &Path,
     progress: &ProgressReporter,
 ) -> Result<(Vec<TimelineEvent>, IngestResult), RtError> {
-    if path.is_dir() {
-        run_pipeline(path, progress)
+    let mut out = if path.is_dir() {
+        run_pipeline(path, progress)?
     } else {
-        run_collection_pipeline(path, progress)
-    }
+        run_collection_pipeline(path, progress)?
+    };
+    sort_timeline_events(&mut out.0);
+    Ok(out)
+}
+
+/// Sort a timeline into chronological order with a deterministic tiebreak.
+///
+/// Parsers and the parallel (rayon) pipeline emit events in discovery/parse
+/// order, not time order — but a *timeline* must be chronological. Equal
+/// timestamps are common (many MACE/$SI events share a second); they break on
+/// `record_hash` (content-derived, hence deterministic) so the rendered
+/// timeline, JSONL, and CSV are reproducible run-to-run. `record_hash`
+/// comparison is allocation-free, so this stays a plain comparator.
+pub(crate) fn sort_timeline_events(events: &mut [TimelineEvent]) {
+    events.sort_by(|a, b| {
+        a.timestamp_ns
+            .cmp(&b.timestamp_ns)
+            .then_with(|| a.record_hash.cmp(&b.record_hash))
+    });
 }
 
 /// Run the pipeline using rayon parallel iteration across artifacts.
@@ -404,6 +422,48 @@ pub fn run_auto_parallel(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn mk_event(ts: i64, desc: &str) -> TimelineEvent {
+        use issen_core::artifacts::ArtifactType;
+        use issen_core::timeline::event::EventType;
+        TimelineEvent::new(
+            ts,
+            "x".to_string(),
+            EventType::FileCreate,
+            ArtifactType::Mft,
+            "p".to_string(),
+            desc.to_string(),
+            "ev".to_string(),
+        )
+    }
+
+    #[test]
+    fn sort_timeline_events_orders_chronologically_with_stable_tiebreak() {
+        // A "timeline" must be chronological; parsers + the parallel pipeline
+        // emit in discovery order (mode 6E). Ties break deterministically on
+        // record_hash so the output is reproducible run-to-run.
+        let mut events = vec![
+            mk_event(300, "c"),
+            mk_event(100, "a"),
+            mk_event(100, "b"),
+            mk_event(200, "d"),
+        ];
+        sort_timeline_events(&mut events);
+        assert_eq!(
+            events.iter().map(|e| e.timestamp_ns).collect::<Vec<_>>(),
+            vec![100, 100, 200, 300],
+            "events must be in ascending timestamp order"
+        );
+        // Determinism: re-sorting a reversed copy yields the identical order.
+        let mut reversed = events.clone();
+        reversed.reverse();
+        sort_timeline_events(&mut reversed);
+        assert_eq!(
+            events.iter().map(|e| &e.record_hash).collect::<Vec<_>>(),
+            reversed.iter().map(|e| &e.record_hash).collect::<Vec<_>>(),
+            "tie order must be reproducible"
+        );
+    }
 
     #[test]
     fn test_detect_usnjrnl() {
