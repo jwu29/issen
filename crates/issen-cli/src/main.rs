@@ -21,6 +21,14 @@ extern crate issen_parser_srum;
 extern crate issen_parser_uac;
 extern crate issen_parser_userassist;
 extern crate issen_parser_velociraptor;
+// Dark winreg artifacts wired in #113 — MUST be force-linked or the linker drops
+// their inventory::submit! and they never run (a [dependency] alone is not enough).
+extern crate issen_parser_comhijack;
+extern crate issen_parser_lsadump;
+extern crate issen_parser_lxss;
+extern crate issen_parser_regcatalog;
+extern crate issen_parser_svcdiff;
+extern crate issen_parser_typedurls;
 
 // Link disk image container crates so their CollectionProvider registrations survive.
 extern crate issen_dd;
