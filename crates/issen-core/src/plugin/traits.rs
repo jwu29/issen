@@ -52,6 +52,40 @@ pub trait DataSource: Send + Sync {
     }
 }
 
+/// Terminal state of a parse — whether the parser consumed its input to a clean
+/// end, or stopped early / declined it.
+///
+/// Resumable ingestion (issen #115) marks a unit complete **only** on
+/// `Complete` / `CompleteWithRecoveries`; every other state means "not done"
+/// (redo on resume) or "skip" (`Unsupported`). The default is [`Undeclared`]
+/// (secure-by-default): a parser that returns `Ok(ParseStats)` without
+/// explicitly declaring completion is **never** treated as complete, so a
+/// lenient `Ok` on truncated/invalid input cannot silently mark a resume unit
+/// done and lose evidence.
+///
+/// [`Undeclared`]: ParseCompletion::Undeclared
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum ParseCompletion {
+    /// The parser did not declare a terminal state. Treated as NOT complete.
+    #[default]
+    Undeclared,
+    /// Reached a clean end of input; all events emitted.
+    Complete,
+    /// Reached the end, but skipped/recovered some records (count in
+    /// `errors_recovered`). Still a complete pass over the input.
+    CompleteWithRecoveries,
+    /// Stopped before the end (truncated / interrupted source). `offset` is the
+    /// last byte parsed cleanly; `reason` describes why it stopped.
+    Incomplete { offset: u64, reason: String },
+    /// The input is not a valid instance of this parser's format — a *skip*,
+    /// not an error (e.g. an empty or wrong-magic file). Distinct from a clean
+    /// zero-event completion.
+    Unsupported,
+    /// The input is a valid instance but irrecoverably corrupt at a structural
+    /// level (cannot be meaningfully parsed at all).
+    CorruptFatal { reason: String },
+}
+
 /// Parse statistics returned after a successful parse.
 #[derive(Debug, Clone)]
 pub struct ParseStats {
@@ -63,6 +97,10 @@ pub struct ParseStats {
     pub errors_recovered: u64,
     /// Wall-clock duration of the parse operation.
     pub duration: std::time::Duration,
+    /// Terminal completion state — the trustworthy "did this finish?" signal for
+    /// resumable ingestion. Defaults to [`ParseCompletion::Undeclared`]; a parser
+    /// must set it explicitly to be eligible for resume's "complete" marker.
+    pub completion: ParseCompletion,
 }
 
 impl ParseStats {
@@ -74,6 +112,7 @@ impl ParseStats {
             bytes_processed: 0,
             errors_recovered: 0,
             duration: std::time::Duration::ZERO,
+            completion: ParseCompletion::Undeclared,
         }
     }
 }
@@ -115,6 +154,17 @@ mod tests {
     use super::*;
     use crate::timeline::event::EventType;
     use std::sync::Mutex;
+
+    #[test]
+    fn parse_stats_defaults_to_undeclared_not_complete() {
+        // Secure-by-default (issen #115 step 1): a parser that does not EXPLICITLY
+        // declare completion must never be treated as complete — otherwise resume
+        // would mark a partial/skipped unit done and silently lose evidence.
+        // `Ok(ParseStats)` must NOT imply Complete.
+        let stats = ParseStats::new();
+        assert_eq!(stats.completion, ParseCompletion::Undeclared);
+        assert_ne!(stats.completion, ParseCompletion::Complete);
+    }
 
     // ── Test doubles ──────────────────────────────────────────
 
