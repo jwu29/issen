@@ -1,11 +1,161 @@
-//! COM-hijacking persistence parser for Issen (RED — implementation pending).
+//! COM object-hijacking persistence parser for Issen.
+//!
+//! Malware can register a user-side `Software\Classes\CLSID\{guid}\InprocServer32`
+//! in `NTUSER.DAT` (HKCU) that overrides the system-wide HKCR registration, so a
+//! COM client loads an attacker DLL without admin rights (MITRE ATT&CK
+//! T1546.015 — Event Triggered Execution: Component Object Model Hijacking).
+//!
+//! Decoding (CLSID `InprocServer32` walking + writable-path heuristics) is
+//! delegated to our own `winreg-artifacts::com_hijacking` (over `winreg-core`) —
+//! the registry-artifact home for the fleet — never third-party notatin.
+//!
+//! The user-side overrides live in `NTUSER.DAT`; the system-wide registrations
+//! live in `SOFTWARE` (HKCR). This parser reads a single hive, so it surfaces the
+//! HKCU-only view via `parse_hkcu_only` — the override candidates that matter for
+//! persistence — and accepts both filenames so it engages on either hive.
 
 #![allow(
     clippy::doc_markdown,
     clippy::missing_errors_doc,
     clippy::missing_panics_doc,
-    clippy::must_use_candidate
+    clippy::must_use_candidate,
+    // `fn name(&self) -> &str` must match the `ForensicParser` trait signature.
+    clippy::unnecessary_literal_bound,
+    // DataSource lengths are bounded well under usize on supported targets.
+    clippy::cast_possible_truncation
 )]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+
+use std::path::Path;
+
+use issen_core::artifacts::ArtifactType;
+use issen_core::plugin::registry::ParserRegistration;
+use issen_core::plugin::traits::{
+    DataSource, EventEmitter, ForensicParser, ParseStats, ParserCapabilities,
+};
+use issen_core::timeline::event::{EventType, TimelineEvent};
+
+// ---------------------------------------------------------------------------
+// Hive-level parsing
+// ---------------------------------------------------------------------------
+
+/// Parse an NTUSER.DAT (or SOFTWARE) hive for COM-hijack CLSID overrides.
+///
+/// On any error or missing key, returns `Ok(vec![])`.
+pub fn parse_com_hijacking(path: &Path, source_id: &str) -> anyhow::Result<Vec<TimelineEvent>> {
+    let bytes = match std::fs::read(path) {
+        Ok(b) if !b.is_empty() => b,
+        _ => return Ok(vec![]),
+    };
+    let hive_name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("NTUSER.DAT");
+    Ok(events_from_bytes(&bytes, hive_name, source_id))
+}
+
+/// Build COM-hijack [`TimelineEvent`]s from raw hive bytes — shared by
+/// [`parse_com_hijacking`] (path) and the `ForensicParser::parse` ingest path.
+#[must_use]
+pub fn events_from_bytes(bytes: &[u8], hive_name: &str, source_id: &str) -> Vec<TimelineEvent> {
+    let Ok(hive) = winreg_core::hive::Hive::from_bytes(bytes.to_vec()) else {
+        return Vec::new();
+    };
+
+    winreg_artifacts::com_hijacking::parse_hkcu_only(&hive)
+        .into_iter()
+        .map(|e| {
+            // COM registrations carry no per-value timestamp.
+            TimelineEvent::new(
+                0,
+                "unknown".to_string(),
+                EventType::RegistryModify,
+                ArtifactType::Registry,
+                format!("{hive_name}\\Software\\Classes\\CLSID\\{}\\InprocServer32", e.clsid),
+                format!("COM hijack: CLSID {} -> {}", e.clsid, e.hkcu_server),
+                source_id.to_string(),
+            )
+            .with_metadata("clsid", serde_json::json!(e.clsid))
+            .with_metadata("hkcu_server", serde_json::json!(e.hkcu_server))
+            .with_metadata("hkcr_server", serde_json::json!(e.hkcr_server))
+            .with_metadata("is_suspicious", serde_json::json!(e.is_suspicious))
+            .with_metadata("suspicious_reason", serde_json::json!(e.suspicious_reason))
+            .with_metadata("artifact", serde_json::json!("com_hijacking"))
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
+// Plugin struct
+// ---------------------------------------------------------------------------
+
+/// COM-hijack parser — reads NTUSER.DAT (HKCU overrides) and SOFTWARE (HKCR
+/// registrations), where COM object-hijacking persistence values live.
+pub struct ComHijackParser;
+
+impl ComHijackParser {
+    /// Return `true` when `path`'s filename is `NTUSER.DAT` or `SOFTWARE`
+    /// (case-insensitive) — COM CLSID registrations live in both.
+    pub fn can_parse(path: &Path) -> bool {
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        name == "ntuser.dat" || name == "software"
+    }
+}
+
+impl ForensicParser for ComHijackParser {
+    fn name(&self) -> &str {
+        "COM Hijack Parser"
+    }
+
+    fn supported_artifacts(&self) -> &[ArtifactType] {
+        &[ArtifactType::Registry]
+    }
+
+    fn parse(
+        &self,
+        input: &dyn DataSource,
+        emitter: &dyn EventEmitter,
+    ) -> Result<ParseStats, issen_core::error::RtError> {
+        let mut stats = ParseStats::new();
+        let len = input.len();
+        if len == 0 {
+            return Ok(stats);
+        }
+        let mut bytes = vec![0u8; len as usize];
+        let mut off = 0u64;
+        while off < len {
+            let n = input.read_at(off, &mut bytes[off as usize..])?;
+            if n == 0 {
+                break;
+            }
+            off += n as u64;
+        }
+        stats.bytes_processed = off;
+        let events = events_from_bytes(&bytes, "NTUSER.DAT", "comhijack-evidence");
+        stats.events_emitted = events.len() as u64;
+        if !events.is_empty() {
+            emitter.emit_batch(events)?;
+        }
+        Ok(stats)
+    }
+
+    fn capabilities(&self) -> ParserCapabilities {
+        ParserCapabilities {
+            max_memory_bytes: Some(256 * 1024 * 1024), // 256 MiB
+            streaming: false,
+            deterministic: true,
+        }
+    }
+}
+
+// Compile-time registration with the parser inventory.
+inventory::submit! {
+    ParserRegistration { create: || Box::new(ComHijackParser) }
+}
 
 // ---------------------------------------------------------------------------
 // Tests
