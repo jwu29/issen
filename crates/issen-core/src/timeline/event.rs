@@ -393,4 +393,27 @@ mod tests {
             "Tags are annotations, not part of the content hash"
         );
     }
+
+    #[test]
+    fn event_type_from_debug_str_roundtrips_unit_and_other() {
+        // `TimelineStore` persists `event_type` as `format!("{:?}", _)`; the
+        // narrative-over-DB path reconstructs the enum via `from_debug_str`.
+        for et in [
+            EventType::FileCreate,
+            EventType::FileDelete,
+            EventType::FileModify,
+            EventType::ProcessExec,
+            EventType::LogonSuccess,
+            EventType::SystemBoot,
+            EventType::NetworkConnect,
+            EventType::Other("UsnRecordV2".to_string()),
+        ] {
+            let debug = format!("{et:?}");
+            assert_eq!(
+                EventType::from_debug_str(&debug),
+                et.clone(),
+                "round-trip failed for {debug}"
+            );
+        }
+    }
 }

@@ -114,4 +114,49 @@ mod tests {
         let back: ArtifactType = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(original, back);
     }
+
+    #[test]
+    fn artifact_type_from_debug_str_roundtrips_all_variants() {
+        // `TimelineStore` persists `source` as `format!("{:?}", _)`; the
+        // narrative-over-DB path reconstructs the enum via `from_debug_str`,
+        // whose Display (e.g. "Event Log") is what the temporal rules match.
+        for at in [
+            ArtifactType::UsnJournal,
+            ArtifactType::Mft,
+            ArtifactType::EventLog,
+            ArtifactType::Prefetch,
+            ArtifactType::Registry,
+            ArtifactType::Shellbags,
+            ArtifactType::Lnk,
+            ArtifactType::Amcache,
+            ArtifactType::Bam,
+            ArtifactType::BrowserHistory,
+            ArtifactType::JumpLists,
+            ArtifactType::Srum,
+            ArtifactType::BiomeMenuItem,
+            ArtifactType::Assessment,
+            ArtifactType::Bodyfile,
+            ArtifactType::NetworkState,
+            ArtifactType::ProcessList,
+            ArtifactType::PackageList,
+            ArtifactType::SystemInfo,
+            ArtifactType::LoginHistory,
+            ArtifactType::CrontabConfig,
+            ArtifactType::HashManifest,
+            ArtifactType::RootkitScan,
+            ArtifactType::SystemConfig,
+        ] {
+            let debug = format!("{at:?}");
+            assert_eq!(
+                ArtifactType::from_debug_str(&debug),
+                Some(at.clone()),
+                "round-trip failed for {debug}"
+            );
+        }
+    }
+
+    #[test]
+    fn artifact_type_from_debug_str_unknown_is_none() {
+        assert_eq!(ArtifactType::from_debug_str("NotARealArtifact"), None);
+    }
 }
