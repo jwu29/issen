@@ -3,7 +3,9 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use issen_core::timeline::event::TimelineEvent;
-use issen_correlation::temporal_rule::{evaluate_temporal, TemporalFinding};
+use issen_correlation::temporal_rule::{
+    bundled_temporal_rules, evaluate_temporal, TemporalFinding,
+};
 use issen_timeline::findings;
 use issen_timeline::query::{TimelineQuery, TimelineRow};
 use issen_timeline::store::TimelineStore;
@@ -133,7 +135,7 @@ fn collect_narrative_findings(
     let events = store
         .load_timeline_events()
         .context("Failed to load events from the timeline database")?;
-    let rules = super::supertimeline::bundled_temporal_rules();
+    let rules = bundled_temporal_rules();
     let findings: Vec<TemporalFinding> = rules
         .iter()
         .flat_map(|rule| evaluate_temporal(rule, &events))

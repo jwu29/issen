@@ -162,6 +162,98 @@ pub struct TemporalFinding {
 
 // ── Evaluation ────────────────────────────────────────────────────────────────
 
+/// The bundled set of [`TemporalRule`]s shared across the fleet.
+///
+/// One registry so every consumer — `correlate`, `timeline --narrative`, and
+/// `supertimeline` — evaluates the same rules over its events, instead of each
+/// keeping a private copy (issen #110 Phase 2).
+#[must_use]
+pub fn bundled_temporal_rules() -> Vec<TemporalRule> {
+    vec![
+        // Hollow process: 4688 event log entry with no Prefetch update within 5s.
+        TemporalRule {
+            id: "temporal.hollow-process".into(),
+            title: "Process created with no Prefetch update — possible hollow process".into(),
+            severity: "high".into(),
+            description: Some(
+                "A process-creation event with no corresponding Prefetch FileModify \
+                 within 5 seconds may indicate process hollowing or injection."
+                    .into(),
+            ),
+            within_seconds: 5,
+            anchor: EventTypeFilter::new("ProcessExec").with_source("Event Log"),
+            sequence: vec![],
+            absent: vec![EventTypeFilter::new("FileModify").with_source("Prefetch")],
+            discrepancy: vec![],
+        },
+        // Boot-log predates MFT file creation (rootkit timestomping).
+        TemporalRule {
+            id: "temporal.boot-log-predates-mft".into(),
+            title: "Boot log references file before MFT creation timestamp".into(),
+            severity: "critical".into(),
+            description: Some(
+                "A system boot log entry references a file at a time before the \
+                 file's $MFT born time. Consistent with a userspace rootkit that \
+                 existed prior to its recorded filesystem creation timestamp."
+                    .into(),
+            ),
+            within_seconds: 3600,
+            anchor: EventTypeFilter::new("SystemBoot").with_source("Event Log"),
+            sequence: vec![],
+            absent: vec![],
+            discrepancy: vec![DiscrepancyClause {
+                entity_role: "path".into(),
+                compare_event_type: "FileCreate".into(),
+                compare_source: "MFT".into(),
+                min_delta_seconds: 60,
+                direction: "before".into(),
+            }],
+        },
+        // Timestomping: MFT born time later than modify time.
+        TemporalRule {
+            id: "temporal.timestomping-born-after-modify".into(),
+            title: "File born time later than modify time — timestomping indicator".into(),
+            severity: "high".into(),
+            description: None,
+            within_seconds: 86400,
+            anchor: EventTypeFilter::new("FileCreate").with_source("MFT"),
+            sequence: vec![],
+            absent: vec![],
+            discrepancy: vec![DiscrepancyClause {
+                entity_role: "path".into(),
+                compare_event_type: "FileModify".into(),
+                compare_source: "MFT".into(),
+                min_delta_seconds: 1,
+                direction: "after".into(),
+            }],
+        },
+        // Ran-then-deleted: Prefetch exec followed by UsnJrnl delete.
+        TemporalRule {
+            id: "temporal.ran-then-deleted".into(),
+            title: "Executable ran then deleted — anti-forensic or dropper".into(),
+            severity: "high".into(),
+            description: None,
+            within_seconds: 3600,
+            anchor: EventTypeFilter::new("ProcessExec").with_source("Prefetch"),
+            sequence: vec![EventTypeFilter::new("FileDelete").with_source("USN Journal")],
+            absent: vec![],
+            discrepancy: vec![],
+        },
+        // PAM hook artifact: /tmp/silly.txt appears after logon.
+        TemporalRule {
+            id: "temporal.pam-hook-artifact".into(),
+            title: "/tmp/silly.txt created on logon — PAM hook indicator".into(),
+            severity: "critical".into(),
+            description: None,
+            within_seconds: 10,
+            anchor: EventTypeFilter::new("LogonSuccess"),
+            sequence: vec![EventTypeFilter::new("FileCreate").with_description("/tmp/silly.txt")],
+            absent: vec![],
+            discrepancy: vec![],
+        },
+    ]
+}
+
 /// Evaluate a `TemporalRule` against a slice of timeline events.
 ///
 /// Returns one [`TemporalFinding`] per anchor event that satisfies all clauses.
