@@ -87,6 +87,7 @@ issen-aff4       = { path = "crates/issen-aff4" }
 issen-shrinkpath = { path = "crates/issen-shrinkpath" }
 issen-parser-pe      = { path = "crates/parsers/issen-parser-pe" }
 issen-parser-mft     = { path = "crates/parsers/issen-parser-mft" }
+issen-parser-usnjrnl = { path = "crates/parsers/issen-parser-usnjrnl" }
 issen-parser-evtx    = { path = "crates/parsers/issen-parser-evtx" }
 issen-parser-velociraptor = { path = "crates/parsers/issen-parser-velociraptor" }
 issen-parser-uac          = { path = "crates/parsers/issen-parser-uac" }

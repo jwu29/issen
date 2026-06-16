@@ -29,6 +29,16 @@ extern crate issen_parser_lxss;
 extern crate issen_parser_regcatalog;
 extern crate issen_parser_svcdiff;
 extern crate issen_parser_typedurls;
+// Revived orphans (issen #114 unify): $MFT/$J were classified by discovery but
+// had no linked producer; pe/lnk/linux/macos/setupapi were never linked either.
+// One all-encompassing run_auto path.
+extern crate issen_parser_linux;
+extern crate issen_parser_lnk;
+extern crate issen_parser_macos;
+extern crate issen_parser_mft;
+extern crate issen_parser_pe;
+extern crate issen_parser_setupapi;
+extern crate issen_parser_usnjrnl;
 
 // Link disk image container crates so their CollectionProvider registrations survive.
 extern crate issen_dd;

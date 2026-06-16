@@ -47,6 +47,16 @@ issen-parser-svcdiff = { workspace = true }
 issen-parser-typedurls = { workspace = true }
 issen-parser-lxss = { workspace = true }
 issen-parser-regcatalog = { workspace = true }
+# Revived orphans (issen #114 unify): $MFT/$J + loose-file artifacts were
+# classified by discovery but had no LINKED parser, so the supertimeline dropped
+# them. Link them so run_auto is the single all-encompassing path.
+issen-parser-mft = { workspace = true }
+issen-parser-usnjrnl = { workspace = true }
+issen-parser-pe = { workspace = true }
+issen-parser-lnk = { workspace = true }
+issen-parser-linux = { workspace = true }
+issen-parser-macos = { workspace = true }
+issen-parser-setupapi = { workspace = true }
 issen-correlation = { workspace = true, features = ["remote"] }
 issen-unpack = { workspace = true }
 issen-mem    = { workspace = true }

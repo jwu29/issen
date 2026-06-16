@@ -4335,13 +4335,19 @@ dependencies = [
  "issen-parser-biome",
  "issen-parser-comhijack",
  "issen-parser-evtx",
+ "issen-parser-linux",
+ "issen-parser-lnk",
  "issen-parser-lsadump",
  "issen-parser-lxss",
+ "issen-parser-macos",
+ "issen-parser-mft",
+ "issen-parser-pe",
  "issen-parser-prefetch",
  "issen-parser-regcatalog",
  "issen-parser-registry",
  "issen-parser-runkeys",
  "issen-parser-sam",
+ "issen-parser-setupapi",
  "issen-parser-shellbags",
  "issen-parser-shimcache",
  "issen-parser-srum",
@@ -4349,6 +4355,7 @@ dependencies = [
  "issen-parser-typedurls",
  "issen-parser-uac",
  "issen-parser-userassist",
+ "issen-parser-usnjrnl",
  "issen-parser-velociraptor",
  "issen-qcow2",
  "issen-remote-access",
@@ -4891,6 +4898,19 @@ dependencies = [
  "tempfile",
  "winreg-artifacts",
  "winreg-core",
+]
+
+[[package]]
+name = "issen-parser-usnjrnl"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "insta",
+ "inventory",
+ "issen-core",
+ "serde_json",
+ "tempfile",
+ "tracing",
 ]
 
 [[package]]
