@@ -47,7 +47,7 @@ use issen_core::artifacts::ArtifactType;
 use issen_core::error::RtError;
 use issen_core::plugin::registry::ParserRegistration;
 use issen_core::plugin::traits::{
-    DataSource, EventEmitter, ForensicParser, ParseStats, ParserCapabilities,
+    DataSource, EventEmitter, ForensicParser, ParseCompletion, ParseStats, ParserCapabilities,
 };
 use issen_core::timeline::event::{EventType, TimelineEvent};
 use mft::attribute::x10::StandardInfoAttr;
@@ -271,6 +271,7 @@ impl ForensicParser for MftFileParser {
 
         let total_len = input.len();
         if total_len == 0 {
+            stats.completion = ParseCompletion::Unsupported;
             stats.duration = start.elapsed();
             return Ok(stats);
         }
@@ -280,6 +281,7 @@ impl ForensicParser for MftFileParser {
                 len = total_len,
                 "Input too small to be a valid MFT, skipping"
             );
+            stats.completion = ParseCompletion::Unsupported;
             stats.duration = start.elapsed();
             return Ok(stats);
         }
@@ -293,6 +295,7 @@ impl ForensicParser for MftFileParser {
             Ok(p) => p,
             Err(e) => {
                 warn!(error = %e, "Failed to initialise MFT parser");
+                stats.completion = ParseCompletion::Unsupported;
                 stats.duration = start.elapsed();
                 return Ok(stats);
             }
@@ -373,6 +376,8 @@ impl ForensicParser for MftFileParser {
             emitter.emit_batch(batch)?;
         }
 
+        // Reached the end of the MFT cleanly — this is a complete pass.
+        stats.completion = ParseCompletion::Complete;
         stats.duration = start.elapsed();
         Ok(stats)
     }
@@ -649,6 +654,29 @@ mod tests {
 
         let events = emitter.into_events();
         assert!(events.is_empty());
+    }
+
+    #[test]
+    fn invalid_inputs_declare_unsupported_not_complete() {
+        // issen #115 step 1: a lenient Ok on non-MFT input must declare
+        // Unsupported, never look complete — else resumable ingestion would mark
+        // the unit done and permanently skip a real artifact.
+        use issen_core::plugin::traits::ParseCompletion;
+        let parser = MftFileParser;
+        for source in [
+            SliceSource(vec![]),                         // empty
+            SliceSource(vec![0x46, 0x49, 0x4C, 0x45]),   // too small
+        ] {
+            let emitter = CollectingEmitter::new();
+            let stats = parser.parse(&source, &emitter).expect("Ok");
+            assert_eq!(
+                stats.completion,
+                ParseCompletion::Unsupported,
+                "non-MFT input must declare Unsupported, got {:?}",
+                stats.completion
+            );
+            assert_ne!(stats.completion, ParseCompletion::Complete);
+        }
     }
 
     #[test]
