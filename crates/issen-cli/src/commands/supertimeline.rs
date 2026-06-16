@@ -303,3 +303,52 @@ fn emit_narrative(
     println!();
     println!("  supertimeline complete.");
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    /// Minimal synthetic USN V2 record (filename + FILE_CREATE reason) — mirrors
+    /// the `$J` fixture used by the integration tests.
+    fn usn_v2_create(filename: &str) -> Vec<u8> {
+        let name: Vec<u8> = filename
+            .encode_utf16()
+            .flat_map(|c| c.to_le_bytes())
+            .collect();
+        let fno: u16 = 60;
+        let len = fno as usize + name.len();
+        let padded = (len + 7) & !7;
+        let mut b = vec![0u8; padded];
+        b[0..4].copy_from_slice(&(padded as u32).to_le_bytes());
+        b[4..6].copy_from_slice(&2u16.to_le_bytes()); // major version 2
+        b[8..16].copy_from_slice(&1001u64.to_le_bytes()); // file ref
+        b[16..24].copy_from_slice(&500u64.to_le_bytes()); // parent ref
+        b[24..32].copy_from_slice(&100i64.to_le_bytes()); // usn
+        b[32..40].copy_from_slice(&133_444_736_000_000_000i64.to_le_bytes()); // filetime
+        b[40..44].copy_from_slice(&0x100u32.to_le_bytes()); // FILE_CREATE reason
+        b[52..56].copy_from_slice(&0x20u32.to_le_bytes());
+        b[56..58].copy_from_slice(&(name.len() as u16).to_le_bytes());
+        b[58..60].copy_from_slice(&fno.to_le_bytes());
+        b[60..60 + name.len()].copy_from_slice(&name);
+        b
+    }
+
+    /// Phase 0: supertimeline must collect events via the full `run_auto` pipeline,
+    /// not just its 3 hardcoded files. A `$J` USN-journal artifact is not one of
+    /// those files — the stub ignores it; the real pipeline parses it.
+    #[test]
+    fn supertimeline_collects_full_pipeline_artifacts_not_just_3_files() {
+        let dir = TempDir::new().expect("tmpdir");
+        std::fs::write(dir.path().join("$J"), usn_v2_create("malware.exe")).expect("write $J");
+
+        let events = collect_events_from_dir(dir.path());
+
+        assert!(
+            events.iter().any(|e| e.description.contains("malware.exe")),
+            "supertimeline must surface artifacts via the full pipeline (run_auto), not only the \
+             3 hardcoded files; got {} events",
+            events.len()
+        );
+    }
+}
