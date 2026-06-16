@@ -445,6 +445,31 @@ that isn't compiled in is a capability that isn't there when it matters. So:
   `default` may stay lean for third-party reuse, but every fleet binary that links it builds
   with the full feature set. The slim path is for outside consumers, never for our own tools.
 
+## Fleet GUI Standard — egui (single binary, crates.io-publishable)
+
+A fleet GUI follows the same shippability rule as a CLI: it must be a **pure-Rust,
+single static binary** that `cargo install`s into a working app and **publishes to
+crates.io** like the `<x>4n6` tools — never a webview app crates.io cannot deliver.
+
+- **Framework: `egui` (`eframe`) is the default.** Immediate-mode, pure Rust, single
+  static binary, no runtime deps, cross-platform, and the *same* code compiles to
+  WASM for a browser build. It fits data-dense analyst UIs (super-timeline, event
+  tables, MFT/registry trees, hex). The `-gui` crate then publishes exactly like
+  `-cli`. (`iced`/`slint` are acceptable for a more polished retained-mode app, but
+  egui is the default; the TUI→GUI progression `ratatui`→`egui` keeps the
+  single-binary / `cargo install` / crates.io properties at every rung.)
+- **Banned for fleet GUIs: Tauri / `dioxus-desktop` / any `wry`/webview bundle.**
+  They ship a JS/HTML bundle + a bundler step, so crates.io cannot deliver a working
+  artifact — they are release-installer-distributed, not `cargo install`. If one is
+  *genuinely* required (rich web tech), it carries a documented reason AND
+  `publish = false`, so it never reads as a missing publish (e.g. `srum-gui`).
+- **Icons: `egui-phosphor`** — the ~6000-glyph Phosphor set (egui's built-ins are far
+  too few). Pin it to the egui-matching version (egui 0.29 ↔ egui-phosphor 0.7). Wire
+  once at startup: `egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);`
+  then use glyph constants inline: `use egui_phosphor::regular;` →
+  `ui.button(format!("{} Refresh", regular::ARROW_CLOCKWISE))`. **Reference
+  implementation: `~/src/nameback` (`nameback-gui`).**
+
 ## README Standard (every forensic repo)
 
 Full rules live in the global `~/.claude/CLAUDE.personal.md` ("SecurityRonin Repository README Standard"); the load-bearing points for these crates:
