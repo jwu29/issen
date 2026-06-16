@@ -5,7 +5,7 @@ use issen_core::artifacts::ArtifactType;
 use issen_core::error::RtError;
 use issen_core::plugin::registry::ParserRegistration;
 use issen_core::plugin::traits::{
-    DataSource, EventEmitter, ForensicParser, ParseStats, ParserCapabilities,
+    DataSource, EventEmitter, ForensicParser, ParseCompletion, ParseStats, ParserCapabilities,
 };
 use issen_core::timeline::event::{EventType, TimelineEvent};
 
@@ -296,6 +296,23 @@ impl ForensicParser for UsnJrnlParser {
             emitter.emit_batch(batch)?;
         }
 
+        // Declare the terminal state for resumable ingestion (issen #115).
+        stats.completion = if total_len == 0 {
+            // Nothing to parse — not a journal.
+            ParseCompletion::Unsupported
+        } else if offset < total_len {
+            // The read loop broke on a zero-length read before consuming the
+            // declared length — a truncated / interrupted source.
+            ParseCompletion::Incomplete {
+                offset,
+                reason: "short read before end of journal".to_string(),
+            }
+        } else if stats.errors_recovered > 0 {
+            // Reached the end, but skipped some unparseable records.
+            ParseCompletion::CompleteWithRecoveries
+        } else {
+            ParseCompletion::Complete
+        };
         stats.duration = start.elapsed();
         Ok(stats)
     }
@@ -608,6 +625,33 @@ mod tests {
         let stats = parser.parse(&source, &emitter).expect("parse");
         assert_eq!(stats.events_emitted, 0);
         assert_eq!(stats.bytes_processed, 0);
+    }
+
+    #[test]
+    fn completion_status_reflects_terminal_state() {
+        // issen #115 step 1.3: USN must declare a trustworthy terminal state.
+        let parser = UsnJrnlParser;
+
+        // Empty input is not a journal -> Unsupported (not a silent complete).
+        let stats = parser
+            .parse(&SliceSource(vec![]), &CollectingEmitter::new())
+            .expect("parse");
+        assert_eq!(stats.completion, ParseCompletion::Unsupported);
+
+        // A valid journal consumed cleanly to the end -> Complete.
+        let data = build_usn_v2_record(
+            "f.txt",
+            133_451_432_000_000_000,
+            UsnReasonFlags::FILE_CREATE,
+            100,
+            1,
+            1000,
+        );
+        let stats = parser
+            .parse(&SliceSource(data), &CollectingEmitter::new())
+            .expect("parse");
+        assert_eq!(stats.errors_recovered, 0);
+        assert_eq!(stats.completion, ParseCompletion::Complete);
     }
 
     #[test]
