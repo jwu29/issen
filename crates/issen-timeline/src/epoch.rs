@@ -25,8 +25,30 @@ fn hex(bytes: &[u8]) -> String {
 /// WAL the label is salt-qualified, so a checkpoint reset (which renumbers frames) never
 /// collapses two generations onto one epoch.
 pub fn epoch_label_for(lsn: &LsnKind) -> String {
-    let _ = lsn;
-    String::new()
+    match lsn {
+        // WAL: salt-qualified, so a checkpoint reset (salt roll) never collapses
+        // two generations onto one epoch. Lexicographic on (salt1, salt2, frame).
+        LsnKind::SqliteWalFrame {
+            salt1,
+            salt2,
+            frame_seq,
+            commit_seq,
+        } => format!("wal:{salt1:08x}:{salt2:08x}:{commit_seq}:{frame_seq}"),
+        LsnKind::EseLsn(lsn) => format!("ese:{lsn}"),
+        LsnKind::NtfsLfs { record } => format!("lfs:{record}"),
+        LsnKind::JournaldSeq(seq) => format!("journald:{seq}"),
+        LsnKind::GitCommitSha(sha) => format!("git:{sha}"),
+        LsnKind::ApfsTransactionId(xid) => format!("apfs:{xid}"),
+        LsnKind::BtrfsGeneration(generation) => format!("btrfs:{generation}"),
+        // Byte-valued keys are hex-encoded, never lossy.
+        LsnKind::VssShadowSetId(id) => format!("vss:{}", hex(id)),
+        LsnKind::UsnRecord { usn } => format!("usn:{usn}"),
+        // The explicit source-specific catch-all carries its own namespace.
+        LsnKind::Custom { name, value } => format!("{name}:{}", hex(value)),
+        // `LsnKind` is `#[non_exhaustive]`: a future variant gets a deterministic,
+        // namespaced label rather than silently colliding with another epoch.
+        other => format!("lsn:{other:?}"),
+    }
 }
 
 #[cfg(test)]
