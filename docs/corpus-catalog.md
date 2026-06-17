@@ -174,6 +174,10 @@ image-creation doc (hashes, app list):
   `private/var/mobile/Library/.../Biome/.../local/*` — note these dirs unzip with restrictive Apple
   modes (0700), so `chmod -R u+rwX` is needed before scanning. (A prior macOS 15.7 private-stream
   check also matched 785/785; this iOS image is the public, reproducible, **both-variant** validation.)
+- **macOS 26.5 (Tahoe) committed regression:** `segb-forensic/tests/data/biome/Device.Display.Backlight.tahoe26.v2.segb`
+  — a real SEGB **v2** stream from Tahoe (build 25F71) whose post-magic header field is `0x08` vs iOS 17 v2's
+  `0x07`; the v2 reader parses it (8 records, every CRC valid). Captured from a read-only mount of a
+  `macos-tahoe-base` (cirruslabs, public) VM disk. Asserted in `core/tests/real_fixtures.rs::real_tahoe26_segb_v2_backlight`.
 - **`iOS_17_Public_Image.tar.gz` MD5:** `e115f051d15178fa1334489e24c9f0fd` (22,132,295,131 bytes).
 - **Structure:** a Cellebrite UFED package — `iOS_17/Cellebrite_Extraction/.../EXTRACTION_FFS 01/
   EXTRACTION_FFS.zip` (the full file system; biome streams live under
