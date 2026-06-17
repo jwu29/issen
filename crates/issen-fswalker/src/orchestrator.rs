@@ -300,15 +300,13 @@ pub fn run_auto_units(
         discover_artifacts(&manifest.extracted_root)?
     };
     let parsers = all_parsers();
-    let units = parse_units(&artifacts, &parsers, progress);
+    let (units, errors) = parse_units(&artifacts, &parsers, progress);
     let result = IngestResult {
         artifacts_found: artifacts.len(),
         artifacts_parsed: units.len(),
         total_events: units.iter().map(|u| u.events.len() as u64).sum(),
         total_bytes: units.iter().map(|u| u.bytes).sum(),
-        // Per-unit parse failures are captured by the isolation harness (logged
-        // and counted in `progress`); enumerated error capture is a follow-up.
-        errors: Vec::new(),
+        errors,
     };
     Ok((units, result))
 }
@@ -357,8 +355,9 @@ pub fn parse_units(
     artifacts: &[DiscoveredArtifact],
     parsers: &[Box<dyn ForensicParser>],
     progress: &ProgressReporter,
-) -> Vec<ParsedUnit> {
+) -> (Vec<ParsedUnit>, Vec<String>) {
     let mut units = Vec::new();
+    let mut errors = Vec::new();
     for artifact in artifacts {
         let matching: Vec<_> = parsers
             .iter()
@@ -368,9 +367,13 @@ pub fn parse_units(
             continue;
         }
         // Open the source once and share it across this artifact's parsers.
-        let Ok(source) = FileDataSource::open(&artifact.path) else {
-            // Open failures are reported by the flat pipeline; here we just skip.
-            continue;
+        let source = match FileDataSource::open(&artifact.path) {
+            Ok(source) => source,
+            Err(e) => {
+                errors.push(format!("Failed to open {}: {e}", artifact.path.display()));
+                progress.record_error();
+                continue;
+            }
         };
         for parser in matching {
             // A fresh emitter per unit — this is what groups events by unit.
@@ -383,7 +386,9 @@ pub fn parse_units(
                     progress.complete_artifact();
                     stats.bytes_processed
                 }
-                Isolated::Failed(_) => {
+                Isolated::Failed(failure) => {
+                    // Fail loud: surface the failure rather than swallowing it.
+                    errors.push(failure.describe());
                     progress.record_error();
                     continue;
                 }
@@ -397,7 +402,7 @@ pub fn parse_units(
             });
         }
     }
-    units
+    (units, errors)
 }
 
 /// Run the pipeline using rayon parallel iteration across artifacts.
@@ -777,7 +782,8 @@ mod tests {
             }),
         ];
         let progress = ProgressReporter::new();
-        let units = parse_units(&artifacts, &parsers, &progress);
+        let (units, errors) = parse_units(&artifacts, &parsers, &progress);
+        assert!(errors.is_empty(), "no failures on the happy path");
 
         assert_eq!(units.len(), 2, "one unit per (artifact, matching parser)");
         let usn = units.iter().find(|u| u.parser == "USN").expect("USN unit");
@@ -787,6 +793,55 @@ mod tests {
         assert!(usn.events.iter().all(|e| e.description.starts_with("USN-")));
         let mft = units.iter().find(|u| u.parser == "MFT").expect("MFT unit");
         assert_eq!(mft.events.len(), 2);
+    }
+
+    #[test]
+    fn parse_units_reports_parser_failures() {
+        // A failing parser must surface in `errors` (fail-loud, like the flat
+        // pipeline) and yield no unit — not be silently dropped (issen #115).
+        use issen_core::error::RtError;
+        use issen_core::plugin::traits::{
+            DataSource, EventEmitter, ForensicParser, ParseStats, ParserCapabilities,
+        };
+
+        struct FailMock;
+        impl ForensicParser for FailMock {
+            fn name(&self) -> &str {
+                "Boom"
+            }
+            fn supported_artifacts(&self) -> &[ArtifactType] {
+                std::slice::from_ref(&ArtifactType::UsnJournal)
+            }
+            fn parse(
+                &self,
+                _input: &dyn DataSource,
+                _emitter: &dyn EventEmitter,
+            ) -> Result<ParseStats, RtError> {
+                Err(RtError::InvalidData("boom".into()))
+            }
+            fn capabilities(&self) -> ParserCapabilities {
+                ParserCapabilities {
+                    max_memory_bytes: None,
+                    streaming: false,
+                    deterministic: true,
+                }
+            }
+        }
+
+        let dir = tempfile::tempdir().expect("tmp");
+        let p = dir.path().join("a.bin");
+        std::fs::write(&p, b"x").expect("w");
+        let artifacts = vec![DiscoveredArtifact {
+            path: p,
+            artifact_type: ArtifactType::UsnJournal,
+        }];
+        let parsers: Vec<Box<dyn ForensicParser>> = vec![Box::new(FailMock)];
+        let progress = ProgressReporter::new();
+        let (units, errors) = parse_units(&artifacts, &parsers, &progress);
+
+        assert!(units.is_empty(), "a failed parse yields no unit");
+        assert_eq!(errors.len(), 1, "the failure is reported, not swallowed");
+        assert!(errors[0].contains("Boom"), "error names the failed unit");
     }
 
     #[test]
