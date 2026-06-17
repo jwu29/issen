@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use issen_core::artifacts::ArtifactType;
 use issen_fswalker::orchestrator::run_auto_units;
 use issen_fswalker::progress::ProgressReporter;
 use issen_remote_io::gdrive;
@@ -103,10 +104,9 @@ pub fn run(
     // unit committed atomically; units already completed for this evidence
     // source are skipped (resume by default) unless `--refresh` forces a full
     // re-parse. commit_unit's delete-first makes a re-parse idempotent.
-    let progress = ProgressReporter::new();
-    let (units, result) =
-        run_auto_units(evidence_path, &progress).context("Pipeline execution failed")?;
-
+    // Read the resume skip-list BEFORE parsing so completed units skip the
+    // parse cost entirely — not just the duplicate commit. `--refresh` forces a
+    // full re-parse; `commit_unit`'s delete-first keeps that idempotent.
     let completed = if refresh {
         std::collections::HashSet::new()
     } else {
@@ -115,11 +115,29 @@ pub fn run(
             .context("Failed to read resume state")?
     };
 
-    let total_units = units.len();
+    let progress = ProgressReporter::new();
+    // A unit is skipped when its (source, artifact-type, path, parser) identity
+    // — the same stable id `commit_unit` keys on — is already complete. The
+    // `bytes` field does not affect the id, so 0 here matches the commit path.
+    let skip = |at: &ArtifactType, path: &Path, parser: &str| {
+        let unit_id = issen_timeline::ingest::IngestUnit::new(
+            source_id,
+            &format!("{at:?}"),
+            &path.to_string_lossy(),
+            parser,
+            0,
+        )
+        .unit_id;
+        completed.contains(&unit_id)
+    };
+    let (units, result, skipped) =
+        run_auto_units(evidence_path, &progress, &skip).context("Pipeline execution failed")?;
+
     let mut inserted = 0u64;
-    let mut skipped = 0usize;
     // The committed events, kept flat for the optional signature-scan phase.
     let mut events = Vec::new();
+    // Every returned unit is pending (completed ones were skipped before parse),
+    // so each is committed unconditionally.
     for pu in units {
         let unit = issen_timeline::ingest::IngestUnit::new(
             source_id,
@@ -128,10 +146,6 @@ pub fn run(
             &pu.parser,
             i64::try_from(pu.bytes).unwrap_or(i64::MAX),
         );
-        if completed.contains(&unit.unit_id) {
-            skipped += 1;
-            continue;
-        }
         inserted += store
             .commit_unit(&unit, &pu.events)
             .context("Failed to commit ingest unit")?;
@@ -143,7 +157,7 @@ pub fn run(
     println!("Events generated: {}", result.total_events);
     println!(
         "Events committed: {inserted} across {} units",
-        total_units - skipped
+        result.artifacts_parsed
     );
     if skipped > 0 {
         println!("Units resumed:    {skipped} (already complete, skipped)");

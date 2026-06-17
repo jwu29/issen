@@ -291,7 +291,8 @@ pub fn run_auto(
 pub fn run_auto_units(
     path: &Path,
     progress: &ProgressReporter,
-) -> Result<(Vec<ParsedUnit>, IngestResult), RtError> {
+    skip: &dyn Fn(&ArtifactType, &Path, &str) -> bool,
+) -> Result<(Vec<ParsedUnit>, IngestResult, usize), RtError> {
     let artifacts = if path.is_dir() {
         discover_artifacts(path)?
     } else {
@@ -300,7 +301,7 @@ pub fn run_auto_units(
         discover_artifacts(&manifest.extracted_root)?
     };
     let parsers = all_parsers();
-    let (units, errors) = parse_units(&artifacts, &parsers, progress);
+    let (units, errors, skipped) = parse_units(&artifacts, &parsers, progress, skip);
     let result = IngestResult {
         artifacts_found: artifacts.len(),
         artifacts_parsed: units.len(),
@@ -308,7 +309,7 @@ pub fn run_auto_units(
         total_bytes: units.iter().map(|u| u.bytes).sum(),
         errors,
     };
-    Ok((units, result))
+    Ok((units, result, skipped))
 }
 
 /// Sort a timeline into chronological order with a deterministic tiebreak.
@@ -350,20 +351,40 @@ pub struct ParsedUnit {
 /// resumable ingest path needs to `commit_unit` per unit and skip completed
 /// ones. Parsers are passed in (dependency injection) rather than read from the
 /// force-linked registry, so the per-unit grouping is unit-testable.
+///
+/// `skip` marks units already committed for this evidence source (resume): a
+/// skipped unit's parser is **never invoked**, and the file source is not even
+/// opened when *all* of an artifact's parsers are skipped — so a resume run
+/// avoids the parse cost, not just the duplicate commit (issen #115). Returns
+/// the parsed units, per-unit failure descriptions, and the count of units
+/// skipped because `skip` reported them complete.
 #[must_use]
 pub fn parse_units(
     artifacts: &[DiscoveredArtifact],
     parsers: &[Box<dyn ForensicParser>],
     progress: &ProgressReporter,
-) -> (Vec<ParsedUnit>, Vec<String>) {
+    skip: &dyn Fn(&ArtifactType, &Path, &str) -> bool,
+) -> (Vec<ParsedUnit>, Vec<String>, usize) {
     let mut units = Vec::new();
     let mut errors = Vec::new();
+    let mut skipped = 0usize;
     for artifact in artifacts {
-        let matching: Vec<_> = parsers
+        // Partition this artifact's matching parsers into the ones still to
+        // parse and the ones already complete. A completed unit is counted as
+        // skipped and never parsed — the resume cost saving.
+        let mut to_parse = Vec::new();
+        for parser in parsers
             .iter()
             .filter(|p| p.supported_artifacts().contains(&artifact.artifact_type))
-            .collect();
-        if matching.is_empty() {
+        {
+            if skip(&artifact.artifact_type, &artifact.path, parser.name()) {
+                skipped += 1;
+            } else {
+                to_parse.push(parser);
+            }
+        }
+        if to_parse.is_empty() {
+            // Nothing pending for this artifact — don't even open the source.
             continue;
         }
         // Open the source once and share it across this artifact's parsers.
@@ -375,7 +396,7 @@ pub fn parse_units(
                 continue;
             }
         };
-        for parser in matching {
+        for parser in to_parse {
             // A fresh emitter per unit — this is what groups events by unit.
             let emitter = CollectingEmitter::new();
             let label = format!("{} [{}]", artifact.path.display(), parser.name());
@@ -402,7 +423,7 @@ pub fn parse_units(
             });
         }
     }
-    (units, errors)
+    (units, errors, skipped)
 }
 
 /// Run the pipeline using rayon parallel iteration across artifacts.
@@ -782,7 +803,7 @@ mod tests {
             }),
         ];
         let progress = ProgressReporter::new();
-        let (units, errors) = parse_units(&artifacts, &parsers, &progress);
+        let (units, errors, _) = parse_units(&artifacts, &parsers, &progress, &|_, _, _| false);
         assert!(errors.is_empty(), "no failures on the happy path");
 
         assert_eq!(units.len(), 2, "one unit per (artifact, matching parser)");
@@ -837,7 +858,7 @@ mod tests {
         }];
         let parsers: Vec<Box<dyn ForensicParser>> = vec![Box::new(FailMock)];
         let progress = ProgressReporter::new();
-        let (units, errors) = parse_units(&artifacts, &parsers, &progress);
+        let (units, errors, _) = parse_units(&artifacts, &parsers, &progress, &|_, _, _| false);
 
         assert!(units.is_empty(), "a failed parse yields no unit");
         assert_eq!(errors.len(), 1, "the failure is reported, not swallowed");
