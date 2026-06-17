@@ -306,6 +306,14 @@ which the real compressor never emits). macOS hides `com.apple.decmpfs`; type re
 `getxattr(..., XATTR_SHOWCOMPRESSION)`. Real data caught 2 bugs synthetic fixtures masked (zlib offset
 base = headerSize+4; LZFSE zero-padded chunk table). Generators in `hfsplus-forensic/tests/data/README.md`.
 Asserted in `core` lib tests + `tests/decmpfs_integration.rs`.
+**Tahoe (macOS 26.5, build 25F71) regression:** `tahoe_type8.rsrc`+`.expected` (a real type-8 LZVN
+resource fork that carries 80–300 trailing bytes *after* the end-of-stream opcode) and
+`tahoe_type9.decmpfs`+`.expected` (a real type-9 uncompressed-inline xattr with its 1-byte `0xCC`
+storage marker). Captured by mounting a `macos-tahoe-vanilla` VM disk read-only on the host and reading
+`com.apple.decmpfs`/`com.apple.ResourceFork` via `getxattr(..., XATTR_SHOWCOMPRESSION=0x20)`; oracle =
+Apple `COMPRESSION_LZVN` (`0x900`) + the kernel's transparent read. Exposed 2 bugs synthetic `ditto`
+fixtures masked — type-8 strict-trailing reject (fixed via the `lzvn` crate) and type-9 unstripped
+marker — taking real-sample decoding from **0/35 → 35/35**.
 
 ### C5 · apm-partition-forensic — `forensic/tests/data/apm_map.bin` (2 KB) · REAL-self ✓
 Apple Partition Map + DDM from an `hdiutil` HFS+ image (2 partitions). `forensic/tests/map.rs`.
@@ -331,6 +339,14 @@ cc -O2 -I"$(brew --prefix lzo)/include" validation/lzo_compress.c -L"$(brew --pr
 /tmp/lzo_compress 999 readme.raw readme.lzo    # lzo1x_999 on REAL content: README.md, src/lib.rs
 ```
 `.raw` inputs = hand-crafted probes + the project's own `README.md`/`src/lib.rs`.
+
+### C8b · lzvn (`SecurityRonin/lzvn`, crate `lzvn-core`) — `tests/data/*.{lzvn,expected}` (4 pairs) · SYNTHETIC (Apple-encoded) ✓
+`.lzvn` = real Apple LZVN streams from Apple's own `compression_encode_buffer(COMPRESSION_LZVN, 0x900)`
+over synthetic inputs (`text_small`, `text_repeats` = heavy match/overlap, `mixed`, `near_random`), each
+padded with trailing bytes after end-of-stream to exercise length-tolerance (the `decmpfs` block shape).
+Inputs are synthetic so the fixtures are freely redistributable. The decoder was additionally validated
+against the 25 real macOS 26.5 type-8 blocks above (C4b `tahoe_type8.*`) vs the same Apple oracle. Generator
+in `lzvn/docs/validation.md`; fuzz target `decode` (clean over 1.37M runs).
 
 ### C9 · gpt- / mbr-partition-forensic, ntfs/usnjrnl records · SYNTHETIC ✓
 No committed images — fixtures are constructed **byte-by-byte by Rust builders in the tests** (no
