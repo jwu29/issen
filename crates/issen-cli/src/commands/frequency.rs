@@ -61,7 +61,12 @@ fn print_json(anomalies: &[FrequencyAnomaly], total_analyzed: usize) {
         "anomalies": arr,
         "total_analyzed": total_analyzed,
     });
-    println!("{}", serde_json::to_string_pretty(&out).unwrap());
+    // Serializing an in-memory `json!` value is infallible; `expect` documents
+    // that and satisfies the `unwrap_used = deny` lint.
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&out).expect("serialize JSON value")
+    );
 }
 
 fn print_summary(anomalies: &[FrequencyAnomaly], total_analyzed: usize) {

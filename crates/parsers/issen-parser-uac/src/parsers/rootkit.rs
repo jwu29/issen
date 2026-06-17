@@ -239,7 +239,10 @@ pub fn check_kernel_taint(content: &str) -> Vec<RootkitFinding> {
 /// Returns the compiled PAM credential staging regex (lazily initialised).
 fn pam_cred_regex() -> &'static regex::Regex {
     static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    RE.get_or_init(|| regex::Regex::new(r"^\d+:\d+:\w+:[^\n]+").unwrap())
+    // The pattern is a compile-time-constant literal, so it cannot fail to
+    // compile — `expect` documents that, matching the fleet regex convention
+    // (issen-signatures) and satisfying the `unwrap_used = deny` lint.
+    RE.get_or_init(|| regex::Regex::new(r"^\d+:\d+:\w+:[^\n]+").expect("valid regex"))
 }
 
 /// Scan temp-like directories for PAM hook credential staging files.
@@ -699,7 +702,8 @@ mod tests {
         std::fs::write(
             dir.path().join("live_response/tmp/silly.txt"),
             "1000:1:password:hunter2\n",
-        ).unwrap();
+        )
+        .unwrap();
         let findings = scan_pam_credential_staging(dir.path());
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].severity, RootkitSeverity::Critical);
@@ -713,7 +717,8 @@ mod tests {
         std::fs::write(
             dir.path().join("var/tmp/.hidden_creds"),
             "500:3:passwd:secret99\n",
-        ).unwrap();
+        )
+        .unwrap();
         let findings = scan_pam_credential_staging(dir.path());
         assert!(!findings.is_empty(), "should detect staging in var/tmp");
         assert_eq!(findings[0].severity, RootkitSeverity::Critical);
@@ -726,7 +731,8 @@ mod tests {
         std::fs::write(
             dir.path().join("live_response/dev/shm/.x11-lock"),
             "0:2:pw:correcthorsebatterystaple\n",
-        ).unwrap();
+        )
+        .unwrap();
         let findings = scan_pam_credential_staging(dir.path());
         assert!(!findings.is_empty(), "should detect staging in dev/shm");
     }
@@ -739,9 +745,13 @@ mod tests {
         std::fs::write(
             dir.path().join("tmp/.cache_lock"),
             "1001:1:password:Password123!\n",
-        ).unwrap();
+        )
+        .unwrap();
         let findings = scan_pam_credential_staging(dir.path());
-        assert!(!findings.is_empty(), "renamed staging file must still be detected");
+        assert!(
+            !findings.is_empty(),
+            "renamed staging file must still be detected"
+        );
     }
 
     #[test]
@@ -749,12 +759,12 @@ mod tests {
         // Variant changed field name from "password" to "passwd"
         let dir = tempfile::tempdir().expect("tmpdir");
         std::fs::create_dir_all(dir.path().join("tmp")).unwrap();
-        std::fs::write(
-            dir.path().join("tmp/creds"),
-            "1000:1:passwd:hunter2\n",
-        ).unwrap();
+        std::fs::write(dir.path().join("tmp/creds"), "1000:1:passwd:hunter2\n").unwrap();
         let findings = scan_pam_credential_staging(dir.path());
-        assert!(!findings.is_empty(), "variant field name 'passwd' must still match structural pattern");
+        assert!(
+            !findings.is_empty(),
+            "variant field name 'passwd' must still match structural pattern"
+        );
     }
 
     #[test]
@@ -765,7 +775,8 @@ mod tests {
         std::fs::write(
             dir.path().join("tmp/notes.txt"),
             "This is just a regular text file\nWith multiple lines\n",
-        ).unwrap();
+        )
+        .unwrap();
         let findings = scan_pam_credential_staging(dir.path());
         assert!(findings.is_empty(), "random text file must NOT be flagged");
     }
@@ -778,7 +789,11 @@ mod tests {
         std::fs::write(dir.path().join("tmp/f1"), "1000:1:password:abc\n").unwrap();
         std::fs::write(dir.path().join("var/tmp/f2"), "1001:1:password:def\n").unwrap();
         let findings = scan_pam_credential_staging(dir.path());
-        assert_eq!(findings.len(), 2, "should find one finding per staging file");
+        assert_eq!(
+            findings.len(),
+            2,
+            "should find one finding per staging file"
+        );
     }
 
     #[test]
@@ -788,11 +803,16 @@ mod tests {
         std::fs::write(
             dir.path().join("tmp/silly.txt"),
             "1000:1:password:pass1\n1001:1:password:pass2\n1002:1:password:pass3\n",
-        ).unwrap();
+        )
+        .unwrap();
         let findings = scan_pam_credential_staging(dir.path());
         assert_eq!(findings.len(), 1, "one file → one finding");
-        assert!(findings[0].description.contains('3') || findings[0].description.contains("3 credential"),
-            "description should mention credential count, got: {}", findings[0].description);
+        assert!(
+            findings[0].description.contains('3')
+                || findings[0].description.contains("3 credential"),
+            "description should mention credential count, got: {}",
+            findings[0].description
+        );
     }
 
     #[test]
@@ -802,7 +822,8 @@ mod tests {
         std::fs::write(
             dir.path().join("live_response/tmp/silly.txt"),
             "1000:1:password:hunter2\n",
-        ).unwrap();
+        )
+        .unwrap();
         let findings = scan_rootkit_indicators(dir.path());
         assert!(
             findings.iter().any(|f| f.check == "pam_credential_staging"),

@@ -100,7 +100,12 @@ fn print_json(processes: &[ProcessEvent]) {
         "processes": arr,
         "total_count": processes.len(),
     });
-    println!("{}", serde_json::to_string_pretty(&out).unwrap());
+    // Serializing an in-memory `json!` value is infallible; `expect` documents
+    // that and satisfies the `unwrap_used = deny` lint.
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&out).expect("serialize JSON value")
+    );
 }
 
 fn print_summary(processes: &[ProcessEvent]) {
