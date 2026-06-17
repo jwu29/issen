@@ -1,2 +1,6 @@
 [toolchain]
-channel = "stable"
+# Pinned (not floating "stable") so rustfmt/clippy output is byte-identical
+# across every contributor and CI — a floating channel reintroduces fmt drift
+# each time stable bumps. Bump this deliberately, fleet-wide, in one pass.
+channel = "1.96.0"
+components = ["clippy", "rustfmt"]
