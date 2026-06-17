@@ -131,6 +131,12 @@ pub enum Commands {
         /// Path to network IOC file (IPs/domains/CIDRs, one per line).
         #[arg(long)]
         network_iocs: Option<Vec<PathBuf>>,
+
+        /// Re-parse and overwrite every unit, ignoring the prior completed-unit
+        /// state. Default is resume: units already ingested for this evidence
+        /// source are skipped (issen #115).
+        #[arg(long)]
+        refresh: bool,
     },
 
     /// Query and export the timeline.
@@ -494,6 +500,7 @@ fn main() -> ExitCode {
             sigma_rules,
             hash_iocs,
             network_iocs,
+            refresh,
         } => commands::ingest::run(
             &evidence_path,
             &output,
@@ -504,6 +511,7 @@ fn main() -> ExitCode {
             sigma_rules.as_deref(),
             hash_iocs.as_deref(),
             network_iocs.as_deref(),
+            refresh,
         ),
         Commands::Timeline {
             db_path,

@@ -279,6 +279,40 @@ pub fn run_auto(
     Ok(out)
 }
 
+/// Per-unit, resumable variant of [`run_auto`] (issen #115).
+///
+/// Auto-detects directory vs collection archive exactly like [`run_auto`], but
+/// returns events grouped per `(artifact, parser)` [`ParsedUnit`] instead of one
+/// flat list — so the caller can `commit_unit` each atomically and skip units
+/// already completed in a prior run.
+///
+/// # Errors
+/// Returns an error if artifact discovery or collection extraction fails.
+pub fn run_auto_units(
+    path: &Path,
+    progress: &ProgressReporter,
+) -> Result<(Vec<ParsedUnit>, IngestResult), RtError> {
+    let artifacts = if path.is_dir() {
+        discover_artifacts(path)?
+    } else {
+        let manifest = issen_unpack::registry::open_collection(path)
+            .map_err(|e| RtError::UnsupportedFormat(e.to_string()))?;
+        discover_artifacts(&manifest.extracted_root)?
+    };
+    let parsers = all_parsers();
+    let units = parse_units(&artifacts, &parsers, progress);
+    let result = IngestResult {
+        artifacts_found: artifacts.len(),
+        artifacts_parsed: units.len(),
+        total_events: units.iter().map(|u| u.events.len() as u64).sum(),
+        total_bytes: units.iter().map(|u| u.bytes).sum(),
+        // Per-unit parse failures are captured by the isolation harness (logged
+        // and counted in `progress`); enumerated error capture is a follow-up.
+        errors: Vec::new(),
+    };
+    Ok((units, result))
+}
+
 /// Sort a timeline into chronological order with a deterministic tiebreak.
 ///
 /// Parsers and the parallel (rayon) pipeline emit events in discovery/parse

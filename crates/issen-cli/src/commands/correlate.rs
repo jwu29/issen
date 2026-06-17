@@ -164,6 +164,7 @@ pub fn run(case_dir: &Path) -> Result<()> {
             None,
             None,
             None,
+            false, // resume by default; correlate never forces a full re-parse
         )
         .with_context(|| format!("ingesting evidence {}", root.display()))?;
     }

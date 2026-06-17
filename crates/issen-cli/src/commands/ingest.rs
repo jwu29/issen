@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use issen_fswalker::orchestrator::run_auto;
+use issen_fswalker::orchestrator::run_auto_units;
 use issen_fswalker::progress::ProgressReporter;
 use issen_remote_io::gdrive;
 use issen_remote_io::uri::{is_remote_uri, UriScheme};
@@ -45,6 +45,7 @@ pub fn run(
     sigma_rules: Option<&Path>,
     hash_iocs: Option<&[PathBuf]>,
     network_iocs: Option<&[PathBuf]>,
+    refresh: bool,
 ) -> Result<()> {
     // Remote source URI dispatch.
     if let Some(uri) = source_uri {
@@ -101,20 +102,55 @@ pub fn run(
         .register_evidence_source(source_id, &evidence_path.to_string_lossy(), None, None)
         .context("Failed to register evidence source")?;
 
-    // Run the pipeline.
+    // Resumable, per-unit ingestion (issen #115). Each (artifact, parser) is a
+    // unit committed atomically; units already completed for this evidence
+    // source are skipped (resume by default) unless `--refresh` forces a full
+    // re-parse. commit_unit's delete-first makes a re-parse idempotent.
     let progress = ProgressReporter::new();
-    let (events, result) =
-        run_auto(evidence_path, &progress).context("Pipeline execution failed")?;
+    let (units, result) =
+        run_auto_units(evidence_path, &progress).context("Pipeline execution failed")?;
 
-    // Insert events into DuckDB.
-    let inserted = store
-        .inseissen_batch(&events)
-        .context("Failed to insert events into timeline")?;
+    let completed = if refresh {
+        std::collections::HashSet::new()
+    } else {
+        store
+            .completed_units(source_id)
+            .context("Failed to read resume state")?
+    };
+
+    let total_units = units.len();
+    let mut inserted = 0u64;
+    let mut skipped = 0usize;
+    // The committed events, kept flat for the optional signature-scan phase.
+    let mut events = Vec::new();
+    for pu in units {
+        let unit = issen_timeline::ingest::IngestUnit::new(
+            source_id,
+            &format!("{:?}", pu.artifact_type),
+            &pu.path.to_string_lossy(),
+            &pu.parser,
+            i64::try_from(pu.bytes).unwrap_or(i64::MAX),
+        );
+        if completed.contains(&unit.unit_id) {
+            skipped += 1;
+            continue;
+        }
+        inserted += store
+            .commit_unit(&unit, &pu.events)
+            .context("Failed to commit ingest unit")?;
+        events.extend(pu.events);
+    }
 
     println!("Artifacts found:  {}", result.artifacts_found);
     println!("Artifacts parsed: {}", result.artifacts_parsed);
     println!("Events generated: {}", result.total_events);
-    println!("Events inserted:  {inserted} (after dedup)");
+    println!(
+        "Events committed: {inserted} across {} units",
+        total_units - skipped
+    );
+    if skipped > 0 {
+        println!("Units resumed:    {skipped} (already complete, skipped)");
+    }
     println!("Bytes processed:  {}", format_bytes(result.total_bytes));
     println!("Database:         {}", output.display());
 
