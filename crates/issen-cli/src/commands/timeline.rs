@@ -101,8 +101,8 @@ pub fn run(
 
     // Print events in a simple table format.
     println!(
-        "{:<26} {:<16} {:<14} {}",
-        "TIMESTAMP", "EVENT_TYPE", "SOURCE", "DESCRIPTION"
+        "{:<26} {:<16} {:<14} DESCRIPTION",
+        "TIMESTAMP", "EVENT_TYPE", "SOURCE"
     );
     println!("{}", "-".repeat(80));
 
@@ -183,8 +183,8 @@ fn show_flagged(store: &TimelineStore, min_severity: &str, format: &str) -> Resu
 
     // Print findings table.
     println!(
-        "{:<10} {:<10} {:<30} {}",
-        "SEVERITY", "ENGINE", "RULE", "DESCRIPTION"
+        "{:<10} {:<10} {:<30} DESCRIPTION",
+        "SEVERITY", "ENGINE", "RULE"
     );
     println!("{}", "-".repeat(90));
 
@@ -291,7 +291,9 @@ mod tests {
         let (events, findings) = collect_narrative_findings(&store).expect("narrative");
         assert_eq!(events.len(), 1, "one event ingested");
         assert!(
-            findings.iter().any(|f| f.rule_id == "temporal.hollow-process"),
+            findings
+                .iter()
+                .any(|f| f.rule_id == "temporal.hollow-process"),
             "expected temporal.hollow-process finding; got {:?}",
             findings
                 .iter()

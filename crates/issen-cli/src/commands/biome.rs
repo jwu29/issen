@@ -62,7 +62,7 @@ pub fn run(path: &Path, format: &str) -> anyhow::Result<()> {
                 return Ok(());
             }
             println!("Surfaced {} Biome menu-selection event(s).", events.len());
-            println!("{:<30} {}", "Timestamp", "Selection");
+            println!("{:<30} Selection", "Timestamp");
             println!("{}", "-".repeat(70));
             for e in &events {
                 println!("{:<30} {}", e.timestamp_display, e.description);

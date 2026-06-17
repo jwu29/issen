@@ -193,10 +193,10 @@ pub fn run(collection_path: &Path) -> anyhow::Result<()> {
 
             // Prefer all_thread_names (process + threads) when available, fall
             // back to thread_names for backward compat with old collections.
-            let display_names = if !finding.all_thread_names.is_empty() {
-                finding.all_thread_names.clone()
-            } else {
+            let display_names = if finding.all_thread_names.is_empty() {
                 finding.thread_names.clone()
+            } else {
+                finding.all_thread_names.clone()
             };
             if !display_names.is_empty() {
                 println!("│           Names: {}", display_names.join(", "));
@@ -350,10 +350,10 @@ pub fn run(collection_path: &Path) -> anyhow::Result<()> {
             let sev = f.severity.to_uppercase();
             let severity_label: colored::ColoredString = match sev.as_str() {
                 "CRITICAL" => sev.red().bold(),
-                "HIGH" => sev.red().into(),
+                "HIGH" => sev.red(),
                 "MEDIUM" => sev.yellow().bold(),
-                "LOW" => sev.yellow().into(),
-                _ => sev.cyan().into(),
+                "LOW" => sev.yellow(),
+                _ => sev.cyan(),
             };
             println!("│  [{}] {}", severity_label, f.title);
             println!("│         Rule : {}", f.rule_id);

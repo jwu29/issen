@@ -47,8 +47,8 @@ pub enum FeedAction {
 /// List all configured feeds with their status.
 fn run_list(registry: &FeedRegistry, cache: &FeedCache) -> Result<()> {
     println!(
-        "{:<35} {:<8} {:<12} {:<10} {}",
-        "ID", "Enabled", "Cached", "Type", "Name"
+        "{:<35} {:<8} {:<12} {:<10} Name",
+        "ID", "Enabled", "Cached", "Type"
     );
     println!("{}", "-".repeat(90));
 

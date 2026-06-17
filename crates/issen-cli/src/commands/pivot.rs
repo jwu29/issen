@@ -34,7 +34,7 @@ pub fn evaluate_correlation(
     let evidence = build_evidence(rootkit_findings, hidden, net_conns, cpu_percent_user);
     let enriched = enrich_evidence(evidence);
     let rules = load_rule_pack(&bundled_rule_dir())?;
-    Ok(CorrelationEngine::default().evaluate(&rules, &enriched))
+    Ok(CorrelationEngine.evaluate(&rules, &enriched))
 }
 
 /// Deprecated alias for [`evaluate_correlation`].
@@ -99,7 +99,7 @@ pub fn build_evidence(
             Some(subject.clone()),
         )
         .with_attr("process_name", &name)
-        .with_attr("pid", &finding.pid.to_string())
+        .with_attr("pid", finding.pid.to_string())
         .with_tag("hidden_process");
 
         // If this process has libuv-worker threads → miner indicator
@@ -125,7 +125,7 @@ pub fn build_evidence(
             .with_attr("proto", &conn.proto);
 
             if let Some(p) = conn.dst_port {
-                nev = nev.with_attr("dst_port", &p.to_string());
+                nev = nev.with_attr("dst_port", p.to_string());
                 // Stratum mining ports
                 if matches!(p, 3333 | 4444 | 5555 | 14444 | 45700) {
                     nev = nev.with_tag("mining_pool");
@@ -133,7 +133,7 @@ pub fn build_evidence(
             }
             // SSH tunnel indicator: hidden ssh process listening on 3333
             if let Some(p) = conn.src_port {
-                nev = nev.with_attr("src_port", &p.to_string());
+                nev = nev.with_attr("src_port", p.to_string());
                 if p == 3333 {
                     nev = nev.with_tag("stratum_listener");
                 }
@@ -155,7 +155,7 @@ pub fn build_evidence(
         .with_attr("state", &conn.state);
 
         if let Some(p) = conn.pid {
-            ev = ev.with_attr("pid", &p.to_string());
+            ev = ev.with_attr("pid", p.to_string());
         }
         out.push(ev);
     }
@@ -170,7 +170,7 @@ pub fn build_evidence(
                     EvidenceKind::Artifact,
                     None,
                 )
-                .with_attr("cpu_user_percent", &format!("{cpu:.1}"))
+                .with_attr("cpu_user_percent", format!("{cpu:.1}"))
                 .with_tag("cpu_anomaly"),
             );
         }
