@@ -23,6 +23,7 @@
     clippy::missing_panics_doc,
     clippy::must_use_candidate
 )]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 use std::path::Path;
 
@@ -131,6 +132,7 @@ pub fn parse_setupapi_str(
                     description,
                     source_id.to_string(),
                 )
+                .with_activity_category(issen_core::ActivityCategory::DeviceInstall)
                 .with_metadata("log_line", serde_json::json!(trimmed))
                 .with_metadata("log_format", serde_json::json!("vista"));
 
@@ -159,6 +161,7 @@ pub fn parse_setupapi_str(
                     description,
                     source_id.to_string(),
                 )
+                .with_activity_category(issen_core::ActivityCategory::DeviceInstall)
                 .with_metadata("log_line", serde_json::json!(trimmed))
                 .with_metadata("log_format", serde_json::json!("xp"));
 

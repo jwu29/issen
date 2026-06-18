@@ -35,6 +35,7 @@ fn make_event(
         format!("Shell command: {command}"),
         source_id.to_string(),
     )
+    .with_activity_category(issen_core::ActivityCategory::Execution)
     .with_metadata("command", serde_json::json!(command))
 }
 

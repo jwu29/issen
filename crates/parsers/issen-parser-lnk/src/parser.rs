@@ -119,6 +119,7 @@ pub fn parse_lnk_bytes(raw: &[u8], artifact_path: &str, source_id: &str) -> Vec<
             description.clone(),
             source_id.to_string(),
         )
+        .with_activity_category(issen_core::ActivityCategory::FileSystemActivity)
         .with_metadata("file_size", serde_json::json!(file_size))
         .with_metadata("link_flags", serde_json::json!(link_flags_str.clone()))
         .with_metadata(

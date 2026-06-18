@@ -39,7 +39,8 @@ fn make_event(
         artifact_path.to_string(),
         description.to_string(),
         source_id.to_string(),
-    );
+    )
+    .with_activity_category(issen_core::ActivityCategory::ScheduledTask);
     for (k, v) in metadata {
         ev = ev.with_metadata(k, v);
     }

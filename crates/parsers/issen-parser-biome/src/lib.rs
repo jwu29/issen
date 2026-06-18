@@ -88,6 +88,7 @@ pub fn activities_to_events(
                 format!("Biome App.MenuItem: {}", a.detail),
                 evidence_source.to_string(),
             )
+            .with_activity_category(issen_core::ActivityCategory::UserActivity)
             .with_metadata("action", serde_json::json!("MenuSelected"))
             .with_metadata("subject", serde_json::json!(a.detail))
         })

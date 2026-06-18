@@ -35,6 +35,7 @@
     clippy::manual_contains,
     clippy::unnecessary_literal_bound
 )]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 //! MFT parser for `Issen`.
 //!
 //! Wraps the `mft` crate to parse NTFS Master File Table (`$MFT`) files and
@@ -122,6 +123,7 @@ fn mace_event(
         description,
         source_id.to_string(),
     )
+    .with_activity_category(issen_core::ActivityCategory::FileSystemActivity)
     .with_metadata("mft_entry_id", serde_json::json!(entry_id))
     .with_metadata("is_directory", serde_json::json!(is_dir))
 }

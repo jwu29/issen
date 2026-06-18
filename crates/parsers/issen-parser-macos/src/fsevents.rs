@@ -89,7 +89,8 @@ fn parse_fsevents_line(line: &str, artifact_path: &Path, source_id: &str) -> Opt
         artifact_path.to_string_lossy().into_owned(),
         description,
         source_id.to_string(),
-    );
+    )
+    .with_activity_category(issen_core::ActivityCategory::FileSystemActivity);
     ev.metadata = metadata;
     Some(ev)
 }

@@ -10,6 +10,7 @@
     clippy::must_use_candidate,
     clippy::unnecessary_literal_bound
 )]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 pub mod fsevents;
 pub mod unified_log;

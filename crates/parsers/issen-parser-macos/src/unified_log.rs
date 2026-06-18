@@ -89,7 +89,8 @@ fn parse_line(line: &str, artifact_path: &Path, source_id: &str) -> Option<Timel
         artifact_path.to_string_lossy().into_owned(),
         description,
         source_id.to_string(),
-    );
+    )
+    .with_activity_category(issen_core::ActivityCategory::SystemState);
     ev.metadata = metadata;
     Some(ev)
 }
