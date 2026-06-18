@@ -127,4 +127,4 @@ Ingested the Case-001 **DC** E01 (`E01-DC01`, 4.6 GB → 898 MiB, **727K events,
 - ✅ **DC logons: 4,905 login-activity** (vs Desktop 317 — DC has far more, as expected).
 - ✅ **DC accounts: 225 account-activity** incl. SAM account DB (Administrator RID 500, NTLM-hash metadata) — evidence for "domain users / passwords" (cracking is external).
 - ✅ **CADET works on the DC**: filesystem-activity 431K (MFT/USN tagged — de-dup fix holds on host #2), system-state 201K, persistence 10K.
-- 🚩 **NEW Doer-Checker finding:** the SAM parser reports **`Guest (RID 500)`** — Guest is RID **501** (Administrator is 500). Likely a RID-extraction bug in the sam parser. Flagged, separate scope.
+- ✅ **SAM RID bug FIXED + published (winreg-artifacts 0.1.3):** the parser reported `Guest (RID 500)` — `find_rid_for_username` ignored the username and returned the first `Users\<hex>` RID for everyone. Now reads the per-account RID from the `Names\<username>` default value TYPE (canonical SAM layout). RED `db4af05`/GREEN `b957375`/publish `4cb21d8`; issen bumped. **Validated on real Case-001 DC SAM: Administrator RID 500, Guest RID 501.**
