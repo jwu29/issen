@@ -104,25 +104,30 @@ Yields `tests/data/case001-hives/{SAM,SECURITY,SOFTWARE,SYSTEM,NTUSER.DAT}` (all
 | `SYSTEM` | 12845056 | `05cd86230d5bdbcade8fd6da1d5313a4` |
 | `NTUSER.DAT` (Administrator) | 524288 | `9f540e3d52a70c8060a54d0d8ee7e1bf` |
 
-**`UsrClass.dat` (carved from the Desktop E01, NOT the protected-files zip)** — used by
-`issen-parser-comhijack/tests/real_hive_category.rs` (Win10 per-user COM CLSID lives here, not NTUSER.DAT).
-Carve every user's UsrClass.dat with the one-off `issen-disk` example (untracked, like `dump_file.rs`):
+**`UsrClass.dat` + `Amcache.hve` (carved from the Desktop E01, NOT a protected-files zip)** — used by
+`issen-parser-{comhijack,amcache}/tests/real_hive_category.rs`. Carve with the committed `issen-disk`
+examples (`extract_usrclass` / `extract_amcache` / `extract_security`):
 
 ```sh
 unzip -o -j "DFIR Madness .../DESKTOP-E01.zip" '*.E0*' -d /tmp/desktop-e01   # ~6.4GB, 4 EWF segments
-cargo run --release --example extract_usrclass -- /tmp/desktop-e01/20200918_0417_DESKTOP-SDN1RPT.E01 tests/data/case001-hives
+E01=/tmp/desktop-e01/20200918_0417_DESKTOP-SDN1RPT.E01
+cargo run --release --example extract_usrclass -- "$E01" tests/data/case001-hives
 cp -f tests/data/case001-hives/UsrClass-ricksanchez.dat tests/data/case001-hives/UsrClass.dat   # primary user
+cargo run --release --example extract_amcache  -- "$E01" tests/data/case001-hives
 ```
 
-| Hive | Bytes | MD5 |
+| File | Bytes | MD5 |
 |---|---|---|
-| `UsrClass.dat` (ricksanchez) | 3407872 | `5e28f59f5414e754b4e6e4868fa9d7a0` |
+| `UsrClass.dat` (ricksanchez — Win10 per-user COM CLSID) | 3407872 | `5e28f59f5414e754b4e6e4868fa9d7a0` |
+| `Amcache.hve` (`Windows\AppCompat\Programs\`, program execution) | 1572864 | `0512afeba75e21c724fa75a365bb81d1` |
 
-Artifacts STILL not satisfiable from this case (parsers left untagged, not faked): DCC2 cache
-(`lsadump`/SECURITY — `Cache` has 0 `NL$n` slots in Case-001), `amcache` needs `Amcache.hve`
-(at `Windows/AppCompat/Programs/` in the E01, carvable via `extract_dir_suffix`). `svcdiff` &
-`comhijack` were NOT data gaps — they were parser bugs, fixed in **winreg-artifacts 0.1.2** (offline
-`ControlSet001` resolution / `UsrClass.dat` root CLSID) and now tagged.
+Still-unsatisfiable from this corpus (parsers left untagged, not faked): **DCC2 cache** (`lsadump`).
+`SECURITY\Cache` has **0 `NL$n` slots on every image we hold** — verified by driving `parse_lsadump`
+over Case-001 DC **and** Desktop, DEF CON `MaxPowers`, and Magnet `PC-MUS-001` (all 0). DCC2 is cached
+on domain-member workstations with cached-logon enabled; none of our images materialized it. (`Policy\Secrets`
+*is* present in the SECURITY hives — a viable alternate path if issen's lsadump is extended beyond DCC2.)
+`svcdiff` & `comhijack` were NOT data gaps — they were parser bugs, fixed in **winreg-artifacts 0.1.2**
+(offline `ControlSet001` resolution / `UsrClass.dat` root CLSID) and now tagged.
 
 #### A3a · Prefetch fixtures derived from A3 (committed in two repos) · SYNTHETIC-from-REAL ✓
 
