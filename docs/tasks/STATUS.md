@@ -159,3 +159,15 @@ Dug into the memf symbol path. The "symbols unavailable" failures are NOT a brok
 4. Repeat for the modules `creds`/`check`/`scan` need.
 
 Effort: meaningful work in `memf-symbols` (module scan + multi-module resolver) + `memf-windows` (wire walkers) + republish + issen bump. **Decision needed before starting** — this is the lever that recovers the C2 IP (the prime memory answer), but it's a feature, not a fix. (Note: this box even has `tcpip.pdb` from a Volatility install — symbols are obtainable.)
+
+### Multi-module memory symbols (task 1) — PRECISELY SCOPED (2026-06-19)
+
+To recover `netstat` (the C2 IP) + `creds`, issen must resolve **tcpip.sys** (and lsass) module symbols — today `resolve_auto_profile` resolves only `ntkrnlmp.pdb`. Concrete plan (each a TDD slice):
+1. **Kernel driver-list walker** (memf-windows, NEW): resolve `PsLoadedModuleList` (kernel symbol, already available), walk the `_KLDR_DATA_TABLE_ENTRY` `_LIST_ENTRY` chain → find `tcpip.sys` base. (Existing `walk_ldr_modules` is USER-mode PEB-only; this is the kernel list.) Validate vs real Case-001 DC dump.
+2. **Module PE → RSDS PDB id** (memf-symbols): read the driver image's CodeView record → `PdbId`. Generalize `scan_for_kernel`'s RSDS extraction (don't duplicate).
+3. **Resolve tcpip.pdb**: `AutoProfile::from_pdb_id` (download/cache already works).
+4. **Multi-module resolver** (memf-symbols, NEW): a `SymbolResolver` keyed by module (kernel + tcpip), so `symbol_address` routes per module.
+5. **Wire netstat dispatch** (issen-mem/memf-windows) to feed the netstat walker the tcpip resolver; same pattern for `creds` (lsass).
+6. Republish memf crates + bump issen.
+
+**Risk/coupling:** memory-forensic is path-patched into issen (`[patch.crates-io]`), so this must land cleanly/atomically — a dirty memf tree breaks ALL issen compiles. This is a multi-step feature best done as its own focused pass, not appended to a long mixed session. **Recommend a dedicated session** starting at step 1 (the kernel driver-list walker — a self-contained, TDD-able foundation, validatable against the real DC dump).
