@@ -130,6 +130,11 @@ pub fn detect_artifact_type(path: &Path) -> Option<ArtifactType> {
         return Some(ArtifactType::LoginHistory);
     }
 
+    // Windows shortcut → LnkParser (matches LnkParser::can_parse).
+    if name.ends_with(".lnk") {
+        return Some(ArtifactType::Lnk);
+    }
+
     None
 }
 
