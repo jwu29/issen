@@ -128,3 +128,20 @@ Ingested the Case-001 **DC** E01 (`E01-DC01`, 4.6 GB → 898 MiB, **727K events,
 - ✅ **DC accounts: 225 account-activity** incl. SAM account DB (Administrator RID 500, NTLM-hash metadata) — evidence for "domain users / passwords" (cracking is external).
 - ✅ **CADET works on the DC**: filesystem-activity 431K (MFT/USN tagged — de-dup fix holds on host #2), system-state 201K, persistence 10K.
 - ✅ **SAM RID bug FIXED + published (winreg-artifacts 0.1.3):** the parser reported `Guest (RID 500)` — `find_rid_for_username` ignored the username and returned the first `Users\<hex>` RID for everyone. Now reads the per-account RID from the `Names\<username>` default value TYPE (canonical SAM layout). RED `db4af05`/GREEN `b957375`/publish `4cb21d8`; issen bumped. **Validated on real Case-001 DC SAM: Administrator RID 500, Guest RID 501.**
+
+### Memory-dump answer-pass (Case-001 DC + workstation RAM, 2026-06-19)
+
+Profiled `issen memory` on both 2.0 GB dumps (`citadeldc01.mem`, `DESKTOP-SDN1RPT.mem`). **Mostly symbol-gated — only `ps` works.**
+
+| Command | DC | Workstation | Notes |
+|---|---|---|---|
+| `ps` | ✅ 4.15s | ✅ 8.14s | **coreupdater.exe found — DC PID 3644, WS PID 8324** (malicious process, live, on BOTH). PPID unresolved ("?"), via pool scan. |
+| `netstat` | ❌ | ❌ | "TCP pool symbols unavailable" — **C2 IP NOT recovered** (the prime memory question). |
+| `creds` | ❌ | ❌ | "no credential artifacts (or symbols unavailable)" — lsass creds not extracted. |
+| `check`/`scan` | ❌ | ❌ | "no evasion detected (or symbols unavailable)" — injection/hidden-proc not analysed. |
+
+**Honest verdict (memory vs superset answer): substantially INCOMPLETE.** issen's memory module confirms the malicious process is *running live* on both hosts (which disk evidence can't prove) — genuinely valuable — but the high-value memory-only answers (**C2 IP**, credentials, code injection) are **symbol-gated and not produced**. `--profile auto` did not resolve a usable ISF/PDB symbol profile for these Server 2012R2 / Win10 builds; only the (mostly) symbol-free EPROCESS pool scan (`ps`) succeeds.
+
+🚩 **Capability gap (memf-windows/memf-symbols):** Windows memory forensics needs kernel symbols for TCP-pool / lsass / VAD structures. The actionable fix is working symbol resolution (bundle or auto-download matching ISF profiles, or PDB resolution). Until then, issen memory ≈ a process lister, far weaker than issen disk on these dumps.
+
+⏸ **Paused (no commits):** registry `LastWriteTime` (timestamp=0) fix — winreg-core already exposes `Key::last_written()`; the 7 ts=0 parsers (svcdiff/runkeys/regcatalog/comhijack/lsasecrets/dcc2/lxss) need it threaded through winreg-artifacts structs. Resume later.
