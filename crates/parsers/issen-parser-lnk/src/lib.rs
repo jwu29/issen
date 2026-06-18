@@ -309,4 +309,23 @@ mod tests {
             "metadata file_size should be 1234"
         );
     }
+
+    #[test]
+    fn event_tagged_filesystem_activity() {
+        // LNK target MACE timestamps are FileSystemActivity (CADET meaning axis).
+        let mut data = vec![0u8; 80];
+        data[0..4].copy_from_slice(&[0x4C, 0x00, 0x00, 0x00]);
+        data[20..24].copy_from_slice(&1u32.to_le_bytes());
+        data[28..36].copy_from_slice(&132_000_000_000_000_000u64.to_le_bytes());
+
+        let mut tmp = tempfile::NamedTempFile::new().expect("tempfile");
+        tmp.write_all(&data).expect("write");
+        tmp.flush().expect("flush");
+
+        let events = parser::parse_lnk(tmp.path(), "test-source").expect("parse_lnk must not Err");
+        assert_eq!(
+            events[0].activity_category,
+            Some(issen_core::ActivityCategory::FileSystemActivity)
+        );
+    }
 }

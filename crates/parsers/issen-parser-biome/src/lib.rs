@@ -270,6 +270,17 @@ mod tests {
     }
 
     #[test]
+    fn event_tagged_user_activity() {
+        // A Biome App.MenuItem selection is a UserActivity (CADET meaning axis).
+        let segb = synthetic_segb_one_menu_item();
+        let events = BiomeParser.parse_bytes(&segb, "/x/local");
+        assert_eq!(
+            events[0].activity_category,
+            Some(issen_core::ActivityCategory::UserActivity)
+        );
+    }
+
+    #[test]
     fn parse_bytes_non_segb_yields_no_events() {
         let events = BiomeParser.parse_bytes(b"this is plainly not a SEGB file..", "/x");
         assert!(events.is_empty());

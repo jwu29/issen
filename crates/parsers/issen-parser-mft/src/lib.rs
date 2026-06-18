@@ -192,7 +192,10 @@ fn emit_mace_timestamps(
     // event so the timestomp FP gate (copy/volume-move) and the stronger
     // si_modified<fn_created ordering test can run from one event.
     create_event = create_event
-        .with_metadata("si_created", serde_json::json!(datetime_to_display(created)))
+        .with_metadata(
+            "si_created",
+            serde_json::json!(datetime_to_display(created)),
+        )
         .with_metadata(
             "si_modified",
             serde_json::json!(datetime_to_display(modified)),
@@ -664,8 +667,8 @@ mod tests {
         use issen_core::plugin::traits::ParseCompletion;
         let parser = MftFileParser;
         for source in [
-            SliceSource(vec![]),                         // empty
-            SliceSource(vec![0x46, 0x49, 0x4C, 0x45]),   // too small
+            SliceSource(vec![]),                       // empty
+            SliceSource(vec![0x46, 0x49, 0x4C, 0x45]), // too small
         ] {
             let emitter = CollectingEmitter::new();
             let stats = parser.parse(&source, &emitter).expect("Ok");
@@ -869,5 +872,35 @@ mod tests {
         assert!(!create.metadata.contains_key("fn_modified"));
         assert!(!create.metadata.contains_key("fn_accessed"));
         assert!(!create.metadata.contains_key("fn_mft_modified"));
+    }
+
+    /// MFT MACE events are FileSystemActivity (CADET meaning axis).
+    #[test]
+    fn event_tagged_filesystem_activity() {
+        use chrono::TimeZone;
+        let ts = Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap();
+
+        let mut batch: Vec<TimelineEvent> = Vec::new();
+        emit_mace_timestamps(
+            &mut batch,
+            &ts,
+            &ts,
+            &ts,
+            &ts,
+            7,
+            "test.txt",
+            false,
+            "evidence-001",
+            None,
+        );
+
+        let create = batch
+            .iter()
+            .find(|e| e.event_type == EventType::FileCreate)
+            .expect("FileCreate event emitted");
+        assert_eq!(
+            create.activity_category,
+            Some(issen_core::ActivityCategory::FileSystemActivity)
+        );
     }
 }

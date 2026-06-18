@@ -223,4 +223,22 @@ mod tests {
         let result = parse_fsevents_log(tmp.path(), "test-source");
         assert!(result.is_ok(), "malformed lines must not cause Err");
     }
+
+    #[test]
+    fn event_tagged_filesystem_activity() {
+        // An fsevents record is FileSystemActivity (CADET meaning axis).
+        let mut tmp = tempfile::NamedTempFile::new().expect("tempfile");
+        writeln!(
+            tmp,
+            "2026-04-15 10:25:00  /Users/alice/Documents/report.pdf  Created Modified"
+        )
+        .expect("write");
+        tmp.flush().expect("flush");
+
+        let events = parse_fsevents_log(tmp.path(), "test-source").expect("must not Err");
+        assert_eq!(
+            events[0].activity_category,
+            Some(issen_core::ActivityCategory::FileSystemActivity)
+        );
+    }
 }

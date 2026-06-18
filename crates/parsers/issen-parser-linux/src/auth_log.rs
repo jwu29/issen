@@ -453,4 +453,22 @@ mod tests {
         let events = parse_auth_log(tmp.path(), "test-src", None).expect("parse");
         assert!(events.is_empty(), "garbage lines should yield no events");
     }
+
+    #[test]
+    fn event_tagged_login_activity() {
+        // An ssh login line is a LoginActivity (CADET meaning axis).
+        let mut tmp = tempfile::NamedTempFile::new().expect("tempfile");
+        writeln!(
+            tmp,
+            "Apr 15 10:23:01 hostname sshd[1234]: Accepted publickey for root from 192.168.1.100 port 52341 ssh2"
+        )
+        .expect("write");
+        tmp.flush().expect("flush");
+
+        let events = parse_auth_log(tmp.path(), "test-src", None).expect("parse");
+        assert_eq!(
+            events[0].activity_category,
+            Some(issen_core::ActivityCategory::LoginActivity)
+        );
+    }
 }

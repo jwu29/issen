@@ -186,4 +186,22 @@ mod tests {
             Some("kernel"),
         );
     }
+
+    #[test]
+    fn event_tagged_system_state() {
+        // A syslog system-daemon line reflects SystemState (CADET meaning axis).
+        let mut tmp = tempfile::NamedTempFile::new().expect("tempfile");
+        writeln!(
+            tmp,
+            "Apr 15 10:02:00 hostname systemd[1]: Started OpenSSH Server Daemon."
+        )
+        .expect("write");
+        tmp.flush().expect("flush");
+
+        let events = parse_syslog(tmp.path(), "test-src").expect("parse");
+        assert_eq!(
+            events[0].activity_category,
+            Some(issen_core::ActivityCategory::SystemState)
+        );
+    }
 }

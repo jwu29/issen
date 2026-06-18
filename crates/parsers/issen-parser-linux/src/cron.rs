@@ -176,4 +176,22 @@ mod tests {
             Some("/home/alice/backup.sh"),
         );
     }
+
+    #[test]
+    fn event_tagged_scheduled_task() {
+        // A cron-executed command is a ScheduledTask activity (CADET meaning axis).
+        let mut tmp = tempfile::NamedTempFile::new().expect("tempfile");
+        writeln!(
+            tmp,
+            "Apr 15 10:00:01 hostname CRON[9999]: (root) CMD (run-parts /etc/cron.daily)"
+        )
+        .expect("write");
+        tmp.flush().expect("flush");
+
+        let events = parse_cron_log(tmp.path(), "test-src").expect("parse");
+        assert_eq!(
+            events[0].activity_category,
+            Some(issen_core::ActivityCategory::ScheduledTask)
+        );
+    }
 }

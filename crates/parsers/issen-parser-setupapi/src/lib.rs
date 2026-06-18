@@ -452,4 +452,31 @@ mod tests {
             "XP-format events must have log_format == 'xp'"
         );
     }
+
+    /// Both emit sites (vista + xp) tag events with the DeviceInstall CADET
+    /// category (meaning axis), distinct from the SetupApiDevLog source.
+    #[test]
+    fn events_tagged_device_install() {
+        let mut tmp = tempfile::NamedTempFile::new().expect("tempfile");
+        writeln!(
+            tmp,
+            "[Device Install (Hardware initiated) - USB\\VID_0781&PID_5583\\1234567890AB 2023/04/15 14:23:11.456]"
+        )
+        .expect("write vista");
+        writeln!(
+            tmp,
+            "[2005/05/12 12:34:56 1234.5678] Device Install - USB\\..."
+        )
+        .expect("write xp");
+        tmp.flush().expect("flush");
+
+        let events = parse_setupapi(tmp.path(), "setupapi-test").expect("parse must not Err");
+        assert!(events.len() >= 2, "both vista and xp lines must emit");
+        for ev in &events {
+            assert_eq!(
+                ev.activity_category,
+                Some(issen_core::ActivityCategory::DeviceInstall)
+            );
+        }
+    }
 }

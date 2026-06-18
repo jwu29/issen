@@ -168,4 +168,19 @@ mod tests {
             Some("cat /etc/passwd")
         );
     }
+
+    #[test]
+    fn event_tagged_execution() {
+        // A shell command is an Execution activity (CADET meaning axis).
+        let mut tmp = tempfile::NamedTempFile::new().expect("tempfile");
+        writeln!(tmp, "#1713171781").expect("write");
+        writeln!(tmp, "ls -la").expect("write");
+        tmp.flush().expect("flush");
+
+        let events = parse_bash_history(tmp.path(), "test-src").expect("parse");
+        assert_eq!(
+            events[0].activity_category,
+            Some(issen_core::ActivityCategory::Execution)
+        );
+    }
 }

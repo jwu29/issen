@@ -361,4 +361,22 @@ mod tests {
             "timestamp_ns mismatch for 2026-04-15 10:23:01 UTC"
         );
     }
+
+    #[test]
+    fn event_tagged_system_state() {
+        // A unified-log line reflects SystemState (CADET meaning axis).
+        let mut tmp = tempfile::NamedTempFile::new().expect("tempfile");
+        writeln!(
+            tmp,
+            "2026-04-15 10:23:01.123456-0700  localhost kernel[0]: (AppleIntelCPU) Kernel connected"
+        )
+        .expect("write");
+        tmp.flush().expect("flush");
+
+        let events = parse_unified_log(tmp.path(), "test-source").expect("must not Err");
+        assert_eq!(
+            events[0].activity_category,
+            Some(issen_core::ActivityCategory::SystemState)
+        );
+    }
 }

@@ -201,4 +201,17 @@ mod tests {
         assert!(result.is_ok());
         assert!(result.expect("ok").is_empty());
     }
+
+    #[test]
+    fn event_tagged_execution() {
+        // A fish shell command is an Execution activity (CADET meaning axis).
+        let mut tmp = tempfile::NamedTempFile::new().expect("tempfile");
+        write!(tmp, "- cmd: ls -la\n  when: 1716000000\n").expect("write");
+        tmp.flush().expect("flush");
+        let events = parse_fish_history(tmp.path(), "test-src").expect("parse");
+        assert_eq!(
+            events[0].activity_category,
+            Some(issen_core::ActivityCategory::Execution)
+        );
+    }
 }
