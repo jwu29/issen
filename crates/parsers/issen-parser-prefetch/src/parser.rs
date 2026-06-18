@@ -54,8 +54,7 @@ pub fn events_from_bytes(bytes: &[u8], source_id: &str) -> Vec<TimelineEvent> {
 
     // Carry the masquerade / suspicious-path signal on the timeline as the
     // finding codes (the analyzer narrative; hash matching stays elsewhere).
-    let anomaly_codes: Vec<String> =
-        anomalies.iter().map(|a| a.code().to_string()).collect();
+    let anomaly_codes: Vec<String> = anomalies.iter().map(|a| a.code().to_string()).collect();
     let volume_serial = rec.volume_serial.map(|s| format!("{s:08X}"));
     let image_path = rec
         .image_path
@@ -75,6 +74,7 @@ pub fn events_from_bytes(bytes: &[u8], source_id: &str) -> Vec<TimelineEvent> {
             ),
             source_id.to_string(),
         )
+        .with_activity_category(issen_core::ActivityCategory::Execution)
         .with_metadata("executable", serde_json::json!(rec.executable))
         .with_metadata("run_count", serde_json::json!(rec.run_count))
         .with_metadata("image_path", serde_json::json!(rec.image_path))

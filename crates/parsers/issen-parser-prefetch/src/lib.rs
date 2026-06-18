@@ -3,6 +3,7 @@
 //! Parses `.pf` Prefetch files and emits [`TimelineEvent`]s via the
 //! [`ForensicParser`] trait.
 
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 #![allow(
     clippy::doc_markdown,
     clippy::missing_errors_doc,
