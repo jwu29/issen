@@ -128,10 +128,23 @@ impl ForensicParser for LinuxSyslogParser {
 
     fn parse(
         &self,
-        _input: &dyn DataSource,
-        _emitter: &dyn EventEmitter,
+        input: &dyn DataSource,
+        emitter: &dyn EventEmitter,
     ) -> Result<ParseStats, RtError> {
-        Ok(ParseStats::new())
+        let mut stats = ParseStats::new();
+        let Some(path) = input.source_path() else {
+            // This parser reads by file path; a byte-only source can't be parsed.
+            stats.completion = ParseCompletion::Unsupported;
+            return Ok(stats);
+        };
+        let events = syslog::parse_syslog(path, "linux-syslog-evidence")
+            .map_err(|e| RtError::InvalidData(e.to_string()))?;
+        stats.events_emitted = events.len() as u64;
+        if !events.is_empty() {
+            emitter.emit_batch(events)?;
+        }
+        stats.completion = ParseCompletion::Complete;
+        Ok(stats)
     }
 
     fn capabilities(&self) -> ParserCapabilities {
@@ -172,10 +185,23 @@ impl ForensicParser for LinuxCronParser {
 
     fn parse(
         &self,
-        _input: &dyn DataSource,
-        _emitter: &dyn EventEmitter,
+        input: &dyn DataSource,
+        emitter: &dyn EventEmitter,
     ) -> Result<ParseStats, RtError> {
-        Ok(ParseStats::new())
+        let mut stats = ParseStats::new();
+        let Some(path) = input.source_path() else {
+            // This parser reads by file path; a byte-only source can't be parsed.
+            stats.completion = ParseCompletion::Unsupported;
+            return Ok(stats);
+        };
+        let events = cron::parse_cron_log(path, "linux-cron-evidence")
+            .map_err(|e| RtError::InvalidData(e.to_string()))?;
+        stats.events_emitted = events.len() as u64;
+        if !events.is_empty() {
+            emitter.emit_batch(events)?;
+        }
+        stats.completion = ParseCompletion::Complete;
+        Ok(stats)
     }
 
     fn capabilities(&self) -> ParserCapabilities {
@@ -216,10 +242,23 @@ impl ForensicParser for LinuxBashHistoryParser {
 
     fn parse(
         &self,
-        _input: &dyn DataSource,
-        _emitter: &dyn EventEmitter,
+        input: &dyn DataSource,
+        emitter: &dyn EventEmitter,
     ) -> Result<ParseStats, RtError> {
-        Ok(ParseStats::new())
+        let mut stats = ParseStats::new();
+        let Some(path) = input.source_path() else {
+            // This parser reads by file path; a byte-only source can't be parsed.
+            stats.completion = ParseCompletion::Unsupported;
+            return Ok(stats);
+        };
+        let events = bash_history::parse_bash_history(path, "linux-bash-evidence")
+            .map_err(|e| RtError::InvalidData(e.to_string()))?;
+        stats.events_emitted = events.len() as u64;
+        if !events.is_empty() {
+            emitter.emit_batch(events)?;
+        }
+        stats.completion = ParseCompletion::Complete;
+        Ok(stats)
     }
 
     fn capabilities(&self) -> ParserCapabilities {
@@ -331,5 +370,83 @@ mod tests {
             LinuxBashHistoryParser::can_parse(&path),
             "should match .bash_history"
         );
+    }
+
+    // ── #114 dark-parser wiring proofs (real temp-file source) ───────────────
+
+    use issen_core::timeline::event::TimelineEvent;
+    use std::io::Write as _;
+    use std::sync::Mutex;
+
+    struct FileSrc(PathBuf);
+    impl DataSource for FileSrc {
+        fn len(&self) -> u64 {
+            std::fs::metadata(&self.0).map(|m| m.len()).unwrap_or(0)
+        }
+        fn read_at(&self, _o: u64, _b: &mut [u8]) -> Result<usize, RtError> {
+            Ok(0)
+        }
+        fn source_path(&self) -> Option<&Path> {
+            Some(&self.0)
+        }
+    }
+    #[derive(Default)]
+    struct Collector(Mutex<Vec<TimelineEvent>>);
+    impl EventEmitter for Collector {
+        fn emit(&self, e: TimelineEvent) -> Result<(), RtError> {
+            self.0.lock().expect("lock").push(e);
+            Ok(())
+        }
+        fn emit_batch(&self, mut e: Vec<TimelineEvent>) -> Result<(), RtError> {
+            self.0.lock().expect("lock").append(&mut e);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn linux_syslog_forensic_parser_emits_via_emitter() {
+        let mut tmp = tempfile::NamedTempFile::new().expect("tmp");
+        writeln!(
+            tmp,
+            "Apr 15 10:02:00 hostname systemd[1]: Started OpenSSH Server Daemon."
+        )
+        .expect("w");
+        tmp.flush().expect("flush");
+        let src = FileSrc(tmp.path().to_path_buf());
+        let collector = Collector::default();
+        let stats = LinuxSyslogParser.parse(&src, &collector).expect("parse");
+        assert!(stats.events_emitted >= 1, "wired parser must emit");
+        assert!(!collector.0.lock().expect("lock").is_empty());
+    }
+
+    #[test]
+    fn linux_cron_forensic_parser_emits_via_emitter() {
+        let mut tmp = tempfile::NamedTempFile::new().expect("tmp");
+        writeln!(
+            tmp,
+            "Apr 15 10:00:01 hostname CRON[9999]: (root) CMD (run-parts /etc/cron.daily)"
+        )
+        .expect("w");
+        tmp.flush().expect("flush");
+        let src = FileSrc(tmp.path().to_path_buf());
+        let collector = Collector::default();
+        let stats = LinuxCronParser.parse(&src, &collector).expect("parse");
+        assert!(stats.events_emitted >= 1, "wired parser must emit");
+        assert!(!collector.0.lock().expect("lock").is_empty());
+    }
+
+    #[test]
+    fn linux_bash_history_forensic_parser_emits_via_emitter() {
+        let mut tmp = tempfile::NamedTempFile::new().expect("tmp");
+        writeln!(tmp, "#1713171781").expect("w");
+        writeln!(tmp, "ls -la").expect("w");
+        tmp.flush().expect("flush");
+        let src = FileSrc(tmp.path().to_path_buf());
+        let collector = Collector::default();
+        let stats = LinuxBashHistoryParser
+            .parse(&src, &collector)
+            .expect("parse");
+        assert!(stats.events_emitted >= 1, "wired parser must emit");
+        assert!(!collector.0.lock().expect("lock").is_empty());
     }
 }

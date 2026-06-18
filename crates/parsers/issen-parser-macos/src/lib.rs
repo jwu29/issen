@@ -20,7 +20,7 @@ use issen_core::artifacts::ArtifactType;
 use issen_core::error::RtError;
 use issen_core::plugin::registry::ParserRegistration;
 use issen_core::plugin::traits::{
-    DataSource, EventEmitter, ForensicParser, ParseStats, ParserCapabilities,
+    DataSource, EventEmitter, ForensicParser, ParseCompletion, ParseStats, ParserCapabilities,
 };
 
 // ── MacosUnifiedLogParser ─────────────────────────────────────────────────────
@@ -56,10 +56,23 @@ impl ForensicParser for MacosUnifiedLogParser {
 
     fn parse(
         &self,
-        _input: &dyn DataSource,
-        _emitter: &dyn EventEmitter,
+        input: &dyn DataSource,
+        emitter: &dyn EventEmitter,
     ) -> Result<ParseStats, RtError> {
-        Ok(ParseStats::new())
+        let mut stats = ParseStats::new();
+        let Some(path) = input.source_path() else {
+            // This parser reads by file path; a byte-only source can't be parsed.
+            stats.completion = ParseCompletion::Unsupported;
+            return Ok(stats);
+        };
+        let events = unified_log::parse_unified_log(path, "macos-unifiedlog-evidence")
+            .map_err(|e| RtError::InvalidData(e.to_string()))?;
+        stats.events_emitted = events.len() as u64;
+        if !events.is_empty() {
+            emitter.emit_batch(events)?;
+        }
+        stats.completion = ParseCompletion::Complete;
+        Ok(stats)
     }
 
     fn capabilities(&self) -> ParserCapabilities {
@@ -112,10 +125,23 @@ impl ForensicParser for MacosFsEventsParser {
 
     fn parse(
         &self,
-        _input: &dyn DataSource,
-        _emitter: &dyn EventEmitter,
+        input: &dyn DataSource,
+        emitter: &dyn EventEmitter,
     ) -> Result<ParseStats, RtError> {
-        Ok(ParseStats::new())
+        let mut stats = ParseStats::new();
+        let Some(path) = input.source_path() else {
+            // This parser reads by file path; a byte-only source can't be parsed.
+            stats.completion = ParseCompletion::Unsupported;
+            return Ok(stats);
+        };
+        let events = fsevents::parse_fsevents_log(path, "macos-fsevents-evidence")
+            .map_err(|e| RtError::InvalidData(e.to_string()))?;
+        stats.events_emitted = events.len() as u64;
+        if !events.is_empty() {
+            emitter.emit_batch(events)?;
+        }
+        stats.completion = ParseCompletion::Complete;
+        Ok(stats)
     }
 
     fn capabilities(&self) -> ParserCapabilities {
@@ -194,5 +220,70 @@ mod tests {
             !MacosFsEventsParser::can_parse(&path),
             "should not match auth.log"
         );
+    }
+
+    // ── #114 dark-parser wiring proofs (real temp-file source) ───────────────
+
+    use issen_core::timeline::event::TimelineEvent;
+    use std::io::Write as _;
+    use std::sync::Mutex;
+
+    struct FileSrc(PathBuf);
+    impl DataSource for FileSrc {
+        fn len(&self) -> u64 {
+            std::fs::metadata(&self.0).map(|m| m.len()).unwrap_or(0)
+        }
+        fn read_at(&self, _o: u64, _b: &mut [u8]) -> Result<usize, RtError> {
+            Ok(0)
+        }
+        fn source_path(&self) -> Option<&Path> {
+            Some(&self.0)
+        }
+    }
+    #[derive(Default)]
+    struct Collector(Mutex<Vec<TimelineEvent>>);
+    impl EventEmitter for Collector {
+        fn emit(&self, e: TimelineEvent) -> Result<(), RtError> {
+            self.0.lock().expect("lock").push(e);
+            Ok(())
+        }
+        fn emit_batch(&self, mut e: Vec<TimelineEvent>) -> Result<(), RtError> {
+            self.0.lock().expect("lock").append(&mut e);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn macos_unified_log_forensic_parser_emits_via_emitter() {
+        let mut tmp = tempfile::NamedTempFile::new().expect("tmp");
+        writeln!(
+            tmp,
+            "2026-04-15 10:23:01.123456-0700  localhost kernel[0]: (AppleIntelCPU) Kernel connected"
+        )
+        .expect("w");
+        tmp.flush().expect("flush");
+        let src = FileSrc(tmp.path().to_path_buf());
+        let collector = Collector::default();
+        let stats = MacosUnifiedLogParser
+            .parse(&src, &collector)
+            .expect("parse");
+        assert!(stats.events_emitted >= 1, "wired parser must emit");
+        assert!(!collector.0.lock().expect("lock").is_empty());
+    }
+
+    #[test]
+    fn macos_fsevents_forensic_parser_emits_via_emitter() {
+        let mut tmp = tempfile::NamedTempFile::new().expect("tmp");
+        writeln!(
+            tmp,
+            "2026-04-15 10:25:00  /Users/alice/Documents/report.pdf  Created Modified"
+        )
+        .expect("w");
+        tmp.flush().expect("flush");
+        let src = FileSrc(tmp.path().to_path_buf());
+        let collector = Collector::default();
+        let stats = MacosFsEventsParser.parse(&src, &collector).expect("parse");
+        assert!(stats.events_emitted >= 1, "wired parser must emit");
+        assert!(!collector.0.lock().expect("lock").is_empty());
     }
 }
