@@ -121,7 +121,10 @@ cargo run --release --example extract_amcache  -- "$E01" tests/data/case001-hive
 | `UsrClass.dat` (ricksanchez — Win10 per-user COM CLSID) | 3407872 | `5e28f59f5414e754b4e6e4868fa9d7a0` |
 | `Amcache.hve` (`Windows\AppCompat\Programs\`, program execution) | 1572864 | `0512afeba75e21c724fa75a365bb81d1` |
 
-Still-unsatisfiable from this corpus (parsers left untagged, not faked): **DCC2 cache** (`lsadump`).
+The `SECURITY` hive's `Policy\Secrets` **is** present (`$MACHINE.ACC`/`DPAPI_SYSTEM`/`NL$KM`) and now
+backs `issen-parser-lsasecrets/tests/real_hive_category.rs` (AccountActivity, T1003.004).
+
+Still-unsatisfiable from this corpus (parsers left untagged, not faked): **DCC2 cache** (`issen-parser-dcc2`).
 `SECURITY\Cache` has **0 `NL$n` slots on every image we hold** — verified by driving `parse_lsadump`
 over Case-001 DC **and** Desktop, DEF CON `MaxPowers`, and Magnet `PC-MUS-001` (all 0). DCC2 is cached
 on domain-member workstations with cached-logon enabled; none of our images materialized it. (`Policy\Secrets`
