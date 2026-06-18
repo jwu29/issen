@@ -144,7 +144,7 @@ Profiled `issen memory` on both 2.0 GB dumps (`citadeldc01.mem`, `DESKTOP-SDN1RP
 
 🚩 **Capability gap (memf-windows/memf-symbols):** Windows memory forensics needs kernel symbols for TCP-pool / lsass / VAD structures. The actionable fix is working symbol resolution (bundle or auto-download matching ISF profiles, or PDB resolution). Until then, issen memory ≈ a process lister, far weaker than issen disk on these dumps.
 
-⏸ **Paused (no commits):** registry `LastWriteTime` (timestamp=0) fix — winreg-core already exposes `Key::last_written()`; the 7 ts=0 parsers (svcdiff/runkeys/regcatalog/comhijack/lsasecrets/dcc2/lxss) need it threaded through winreg-artifacts structs. Resume later.
+✅ **Registry `LastWriteTime` (timestamp=0) — FIXED.** winreg-artifacts 0.1.4 added `last_written` to all 7 decoder structs (svc_diff RED `9fec15f`/GREEN `440af60`; the other 6 RED `e59b257`/GREEN `142a72c`; + a `TestHiveBuilder::with_key_times`). The 7 issen ts=0 parsers (svcdiff/runkeys/comhijack/lsasecrets/dcc2/lxss/regcatalog) now use the key LastWriteTime as the event time (svcdiff RED `462e0b4`/GREEN `9c8c305`; the 6 RED `c6d1a49`/GREEN `05d6803`). Real-data validated: parser tests assert ts>0 on the real Case-001 hives, and a full hive-dir ingest shows **7,430 registry events now carrying real timestamps** (were epoch-0).
 
 #### Memory symbol gap — ROOT-CAUSED (2026-06-19)
 
