@@ -76,6 +76,29 @@ pub fn event_id_to_event_type(event_id: u64) -> EventType {
     }
 }
 
+/// Map a Windows security/system event-id to its CADET [`ActivityCategory`].
+///
+/// EVTX is a *mixed* source — one channel carries many meanings — so the
+/// category is per event-id (the semantic axis), independent of the `EventLog`
+/// source (the routing axis). `None` for event-ids we don't classify (the event
+/// is still emitted, just untagged). 1102 (security log cleared) maps to
+/// `AntiForensics` even though [`event_id_to_event_type`] only has `Other` for it.
+#[must_use]
+pub fn event_id_to_category(event_id: u64) -> Option<issen_core::ActivityCategory> {
+    use issen_core::ActivityCategory as C;
+    Some(match event_id {
+        4624 | 4625 | 4634 | 4647 => C::LoginActivity,
+        4688 | 4689 => C::Execution,
+        7045 => C::Persistence,
+        4698 | 4702 | 106 => C::ScheduledTask,
+        4720 | 4722 | 4725 | 4726 | 4738 => C::AccountActivity,
+        1102 => C::AntiForensics, // Security log cleared — ATT&CK T1070.001
+        5156 | 5157 => C::NetworkActivity,
+        7036 | 4719 | 6005 | 6006 | 6008 | 6009 => C::SystemState,
+        _ => return None,
+    })
+}
+
 /// Extract the numeric Event ID from the JSON representation of an EVTX record.
 ///
 /// The Event ID lives at `Event.System.EventID` and may be either a plain
@@ -209,6 +232,10 @@ pub fn record_to_event(
     )
     .with_metadata("event_id", serde_json::json!(event_id))
     .with_metadata("record_id", serde_json::json!(record_id));
+
+    if let Some(category) = event_id_to_category(event_id) {
+        event = event.with_activity_category(category);
+    }
 
     if !provider.is_empty() {
         event = event.with_metadata("provider", serde_json::json!(provider));
