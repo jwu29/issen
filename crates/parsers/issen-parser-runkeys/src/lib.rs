@@ -9,6 +9,7 @@
 //! delegated to our own `winreg-artifacts::run_keys` (over `winreg-core`) —
 //! the registry-artifact home for the fleet — never third-party notatin.
 
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 #![allow(
     clippy::doc_markdown,
     clippy::missing_errors_doc,
@@ -66,6 +67,7 @@ pub fn events_from_bytes(bytes: &[u8], hive_name: &str, source_id: &str) -> Vec<
                 format!("Run key: {} = {}", e.value_name, e.command),
                 source_id.to_string(),
             )
+            .with_activity_category(issen_core::ActivityCategory::Persistence)
             .with_metadata("hive", serde_json::json!(e.hive))
             .with_metadata("key_path", serde_json::json!(e.key_path))
             .with_metadata("value_name", serde_json::json!(e.value_name))
@@ -175,7 +177,9 @@ mod tests {
 
     #[test]
     fn can_parse_software_lowercase() {
-        assert!(RunKeysParser::can_parse(&PathBuf::from("/evidence/software")));
+        assert!(RunKeysParser::can_parse(&PathBuf::from(
+            "/evidence/software"
+        )));
     }
 
     #[test]
@@ -185,7 +189,9 @@ mod tests {
 
     #[test]
     fn cannot_parse_amcache() {
-        assert!(!RunKeysParser::can_parse(&PathBuf::from("/evidence/Amcache.hve")));
+        assert!(!RunKeysParser::can_parse(&PathBuf::from(
+            "/evidence/Amcache.hve"
+        )));
     }
 
     #[test]
