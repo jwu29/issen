@@ -1,5 +1,5 @@
 [package]
-name = "issen-parser-lsadump"
+name = "issen-parser-dcc2"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true

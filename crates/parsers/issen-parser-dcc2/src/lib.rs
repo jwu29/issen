@@ -38,7 +38,7 @@ use issen_core::timeline::event::{EventType, TimelineEvent};
 /// Parse a SECURITY hive file for DCC2 cached-credential cache slots.
 ///
 /// On any error or missing key, returns `Ok(vec![])`.
-pub fn parse_lsadump(path: &Path, source_id: &str) -> anyhow::Result<Vec<TimelineEvent>> {
+pub fn parse_dcc2(path: &Path, source_id: &str) -> anyhow::Result<Vec<TimelineEvent>> {
     let bytes = match std::fs::read(path) {
         Ok(b) if !b.is_empty() => b,
         _ => return Ok(vec![]),
@@ -51,7 +51,7 @@ pub fn parse_lsadump(path: &Path, source_id: &str) -> anyhow::Result<Vec<Timelin
 }
 
 /// Build DCC2 slot [`TimelineEvent`]s from raw hive bytes — shared by
-/// [`parse_lsadump`] (path) and the `ForensicParser::parse` ingest path.
+/// [`parse_dcc2`] (path) and the `ForensicParser::parse` ingest path.
 #[must_use]
 pub fn events_from_bytes(bytes: &[u8], hive_name: &str, source_id: &str) -> Vec<TimelineEvent> {
     let Ok(hive) = winreg_core::hive::Hive::from_bytes(bytes.to_vec()) else {
@@ -79,7 +79,7 @@ pub fn events_from_bytes(bytes: &[u8], hive_name: &str, source_id: &str) -> Vec<
             .with_metadata("slot_name", serde_json::json!(e.slot_name))
             .with_metadata("is_populated", serde_json::json!(e.is_populated))
             .with_metadata("data_size", serde_json::json!(e.data_size))
-            .with_metadata("artifact", serde_json::json!("lsadump"))
+            .with_metadata("artifact", serde_json::json!("dcc2"))
         })
         .collect()
 }
@@ -90,9 +90,9 @@ pub fn events_from_bytes(bytes: &[u8], hive_name: &str, source_id: &str) -> Vec<
 
 /// LSA / DCC2 parser — reads the SECURITY hive, where the DCC2 cache slots
 /// (`SECURITY\Cache\NL$n`) live.
-pub struct LsaDumpParser;
+pub struct Dcc2Parser;
 
-impl LsaDumpParser {
+impl Dcc2Parser {
     /// Return `true` when `path`'s filename is `SECURITY` (case-insensitive).
     pub fn can_parse(path: &Path) -> bool {
         path.file_name()
@@ -101,7 +101,7 @@ impl LsaDumpParser {
     }
 }
 
-impl ForensicParser for LsaDumpParser {
+impl ForensicParser for Dcc2Parser {
     fn name(&self) -> &str {
         "LSA DCC2 Parser"
     }
@@ -130,7 +130,7 @@ impl ForensicParser for LsaDumpParser {
             off += n as u64;
         }
         stats.bytes_processed = off;
-        let events = events_from_bytes(&bytes, "SECURITY", "lsadump-evidence");
+        let events = events_from_bytes(&bytes, "SECURITY", "dcc2-evidence");
         stats.events_emitted = events.len() as u64;
         if !events.is_empty() {
             emitter.emit_batch(events)?;
@@ -149,7 +149,7 @@ impl ForensicParser for LsaDumpParser {
 
 // Compile-time registration with the parser inventory.
 inventory::submit! {
-    ParserRegistration { create: || Box::new(LsaDumpParser) }
+    ParserRegistration { create: || Box::new(Dcc2Parser) }
 }
 
 // ---------------------------------------------------------------------------
@@ -162,35 +162,35 @@ mod tests {
 
     #[test]
     fn can_parse_security_hive() {
-        assert!(LsaDumpParser::can_parse(&PathBuf::from(
+        assert!(Dcc2Parser::can_parse(&PathBuf::from(
             "/evidence/C/Windows/System32/config/SECURITY"
         )));
     }
 
     #[test]
     fn can_parse_security_lowercase() {
-        assert!(LsaDumpParser::can_parse(&PathBuf::from(
+        assert!(Dcc2Parser::can_parse(&PathBuf::from(
             "/evidence/security"
         )));
     }
 
     #[test]
     fn cannot_parse_system_hive() {
-        assert!(!LsaDumpParser::can_parse(&PathBuf::from(
+        assert!(!Dcc2Parser::can_parse(&PathBuf::from(
             "/evidence/SYSTEM"
         )));
     }
 
     #[test]
     fn cannot_parse_ntuser_hive() {
-        assert!(!LsaDumpParser::can_parse(&PathBuf::from(
+        assert!(!Dcc2Parser::can_parse(&PathBuf::from(
             "/evidence/NTUSER.DAT"
         )));
     }
 
     #[test]
     fn parse_nonexistent_returns_empty() {
-        let result = parse_lsadump(Path::new("/nonexistent/SECURITY"), "test");
+        let result = parse_dcc2(Path::new("/nonexistent/SECURITY"), "test");
         assert!(result.is_ok());
         assert!(result.unwrap().is_empty());
     }
@@ -198,7 +198,7 @@ mod tests {
     #[test]
     fn parse_empty_hive_returns_empty() {
         let tmp = tempfile::NamedTempFile::new().expect("tempfile");
-        let result = parse_lsadump(tmp.path(), "test");
+        let result = parse_dcc2(tmp.path(), "test");
         assert!(result.is_ok());
         assert!(result.unwrap().is_empty());
     }
