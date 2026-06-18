@@ -145,3 +145,17 @@ Profiled `issen memory` on both 2.0 GB dumps (`citadeldc01.mem`, `DESKTOP-SDN1RP
 🚩 **Capability gap (memf-windows/memf-symbols):** Windows memory forensics needs kernel symbols for TCP-pool / lsass / VAD structures. The actionable fix is working symbol resolution (bundle or auto-download matching ISF profiles, or PDB resolution). Until then, issen memory ≈ a process lister, far weaker than issen disk on these dumps.
 
 ⏸ **Paused (no commits):** registry `LastWriteTime` (timestamp=0) fix — winreg-core already exposes `Key::last_written()`; the 7 ts=0 parsers (svcdiff/runkeys/regcatalog/comhijack/lsasecrets/dcc2/lxss) need it threaded through winreg-artifacts structs. Resume later.
+
+#### Memory symbol gap — ROOT-CAUSED (2026-06-19)
+
+Dug into the memf symbol path. The "symbols unavailable" failures are NOT a broken-resolver problem — the infra works:
+- ✅ **Kernel symbols resolve.** `resolve_auto_profile` scans for `ntkrnlmp`, extracts its RSDS PDB GUID, and downloads the PDB from the MS symbol server (network enabled by default). Confirmed: `~/.memf/symbols/ntkrnlmp.pdb/<GUID>/` is populated. So **`ps` is genuinely symbol-resolved** (EPROCESS walk), not a pool-scan fallback.
+- ❌ **`netstat` needs `tcpip.sys` symbols — which auto-profile never resolves.** `memf-windows/src/network.rs` walks TCP endpoint hash tables in **tcpip.sys**; `resolve_auto_profile` resolves ONLY the kernel module. No tcpip.sys → "TCP pool symbols unavailable". (Same shape for `creds` → lsass/lsasrv modules.)
+
+**The fix is concrete and scoped (multi-module symbol resolution), but a real sibling-repo feature, not a quick TDD patch:**
+1. Add a `scan_for_module("tcpip.sys")` (find the loaded image via the module list — kernel symbols make this reachable), extract its RSDS PDB GUID.
+2. `AutoProfile::from_pdb_id(tcpip_guid)` — download/cache works already (network on).
+3. Give the netstat walker a resolver carrying tcpip.sys symbols (multi-module resolver, or a per-walker profile).
+4. Repeat for the modules `creds`/`check`/`scan` need.
+
+Effort: meaningful work in `memf-symbols` (module scan + multi-module resolver) + `memf-windows` (wire walkers) + republish + issen bump. **Decision needed before starting** — this is the lever that recovers the C2 IP (the prime memory answer), but it's a feature, not a fix. (Note: this box even has `tcpip.pdb` from a Volatility install — symbols are obtainable.)
