@@ -81,6 +81,14 @@ hotlinks `https://dfirmadness.com/case001/<file>` (e.g.
 filename in the table above). **Used by** `usnjrnl-forensic` integration tests (`#[ignore]`, desktop
 E01). Redistribution: dfirmadness.com — educational/research.
 
+> **Naming convention — `case001-*` clean siblings (binding).** Derived/reference assets of this
+> dataset live in **clean-named siblings** of the A3 folder, not inside it: `tests/data/case001-hives/`
+> (§A3b, code-referenced by ~10 parser tests) and `tests/data/case001-writeups/` (the published
+> answer-key + writeup HTML, reference-only). Reason: the source folder name
+> (`DFIR Madness "Stolen Szechuan Sauce" Case 001 — Windows 10`) is **path-hostile** — spaces, literal
+> `"` quotes, an em-dash `—` — which is fragile inside Rust `include!`/`Path::new` literals and shell.
+> Clean `case001-<asset>/` siblings keep those paths robust; this catalog is the cross-reference.
+
 #### A3b · Registry hives extracted from `DC01-ProtectedFiles.zip` (loose, gitignored) · REAL-ext ✓
 
 Used by the registry parsers' real-data CADET category tests

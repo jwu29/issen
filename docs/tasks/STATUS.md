@@ -108,3 +108,14 @@ The enum mixes them: `Registry`/`Prefetch`/`Mft`/`Lnk` are *artifact kinds*, but
 issen-timeline query engine → issen-report HTML MVP → MFT/EventLog parsers →
 DOCX reports → intel + community. Recent tactical work is hardening *underneath*
 this, not on its critical path.
+
+---
+
+## Profiling-driven fixes (2026-06-19, real Case-001 Desktop ingest)
+
+Profiled `issen ingest` on the Case-001 Desktop E01 (6.4 GB → 1.65 GiB artifacts, **855K events, 227.9s**). First end-to-end proof CADET persists through a full real ingest. The run surfaced + fixed two defects (strict TDD), re-validated by re-ingest:
+
+- ✅ **EventID 1102 channel-gating** (RED `aa0c14e`/GREEN `6cec62b`) — `event_id_to_category` now gates `1102 → AntiForensics` on `channel == Security` (audit-log-cleared, T1070.001). Benign provider 1102 (ShellCommon/ModernDeployment) no longer mis-tagged. Re-ingest: anti-forensics 15→0 false positives.
+- ✅ **Duplicate MFT/USN parsers removed** (RED `2f918b4`/GREEN `d350a34`, remove `62bac00`) — the disk pipeline ran BOTH the issen-cli builtins (entity-ref, untagged) AND the issen-parser-* plugins (tagged, no entity-ref); both inventory-registered, dedup masked one → 460K filesystem events untagged. Made the plugins feature-complete (category + FilePath entity ref), deleted the builtins. **Re-ingest validation: MFT 417,628 + USN 43,415 now tagged filesystem-activity, entity_refs preserved (coreupdater FilePath join key), untagged 501K→40K, and ingest 227.9s→158.4s (−30%).**
+- 🚩 **Honesty correction:** issen *surfaces* the coreupdater.exe (Cobalt Strike) evidence (service persistence via the svcdiff fix, USN/MFT FILE_CREATE at 2020-09-19T03:39:57, System32 location) — but does NOT autonomously *flag* it malicious (that needed an IOC query + the answer key). `persistence` category ≠ malicious. Autonomous flagging needs `ingest --scan` with feeds or the svcdiff `is_suspicious` heuristic.
+- 🚩 svcdiff/regcatalog registry events emit `timestamp_ns=0` ("unknown") — registry key `LastWriteTime` not extracted; timeline position comes from USN/MFT only. Follow-up.
