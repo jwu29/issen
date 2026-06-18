@@ -596,6 +596,31 @@ mod tests {
     }
 
     #[test]
+    fn mace_event_carries_filepath_entity_ref() {
+        // This plugin is the canonical MFT parser (the issen-cli builtin is being
+        // removed). It must carry the FilePath correlation join key the builtin
+        // had, so temporal rules can still join MFT events by path.
+        use issen_core::timeline::event::EntityRef;
+        let dt = DateTime::parse_from_rfc3339("2023-06-15T10:30:00Z")
+            .expect("valid timestamp")
+            .with_timezone(&Utc);
+        let event = mace_event(
+            &dt,
+            EventType::FileCreate,
+            42,
+            "Windows/System32/coreupdater.exe",
+            false,
+            "evidence-001",
+        );
+        assert!(
+            event.entity_refs.contains(&EntityRef::FilePath(
+                "Windows/System32/coreupdater.exe".to_string()
+            )),
+            "MFT event must carry a FilePath entity ref for correlation"
+        );
+    }
+
+    #[test]
     fn test_mace_event_directory() {
         let dt = DateTime::parse_from_rfc3339("2023-01-01T00:00:00Z")
             .expect("valid timestamp")

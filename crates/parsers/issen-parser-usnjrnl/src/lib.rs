@@ -754,4 +754,28 @@ mod tests {
             Some(issen_core::ActivityCategory::FileSystemActivity)
         );
     }
+
+    #[test]
+    fn record_to_event_carries_filepath_entity_ref() {
+        // This plugin is the canonical USN parser (the issen-cli builtin is being
+        // removed). It must carry the FilePath correlation join key the builtin
+        // had (USN rename/move join keys).
+        use issen_core::timeline::event::EntityRef;
+        let data = build_usn_v2_record(
+            "coreupdater.exe",
+            133_451_432_000_000_000,
+            UsnReasonFlags::FILE_CREATE,
+            42,
+            1,
+            999,
+        );
+        let record = UsnRecordV2::parse(&data).expect("parse");
+        let event = record_to_event(&record, "evidence-001");
+        assert!(
+            event
+                .entity_refs
+                .contains(&EntityRef::FilePath("coreupdater.exe".to_string())),
+            "USN event must carry a FilePath entity ref for correlation"
+        );
+    }
 }
