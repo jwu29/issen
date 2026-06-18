@@ -152,6 +152,30 @@ pub fn parse_boot_log(
 mod tests {
     use super::*;
 
+    #[test]
+    fn boot_log_events_tagged_per_kind() {
+        // boot_log is mixed: an ld.so.preload hijack is Persistence; an sshd
+        // service restart is SystemState. Each emitted event must carry the
+        // category matching its kind, not one uniform tag.
+        let content = concat!(
+            "Apr 15 10:01:00 myhost systemd[1]: Starting OpenBSD Secure Shell server sshd...\n",
+            "Apr 15 10:02:00 myhost kernel: ERROR: ld.so: object '/lib/evil.so' from /etc/ld.so.preload cannot be preloaded\n",
+        );
+        let events = parse_boot_log(content, "test", Some(2025));
+        let cats: Vec<_> = events
+            .iter()
+            .map(|e| e.activity_category.map(|c| c.code()))
+            .collect();
+        assert!(
+            cats.contains(&Some("persistence")),
+            "ld.so.preload hijack → Persistence; got {cats:?}"
+        );
+        assert!(
+            cats.contains(&Some("system-state")),
+            "sshd restart → SystemState; got {cats:?}"
+        );
+    }
+
     const SAMPLE_BOOT_LOG: &str = "\
 Apr 15 10:01:00 myhost kernel: [    0.000000] Booting Linux\n\
 Apr 15 10:01:05 myhost systemd[1]: Starting OpenBSD Secure Shell server sshd...\n\
