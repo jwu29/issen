@@ -84,6 +84,7 @@ pub fn events_from_bytes(bytes: &[u8], hive_name: &str, source_id: &str) -> Vec<
                 ),
                 source_id.to_string(),
             )
+            .with_activity_category(issen_core::ActivityCategory::AccountActivity)
             .with_metadata("secret_name", serde_json::json!(e.name))
             .with_metadata("has_current", serde_json::json!(e.has_current))
             .with_metadata("has_old", serde_json::json!(e.has_old))
