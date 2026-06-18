@@ -135,6 +135,31 @@ pub fn detect_artifact_type(path: &Path) -> Option<ArtifactType> {
         return Some(ArtifactType::Lnk);
     }
 
+    // Linux syslog → system info (matches LinuxSyslogParser::can_parse).
+    if name == "syslog" || name.starts_with("syslog.") {
+        return Some(ArtifactType::SystemInfo);
+    }
+
+    // Linux cron log → scheduled-task activity (LinuxCronParser::can_parse).
+    if name == "cron.log" || name == "cron" || name.starts_with("cron.") {
+        return Some(ArtifactType::CrontabConfig);
+    }
+
+    // Linux shell history → login/command history (LinuxBashHistoryParser).
+    if name == ".bash_history" || name == "bash_history" {
+        return Some(ArtifactType::LoginHistory);
+    }
+
+    // macOS unified log (system.log / *.logarchive) → system info.
+    if name == "system.log" || name.ends_with(".logarchive") {
+        return Some(ArtifactType::SystemInfo);
+    }
+
+    // macOS FSEvents (any path component under `.fseventsd`) → system info.
+    if full.contains("fseventsd") {
+        return Some(ArtifactType::SystemInfo);
+    }
+
     None
 }
 
@@ -660,6 +685,32 @@ mod tests {
         assert_eq!(
             detect_artifact_type(Path::new("/Users/a/Recent/foo.lnk")),
             Some(ArtifactType::Lnk),
+        );
+    }
+
+    #[test]
+    fn test_detect_linux_macos_logs() {
+        // issen #114: the linux syslog/cron/bash_history + macos unified/fsevents
+        // parsers are wired; classify their files so discovery reaches them.
+        assert_eq!(
+            detect_artifact_type(Path::new("/var/log/syslog")),
+            Some(ArtifactType::SystemInfo),
+        );
+        assert_eq!(
+            detect_artifact_type(Path::new("/var/log/cron.log")),
+            Some(ArtifactType::CrontabConfig),
+        );
+        assert_eq!(
+            detect_artifact_type(Path::new("/home/alice/.bash_history")),
+            Some(ArtifactType::LoginHistory),
+        );
+        assert_eq!(
+            detect_artifact_type(Path::new("/var/log/system.log")),
+            Some(ArtifactType::SystemInfo),
+        );
+        assert_eq!(
+            detect_artifact_type(Path::new("/System/.fseventsd/0000000000abcdef")),
+            Some(ArtifactType::SystemInfo),
         );
     }
 
