@@ -30,9 +30,6 @@ mod tests {
     #[test]
     fn bad_file_source_variants() {
         assert_ne!(BadFileSource::MalwareBazaar, BadFileSource::VirusShare);
-        assert_eq!(
-            BadFileSource::Custom("feed"),
-            BadFileSource::Custom("feed")
-        );
+        assert_eq!(BadFileSource::Custom("feed"), BadFileSource::Custom("feed"));
     }
 }

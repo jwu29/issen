@@ -81,9 +81,8 @@ pub fn extract_preload_path(line: &str) -> Option<&str> {
 #[must_use]
 pub fn is_sshd_restart(line: &str) -> bool {
     let has_sshd = line.contains("sshd");
-    let has_action = line.contains("Starting ")
-        || line.contains("Stopping ")
-        || line.contains("Restarting ");
+    let has_action =
+        line.contains("Starting ") || line.contains("Stopping ") || line.contains("Restarting ");
     has_sshd && has_action
 }
 
@@ -96,7 +95,11 @@ pub fn is_sshd_restart(line: &str) -> bool {
 /// - `EventType::Other("LdPreloadError")` for ld.so preload failure lines
 /// - `EventType::Other("SshdRestart")` for sshd start/stop/restart lines
 #[must_use]
-pub fn parse_boot_log(content: &str, source_id: &str, year_hint: Option<i32>) -> Vec<TimelineEvent> {
+pub fn parse_boot_log(
+    content: &str,
+    source_id: &str,
+    year_hint: Option<i32>,
+) -> Vec<TimelineEvent> {
     let year = year_hint.unwrap_or_else(|| Utc::now().year());
     let mut events = Vec::new();
 
@@ -116,8 +119,10 @@ pub fn parse_boot_log(content: &str, source_id: &str, year_hint: Option<i32>) ->
         };
 
         if is_ld_so_preload_error(line) {
-            let path_desc = extract_preload_path(line)
-                .map_or_else(|| "ld.so preload error (path unknown)".to_string(), |p| format!("ld.so preload error: {p}"));
+            let path_desc = extract_preload_path(line).map_or_else(
+                || "ld.so preload error (path unknown)".to_string(),
+                |p| format!("ld.so preload error: {p}"),
+            );
             let ev = make_event(
                 timestamp_ns,
                 EventType::Other("LdPreloadError".to_string()),
@@ -198,7 +203,8 @@ Apr 15 10:01:10 myhost systemd[1]: Restarting OpenBSD Secure Shell server sshd\n
 
     #[test]
     fn extract_preload_path_handles_short_path() {
-        let line = "ERROR: ld.so: object '/lib/evil.so' from /etc/ld.so.preload cannot be preloaded";
+        let line =
+            "ERROR: ld.so: object '/lib/evil.so' from /etc/ld.so.preload cannot be preloaded";
         assert_eq!(extract_preload_path(line), Some("/lib/evil.so"));
     }
 
@@ -213,16 +219,12 @@ Apr 15 10:01:10 myhost systemd[1]: Restarting OpenBSD Secure Shell server sshd\n
 
     #[test]
     fn sshd_restart_detected_starting() {
-        assert!(is_sshd_restart(
-            "Starting OpenBSD Secure Shell server sshd"
-        ));
+        assert!(is_sshd_restart("Starting OpenBSD Secure Shell server sshd"));
     }
 
     #[test]
     fn sshd_restart_detected_stopping() {
-        assert!(is_sshd_restart(
-            "Stopping OpenBSD Secure Shell server sshd"
-        ));
+        assert!(is_sshd_restart("Stopping OpenBSD Secure Shell server sshd"));
     }
 
     #[test]
@@ -299,13 +301,19 @@ Apr 15 10:01:10 myhost systemd[1]: Restarting OpenBSD Secure Shell server sshd\n
 
     #[test]
     fn parse_boot_log_year_hint_2022_gives_earlier_timestamp() {
-        let content = "Apr 15 10:01:00 myhost systemd[1]: Starting OpenBSD Secure Shell server sshd...\n";
+        let content =
+            "Apr 15 10:01:00 myhost systemd[1]: Starting OpenBSD Secure Shell server sshd...\n";
         let ev_2022 = parse_boot_log(content, "test", Some(2022));
         let ev_2025 = parse_boot_log(content, "test", Some(2025));
         // Both should have events (sshd start line)
-        assert!(!ev_2022.is_empty() && !ev_2025.is_empty(), "should produce events");
+        assert!(
+            !ev_2022.is_empty() && !ev_2025.is_empty(),
+            "should produce events"
+        );
         // 2022 timestamp should be earlier
-        assert!(ev_2022[0].timestamp_ns < ev_2025[0].timestamp_ns,
-            "2022 ts should be before 2025 ts");
+        assert!(
+            ev_2022[0].timestamp_ns < ev_2025[0].timestamp_ns,
+            "2022 ts should be before 2025 ts"
+        );
     }
 }

@@ -128,10 +128,19 @@ mod tests {
         let alerts = parse_eve_json(SAMPLE_EVE_ALERT);
         assert_eq!(alerts.len(), 1);
         // Evidence whose attrs contain dest_ip value "1.2.3.4"
-        let ev = Evidence::new("ev-001", EvidenceSource::Artifact, EvidenceKind::Network, None)
-            .with_attr("ip", "1.2.3.4");
+        let ev = Evidence::new(
+            "ev-001",
+            EvidenceSource::Artifact,
+            EvidenceKind::Network,
+            None,
+        )
+        .with_attr("ip", "1.2.3.4");
         let results = correlate_alerts(&alerts, &[ev]);
-        assert_eq!(results.len(), 1, "alert should match evidence with ip=1.2.3.4");
+        assert_eq!(
+            results.len(),
+            1,
+            "alert should match evidence with ip=1.2.3.4"
+        );
         assert_eq!(results[0].1, vec!["ev-001".to_string()]);
     }
 
@@ -140,8 +149,13 @@ mod tests {
         let alerts = parse_eve_json(SAMPLE_EVE_ALERT);
         assert_eq!(alerts.len(), 1);
         // Evidence with unrelated IP
-        let ev = Evidence::new("ev-002", EvidenceSource::Artifact, EvidenceKind::Network, None)
-            .with_attr("ip", "10.0.0.1");
+        let ev = Evidence::new(
+            "ev-002",
+            EvidenceSource::Artifact,
+            EvidenceKind::Network,
+            None,
+        )
+        .with_attr("ip", "10.0.0.1");
         let results = correlate_alerts(&alerts, &[ev]);
         // correlate_alerts returns only alerts that have at least one match
         // so with no matching evidence, the returned list is empty (or has empty vec)
