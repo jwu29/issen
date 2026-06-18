@@ -8,6 +8,7 @@
 //!   `LowerCaseLongPath`, `FileId`, `LinkDate`, `Size`, `Publisher`
 //! - Legacy (Win7): `Root\File\<VolumeGuid>\<seq>` — values `15` (path), `101` (SHA1)
 
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 #![allow(
     clippy::doc_markdown,
     clippy::missing_errors_doc,
@@ -84,6 +85,7 @@ pub fn events_from_bytes(bytes: &[u8], hive_name: &str, source_id: &str) -> Vec<
                 description,
                 source_id.to_string(),
             )
+            .with_activity_category(issen_core::ActivityCategory::Execution)
             .with_metadata("sha1", serde_json::json!(e.sha1))
             .with_metadata("path", serde_json::json!(e.file_path))
             .with_metadata("size", serde_json::json!(e.size))
