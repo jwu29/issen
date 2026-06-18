@@ -8,6 +8,7 @@ description = "Core types, timeline schema, and plugin traits for Issen"
 repository.workspace = true
 
 [dependencies]
+forensicnomicon = { workspace = true, features = ["serde"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 chrono = { workspace = true }

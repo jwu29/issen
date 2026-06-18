@@ -156,6 +156,12 @@ pub struct TimelineEvent {
     /// an event relates to. Defaults to empty for backwards compatibility.
     #[serde(default)]
     pub entity_refs: Vec<EntityRef>,
+    /// Forensic-semantic category (CADET) — *what the evidence means*, distinct
+    /// from `source` (which artifact/parser produced it). `None` until a parser
+    /// tags it. Defaults to `None` for backward compatibility with pre-CADET
+    /// timelines (`#[serde(default)]`).
+    #[serde(default)]
+    pub activity_category: Option<ActivityCategory>,
 }
 
 impl TimelineEvent {
@@ -216,6 +222,7 @@ impl TimelineEvent {
             record_hash,
             evidence_source_id,
             entity_refs: Vec::new(),
+            activity_category: None,
         }
     }
 
@@ -251,6 +258,15 @@ impl TimelineEvent {
     #[must_use]
     pub fn with_entity_ref(mut self, entity: EntityRef) -> Self {
         self.entity_refs.push(entity);
+        self
+    }
+
+    /// Tag the event with its forensic-semantic category (CADET). Returns self
+    /// for chaining. The category is an annotation — it does not affect the
+    /// content-addressed `record_hash`.
+    #[must_use]
+    pub fn with_activity_category(mut self, category: ActivityCategory) -> Self {
+        self.activity_category = Some(category);
         self
     }
 }
