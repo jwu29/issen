@@ -19,10 +19,19 @@ use std::fs;
 use std::path::Path;
 
 /// Parsers whose `ForensicParser::parse()` is still a stub, tracked as #114
-/// debt (they need real parser implementations, not just wiring). Once a
-/// parser's `parse()` is wired to emit, REMOVE it here — the gate will fail
-/// until you do, which is the intended ratchet.
-const KNOWN_DARK_PARSERS: &[&str] = &[];
+/// debt. Once a parser's `parse()` is wired to emit, REMOVE it here — the gate
+/// fails until you do (the intended ratchet, so the list reflects reality).
+///
+/// - `setupapi` is **wireable** now: `parser::parse_setupapi(path, source_id)`
+///   already exists (like `lnk` did before it was wired); only the trait impl
+///   is stubbed.
+/// - `linux` / `macos` need real parser **implementations** (they only have
+///   `can_parse` detection, no event extraction yet).
+const KNOWN_DARK_PARSERS: &[&str] = &[
+    "issen-parser-linux",
+    "issen-parser-macos",
+    "issen-parser-setupapi",
+];
 
 fn concat_rs(dir: &Path, out: &mut String) {
     let Ok(entries) = fs::read_dir(dir) else {
