@@ -228,7 +228,10 @@ pub fn record_to_event(
     // are never overwritten by crafted EventData. (`flat` is computed up front,
     // above, so 7045's artifact_path can read ImagePath.)
     for (key, val) in &flat {
-        if matches!(key.as_str(), "event_id" | "record_id" | "provider" | "channel") {
+        if matches!(
+            key.as_str(),
+            "event_id" | "record_id" | "provider" | "channel"
+        ) {
             continue;
         }
         event = event.with_metadata(key.clone(), Value::String(val.clone()));
@@ -262,7 +265,10 @@ pub fn record_to_event(
     } else {
         "TargetUserName"
     };
-    if let Some(user) = flat.get(account_field).filter(|s| !s.is_empty() && s.as_str() != "-") {
+    if let Some(user) = flat
+        .get(account_field)
+        .filter(|s| !s.is_empty() && s.as_str() != "-")
+    {
         event = event.with_entity_ref(EntityRef::User(user.clone()));
     }
     if let Some(ip) = flat
@@ -531,6 +537,33 @@ mod tests {
             assert_eq!(
                 got, *expected,
                 "event_id_to_event_type({id}) expected {expected:?} but got {got:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn record_to_event_tags_activity_category_per_event_id() {
+        // EVTX is a mixed source: the CADET category is per event-id, not one
+        // uniform tag. Spot-check one event-id per category (incl. 1102 log-clear
+        // → AntiForensics, which the EventType axis maps only to Other).
+        let cases = [
+            (4624_u64, "login-activity"), // logon success
+            (4634, "login-activity"),     // logoff
+            (4688, "execution"),          // process create
+            (7045, "persistence"),        // service install
+            (4698, "scheduled-task"),     // scheduled task create
+            (4720, "account-activity"),   // user account created
+            (1102, "anti-forensics"),     // security log cleared (T1070.001)
+            (5156, "network-activity"),   // WFP connection permitted
+            (6005, "system-state"),       // event log service started (boot)
+        ];
+        for (id, expected) in cases {
+            let data = serde_json::json!({ "Event": { "System": { "EventID": id } } });
+            let ev = record_to_event(1, 0, "1970-01-01T00:00:00Z", &data, "test");
+            assert_eq!(
+                ev.activity_category.map(|c| c.code()),
+                Some(expected),
+                "EventID {id} must map to {expected}"
             );
         }
     }
@@ -1008,9 +1041,18 @@ mod tests {
             }
         });
         let event = record_to_event(7, 0, "2024-01-01T00:00:00Z", &data, "src");
-        assert_eq!(event.metadata.get("Image"), Some(&serde_json::json!("C:\\Windows\\Temp\\evil.exe")));
-        assert_eq!(event.metadata.get("CommandLine"), Some(&serde_json::json!("evil.exe -enc AAAA")));
-        assert_eq!(event.metadata.get("ParentImage"), Some(&serde_json::json!("C:\\Windows\\System32\\services.exe")));
+        assert_eq!(
+            event.metadata.get("Image"),
+            Some(&serde_json::json!("C:\\Windows\\Temp\\evil.exe"))
+        );
+        assert_eq!(
+            event.metadata.get("CommandLine"),
+            Some(&serde_json::json!("evil.exe -enc AAAA"))
+        );
+        assert_eq!(
+            event.metadata.get("ParentImage"),
+            Some(&serde_json::json!("C:\\Windows\\System32\\services.exe"))
+        );
     }
 
     #[test]
@@ -1027,9 +1069,18 @@ mod tests {
             }
         });
         let event = record_to_event(42, 0, "2024-01-01T00:00:00Z", &data, "src");
-        assert_eq!(event.metadata.get("event_id"), Some(&serde_json::json!(4688)));
-        assert_eq!(event.metadata.get("record_id"), Some(&serde_json::json!(42_u64)));
-        assert_eq!(event.metadata.get("Image"), Some(&serde_json::json!("C:\\evil.exe")));
+        assert_eq!(
+            event.metadata.get("event_id"),
+            Some(&serde_json::json!(4688))
+        );
+        assert_eq!(
+            event.metadata.get("record_id"),
+            Some(&serde_json::json!(42_u64))
+        );
+        assert_eq!(
+            event.metadata.get("Image"),
+            Some(&serde_json::json!("C:\\evil.exe"))
+        );
     }
 
     #[test]
@@ -1181,11 +1232,15 @@ mod tests {
         });
         let event = record_to_event(7, 0, "2020-09-19T03:21:48Z", &data, "evtx-src");
         assert!(
-            event.entity_refs.contains(&EntityRef::User("Administrator".to_string())),
+            event
+                .entity_refs
+                .contains(&EntityRef::User("Administrator".to_string())),
             "user ref: {:?}",
             event.entity_refs
         );
-        assert!(event.entity_refs.contains(&EntityRef::Ip("194.61.24.102".to_string())));
+        assert!(event
+            .entity_refs
+            .contains(&EntityRef::Ip("194.61.24.102".to_string())));
         assert!(event.entity_refs.contains(&EntityRef::Session(0x59b61)));
     }
 
@@ -1225,10 +1280,15 @@ mod tests {
         });
         let event = record_to_event(9, 0, "t", &data, "src");
         assert!(
-            !event.entity_refs.iter().any(|e| matches!(e, EntityRef::Ip(_))),
+            !event
+                .entity_refs
+                .iter()
+                .any(|e| matches!(e, EntityRef::Ip(_))),
             "no Ip ref for '-': {:?}",
             event.entity_refs
         );
-        assert!(event.entity_refs.contains(&EntityRef::User("SYSTEM".to_string())));
+        assert!(event
+            .entity_refs
+            .contains(&EntityRef::User("SYSTEM".to_string())));
     }
 }
