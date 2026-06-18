@@ -29,13 +29,13 @@ use std::path::Path;
 
 use anyhow::Context;
 use chrono::{NaiveDateTime, TimeZone, Utc};
-use regex::Regex;
 use issen_core::artifacts::ArtifactType;
 use issen_core::plugin::registry::ParserRegistration;
 use issen_core::plugin::traits::{
     DataSource, EventEmitter, ForensicParser, ParseStats, ParserCapabilities,
 };
 use issen_core::timeline::event::{EventType, TimelineEvent};
+use regex::Regex;
 
 // ---------------------------------------------------------------------------
 // Timestamp parsing helpers
@@ -83,17 +83,14 @@ pub fn parse_setupapi(path: &Path, source_id: &str) -> anyhow::Result<Vec<Timeli
     // Regex captures:
     //   group 1 — description (everything between `[` and the timestamp)
     //   group 2 — timestamp string (YYYY/MM/DD HH:MM:SS with optional .mmm)
-    let vista_re = Regex::new(
-        r"^\[(.+?)\s+(\d{4}/\d{2}/\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?)\]",
-    )
-    .context("compile Vista+ regex")?;
+    let vista_re = Regex::new(r"^\[(.+?)\s+(\d{4}/\d{2}/\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?)\]")
+        .context("compile Vista+ regex")?;
 
     // XP pattern: timestamp first inside brackets.
     // Example: [2005/05/12 12:34:56 1234.5678] Device Install - ...
-    let xp_re = Regex::new(
-        r"^\[(\d{4}/\d{2}/\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+[^\]]+\]\s*(.*)",
-    )
-    .context("compile XP regex")?;
+    let xp_re =
+        Regex::new(r"^\[(\d{4}/\d{2}/\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+[^\]]+\]\s*(.*)")
+            .context("compile XP regex")?;
 
     let mut events: Vec<TimelineEvent> = Vec::new();
     let reader = BufReader::new(file);
@@ -223,6 +220,57 @@ mod tests {
     use std::io::Write;
     use std::path::PathBuf;
 
+    /// Drive the registered `ForensicParser::parse()` end-to-end via an
+    /// in-memory source + emitter. The trait impl was a stub returning
+    /// `Ok(ParseStats::new())`, so this registered, `Registry`-advertising
+    /// parser silently emitted nothing — a "dark parser" (issen #114). This
+    /// proves the trait actually emits.
+    #[test]
+    fn forensic_parser_parse_emits_via_emitter() {
+        use issen_core::error::RtError;
+        use std::sync::Mutex;
+
+        struct MemSource(Vec<u8>);
+        impl DataSource for MemSource {
+            fn len(&self) -> u64 {
+                self.0.len() as u64
+            }
+            fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<usize, RtError> {
+                let off = offset as usize;
+                let n = buf.len().min(self.0.len().saturating_sub(off));
+                buf[..n].copy_from_slice(&self.0[off..off + n]);
+                Ok(n)
+            }
+        }
+        #[derive(Default)]
+        struct Collector(Mutex<Vec<TimelineEvent>>);
+        impl EventEmitter for Collector {
+            fn emit(&self, e: TimelineEvent) -> Result<(), RtError> {
+                self.0.lock().expect("lock").push(e);
+                Ok(())
+            }
+            fn emit_batch(&self, mut e: Vec<TimelineEvent>) -> Result<(), RtError> {
+                self.0.lock().expect("lock").append(&mut e);
+                Ok(())
+            }
+        }
+
+        let log = "[Device Install (Hardware initiated) - USB\\VID_0781&PID_5583\\1234567890AB 2023/04/15 14:23:11.456]\n";
+        let source = MemSource(log.as_bytes().to_vec());
+        let collector = Collector::default();
+        let stats = SetupApiParser
+            .parse(&source, &collector)
+            .expect("parse must not Err on a valid log");
+
+        assert_eq!(stats.events_emitted, 1, "one device-install event emitted");
+        let events = collector.0.lock().expect("lock");
+        assert_eq!(events.len(), 1);
+        assert_eq!(
+            events[0].event_type,
+            EventType::Other("DeviceInstall".to_string())
+        );
+    }
+
     // ── can_parse tests ────────────────────────────────────────────────────
 
     #[test]
@@ -262,8 +310,14 @@ mod tests {
     #[test]
     fn parse_nonexistent_returns_empty() {
         let result = parse_setupapi(Path::new("/nonexistent/setupapi.dev.log"), "test");
-        assert!(result.is_ok(), "parse_setupapi must return Ok for nonexistent path");
-        assert!(result.unwrap().is_empty(), "nonexistent path should produce zero events");
+        assert!(
+            result.is_ok(),
+            "parse_setupapi must return Ok for nonexistent path"
+        );
+        assert!(
+            result.unwrap().is_empty(),
+            "nonexistent path should produce zero events"
+        );
     }
 
     #[test]
@@ -271,7 +325,10 @@ mod tests {
         let tmp = tempfile::NamedTempFile::new().expect("tempfile");
         let result = parse_setupapi(tmp.path(), "test");
         assert!(result.is_ok(), "empty file must return Ok");
-        assert!(result.unwrap().is_empty(), "empty file should produce zero events");
+        assert!(
+            result.unwrap().is_empty(),
+            "empty file should produce zero events"
+        );
     }
 
     /// GREEN test: write a tempfile with one valid Vista+ setupapi line and
@@ -334,7 +391,11 @@ mod tests {
     fn parse_xp_format_emits_event() {
         let mut tmp = tempfile::NamedTempFile::new().expect("tempfile");
         // XP format: timestamp first inside brackets
-        writeln!(tmp, "[2005/05/12 12:34:56 1234.5678] Device Install - USB\\...").expect("write");
+        writeln!(
+            tmp,
+            "[2005/05/12 12:34:56 1234.5678] Device Install - USB\\..."
+        )
+        .expect("write");
         tmp.flush().expect("flush");
 
         let events = parse_setupapi(tmp.path(), "xp-test").expect("parse must not Err");
@@ -344,7 +405,10 @@ mod tests {
             "XP-format setupapi.log lines must produce events"
         );
         assert_eq!(
-            events[0].metadata.get("log_format").and_then(|v| v.as_str()),
+            events[0]
+                .metadata
+                .get("log_format")
+                .and_then(|v| v.as_str()),
             Some("xp"),
             "XP-format events must have log_format == 'xp'"
         );
