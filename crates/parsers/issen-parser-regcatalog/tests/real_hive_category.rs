@@ -73,3 +73,27 @@ fn regcatalog_tags_each_hit_with_its_own_category() {
         Some("execution")
     );
 }
+
+#[test]
+fn regcatalog_events_carry_real_last_write_time() {
+    if !case001_dir().join("SOFTWARE").exists() {
+        eprintln!("SKIP: case001-hives absent (see docs/corpus-catalog.md §A3b)");
+        return;
+    }
+    // Catalog hits resolve against a real key whose LastWriteTime is the event's
+    // forensic timestamp — at least one hit across the Case-001 hives must carry
+    // it, not timestamp 0.
+    let mut any_ts = false;
+    for h in ["SOFTWARE", "SYSTEM", "NTUSER.DAT", "SAM", "SECURITY"] {
+        let p = case001_dir().join(h);
+        if !p.exists() {
+            continue;
+        }
+        let events = issen_parser_regcatalog::parse_regcatalog(&p, "case001").expect("parse");
+        if events.iter().any(|e| e.timestamp_ns > 0) {
+            any_ts = true;
+            break;
+        }
+    }
+    assert!(any_ts, "events must carry a real LastWriteTime, not 0");
+}

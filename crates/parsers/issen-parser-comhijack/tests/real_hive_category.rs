@@ -38,4 +38,9 @@ fn comhijack_real_usrclass_tagged_persistence() {
             .all(|e| e.activity_category.map(|c| c.code()) == Some("persistence")),
         "every COM-registration event must be tagged ActivityCategory::Persistence"
     );
+    // COM-hijack events must carry the CLSID key's LastWriteTime, not 0.
+    assert!(
+        events.iter().any(|e| e.timestamp_ns > 0),
+        "events must carry a real LastWriteTime, not 0"
+    );
 }

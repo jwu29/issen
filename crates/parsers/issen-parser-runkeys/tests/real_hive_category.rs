@@ -37,4 +37,10 @@ fn runkeys_real_software_hive_tagged_persistence() {
             .all(|e| e.activity_category.map(|c| c.code()) == Some("persistence")),
         "every Run-key event must be tagged ActivityCategory::Persistence"
     );
+    // Run-key events must carry the key's LastWriteTime (the autostart key's
+    // create/modify time), not timestamp 0 — the forensic "when was this set".
+    assert!(
+        events.iter().any(|e| e.timestamp_ns > 0),
+        "events must carry a real LastWriteTime, not 0"
+    );
 }

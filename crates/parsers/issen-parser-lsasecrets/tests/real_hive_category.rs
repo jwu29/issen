@@ -37,4 +37,9 @@ fn lsasecrets_real_security_hive_tagged_account_activity() {
             .all(|e| e.activity_category.map(|c| c.code()) == Some("account-activity")),
         "every LSA-secret event must be tagged ActivityCategory::AccountActivity"
     );
+    // LSA-secret events must carry the secret key's LastWriteTime, not 0.
+    assert!(
+        events.iter().any(|e| e.timestamp_ns > 0),
+        "events must carry a real LastWriteTime, not 0"
+    );
 }
