@@ -84,15 +84,22 @@ pub fn event_id_to_event_type(event_id: u64) -> EventType {
 /// is still emitted, just untagged). 1102 (security log cleared) maps to
 /// `AntiForensics` even though [`event_id_to_event_type`] only has `Other` for it.
 #[must_use]
-pub fn event_id_to_category(event_id: u64) -> Option<issen_core::ActivityCategory> {
+pub fn event_id_to_category(event_id: u64, channel: &str) -> Option<issen_core::ActivityCategory> {
     use issen_core::ActivityCategory as C;
+    // 1102 is "audit log cleared" ONLY in the Security channel (ATT&CK T1070.001);
+    // in other channels it is a benign provider-specific event, so it is NOT
+    // AntiForensics there (tagging it would be a false positive).
+    if event_id == 1102 {
+        return channel
+            .eq_ignore_ascii_case("Security")
+            .then_some(C::AntiForensics);
+    }
     Some(match event_id {
         4624 | 4625 | 4634 | 4647 => C::LoginActivity,
         4688 | 4689 => C::Execution,
         7045 => C::Persistence,
         4698 | 4702 | 106 => C::ScheduledTask,
         4720 | 4722 | 4725 | 4726 | 4738 => C::AccountActivity,
-        1102 => C::AntiForensics, // Security log cleared — ATT&CK T1070.001
         5156 | 5157 => C::NetworkActivity,
         7036 | 4719 | 6005 | 6006 | 6008 | 6009 => C::SystemState,
         _ => return None,
@@ -233,7 +240,7 @@ pub fn record_to_event(
     .with_metadata("event_id", serde_json::json!(event_id))
     .with_metadata("record_id", serde_json::json!(record_id));
 
-    if let Some(category) = event_id_to_category(event_id) {
+    if let Some(category) = event_id_to_category(event_id, channel) {
         event = event.with_activity_category(category);
     }
 
@@ -580,12 +587,15 @@ mod tests {
             (7045, "persistence"),        // service install
             (4698, "scheduled-task"),     // scheduled task create
             (4720, "account-activity"),   // user account created
-            (1102, "anti-forensics"),     // security log cleared (T1070.001)
             (5156, "network-activity"),   // WFP connection permitted
             (6005, "system-state"),       // event log service started (boot)
         ];
         for (id, expected) in cases {
-            let data = serde_json::json!({ "Event": { "System": { "EventID": id } } });
+            // Security channel so channel-gated ids (e.g. 1102, covered in its own
+            // test) resolve; the spot-check ids above are Security/System events.
+            let data = serde_json::json!({
+                "Event": { "System": { "EventID": id, "Channel": "Security" } }
+            });
             let ev = record_to_event(1, 0, "1970-01-01T00:00:00Z", &data, "test");
             assert_eq!(
                 ev.activity_category.map(|c| c.code()),
