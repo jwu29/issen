@@ -13,6 +13,9 @@ issen-plugin-sdk = { workspace = true }
 # (winreg-artifacts::catalog_scan over winreg-core), never third-party notatin.
 winreg-core = { workspace = true }
 winreg-artifacts = { workspace = true }
+# CADET per-descriptor category (ArtifactDescriptor::activity_category) — each
+# catalog hit is a different artifact kind, so the category is looked up per-hit.
+forensicnomicon = { workspace = true }
 anyhow = { workspace = true }
 chrono = { workspace = true }
 inventory = { workspace = true }
