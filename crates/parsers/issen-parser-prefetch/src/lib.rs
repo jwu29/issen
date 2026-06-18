@@ -261,7 +261,10 @@ mod tests {
         let ev = &events[0];
         assert_eq!(ev.source, ArtifactType::Prefetch);
         assert!(ev.description.contains("NOTEPAD.EXE"), "{}", ev.description);
-        assert!(ev.timestamp_ns > 0, "run time must be decoded, not stubbed to 0");
+        assert!(
+            ev.timestamp_ns > 0,
+            "run time must be decoded, not stubbed to 0"
+        );
         assert_eq!(
             ev.metadata
                 .get("run_count")
@@ -273,6 +276,21 @@ mod tests {
                 .get("executable")
                 .and_then(serde_json::Value::as_str),
             Some("NOTEPAD.EXE")
+        );
+    }
+
+    #[test]
+    fn prefetch_event_tagged_execution() {
+        // Prefetch records program execution — emitted events carry the CADET
+        // Execution category (meaning axis), distinct from the Prefetch source.
+        let data = minimal_scca("NOTEPAD.EXE", 132_449_604_494_103_203, 3);
+        let mut tmp = tempfile::NamedTempFile::new().expect("tempfile");
+        tmp.write_all(&data).expect("write");
+        tmp.flush().expect("flush");
+        let events = parser::parse_prefetch(tmp.path(), "test-source").expect("parse");
+        assert_eq!(
+            events[0].activity_category,
+            Some(issen_core::ActivityCategory::Execution)
         );
     }
 
