@@ -396,6 +396,10 @@ fn record_to_event(record: &UsnRecordV2, evidence_source_id: &str) -> TimelineEv
         serde_json::json!(record.parent_file_reference_number),
     )
     .with_metadata("file_attributes", serde_json::json!(record.file_attributes))
+    // FilePath correlation join key (carried over from the removed cli builtin).
+    .with_entity_ref(issen_core::timeline::event::EntityRef::FilePath(
+        record.file_name.clone(),
+    ))
 }
 
 // Compile-time registration with the parser inventory.

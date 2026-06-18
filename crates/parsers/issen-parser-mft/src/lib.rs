@@ -126,6 +126,10 @@ fn mace_event(
     .with_activity_category(issen_core::ActivityCategory::FileSystemActivity)
     .with_metadata("mft_entry_id", serde_json::json!(entry_id))
     .with_metadata("is_directory", serde_json::json!(is_dir))
+    // FilePath correlation join key (carried over from the removed cli builtin).
+    .with_entity_ref(issen_core::timeline::event::EntityRef::FilePath(
+        full_path.to_string(),
+    ))
 }
 
 /// Extract the `$STANDARD_INFORMATION` attribute from an MFT entry.
