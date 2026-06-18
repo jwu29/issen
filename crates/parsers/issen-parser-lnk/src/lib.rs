@@ -75,6 +75,65 @@ mod tests {
     use std::io::Write as IoWrite;
     use std::path::PathBuf;
 
+    /// Drive the registered `ForensicParser::parse()` end-to-end via an
+    /// in-memory source + emitter. The trait impl was a stub returning
+    /// `Ok(ParseStats::new())`, so this registered, `Lnk`-advertising parser
+    /// silently emitted nothing — a "dark parser" whose artifacts vanished from
+    /// the timeline (issen #114). This proves the trait actually emits.
+    #[test]
+    fn forensic_parser_parse_emits_via_emitter() {
+        use issen_core::timeline::event::TimelineEvent;
+        use std::sync::Mutex;
+
+        struct MemSource(Vec<u8>);
+        impl DataSource for MemSource {
+            fn len(&self) -> u64 {
+                self.0.len() as u64
+            }
+            fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<usize, RtError> {
+                let off = offset as usize;
+                let n = buf.len().min(self.0.len().saturating_sub(off));
+                buf[..n].copy_from_slice(&self.0[off..off + n]);
+                Ok(n)
+            }
+        }
+        #[derive(Default)]
+        struct Collector(Mutex<Vec<TimelineEvent>>);
+        impl EventEmitter for Collector {
+            fn emit(&self, e: TimelineEvent) -> Result<(), RtError> {
+                self.0.lock().expect("lock").push(e);
+                Ok(())
+            }
+            fn emit_batch(&self, mut e: Vec<TimelineEvent>) -> Result<(), RtError> {
+                self.0.lock().expect("lock").append(&mut e);
+                Ok(())
+            }
+        }
+
+        // Valid 80-byte LNK header: CreationTime + WriteTime set, AccessTime 0
+        // (the zero AccessTime must be skipped → 2 events, not 3).
+        let mut data = vec![0u8; 80];
+        data[0..4].copy_from_slice(&[0x4C, 0x00, 0x00, 0x00]);
+        data[20..24].copy_from_slice(&1u32.to_le_bytes());
+        data[24..28].copy_from_slice(&0x20u32.to_le_bytes());
+        data[28..36].copy_from_slice(&132_000_000_000_000_000u64.to_le_bytes());
+        data[44..52].copy_from_slice(&133_000_000_000_000_000u64.to_le_bytes());
+        data[52..56].copy_from_slice(&1234u32.to_le_bytes());
+        data[60..64].copy_from_slice(&1u32.to_le_bytes());
+
+        let source = MemSource(data);
+        let collector = Collector::default();
+        let stats = LnkParser
+            .parse(&source, &collector)
+            .expect("parse must not Err on a valid header");
+
+        assert_eq!(
+            stats.events_emitted, 2,
+            "creation+write emitted; zero access skipped"
+        );
+        assert_eq!(collector.0.lock().expect("lock").len(), 2);
+    }
+
     // ── Extension matching tests ───────────────────────────────────────────
 
     #[test]
