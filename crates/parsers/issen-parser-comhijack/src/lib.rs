@@ -78,6 +78,7 @@ pub fn events_from_bytes(bytes: &[u8], hive_name: &str, source_id: &str) -> Vec<
                 format!("COM hijack: CLSID {} -> {}", e.clsid, e.hkcu_server),
                 source_id.to_string(),
             )
+            .with_activity_category(issen_core::ActivityCategory::Persistence)
             .with_metadata("clsid", serde_json::json!(e.clsid))
             .with_metadata("hkcu_server", serde_json::json!(e.hkcu_server))
             .with_metadata("hkcr_server", serde_json::json!(e.hkcr_server))
@@ -97,15 +98,16 @@ pub fn events_from_bytes(bytes: &[u8], hive_name: &str, source_id: &str) -> Vec<
 pub struct ComHijackParser;
 
 impl ComHijackParser {
-    /// Return `true` when `path`'s filename is `NTUSER.DAT` or `SOFTWARE`
-    /// (case-insensitive) — COM CLSID registrations live in both.
+    /// Return `true` when `path`'s filename is `NTUSER.DAT`, `SOFTWARE`, or
+    /// `UsrClass.dat` (case-insensitive) — COM CLSID registrations live in all
+    /// three; on Win10 the per-user CLSID tree is in `UsrClass.dat`.
     pub fn can_parse(path: &Path) -> bool {
         let name = path
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("")
             .to_ascii_lowercase();
-        name == "ntuser.dat" || name == "software"
+        name == "ntuser.dat" || name == "software" || name == "usrclass.dat"
     }
 }
 
@@ -186,6 +188,14 @@ mod tests {
     fn can_parse_ntuser_lowercase() {
         assert!(ComHijackParser::can_parse(&PathBuf::from(
             "/evidence/ntuser.dat"
+        )));
+    }
+
+    #[test]
+    fn can_parse_usrclass_hive() {
+        // Win10 per-user CLSID lives in UsrClass.dat — comhijack must route it.
+        assert!(ComHijackParser::can_parse(&PathBuf::from(
+            "/evidence/C/Users/ricksanchez/AppData/Local/Microsoft/Windows/UsrClass.dat"
         )));
     }
 
