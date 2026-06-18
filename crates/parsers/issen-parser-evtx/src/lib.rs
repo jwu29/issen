@@ -595,6 +595,36 @@ mod tests {
         }
     }
 
+    #[test]
+    fn event_id_1102_only_anti_forensics_in_security_channel() {
+        // EventID 1102 = "audit log cleared" ONLY in the Security channel
+        // (ATT&CK T1070.001). In other channels (e.g. ShellCommon-StartLayout,
+        // ModernDeployment-Diagnostics) it is a benign provider-specific event —
+        // tagging those AntiForensics is a false positive (observed-not-inferred).
+        let sec = serde_json::json!({
+            "Event": { "System": { "EventID": 1102, "Channel": "Security" } }
+        });
+        let ev = record_to_event(1, 0, "1970-01-01T00:00:00Z", &sec, "test");
+        assert_eq!(
+            ev.activity_category.map(|c| c.code()),
+            Some("anti-forensics"),
+            "1102 in Security channel IS log-clearing"
+        );
+
+        let benign = serde_json::json!({
+            "Event": { "System": {
+                "EventID": 1102,
+                "Channel": "Microsoft-Windows-ShellCommon-StartLayoutPopulation/Operational"
+            } }
+        });
+        let ev = record_to_event(2, 0, "1970-01-01T00:00:00Z", &benign, "test");
+        assert_ne!(
+            ev.activity_category.map(|c| c.code()),
+            Some("anti-forensics"),
+            "1102 outside Security is NOT log-clearing — must not tag AntiForensics"
+        );
+    }
+
     // -- Accuracy: extract_event_id edge cases -----------------------------
 
     #[test]
