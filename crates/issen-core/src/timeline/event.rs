@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::artifacts::ArtifactType;
+use forensicnomicon::cadet::ActivityCategory;
 
 /// Event classifications for the unified forensic timeline.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -460,5 +461,58 @@ mod tests {
                 "round-trip failed for {debug}"
             );
         }
+    }
+
+    // ── ActivityCategory (CADET) tagging tests (RED) ─────────────────────────
+
+    #[test]
+    fn activity_category_defaults_to_none() {
+        // A freshly constructed event has no semantic category until a parser
+        // tags it (the routing `source` axis is distinct from the meaning axis).
+        let event = sample_event();
+        assert_eq!(event.activity_category, None);
+    }
+
+    #[test]
+    fn with_activity_category_sets_it() {
+        let event = sample_event().with_activity_category(ActivityCategory::LoginActivity);
+        assert_eq!(
+            event.activity_category,
+            Some(ActivityCategory::LoginActivity)
+        );
+    }
+
+    #[test]
+    fn activity_category_serde_roundtrips_in_event() {
+        let event = sample_event().with_activity_category(ActivityCategory::Execution);
+        let json = serde_json::to_string(&event).expect("serialize event");
+        let back: TimelineEvent = serde_json::from_str(&json).expect("deserialize event");
+        assert_eq!(back.activity_category, Some(ActivityCategory::Execution));
+    }
+
+    #[test]
+    fn legacy_event_without_activity_category_loads_as_none() {
+        // Backward-compat: timelines serialized before this field existed must
+        // still deserialize — `#[serde(default)]` makes it optional on the wire.
+        let event = sample_event();
+        let mut value = serde_json::to_value(&event).expect("to_value");
+        value
+            .as_object_mut()
+            .expect("event serializes to a JSON object")
+            .remove("activity_category");
+        let back: TimelineEvent = serde_json::from_value(value).expect("deserialize legacy");
+        assert_eq!(back.activity_category, None);
+    }
+
+    #[test]
+    fn activity_category_does_not_affect_hash() {
+        // Category is a semantic annotation (like tags/metadata), not one of the
+        // content-addressed fields, so it must not change the dedup hash.
+        let event1 = sample_event();
+        let event2 = sample_event().with_activity_category(ActivityCategory::Persistence);
+        assert_eq!(
+            event1.record_hash, event2.record_hash,
+            "ActivityCategory is an annotation, not part of the content hash"
+        );
     }
 }
