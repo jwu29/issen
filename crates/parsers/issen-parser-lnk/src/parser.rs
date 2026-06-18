@@ -59,14 +59,25 @@ pub fn parse_lnk(path: &Path, source_id: &str) -> anyhow::Result<Vec<TimelineEve
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(vec![]),
         Err(e) => return Err(e.into()),
     };
+    Ok(parse_lnk_bytes(&raw, &path.to_string_lossy(), source_id))
+}
 
+/// Parse LNK header bytes into timeline events.
+///
+/// The byte-level core shared by the path-based [`parse_lnk`] and the
+/// `ForensicParser` trait impl (which reads bytes from a `DataSource` and has no
+/// file path of its own). `artifact_path` labels the events and supplies the
+/// display filename; `source_id` tags their source. A too-short buffer or a bad
+/// signature yields no events (never an error).
+#[must_use]
+pub fn parse_lnk_bytes(raw: &[u8], artifact_path: &str, source_id: &str) -> Vec<TimelineEvent> {
     if raw.len() < HEADER_LEN {
-        return Ok(vec![]);
+        return vec![];
     }
 
     // Validate LNK signature.
     if &raw[0..4] != LNK_SIG {
-        return Ok(vec![]);
+        return vec![];
     }
 
     // Parse fixed fields.
@@ -77,12 +88,11 @@ pub fn parse_lnk(path: &Path, source_id: &str) -> anyhow::Result<Vec<TimelineEve
     let write_time = u64::from_le_bytes(raw[44..52].try_into().expect("8 bytes"));
     let file_size = u32::from_le_bytes(raw[52..56].try_into().expect("4 bytes"));
 
-    let filename = path
+    let filename = Path::new(artifact_path)
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("unknown.lnk");
     let description = format!("LNK shortcut: {filename}");
-    let artifact_path = path.to_string_lossy().into_owned();
 
     let link_flags_str = format!("0x{link_flags:08X}");
     let file_attributes_str = format!("0x{file_attributes:08X}");
@@ -105,7 +115,7 @@ pub fn parse_lnk(path: &Path, source_id: &str) -> anyhow::Result<Vec<TimelineEve
             String::new(),
             event_type.clone(),
             ArtifactType::Lnk,
-            artifact_path.clone(),
+            artifact_path.to_string(),
             description.clone(),
             source_id.to_string(),
         )
@@ -118,5 +128,5 @@ pub fn parse_lnk(path: &Path, source_id: &str) -> anyhow::Result<Vec<TimelineEve
         events.push(event);
     }
 
-    Ok(events)
+    events
 }

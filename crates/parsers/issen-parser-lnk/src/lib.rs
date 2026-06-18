@@ -20,7 +20,7 @@ use issen_core::artifacts::ArtifactType;
 use issen_core::error::RtError;
 use issen_core::plugin::registry::ParserRegistration;
 use issen_core::plugin::traits::{
-    DataSource, EventEmitter, ForensicParser, ParseStats, ParserCapabilities,
+    DataSource, EventEmitter, ForensicParser, ParseCompletion, ParseStats, ParserCapabilities,
 };
 
 /// Windows LNK (Shell Link) shortcut file parser.
@@ -46,10 +46,42 @@ impl ForensicParser for LnkParser {
 
     fn parse(
         &self,
-        _input: &dyn DataSource,
-        _emitter: &dyn EventEmitter,
+        input: &dyn DataSource,
+        emitter: &dyn EventEmitter,
     ) -> Result<ParseStats, RtError> {
-        Ok(ParseStats::new())
+        let mut stats = ParseStats::new();
+        let len = input.len();
+        if len == 0 {
+            stats.completion = ParseCompletion::Unsupported;
+            return Ok(stats);
+        }
+
+        // LNK shortcuts are small; read the whole file into memory.
+        let mut bytes = vec![0u8; len as usize];
+        let mut off = 0u64;
+        while off < len {
+            let n = input.read_at(off, &mut bytes[off as usize..])?;
+            if n == 0 {
+                break;
+            }
+            off += n as u64;
+        }
+        stats.bytes_processed = off;
+
+        // Use the source's real path for labelling when present; byte-only
+        // sources (carved/in-memory) fall back to a generic label.
+        let artifact_path = input.source_path().map_or_else(
+            || "lnk-evidence".to_string(),
+            |p| p.to_string_lossy().into_owned(),
+        );
+        let events =
+            parser::parse_lnk_bytes(&bytes[..off as usize], &artifact_path, "lnk-evidence");
+        stats.events_emitted = events.len() as u64;
+        if !events.is_empty() {
+            emitter.emit_batch(events)?;
+        }
+        stats.completion = ParseCompletion::Complete;
+        Ok(stats)
     }
 
     fn capabilities(&self) -> ParserCapabilities {
