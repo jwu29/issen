@@ -50,7 +50,7 @@ _(nothing actively in progress — pick the next item from the backlog below)_
 ## Fleet-Wide Debt
 
 - ⬜ **#109 CI greening — sibling repos still red/with debt:** `srum-forensic`, `ext4fs-forensic`, `4n6mount`, `winevt-forensic`. (issen + forensicnomicon now green.)
-- ⬜ **Docs → MkDocs (CLAUDE.md standard):** `memory-forensic`, `winevt-forensic`, `forensicnomicon`, `srum-forensic` still ship rustdoc-only `docs.yml` → their README footer Privacy/Terms links **404** until converted. Reference impl: `sqlite-forensic`.
+- ✅ **Docs → MkDocs — DONE (CLAUDE.md note was stale, verified 2026-06-18):** all four (`forensicnomicon`, `memory-forensic`, `winevt-forensic`, `srum-forensic`) already have `mkdocs.yml` + `mkdocs build` deploy workflows; forensicnomicon footer links verified **live** (HTTP 200, real content). No migration work left.
 - 🚩 forensicnomicon CI **test** job MSRV-1.75 stays root-only on purpose (the unpublished `ingest`/`4n6query` bins pull deps above 1.75); MSRV is a *library* guarantee.
 
 ---
