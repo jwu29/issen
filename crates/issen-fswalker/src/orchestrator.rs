@@ -643,6 +643,22 @@ mod tests {
     }
 
     #[test]
+    fn test_detect_linux_auth_log() {
+        // issen #114: LinuxAuthLogParser advertises LoginHistory and is now
+        // wired, but the classifier never routed anything to it — auth.log was
+        // discovered as nothing, so the parser never fired. Classify it (and
+        // rotated variants) so discovery reaches the parser.
+        assert_eq!(
+            detect_artifact_type(Path::new("/var/log/auth.log")),
+            Some(ArtifactType::LoginHistory),
+        );
+        assert_eq!(
+            detect_artifact_type(Path::new("/evidence/var/log/auth.log.1")),
+            Some(ArtifactType::LoginHistory),
+        );
+    }
+
+    #[test]
     fn test_detect_mft() {
         assert_eq!(
             detect_artifact_type(Path::new("/evidence/$MFT")),
