@@ -84,7 +84,13 @@ pub fn events_from_bytes(bytes: &[u8], hive_name: &str, source_id: &str) -> Vec<
             // Catalog hits are value reads; the descriptor carries no structured
             // last-write timestamp (a FILETIME decoder renders into value_data).
             let value_name = h.value_name.clone().unwrap_or_default();
-            TimelineEvent::new(
+            // Each hit is a different artifact kind, so the CADET category is
+            // looked up per-descriptor (forensicnomicon's structural classifier),
+            // not one uniform tag for the whole catalog.
+            let category = forensicnomicon::catalog::CATALOG
+                .by_id(h.catalog_id)
+                .map(forensicnomicon::catalog::ArtifactDescriptor::activity_category);
+            let event = TimelineEvent::new(
                 0,
                 "unknown".to_string(),
                 EventType::RegistryModify,
@@ -109,7 +115,11 @@ pub fn events_from_bytes(bytes: &[u8], hive_name: &str, source_id: &str) -> Vec<
             )
             .with_metadata("user", serde_json::json!(h.user))
             .with_metadata("bindings", serde_json::json!(h.bindings))
-            .with_metadata("artifact", serde_json::json!("catalog_scan"))
+            .with_metadata("artifact", serde_json::json!("catalog_scan"));
+            match category {
+                Some(cat) => event.with_activity_category(cat),
+                None => event,
+            }
         })
         .collect()
 }
