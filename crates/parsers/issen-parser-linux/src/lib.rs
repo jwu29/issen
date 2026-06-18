@@ -24,7 +24,7 @@ use issen_core::artifacts::ArtifactType;
 use issen_core::error::RtError;
 use issen_core::plugin::registry::ParserRegistration;
 use issen_core::plugin::traits::{
-    DataSource, EventEmitter, ForensicParser, ParseStats, ParserCapabilities,
+    DataSource, EventEmitter, ForensicParser, ParseCompletion, ParseStats, ParserCapabilities,
 };
 
 // ── LinuxAuthLogParser ────────────────────────────────────────────────────────
@@ -52,10 +52,42 @@ impl ForensicParser for LinuxAuthLogParser {
 
     fn parse(
         &self,
-        _input: &dyn DataSource,
-        _emitter: &dyn EventEmitter,
+        input: &dyn DataSource,
+        emitter: &dyn EventEmitter,
     ) -> Result<ParseStats, RtError> {
-        Ok(ParseStats::new())
+        let mut stats = ParseStats::new();
+        let len = input.len();
+        if len == 0 {
+            stats.completion = ParseCompletion::Unsupported;
+            return Ok(stats);
+        }
+
+        // auth.log is plain text; read the whole log into memory.
+        let mut bytes = vec![0u8; len as usize];
+        let mut off = 0u64;
+        while off < len {
+            let n = input.read_at(off, &mut bytes[off as usize..])?;
+            if n == 0 {
+                break;
+            }
+            off += n as u64;
+        }
+        stats.bytes_processed = off;
+
+        let content = String::from_utf8_lossy(&bytes[..off as usize]);
+        let artifact_path = input.source_path().map_or_else(
+            || "auth.log".to_string(),
+            |p| p.to_string_lossy().into_owned(),
+        );
+        // year_hint = None → current year (syslog lines carry no year).
+        let events =
+            auth_log::parse_auth_log_str(&content, "linux-auth-evidence", &artifact_path, None);
+        stats.events_emitted = events.len() as u64;
+        if !events.is_empty() {
+            emitter.emit_batch(events)?;
+        }
+        stats.completion = ParseCompletion::Complete;
+        Ok(stats)
     }
 
     fn capabilities(&self) -> ParserCapabilities {
@@ -209,6 +241,58 @@ inventory::submit! {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    /// Drive the registered `LinuxAuthLogParser::parse()` end-to-end via an
+    /// in-memory source + emitter. The trait impl was a stub returning
+    /// `Ok(ParseStats::new())` even though `auth_log::parse_auth_log` already
+    /// parses SSH login events — so discovered auth.logs emitted nothing (a
+    /// "dark parser", issen #114). This proves the trait actually emits.
+    #[test]
+    fn auth_log_forensic_parser_emits_via_emitter() {
+        use issen_core::timeline::event::TimelineEvent;
+        use std::sync::Mutex;
+
+        struct MemSource(Vec<u8>);
+        impl DataSource for MemSource {
+            fn len(&self) -> u64 {
+                self.0.len() as u64
+            }
+            fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<usize, RtError> {
+                let off = offset as usize;
+                let n = buf.len().min(self.0.len().saturating_sub(off));
+                buf[..n].copy_from_slice(&self.0[off..off + n]);
+                Ok(n)
+            }
+        }
+        #[derive(Default)]
+        struct Collector(Mutex<Vec<TimelineEvent>>);
+        impl EventEmitter for Collector {
+            fn emit(&self, e: TimelineEvent) -> Result<(), RtError> {
+                self.0.lock().expect("lock").push(e);
+                Ok(())
+            }
+            fn emit_batch(&self, mut e: Vec<TimelineEvent>) -> Result<(), RtError> {
+                self.0.lock().expect("lock").append(&mut e);
+                Ok(())
+            }
+        }
+
+        let log = "Apr 15 14:23:11 myhost sshd[1234]: Accepted password for alice from 10.0.0.5 port 54321 ssh2\n";
+        let source = MemSource(log.as_bytes().to_vec());
+        let collector = Collector::default();
+        let stats = LinuxAuthLogParser
+            .parse(&source, &collector)
+            .expect("parse must not Err on a valid auth.log");
+
+        assert_eq!(stats.events_emitted, 1, "one SSH login event emitted");
+        let events = collector.0.lock().expect("lock");
+        assert_eq!(events.len(), 1);
+        assert!(
+            events[0].description.contains("alice"),
+            "event must name the logged-in user, got: {}",
+            events[0].description
+        );
+    }
 
     #[test]
     fn auth_log_can_parse_matches_auth_log() {

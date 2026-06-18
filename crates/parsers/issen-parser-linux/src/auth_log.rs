@@ -115,15 +115,40 @@ fn make_event(
 /// # Errors
 /// Returns `Err` only on unexpected I/O failures. Missing files and
 /// unparseable lines are silently skipped (returns `Ok(vec![])`).
-pub fn parse_auth_log(path: &Path, source_id: &str, year_hint: Option<i32>) -> anyhow::Result<Vec<TimelineEvent>> {
+pub fn parse_auth_log(
+    path: &Path,
+    source_id: &str,
+    year_hint: Option<i32>,
+) -> anyhow::Result<Vec<TimelineEvent>> {
     let content = match std::fs::read_to_string(path) {
         Ok(c) => c,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(vec![]),
         Err(e) => return Err(e.into()),
     };
+    Ok(parse_auth_log_str(
+        &content,
+        source_id,
+        &path.to_string_lossy(),
+        year_hint,
+    ))
+}
 
+/// Parse auth.log text into login/sudo timeline events.
+///
+/// The text core shared by the path-based [`parse_auth_log`] and the
+/// `ForensicParser` trait impl (which reads bytes from a `DataSource` and has no
+/// file path of its own). `artifact_path` labels the events; `source_id` tags
+/// their source; `year_hint` supplies the calendar year for syslog timestamps
+/// (which carry no year — `None` uses the current year).
+#[must_use]
+pub fn parse_auth_log_str(
+    content: &str,
+    source_id: &str,
+    artifact_path: &str,
+    year_hint: Option<i32>,
+) -> Vec<TimelineEvent> {
     let year = year_hint.unwrap_or_else(|| Utc::now().year());
-    let path_str = path.to_string_lossy().into_owned();
+    let path_str = artifact_path.to_string();
     let mut events = Vec::new();
 
     for line in content.lines() {
@@ -213,7 +238,7 @@ pub fn parse_auth_log(path: &Path, source_id: &str, year_hint: Option<i32>) -> a
         }
     }
 
-    Ok(events)
+    events
 }
 
 /// Extract the username from "Accepted publickey for <user> from ..."
@@ -267,7 +292,10 @@ mod tests {
         assert!(ns > 0, "should parse successfully");
         // 2023-01-15 as Unix seconds = 1673776800 approximately
         let secs = ns / 1_000_000_000;
-        assert!(secs < 1_700_000_000, "timestamp should be before 2024, got secs={secs}");
+        assert!(
+            secs < 1_700_000_000,
+            "timestamp should be before 2024, got secs={secs}"
+        );
         assert!(secs > 1_600_000_000, "timestamp should be after 2020");
     }
 
@@ -279,8 +307,10 @@ mod tests {
         let ns_2022 = parse_syslog_ts("Mar", "24", "12:00:00", 2022);
         let secs_2022 = ns_2022 / 1_000_000_000;
         // 2022-03-24 ~ 1648123200
-        assert!(secs_2022 > 1_640_000_000 && secs_2022 < 1_660_000_000,
-            "2022 timestamp should be in 2022 range, got {secs_2022}");
+        assert!(
+            secs_2022 > 1_640_000_000 && secs_2022 < 1_660_000_000,
+            "2022 timestamp should be in 2022 range, got {secs_2022}"
+        );
     }
 
     #[test]
@@ -297,7 +327,10 @@ mod tests {
         // The 2022 timestamp should be significantly earlier than the 2025 one
         let ts_2022 = events_2022[0].timestamp_ns;
         let ts_2025 = events_2025[0].timestamp_ns;
-        assert!(ts_2022 < ts_2025, "2022 timestamp ({ts_2022}) should be before 2025 ({ts_2025})");
+        assert!(
+            ts_2022 < ts_2025,
+            "2022 timestamp ({ts_2022}) should be before 2025 ({ts_2025})"
+        );
     }
 
     #[test]
@@ -308,7 +341,10 @@ mod tests {
 
         let events = parse_auth_log(tmp.path(), "test", None).expect("parse");
         assert_eq!(events.len(), 1);
-        assert_ne!(events[0].timestamp_ns, 0, "timestamp should be non-zero with None hint");
+        assert_ne!(
+            events[0].timestamp_ns, 0,
+            "timestamp should be non-zero with None hint"
+        );
     }
 
     #[test]
