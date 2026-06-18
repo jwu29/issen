@@ -61,10 +61,14 @@ pub fn events_from_bytes(bytes: &[u8], hive_name: &str, source_id: &str) -> Vec<
     winreg_artifacts::lsadump::parse_dcc2_slots(&hive)
         .into_iter()
         .map(|e| {
-            // Cache slots carry no per-value timestamp.
+            // The cache slot key's LastWriteTime ≈ when the verifier was cached.
+            let (ts_ns, ts_display) = e.last_written.map_or_else(
+                || (0, "unknown".to_string()),
+                |dt| (dt.timestamp_nanos_opt().unwrap_or(0), dt.to_rfc3339()),
+            );
             TimelineEvent::new(
-                0,
-                "unknown".to_string(),
+                ts_ns,
+                ts_display,
                 EventType::RegistryModify,
                 ArtifactType::Registry,
                 format!("{hive_name}\\Cache\\{}", e.slot_name),
@@ -169,16 +173,12 @@ mod tests {
 
     #[test]
     fn can_parse_security_lowercase() {
-        assert!(Dcc2Parser::can_parse(&PathBuf::from(
-            "/evidence/security"
-        )));
+        assert!(Dcc2Parser::can_parse(&PathBuf::from("/evidence/security")));
     }
 
     #[test]
     fn cannot_parse_system_hive() {
-        assert!(!Dcc2Parser::can_parse(&PathBuf::from(
-            "/evidence/SYSTEM"
-        )));
+        assert!(!Dcc2Parser::can_parse(&PathBuf::from("/evidence/SYSTEM")));
     }
 
     #[test]

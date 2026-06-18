@@ -90,9 +90,14 @@ pub fn events_from_bytes(bytes: &[u8], hive_name: &str, source_id: &str) -> Vec<
             let category = forensicnomicon::catalog::CATALOG
                 .by_id(h.catalog_id)
                 .map(forensicnomicon::catalog::ArtifactDescriptor::activity_category);
+            // The resolved key's LastWriteTime is the hit's forensic timestamp.
+            let (ts_ns, ts_display) = h.last_written.map_or_else(
+                || (0, "unknown".to_string()),
+                |dt| (dt.timestamp_nanos_opt().unwrap_or(0), dt.to_rfc3339()),
+            );
             let event = TimelineEvent::new(
-                0,
-                "unknown".to_string(),
+                ts_ns,
+                ts_display,
                 EventType::RegistryModify,
                 ArtifactType::Registry,
                 format!("{hive_name}\\{}", h.key_path),

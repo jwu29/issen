@@ -63,11 +63,15 @@ pub fn events_from_bytes(bytes: &[u8], hive_name: &str, source_id: &str) -> Vec<
     winreg_artifacts::lxss::parse(&hive)
         .into_iter()
         .map(|e| {
-            // WSL registrations carry no per-value timestamp.
+            // The Lxss subkey's LastWriteTime ≈ when the distro was registered.
+            let (ts_ns, ts_display) = e.last_written.map_or_else(
+                || (0, "unknown".to_string()),
+                |dt| (dt.timestamp_nanos_opt().unwrap_or(0), dt.to_rfc3339()),
+            );
             let vhdx = e.vhdx_path().map(|p| p.to_string_lossy().into_owned());
             TimelineEvent::new(
-                0,
-                "unknown".to_string(),
+                ts_ns,
+                ts_display,
                 EventType::RegistryModify,
                 ArtifactType::Registry,
                 format!(

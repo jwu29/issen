@@ -57,10 +57,14 @@ pub fn events_from_bytes(bytes: &[u8], hive_name: &str, source_id: &str) -> Vec<
     winreg_artifacts::run_keys::parse(&hive)
         .into_iter()
         .map(|e| {
-            // Run keys carry no per-value timestamp.
+            // The Run key's LastWriteTime ≈ when the autostart value was set.
+            let (ts_ns, ts_display) = e.last_written.map_or_else(
+                || (0, "unknown".to_string()),
+                |dt| (dt.timestamp_nanos_opt().unwrap_or(0), dt.to_rfc3339()),
+            );
             TimelineEvent::new(
-                0,
-                "unknown".to_string(),
+                ts_ns,
+                ts_display,
                 EventType::RegistryModify,
                 ArtifactType::Registry,
                 format!("{hive_name}\\{}", e.key_path),
