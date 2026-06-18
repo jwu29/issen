@@ -124,6 +124,12 @@ pub fn detect_artifact_type(path: &Path) -> Option<ArtifactType> {
         return Some(ArtifactType::Srum);
     }
 
+    // Linux auth log (login history): auth.log + rotated auth.log.N. Matches
+    // LinuxAuthLogParser::can_parse so discovery reaches the wired parser.
+    if name == "auth.log" || name.starts_with("auth.log.") {
+        return Some(ArtifactType::LoginHistory);
+    }
+
     None
 }
 
