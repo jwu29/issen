@@ -154,8 +154,9 @@ impl TimelineStore {
             "INSERT INTO timeline (
                 timestamp_ns, timestamp_display, event_type, source,
                 artifact_path, description, metadata, user_account,
-                hostname, tags, record_hash, evidence_source, entity_refs
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                hostname, tags, record_hash, evidence_source, entity_refs,
+                activity_category
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             duckdb::params![
                 event.timestamp_ns,
                 event.timestamp_display,
@@ -170,6 +171,7 @@ impl TimelineStore {
                 event.record_hash,
                 event.evidence_source_id,
                 entity_refs_json,
+                event.activity_category.map(|c| c.code()),
             ],
         )?;
         Ok(())
@@ -207,7 +209,7 @@ impl TimelineStore {
                 source VARCHAR, artifact_path VARCHAR, description VARCHAR,
                 metadata VARCHAR, user_account VARCHAR, hostname VARCHAR,
                 tags VARCHAR, record_hash VARCHAR, evidence_source VARCHAR,
-                entity_refs VARCHAR
+                entity_refs VARCHAR, activity_category VARCHAR
             );
             DELETE FROM _ingest_stage;",
         )?;
@@ -234,6 +236,7 @@ impl TimelineStore {
                     event.record_hash,
                     event.evidence_source_id,
                     entity_refs_json,
+                    event.activity_category.map(|c| c.code()),
                 ])?;
             }
             appender.flush()?;
@@ -242,11 +245,13 @@ impl TimelineStore {
             "INSERT INTO timeline (
                 timestamp_ns, timestamp_display, event_type, source,
                 artifact_path, description, metadata, user_account,
-                hostname, tags, record_hash, evidence_source, entity_refs, epoch
+                hostname, tags, record_hash, evidence_source, entity_refs,
+                activity_category, epoch
             )
             SELECT timestamp_ns, timestamp_display, event_type, source,
                 artifact_path, description, metadata, user_account,
-                hostname, tags, record_hash, evidence_source, entity_refs, ?
+                hostname, tags, record_hash, evidence_source, entity_refs,
+                activity_category, ?
             FROM (
                 SELECT *, row_number() OVER (PARTITION BY record_hash) AS _rn
                 FROM _ingest_stage
@@ -382,8 +387,8 @@ impl TimelineStore {
                     timestamp_ns, timestamp_display, event_type, source,
                     artifact_path, description, metadata, user_account,
                     hostname, tags, record_hash, evidence_source, entity_refs,
-                    ingest_unit_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    activity_category, ingest_unit_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             )?;
             for event in events {
                 let metadata_json =
@@ -406,6 +411,7 @@ impl TimelineStore {
                     event.record_hash,
                     event.evidence_source_id,
                     entity_refs_json,
+                    event.activity_category.map(|c| c.code()),
                     unit.unit_id,
                 ])?;
             }

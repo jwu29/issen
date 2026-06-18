@@ -367,7 +367,7 @@ impl TimelineStore {
         let mut stmt = self.connection().prepare(
             "SELECT id, timestamp_ns, timestamp_display, event_type, source,
                     artifact_path, description, user_account, hostname, tags,
-                    evidence_source, entity_refs
+                    evidence_source, entity_refs, activity_category
              FROM timeline ORDER BY timestamp_ns ASC",
         )?;
         let raw_rows = stmt.query_map([], |row| {
@@ -384,6 +384,7 @@ impl TimelineStore {
                 tags: row.get(9)?,
                 evidence_source: row.get(10)?,
                 entity_refs: row.get(11)?,
+                activity_category: row.get(12)?,
             })
         })?;
 
@@ -413,6 +414,10 @@ impl TimelineStore {
             event.hostname = r.hostname;
             event.tags = tags;
             event.entity_refs = entity_refs;
+            event.activity_category = r
+                .activity_category
+                .as_deref()
+                .and_then(issen_core::ActivityCategory::from_code);
             events.push(event);
         }
         Ok(events)
@@ -433,6 +438,7 @@ struct RawTimelineRow {
     tags: Option<String>,
     evidence_source: String,
     entity_refs: String,
+    activity_category: Option<String>,
 }
 
 #[cfg(test)]
