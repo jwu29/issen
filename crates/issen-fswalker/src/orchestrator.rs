@@ -160,6 +160,12 @@ pub fn detect_artifact_type(path: &Path) -> Option<ArtifactType> {
         return Some(ArtifactType::SystemInfo);
     }
 
+    // Windows device/driver install log → DeviceInstall (NOT a registry hive).
+    // Matches SetupApiParser; covers setupapi.dev.log / setupapi.app.log / rotated.
+    if name.starts_with("setupapi.") {
+        return Some(ArtifactType::DeviceInstall);
+    }
+
     None
 }
 

@@ -126,7 +126,7 @@ pub fn parse_setupapi_str(
                     timestamp_ns,
                     timestamp_display,
                     EventType::Other("DeviceInstall".to_string()),
-                    ArtifactType::Registry,
+                    ArtifactType::DeviceInstall,
                     artifact_path.clone(),
                     description,
                     source_id.to_string(),
@@ -154,7 +154,7 @@ pub fn parse_setupapi_str(
                     timestamp_ns,
                     timestamp_display,
                     EventType::Other("DeviceInstall".to_string()),
-                    ArtifactType::Registry,
+                    ArtifactType::DeviceInstall,
                     artifact_path.clone(),
                     description,
                     source_id.to_string(),
@@ -196,7 +196,7 @@ impl ForensicParser for SetupApiParser {
     }
 
     fn supported_artifacts(&self) -> &[ArtifactType] {
-        &[ArtifactType::Registry]
+        &[ArtifactType::DeviceInstall]
     }
 
     fn parse(
