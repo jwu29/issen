@@ -316,8 +316,8 @@ mod tests {
     #[test]
     fn parse_auth_log_respects_year_hint() {
         let mut tmp = tempfile::NamedTempFile::new().expect("tempfile");
-        writeln!(tmp, "Apr 15 10:23:01 hostname sshd[1234]: Accepted publickey for root from 192.168.1.100 port 52341 ssh2").unwrap();
-        tmp.flush().unwrap();
+        writeln!(tmp, "Apr 15 10:23:01 hostname sshd[1234]: Accepted publickey for root from 192.168.1.100 port 52341 ssh2").expect("write");
+        tmp.flush().expect("flush");
 
         let events_2022 = parse_auth_log(tmp.path(), "test", Some(2022)).expect("parse 2022");
         let events_2025 = parse_auth_log(tmp.path(), "test", Some(2025)).expect("parse 2025");
@@ -336,8 +336,8 @@ mod tests {
     #[test]
     fn parse_auth_log_year_hint_none_returns_valid_timestamps() {
         let mut tmp = tempfile::NamedTempFile::new().expect("tempfile");
-        writeln!(tmp, "Apr 15 10:23:01 hostname sshd[1234]: Accepted publickey for alice from 10.0.0.1 port 22 ssh2").unwrap();
-        tmp.flush().unwrap();
+        writeln!(tmp, "Apr 15 10:23:01 hostname sshd[1234]: Accepted publickey for alice from 10.0.0.1 port 22 ssh2").expect("write");
+        tmp.flush().expect("flush");
 
         let events = parse_auth_log(tmp.path(), "test", None).expect("parse");
         assert_eq!(events.len(), 1);

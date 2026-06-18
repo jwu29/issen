@@ -58,11 +58,19 @@ pub fn parse_fish_history(path: &Path, source_id: &str) -> anyhow::Result<Vec<Ti
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(vec![]),
         Err(e) => return Err(e.into()),
     };
-    Ok(parse_fish_history_bytes(&content, &path.to_string_lossy(), source_id))
+    Ok(parse_fish_history_bytes(
+        &content,
+        &path.to_string_lossy(),
+        source_id,
+    ))
 }
 
 /// Parse fish history from raw bytes (allows in-memory testing).
-pub fn parse_fish_history_bytes(input: &[u8], artifact_path: &str, source_id: &str) -> Vec<TimelineEvent> {
+pub fn parse_fish_history_bytes(
+    input: &[u8],
+    artifact_path: &str,
+    source_id: &str,
+) -> Vec<TimelineEvent> {
     let text = match std::str::from_utf8(input) {
         Ok(s) => s,
         Err(_) => return Vec::new(),
@@ -112,9 +120,10 @@ pub fn parse_fish_history_bytes(input: &[u8], artifact_path: &str, source_id: &s
         entries.push(entry);
     }
 
-    entries.into_iter().map(|e| {
-        make_event(e.when_ns, artifact_path, &e.command, &e.paths, source_id)
-    }).collect()
+    entries
+        .into_iter()
+        .map(|e| make_event(e.when_ns, artifact_path, &e.command, &e.paths, source_id))
+        .collect()
 }
 
 #[cfg(test)]
@@ -160,8 +169,14 @@ mod tests {
         let input = b"- cmd: first\n  when: 100\n- cmd: second\n  when: 200\n";
         let events = parse_fish_history_bytes(input, "/fake", "src");
         assert_eq!(events.len(), 2);
-        assert_eq!(events[0].metadata.get("command").and_then(|v| v.as_str()), Some("first"));
-        assert_eq!(events[1].metadata.get("command").and_then(|v| v.as_str()), Some("second"));
+        assert_eq!(
+            events[0].metadata.get("command").and_then(|v| v.as_str()),
+            Some("first")
+        );
+        assert_eq!(
+            events[1].metadata.get("command").and_then(|v| v.as_str()),
+            Some("second")
+        );
         assert!(events[0].timestamp_ns < events[1].timestamp_ns);
     }
 
@@ -170,7 +185,10 @@ mod tests {
         let input = b"- cmd: cat /etc/shadow\n  when: 1716000100\n  paths:\n    - /etc/shadow\n";
         let events = parse_fish_history_bytes(input, "/fake", "src");
         assert_eq!(events.len(), 1);
-        let paths = events[0].metadata.get("accessed_paths").expect("accessed_paths");
+        let paths = events[0]
+            .metadata
+            .get("accessed_paths")
+            .expect("accessed_paths");
         assert!(paths.as_array().map_or(false, |a| {
             a.iter().any(|v| v.as_str() == Some("/etc/shadow"))
         }));
@@ -181,6 +199,6 @@ mod tests {
         use std::path::PathBuf;
         let result = parse_fish_history(&PathBuf::from("/nonexistent/fish_history"), "src");
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.expect("ok").is_empty());
     }
 }
