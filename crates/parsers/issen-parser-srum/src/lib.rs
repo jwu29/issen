@@ -63,6 +63,7 @@ impl SrumParser {
                 description,
                 evidence_source.clone(),
             )
+            .with_activity_category(issen_core::ActivityCategory::NetworkActivity)
             .with_metadata("bytes_sent", serde_json::json!(record.bytes_sent))
             .with_metadata("bytes_recv", serde_json::json!(record.bytes_recv))
             .with_metadata("app_id", serde_json::json!(record.app_id))
@@ -88,6 +89,7 @@ impl SrumParser {
                 description,
                 evidence_source.clone(),
             )
+            .with_activity_category(issen_core::ActivityCategory::Execution)
             .with_metadata(
                 "foreground_cycles",
                 serde_json::json!(record.foreground_cycles),
