@@ -119,3 +119,12 @@ Profiled `issen ingest` on the Case-001 Desktop E01 (6.4 GB → 1.65 GiB artifac
 - ✅ **Duplicate MFT/USN parsers removed** (RED `2f918b4`/GREEN `d350a34`, remove `62bac00`) — the disk pipeline ran BOTH the issen-cli builtins (entity-ref, untagged) AND the issen-parser-* plugins (tagged, no entity-ref); both inventory-registered, dedup masked one → 460K filesystem events untagged. Made the plugins feature-complete (category + FilePath entity ref), deleted the builtins. **Re-ingest validation: MFT 417,628 + USN 43,415 now tagged filesystem-activity, entity_refs preserved (coreupdater FilePath join key), untagged 501K→40K, and ingest 227.9s→158.4s (−30%).**
 - 🚩 **Honesty correction:** issen *surfaces* the coreupdater.exe (Cobalt Strike) evidence (service persistence via the svcdiff fix, USN/MFT FILE_CREATE at 2020-09-19T03:39:57, System32 location) — but does NOT autonomously *flag* it malicious (that needed an IOC query + the answer key). `persistence` category ≠ malicious. Autonomous flagging needs `ingest --scan` with feeds or the svcdiff `is_suspicious` heuristic.
 - 🚩 svcdiff/regcatalog registry events emit `timestamp_ns=0` ("unknown") — registry key `LastWriteTime` not extracted; timeline position comes from USN/MFT only. Follow-up.
+
+### DC E01 answer-pass (CITADEL-DC01, 2026-06-19)
+
+Ingested the Case-001 **DC** E01 (`E01-DC01`, 4.6 GB → 898 MiB, **727K events, 131s**) — validates the de-dup + 1102 fixes on a SECOND host and answers the DC-specific questions:
+- ✅ **Malicious process on the DC = coreupdater.exe** (persistence service + MFT/USN file-create, now tagged) — the svcdiff fix surfaces the service on the DC too.
+- ✅ **DC logons: 4,905 login-activity** (vs Desktop 317 — DC has far more, as expected).
+- ✅ **DC accounts: 225 account-activity** incl. SAM account DB (Administrator RID 500, NTLM-hash metadata) — evidence for "domain users / passwords" (cracking is external).
+- ✅ **CADET works on the DC**: filesystem-activity 431K (MFT/USN tagged — de-dup fix holds on host #2), system-state 201K, persistence 10K.
+- 🚩 **NEW Doer-Checker finding:** the SAM parser reports **`Guest (RID 500)`** — Guest is RID **501** (Administrator is 500). Likely a RID-extraction bug in the sam parser. Flagged, separate scope.
