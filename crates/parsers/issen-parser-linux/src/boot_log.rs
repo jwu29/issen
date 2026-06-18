@@ -130,7 +130,8 @@ pub fn parse_boot_log(
                 &path_desc,
                 source_id,
                 HashMap::new(),
-            );
+            )
+            .with_activity_category(issen_core::ActivityCategory::Persistence);
             events.push(ev);
         } else if is_sshd_restart(line) {
             let ev = make_event(
@@ -140,7 +141,8 @@ pub fn parse_boot_log(
                 line,
                 source_id,
                 HashMap::new(),
-            );
+            )
+            .with_activity_category(issen_core::ActivityCategory::SystemState);
             events.push(ev);
         }
     }
