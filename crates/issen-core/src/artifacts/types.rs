@@ -56,6 +56,9 @@ pub enum ArtifactType {
     /// Portable Executable (PE) — `.exe`/`.dll` deep analysis (imports, sections,
     /// anomalies). Routed only for suspicious executables (see `detect_artifact_type`).
     Pe,
+    /// Windows Recycle Bin `$I` index file (deleted-file metadata: original path,
+    /// original size, deletion time).
+    RecycleBin,
 }
 
 impl std::fmt::Display for ArtifactType {
@@ -87,6 +90,7 @@ impl std::fmt::Display for ArtifactType {
             Self::SystemConfig => write!(f, "System Config"),
             Self::DeviceInstall => write!(f, "Device Install"),
             Self::Pe => write!(f, "PE Executable"),
+            Self::RecycleBin => write!(f, "Recycle Bin"),
         }
     }
 }
@@ -127,6 +131,7 @@ impl ArtifactType {
             "SystemConfig" => Self::SystemConfig,
             "DeviceInstall" => Self::DeviceInstall,
             "Pe" => Self::Pe,
+            "RecycleBin" => Self::RecycleBin,
             _ => return None,
         })
     }
