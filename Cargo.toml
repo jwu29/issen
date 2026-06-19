@@ -18,6 +18,7 @@ members = [
     "crates/parsers/issen-parser-registry",
     "crates/parsers/issen-parser-prefetch",
     "crates/parsers/issen-parser-lnk",
+    "crates/parsers/issen-parser-recyclebin",
     "crates/parsers/issen-parser-linux",
     "crates/parsers/issen-parser-macos",
     "crates/parsers/issen-parser-biome",
@@ -107,6 +108,7 @@ issen-parser-lxss         = { path = "crates/parsers/issen-parser-lxss" }
 issen-parser-regcatalog   = { path = "crates/parsers/issen-parser-regcatalog" }
 issen-parser-prefetch     = { path = "crates/parsers/issen-parser-prefetch" }
 issen-parser-lnk          = { path = "crates/parsers/issen-parser-lnk" }
+issen-parser-recyclebin   = { path = "crates/parsers/issen-parser-recyclebin" }
 issen-parser-amcache      = { path = "crates/parsers/issen-parser-amcache" }
 issen-parser-shimcache    = { path = "crates/parsers/issen-parser-shimcache" }
 issen-parser-linux        = { path = "crates/parsers/issen-parser-linux" }
