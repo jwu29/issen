@@ -35,7 +35,7 @@ _Last updated: 2026-06-09 (initial board)._
 
 ## Data prerequisites (Case 001, disk+RAM only)
 
-Location: `~/src/issen/tests/data/DFIR Madness "Stolen Szechuan Sauce" Case 001 — Windows 10/`
+Location: `~/src/issen/tests/data/dfirmadness-szechuan-sauce/`
 (folder name predates the DC host — covers both hosts now; rename deferred to avoid breaking
 README/test path refs).
 

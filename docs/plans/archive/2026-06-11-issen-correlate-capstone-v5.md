@@ -436,7 +436,7 @@ LmTarget rounded to 2 MiB approximates ntoskrnl's base; the exact 2 MiB base nee
 against the physical ntkrnlmp RSDS's mapped VA, plus confirming the resolved ISF GUID matches
 this exact build (the RVA must be correct for *this* kernel). Once the KVO pins ntoskrnl's
 true base, the EPROCESS walk lists processes. Until then F26–F37 stand write-up-corroborated
-in `docs/case001-union-answers.md`, not yet issen-measured. Steelman fixes #2 (vol3 `seen`-set
+in `tests/data/dfirmadness-szechuan-sauce/szechuan-sauce-writeups/szechuan-sauce-union-answers.md`, not yet issen-measured. Steelman fixes #2 (vol3 `seen`-set
 list-walk loop detection) and #3 (DTB precision rules) follow as hardening.
 
 **Memory-leg progress this session (all RED→GREEN, vol2/vol3/rekall/MemProcFS-steelmanned):**

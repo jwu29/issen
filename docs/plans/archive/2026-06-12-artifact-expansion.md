@@ -1,7 +1,7 @@
 # Windows Endpoint Artifact Expansion — Coverage Matrix + New `-core`/`-forensic` Repos
 
 **Date:** 2026-06-12 · **Status:** DESIGN (no code) · **Scope:** issen wiring + three Phase-1 fleet repos + the Phase-2+ A–E build-strategy roadmap
-**Companion docs:** [capstone v5](2026-06-11-issen-correlate-capstone-v5.md) (PRE-1..6, G1/G2 gates) · [case001-union-answers](../case001-union-answers.md) (the honest-coverage accounting this plan closes)
+**Companion docs:** [capstone v5](2026-06-11-issen-correlate-capstone-v5.md) (PRE-1..6, G1/G2 gates) · [szechuan-sauce-union-answers](../../../tests/data/dfirmadness-szechuan-sauce/szechuan-sauce-writeups/szechuan-sauce-union-answers.md) (the honest-coverage accounting this plan closes)
 **Structure:** (1) exec summary + gap · (2) full IWE coverage matrix · (3) Wave 0 wiring · (4) Phase 1 = the 3 committed repos · (5) Phase 2+ = the A–E roadmap grouped by build strategy · (6) sequencing · (7) cross-cutting integration (orchestrator fix, migration, super-timeline/correlation)
 
 ---
@@ -389,7 +389,7 @@ Analyzer output (`prefetch-forensic`, `amcache-shimcache-forensic`, `lnk-jumplis
 - Fleet pattern reference: `~/src/vmdk-forensic` (`core/`+`forensic/`+`cli/`+`fuzz/`+deny/clippy/rustfmt), `~/src/ewf`.
 - `vsc-forensic` = RESEARCH.md only; `snapshot-forensic` = docs only; `usnjrnl-forensic`, `winevt-forensic`, `browser-forensic`, `sqlite-forensic`, `ntfs-forensic`, `exec-pe-forensic` exist as fleet repos.
 - IWE corpus: modules 02–10 + IWE-Exam-Cram read/extracted from `~/brain2/01_Projects/Investigating Windows Endpoints/`; artifact paths quoted from the source files. **BAM/DAM has no IWE lesson** (grep over the corpus found no BAM mention) — it enters the matrix from the task brief and standard EoE practice, marked accordingly (row 6).
-- Coverage claim "~11 of 44": `docs/case001-union-answers.md:48-56` ("issen coverage today — honest accounting").
+- Coverage claim "~11 of 44": `tests/data/dfirmadness-szechuan-sauce/szechuan-sauce-writeups/szechuan-sauce-union-answers.md:48-56` ("issen coverage today — honest accounting").
 - PRE definitions and sequencing: `docs/plans/2026-06-11-issen-correlate-capstone-v5.md` §6.1/§6.3.
 - Reference implementations present at `~/src/_refs/`: `Prefetch-Browser/` (incl. `Local_PfAp.ps1`, `Xpress.dll`), `LECmd/`, `Jumplist-Browser/` (incl. `AppIdlist.csv`, CustomDestinations format doc) — verified by directory listing 2026-06-12.
 - **§5 Group A** — winreg-artifacts present decoders (read `crates/winreg-artifacts/src/` 2026-06-12): `amcache, catalog_scan, com_hijacking, lsadump, lxss, path_expansion, registry_keys, run_keys, sam, shellbags, shimcache, svc_diff, typed_urls, userassist` (+ `lib`); `userassist.rs` has `rot13_decode`; `run_keys.rs` covers Run/RunOnce **and** Winlogon. **Absent** (grep zero hits, need new modules): `bam/dam, muicache, recentdocs, runmru, typedpaths, comdlg/opensave/lastvisited, wordwheel, usbstor, mounteddevices`.
