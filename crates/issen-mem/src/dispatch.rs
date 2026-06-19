@@ -85,9 +85,10 @@ pub fn build_reader(
     // VA by construction — without it they dereference bare RVAs and the EPROCESS
     // walk fails on a non-canonical low address.
     let symbols: Box<dyn memf_symbols::SymbolResolver> = match low_stub {
-        Some(ls) if ls.kernel_base_va != 0 => {
-            Box::new(memf_symbols::RebasedResolver::new(symbols, ls.kernel_base_va))
-        }
+        Some(ls) if ls.kernel_base_va != 0 => Box::new(memf_symbols::RebasedResolver::new(
+            symbols,
+            ls.kernel_base_va,
+        )),
         _ => symbols,
     };
 
@@ -1192,6 +1193,49 @@ pub fn dispatch_windows_creds(
                 k.volume_guid.clone(),
                 key_hex,
             ]);
+        }
+    }
+
+    // SAM NTLM hashdump — needs the SAM hive (for the V values) and the SYSTEM
+    // hive (for the boot key). Locate both via the live hive list. On 9600 the
+    // SAM hive carries its path only in `file_user_name` (e.g.
+    // `\SystemRoot\System32\Config\SAM`), and the SYSTEM hive is UNNAMED (loaded
+    // by winload before the namespace exists) — so SYSTEM is identified by
+    // trying each candidate hive until one yields a valid boot key + hashes.
+    // Cell translation keys off `base_addr` (the `_CMHIVE`/`_HHIVE` VA).
+    {
+        let hives = memf_windows::registry::walk_hive_list(reader).unwrap_or_default();
+        let sam_base = hives
+            .iter()
+            .find(|h| {
+                let p = h.file_user_name.to_ascii_uppercase();
+                p.trim_end_matches('\0')
+                    .trim_end_matches('\\')
+                    .ends_with("SAM")
+            })
+            .map_or(0, |h| h.base_addr);
+
+        if sam_base != 0 {
+            // The SYSTEM hive is unnamed: try every candidate whose base is set
+            // and keep the first that produces hashes (valid boot key).
+            let entries = hives
+                .iter()
+                .filter(|h| h.base_addr != 0 && h.base_addr != sam_base)
+                .find_map(|cand| {
+                    match memf_windows::hashdump::walk_hashdump(reader, sam_base, cand.base_addr) {
+                        Ok(e) if !e.is_empty() => Some(e),
+                        _ => None,
+                    }
+                })
+                .unwrap_or_default();
+
+            for e in &entries {
+                rows.push(vec![
+                    format!("hash:rid{}", e.rid),
+                    e.username.clone(),
+                    e.nt_hash.clone(),
+                ]);
+            }
         }
     }
 
