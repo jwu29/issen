@@ -4353,6 +4353,7 @@ dependencies = [
  "issen-parser-shimcache",
  "issen-parser-srum",
  "issen-parser-svcdiff",
+ "issen-parser-trash",
  "issen-parser-typedurls",
  "issen-parser-uac",
  "issen-parser-userassist",
@@ -4719,6 +4720,9 @@ version = "0.1.0"
 dependencies = [
  "forensicnomicon 0.5.7",
  "goblin 0.10.5",
+ "inventory",
+ "issen-core",
+ "serde_json",
  "thiserror 2.0.18",
 ]
 
@@ -4869,6 +4873,16 @@ dependencies = [
  "tempfile",
  "winreg-artifacts",
  "winreg-core",
+]
+
+[[package]]
+name = "issen-parser-trash"
+version = "0.1.0"
+dependencies = [
+ "inventory",
+ "issen-core",
+ "serde_json",
+ "trash-core",
 ]
 
 [[package]]
@@ -10163,6 +10177,14 @@ dependencies = [
  "tracing-core",
  "tracing-log",
  "tracing-serde",
+]
+
+[[package]]
+name = "trash-core"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

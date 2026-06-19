@@ -1,13 +1,13 @@
 //! Windows Recycle Bin `$I` index file parser for Issen.
 //!
-//! Reads a `$I` index file (deleted-file metadata) via [`recyclebin-core`] and
+//! Reads a `$I` index file (deleted-file metadata) via [`trash-core`] and
 //! emits one [`TimelineEvent`] per deleted file — an [`EventType::FileDelete`]
 //! tagged [`ArtifactType::RecycleBin`] at the recorded deletion time, carrying
 //! the recovered ORIGINAL path. Sending a file to the Recycle Bin is the user
 //! intentionally removing it, so the event is tagged
 //! [`ActivityCategory::AntiForensics`].
 //!
-//! [`recyclebin-core`]: https://docs.rs/recyclebin-core
+//! [`trash-core`]: https://docs.rs/trash-core
 
 #![allow(
     clippy::doc_markdown,
@@ -69,7 +69,7 @@ impl ForensicParser for RecycleBinParser {
 
         // A malformed/truncated $I is not fatal to the ingest: decline it (no
         // events, Unsupported) rather than aborting the whole run.
-        let Ok(index) = recyclebin_core::parse_index(&bytes[..off as usize]) else {
+        let Ok(index) = trash_core::parse_index(&bytes[..off as usize]) else {
             stats.completion = ParseCompletion::Unsupported;
             return Ok(stats);
         };
@@ -102,7 +102,7 @@ impl ForensicParser for RecycleBinParser {
 /// (`deleted_at == None`): without a deletion timestamp there is no timeline
 /// anchor for the event, so it is dropped rather than emitted at epoch 0.
 fn delete_event(
-    index: &recyclebin_core::RecycleBinIndex,
+    index: &trash_core::RecycleBinIndex,
     artifact_path: &str,
 ) -> Option<TimelineEvent> {
     let ts_ns = index.deleted_at?.timestamp_nanos_opt()?;

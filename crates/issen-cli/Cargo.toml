@@ -55,7 +55,7 @@ issen-parser-mft = { workspace = true }
 issen-parser-usnjrnl = { workspace = true }
 issen-parser-pe = { workspace = true }
 issen-parser-lnk = { workspace = true }
-issen-parser-recyclebin = { workspace = true }
+issen-parser-trash = { workspace = true }
 issen-parser-linux = { workspace = true }
 issen-parser-macos = { workspace = true }
 issen-parser-setupapi = { workspace = true }
