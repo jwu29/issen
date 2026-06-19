@@ -280,6 +280,14 @@ impl TimelineEvent {
     #[must_use]
     pub fn with_evidence_source(mut self, evidence_source_id: impl Into<String>) -> Self {
         self.evidence_source_id = evidence_source_id.into();
+        self.record_hash = Self::compute_record_hash(
+            self.timestamp_ns,
+            &self.event_type,
+            &self.source,
+            &self.artifact_path,
+            &self.description,
+            &self.evidence_source_id,
+        );
         self
     }
 }
