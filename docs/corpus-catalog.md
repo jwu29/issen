@@ -140,6 +140,28 @@ on domain-member workstations with cached-logon enabled; none of our images mate
 `svcdiff` & `comhijack` were NOT data gaps — they were parser bugs, fixed in **winreg-artifacts 0.1.2**
 (offline `ControlSet001` resolution / `UsrClass.dat` root CLSID) and now tagged.
 
+#### A3c · LZNT1 real-stream regression fixtures (`ntfs-forensic/tests/data/`) · REAL-ext ✓
+
+Carved from A3's **DC01 C: drive** E01 to pin the `lznt1` LZNT1 codec to a genuine on-disk
+NTFS-compressed stream with **TSK as the independent plaintext oracle** (`ntfs-forensic/core/tests/lznt1_real.rs`).
+Source file `C:\ProgramData\Microsoft\Windows\WER\...\Report.wer` — **MFT inode 437**, a
+`$DATA Non-Resident, Compressed` stream of actual size **1832 bytes** in a single 16-cluster LZNT1 unit
+occupying one allocated cluster (**LCN 291553**). NTFS partition at sector **offset 718848**, cluster size **4096**.
+
+```sh
+E01=".../extracted/E01-DC01/20200918_0347_CDrive.E01"
+istat  -o 718848 "$E01" 437                                   # $DATA Non-Resident, Compressed  size 1832 → LCN 291553
+icat   -o 718848 "$E01" 437      > lznt1_real.expected         # TSK-decompressed plaintext (1832 B, oracle)
+blkcat -o 718848 "$E01" 291553 1 > lznt1_real.bin             # raw on-disk LZNT1 stream (one 4096 B cluster)
+```
+
+Verified `ntfs_core::decompress(lznt1_real.bin)` truncated to 1832 B equals `lznt1_real.expected` byte-for-byte.
+
+| File | Bytes | MD5 |
+|---|---|---|
+| `lznt1_real.bin` (raw LZNT1 stream, 1 cluster) | 4096 | `8c791f1d34a7f4a9aaeaddce71210a26` |
+| `lznt1_real.expected` (TSK `icat` plaintext) | 1832 | `f4cc46d7e07ab76540a46471622e10af` |
+
 #### A3a · Prefetch fixtures derived from A3 (committed in two repos) · SYNTHETIC-from-REAL ✓
 
 Three Win10 `.pf` files extracted from the Case 001 **Desktop** image above, small enough to commit
