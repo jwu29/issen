@@ -39,4 +39,5 @@ pub mod isolate;
 pub mod layers;
 pub mod orchestrator;
 pub mod progress;
+pub mod sources;
 pub mod vss;
