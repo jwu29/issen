@@ -777,6 +777,29 @@ mod tests {
     }
 
     #[test]
+    fn test_detect_recycle_bin_index() {
+        // A `$I` index file under a `$Recycle.Bin\<SID>` directory must route to
+        // RecycleBinParser. Gate on BOTH the `$I` basename prefix AND the
+        // `$recycle.bin` path component so a stray `$I…`-named file elsewhere is
+        // not mis-classified.
+        assert_eq!(
+            detect_artifact_type(Path::new(
+                "/evidence/C/$Recycle.Bin/S-1-5-21-100/$IABC123.txt"
+            )),
+            Some(ArtifactType::RecycleBin),
+        );
+        // Case-insensitive on both the prefix and the directory.
+        assert_eq!(
+            detect_artifact_type(Path::new(
+                "/evidence/c/$recycle.bin/s-1-5-21-100/$iXYZ.docx"
+            )),
+            Some(ArtifactType::RecycleBin),
+        );
+        // A `$I…` file NOT under $Recycle.Bin is not a Recycle Bin index.
+        assert_eq!(detect_artifact_type(Path::new("/tmp/$Important.txt")), None,);
+    }
+
+    #[test]
     fn test_detect_setupapi_log() {
         // setupapi.dev.log is a device-install log, NOT a registry hive — it gets
         // its own DeviceInstall type so SetupApiParser receives its real file
