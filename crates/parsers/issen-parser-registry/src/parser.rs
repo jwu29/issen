@@ -78,6 +78,7 @@ fn events_from_hive(
 
         events.push(event);
     }
+    events.extend(extract_named_values(hive, hive_name, source_id));
     events
 }
 
@@ -212,7 +213,11 @@ mod tests {
             .iter()
             .find(|e| e.description.starts_with("OS version:"))
             .expect("OS version system-info event");
-        assert!(os.description.contains("9600"), "build 9600: {}", os.description);
+        assert!(
+            os.description.contains("9600"),
+            "build 9600: {}",
+            os.description
+        );
         assert!(
             os.description.contains("2012 R2"),
             "Server 2012 R2: {}",

@@ -70,11 +70,6 @@ impl EventEmitter for CollectingEmitter {
     }
 }
 
-/// Detect artifact type from file path heuristics.
-///
-/// This is the MVP artifact detection — matches well-known KAPE output paths.
-/// More sophisticated detection (magic bytes, directory structure) comes later.
-#[must_use]
 /// True if `path` starts with the `regf` registry-hive magic. Confirms an
 /// ambiguously-named machine hive (SYSTEM/SOFTWARE/SAM/SECURITY) wherever it was
 /// extracted, instead of relying on the path containing "registry"/"config".
@@ -86,6 +81,11 @@ fn is_regf(path: &Path) -> bool {
         .map_or(false, |()| &buf == b"regf")
 }
 
+/// Detect artifact type from file path heuristics.
+///
+/// This is the MVP artifact detection — matches well-known KAPE output paths.
+/// More sophisticated detection (magic bytes, directory structure) comes later.
+#[must_use]
 pub fn detect_artifact_type(path: &Path) -> Option<ArtifactType> {
     let name = path.file_name()?.to_str()?.to_lowercase();
     let full = path.to_str().unwrap_or_default().to_lowercase();
@@ -120,7 +120,7 @@ pub fn detect_artifact_type(path: &Path) -> Option<ArtifactType> {
         return Some(ArtifactType::Registry);
     }
     if (name == "system" || name == "software" || name == "sam" || name == "security")
-        && (full.contains("registry") || full.contains("config"))
+        && (full.contains("registry") || full.contains("config") || is_regf(path))
     {
         return Some(ArtifactType::Registry);
     }
