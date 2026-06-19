@@ -220,7 +220,7 @@ pub fn run_memf_command(args: &MemfArgs) -> anyhow::Result<()> {
     // Detect OS from format for dispatch routing.
     let format_os = detect_os(fmt);
 
-    if let Ok((_reader_fmt, ref reader)) = reader_result {
+    if let Ok((_reader_fmt, reader)) = reader_result {
         // Real walker dispatch — only reached when dump has CR3 + ISF profile.
         //
         // Route by the RESOLVED profile, not just the container format: a
@@ -228,6 +228,27 @@ pub fn run_memf_command(args: &MemfArgs) -> anyhow::Result<()> {
         // Unknown) yet auto-resolves a Windows kernel profile, so it must
         // dispatch to the Windows walkers — not the Linux fallback.
         let os = resolve_target_os(format_os, profile_is_windows(reader.symbols()));
+
+        // netstat needs tcpip.sys symbols, which the kernel ISF lacks. Locate
+        // tcpip.sys (PsLoadedModuleList), resolve ITS PDB, and fold its symbols
+        // into the reader's resolver via a multi-module resolver. Done once here
+        // so the `all` netstat sub-command benefits too. A failure to locate
+        // tcpip.sys (e.g. paged-out kernel module list) leaves the kernel-only
+        // resolver in place; the netstat walker then reports symbols unavailable.
+        let reader = if os == TargetOs::Windows
+            && matches!(args.command, MemfCommand::Netstat | MemfCommand::All)
+            && reader.symbols().symbol_address("TcpPortPool").is_none()
+        {
+            match memf_windows::kernel_modules::module_resolver(&reader, "tcpip.sys") {
+                Ok(Some(tcpip)) => reader.map_symbols(|kernel| {
+                    Box::new(memf_symbols::MultiModuleResolver::new(vec![kernel, tcpip]))
+                }),
+                Ok(None) | Err(_) => reader,
+            }
+        } else {
+            reader
+        };
+
         if args.command == MemfCommand::All {
             for cmd in &[
                 MemfCommand::Ps,
@@ -238,14 +259,14 @@ pub fn run_memf_command(args: &MemfArgs) -> anyhow::Result<()> {
                 MemfCommand::Creds,
             ] {
                 eprintln!("[mem4n6] dispatching {cmd}");
-                let result = dispatch_command(os, cmd, reader);
+                let result = dispatch_command(os, cmd, &reader);
                 match result {
                     Ok((hdrs, rows)) => print_table(&hdrs, &rows, args.output),
                     Err(e) => eprintln!("[mem4n6] {cmd} failed: {e}"),
                 }
             }
         } else {
-            let (hdrs, rows) = dispatch_command(os, &args.command, reader)?;
+            let (hdrs, rows) = dispatch_command(os, &args.command, &reader)?;
             print_table(&hdrs, &rows, args.output);
         }
         return Ok(());

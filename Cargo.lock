@@ -5830,9 +5830,9 @@ checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 
 [[package]]
 name = "memf-core"
-version = "0.1.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62d4a2a28c480a55fa0cd81b73ea0d9ab586acaa85b44404272bda1edf97f656"
+checksum = "bebb3dac280fa809d74a4bb3b8964e79a8ffab535274ffed22f790a5ef0b7ec1"
 dependencies = [
  "bytemuck",
  "lru 0.16.4",
@@ -5848,9 +5848,9 @@ dependencies = [
 
 [[package]]
 name = "memf-correlate"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "582d9fbdfa15027516a34b3eb14c786491e83a5dc5da84a7db21d4b6f6ba7427"
+checksum = "aefc5d1ae1c6803d8e4aa509c59ea250b32e76b448173a2adfbcc7b71bc6e790"
 dependencies = [
  "chrono",
  "forensicnomicon 0.5.7",
@@ -5861,9 +5861,9 @@ dependencies = [
 
 [[package]]
 name = "memf-format"
-version = "0.1.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "880922898f774a67740462e802adc38a15cea04d30b90e13fb2068e81ed1dc9a"
+checksum = "72b04138d39f0071ce095cae48edd16fd7e63fc41df9509a56eea394acdc76a5"
 dependencies = [
  "flate2",
  "goblin 0.9.3",
@@ -5878,9 +5878,9 @@ dependencies = [
 
 [[package]]
 name = "memf-linux"
-version = "0.1.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "653476781f21e5b4102d13e2da1869eefbd31dd3f7ff2ead21ad29a4f70185e6"
+checksum = "9164c1b5e80524105978563d9bb6700fe4afe424218d193efd39443e735838c6"
 dependencies = [
  "forensicnomicon 0.5.7",
  "goblin 0.9.3",
@@ -5895,9 +5895,9 @@ dependencies = [
 
 [[package]]
 name = "memf-strings"
-version = "0.1.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4986fc5f397fe5371e96afbb561566e518487dec04117cb8849f9c9a3ed07e13"
+checksum = "91fbab935c744e8006d4710e5a79d76bcb36634eeefee643508970621aa6576a"
 dependencies = [
  "aho-corasick",
  "inventory",
@@ -5909,9 +5909,9 @@ dependencies = [
 
 [[package]]
 name = "memf-symbols"
-version = "0.1.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "44056e79f95bc07ef77b828bc904d06ecaefef9d10aaca3306ff384a988a9034"
+checksum = "e3b5b586902174cb3fda7d2194b32d733b34fcd137518fd5d79da1641b979ef1"
 dependencies = [
  "goblin 0.9.3",
  "memf-format",
@@ -5924,9 +5924,9 @@ dependencies = [
 
 [[package]]
 name = "memf-windows"
-version = "0.1.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eaa66d3cdbd3095b99949a859bb680d4be4931aca3c3d3e06882a9daa2bd887a"
+checksum = "ce6b15d2fe969673deee0159746ed14c5aa6658c6991ec61bac952849843dd58"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -5937,6 +5937,7 @@ dependencies = [
  "forensicnomicon 0.5.7",
  "goblin 0.9.3",
  "hmac",
+ "md-5",
  "memf-core",
  "memf-correlate",
  "memf-format",
