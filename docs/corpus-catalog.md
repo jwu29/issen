@@ -594,6 +594,22 @@ macOS and cannot author a real `.lnk`/Jump List); full per-file detail + the gen
 - `blazehash/tests/data/nps-2010-emails.E01` (508 KB) · REAL-ext — NIST/NPS **nps-2010-emails**
   reference corpus (Garfinkel real-data corpus; public).
 
+### E1 · Real-artifact / independent-oracle test fixtures (fleet `*-forensic` crates) · REAL-ext ✓
+
+Genuine artifacts carved from published corpora, each validated in its crate's
+real-data test against an **independent** tool (not the crate under test). Per-file
+provenance lives in each repo's `tests/data/README.md` (cross-referenced here).
+
+| Fixture | Bytes | MD5 | Carved from / source | Oracle reconciled |
+|---|---|---|---|---|
+| `lnk-forensic/tests/data/PortalGunPlans.lnk` | 840 | `e3ef792e3b68877bf29831863cfa4f38` | Szechuan Sauce CITADEL-DC01 C: E01, `Users/Administrator/AppData/Roaming/Microsoft/Windows/Recent/PortalGunPlans.lnk` (MFT inode 84630), `icat -o 718848 <E01> 84630` | LnkParse3 1.6.0 |
+| `exec-pe-forensic/tests/data/hostname.exe` | 13312 | `de8c54bc39c31726df5479697f988a7b` | Szechuan Sauce CITADEL-DC01 C: E01, `Windows/System32/hostname.exe` (MFT inode 29911), `icat -o 718848 <E01> 29911` | pefile 2024.8.26 |
+| `iso9660-forensic/iso/tests/data/multi_extent_8k.iso` | 122880 | `ab4592264b549fbbd393671db251e3fb` | libcdio project test corpus, <https://raw.githubusercontent.com/libcdio/libcdio/master/test/data/multi_extent_8k.iso> | cdrtools `isoinfo` |
+
+All three reconciled **exactly** with the independent oracle — no parser
+divergence found. (`hostname.exe` SHA-256 `f63e711e2d3c0696563f8c374fdaddf04a3cefdad676e442678dad2d757e0ba8`;
+`multi_extent_8k.iso` SHA-256 `c929aa5932527932fcca905cddea466d3ff768bac992dbafca94af6c4fbdbc85`.)
+
 ---
 
 ## F. Fuzz corpora (machine-evolved — not curated samples)
