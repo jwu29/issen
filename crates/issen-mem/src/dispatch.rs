@@ -914,8 +914,12 @@ pub fn dispatch_windows_modules(
 
 /// Walk Windows TCP connections and return headers + rows.
 ///
-/// Requires `TcpPortPool` and `TcpNumTablePartitions` symbols from `tcpip.sys`.
-/// When those symbols are unavailable, returns an informational placeholder row.
+/// Primary path is the symbol-free physical `TcpE` pool-scan netscan
+/// (`scan_tcp_endpoints`), which decodes `_TCP_ENDPOINT` objects with the
+/// build-keyed Volatility 3 overlay and needs no `tcpip.sys` symbols; the
+/// symbol-based hash-table walk (`walk_tcp_endpoints`, requiring `TcpPortPool` +
+/// `TcpNumTablePartitions`) is a fallback. When both recover nothing, returns an
+/// informational placeholder row.
 ///
 /// # Errors
 ///
@@ -926,35 +930,44 @@ pub fn dispatch_windows_netstat(
     let headers = vec![
         "Proto", "Local", "Remote", "State", "PID", "Process", "Note",
     ];
-    // `TcpPortPool` / `TcpNumTablePartitions` are tcpip.sys symbols. Unlike the
-    // ntoskrnl active-process list head, the crash-dump metadata carries no
-    // relocated anchor for them, so the symbol value is the only available
-    // anchor; it is consumed as-is. (If a future raw/auto-profiled dump exposes
-    // an un-relocated tcpip RVA, this is the site to apply the #35 metadata-first
-    // fix — see `resolve_ps_active_process_head`.)
-    let table_vaddr = reader.symbols().symbol_address("TcpPortPool");
-    let bucket_sym = reader.symbols().symbol_address("TcpNumTablePartitions");
+    // Two recovery paths, in order of robustness:
+    //
+    //   1. The version-robust physical `TcpE` pool-scan netscan
+    //      (`scan_tcp_endpoints`). It carves `_TCP_ENDPOINT` pool objects out of
+    //      physical memory and decodes them with the build-keyed Volatility 3
+    //      overlay selected from `NtBuildNumber` — needing NO tcpip.sys symbols.
+    //      This is the only path that works on builds whose tcpip.pdb lacks the
+    //      hash-table symbols (e.g. Server 2012 R2 / build 9600, where
+    //      `TcpNumTablePartitions` does not exist), and it is what recovers the
+    //      DFIR Madness Szechuan Sauce C2 (coreupdater.exe -> 203.78.103.109:443).
+    //
+    //   2. The symbol-based hash-table walk (`walk_tcp_endpoints`), kept as a
+    //      fallback for dumps whose tcpip.sys DOES export `TcpPortPool` +
+    //      `TcpNumTablePartitions` but whose build has no maintained overlay.
+    //
+    // Falling through to the placeholder only when both yield nothing keeps the
+    // command honest: an empty result means "no endpoints recovered", not
+    // "feature not wired".
+    let conns = memf_windows::network::scan_tcp_endpoints(reader)
+        .map_err(|e| anyhow!("windows netstat netscan failed: {e}"))?;
 
-    if let (Some(tbl), Some(buckets)) = (table_vaddr, bucket_sym) {
-        #[allow(clippy::cast_possible_truncation)]
-        let conns = memf_windows::network::walk_tcp_endpoints(reader, tbl, buckets as u32)
-            .map_err(|e| anyhow!("windows netstat walk failed: {e}"))?;
-        let rows = conns
-            .iter()
-            .map(|c| {
-                vec![
-                    c.protocol.clone(),
-                    format!("{}:{}", c.local_addr, c.local_port),
-                    format!("{}:{}", c.remote_addr, c.remote_port),
-                    c.state.to_string(),
-                    c.pid.to_string(),
-                    c.process_name.clone(),
-                    classify_connection(c.state, &c.remote_addr, c.remote_port).to_string(),
-                ]
-            })
-            .collect();
-        Ok((headers, rows))
+    let conns = if conns.is_empty() {
+        // No overlay for this build (or no TcpE pool objects survived). Try the
+        // symbol-based hash-table walk if tcpip.sys exposed its pool symbols.
+        let table_vaddr = reader.symbols().symbol_address("TcpPortPool");
+        let bucket_sym = reader.symbols().symbol_address("TcpNumTablePartitions");
+        if let (Some(tbl), Some(buckets)) = (table_vaddr, bucket_sym) {
+            #[allow(clippy::cast_possible_truncation)]
+            memf_windows::network::walk_tcp_endpoints(reader, tbl, buckets as u32)
+                .map_err(|e| anyhow!("windows netstat walk failed: {e}"))?
+        } else {
+            conns
+        }
     } else {
+        conns
+    };
+
+    if conns.is_empty() {
         let rows = vec![vec![
             "n/a".into(),
             String::new(),
@@ -964,8 +977,24 @@ pub fn dispatch_windows_netstat(
             String::new(),
             String::new(),
         ]];
-        Ok((headers, rows))
+        return Ok((headers, rows));
     }
+
+    let rows = conns
+        .iter()
+        .map(|c| {
+            vec![
+                c.protocol.clone(),
+                format!("{}:{}", c.local_addr, c.local_port),
+                format!("{}:{}", c.remote_addr, c.remote_port),
+                c.state.to_string(),
+                c.pid.to_string(),
+                c.process_name.clone(),
+                classify_connection(c.state, &c.remote_addr, c.remote_port).to_string(),
+            ]
+        })
+        .collect();
+    Ok((headers, rows))
 }
 
 /// Run Windows hook/rootkit integrity checks and return headers + rows.
