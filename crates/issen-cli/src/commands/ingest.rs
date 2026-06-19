@@ -403,6 +403,17 @@ fn format_bytes(bytes: u64) -> String {
     }
 }
 
+/// Default output DB path when `-o/--output` is omitted:
+/// `issen-ingested-<UTC>Z.duckdb`, e.g. `issen-ingested-2026-06-20T180159Z.duckdb`.
+/// The timestamp is colon-free for cross-platform filenames; the trailing `Z`
+/// marks UTC (Zulu).
+pub fn auto_output_path(now: chrono::DateTime<chrono::Utc>) -> PathBuf {
+    PathBuf::from(format!(
+        "issen-ingested-{}.duckdb",
+        now.format("%Y-%m-%dT%H%M%SZ")
+    ))
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {

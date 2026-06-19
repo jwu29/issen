@@ -108,9 +108,10 @@ pub enum Commands {
         #[arg(long, value_name = "URI")]
         source: Option<String>,
 
-        /// Output DuckDB database path (default: ./timeline.duckdb).
-        #[arg(short, long, default_value = "timeline.duckdb")]
-        output: PathBuf,
+        /// Output DuckDB database path. Defaults to
+        /// `issen-ingested-<UTC>Z.duckdb` in the current directory.
+        #[arg(short, long)]
+        output: Option<PathBuf>,
 
         /// Evidence source identifier (e.g. case number or host).
         #[arg(short = 's', long)]
@@ -505,18 +506,23 @@ fn main() -> ExitCode {
             hash_iocs,
             network_iocs,
             refresh,
-        } => commands::ingest::run(
-            &evidence_paths,
-            &output,
-            evidence_source.as_deref(),
-            source.as_deref(),
-            scan,
-            yara_rules.as_deref(),
-            sigma_rules.as_deref(),
-            hash_iocs.as_deref(),
-            network_iocs.as_deref(),
-            refresh,
-        ),
+        } => {
+            // No -o → auto-name `issen-ingested-<UTC>Z.duckdb` in the cwd.
+            let output =
+                output.unwrap_or_else(|| commands::ingest::auto_output_path(chrono::Utc::now()));
+            commands::ingest::run(
+                &evidence_paths,
+                &output,
+                evidence_source.as_deref(),
+                source.as_deref(),
+                scan,
+                yara_rules.as_deref(),
+                sigma_rules.as_deref(),
+                hash_iocs.as_deref(),
+                network_iocs.as_deref(),
+                refresh,
+            )
+        }
         Commands::Timeline {
             db_path,
             event_type,
