@@ -38,6 +38,7 @@ extern crate issen_parser_lnk;
 extern crate issen_parser_macos;
 extern crate issen_parser_mft;
 extern crate issen_parser_pe;
+extern crate issen_parser_recyclebin;
 extern crate issen_parser_setupapi;
 extern crate issen_parser_usnjrnl;
 
