@@ -79,20 +79,27 @@ pub fn build_reader(
         }
     };
 
-    // Rebase RVA-based kernel symbols by the Low Stub's kernel base VA, at the
-    // resolver level so EVERY `symbol_address` caller (the memf-windows walkers
-    // resolve PsActiveProcessHead et al. directly off the resolver) gets a real
-    // VA by construction — without it they dereference bare RVAs and the EPROCESS
-    // walk fails on a non-canonical low address.
-    let symbols: Box<dyn memf_symbols::SymbolResolver> = match low_stub {
-        Some(ls) if ls.kernel_base_va != 0 => Box::new(memf_symbols::RebasedResolver::new(
-            symbols,
-            ls.kernel_base_va,
-        )),
+    let vas = VirtualAddressSpace::new(provider, cr3, TranslationMode::X86_64FourLevel);
+
+    // Rebase RVA-based kernel symbols by the ntoskrnl base VA, at the resolver
+    // level so EVERY `symbol_address` caller (the memf-windows walkers resolve
+    // PsActiveProcessHead et al. directly off the resolver) gets a real VA by
+    // construction — without it they dereference bare RVAs and the EPROCESS walk
+    // fails on a non-canonical low address.
+    //
+    // The Low Stub `LmTarget`/KVO hint is WRONG on some dumps (e.g.
+    // citadeldc01.mem: it reports a base ~6 MiB high), so do NOT trust it
+    // directly — `resolve_kernel_base` reverse-maps ntoskrnl's RSDS record first
+    // (validated by an MZ/PE check), falling back to the low-stub scan, then the
+    // KVO hint only as a last resort. Trusting the raw KVO mis-rebases the
+    // resolver and page-faults every walker (this was a real regression).
+    let kernel_base_va =
+        memf_windows::kernel_base::resolve_kernel_base(&vas, low_stub.map(|ls| ls.kernel_base_va));
+    let symbols: Box<dyn memf_symbols::SymbolResolver> = match kernel_base_va {
+        Some(base) if base != 0 => Box::new(memf_symbols::RebasedResolver::new(symbols, base)),
         _ => symbols,
     };
 
-    let vas = VirtualAddressSpace::new(provider, cr3, TranslationMode::X86_64FourLevel);
     let reader = ObjectReader::new(vas, symbols);
 
     Ok((fmt, reader))
