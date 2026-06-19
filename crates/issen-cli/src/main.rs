@@ -38,8 +38,8 @@ extern crate issen_parser_lnk;
 extern crate issen_parser_macos;
 extern crate issen_parser_mft;
 extern crate issen_parser_pe;
-extern crate issen_parser_trash;
 extern crate issen_parser_setupapi;
+extern crate issen_parser_trash;
 extern crate issen_parser_usnjrnl;
 
 // Link disk image container crates so their CollectionProvider registrations survive.
@@ -97,9 +97,11 @@ pub enum Commands {
 
     /// Ingest evidence and parse artifacts into a timeline.
     Ingest {
-        /// Path to evidence directory or file.
-        #[arg(value_name = "EVIDENCE_PATH")]
-        evidence_path: PathBuf,
+        /// One or more evidence paths (file, directory, or a folder of disk
+        /// images). Multiple inputs build one unified timeline, each tagged with
+        /// a distinct per-source id for cross-host correlation.
+        #[arg(value_name = "EVIDENCE_PATH", required = true, num_args = 1..)]
+        evidence_paths: Vec<PathBuf>,
 
         /// Remote source URI to ingest from (s3://, gcs://, azblob://, webdav://, http(s)://, file://, gdrive://).
         /// When set, evidence is fetched from the remote URI before ingestion.
@@ -493,7 +495,7 @@ fn main() -> ExitCode {
             commands::supertimeline::run(&collection, &format)
         }
         Commands::Ingest {
-            evidence_path,
+            evidence_paths,
             output,
             evidence_source,
             source,
@@ -504,7 +506,7 @@ fn main() -> ExitCode {
             network_iocs,
             refresh,
         } => commands::ingest::run(
-            &evidence_path,
+            &evidence_paths,
             &output,
             evidence_source.as_deref(),
             source.as_deref(),

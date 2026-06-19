@@ -155,7 +155,7 @@ pub fn run(case_dir: &Path) -> Result<()> {
             .and_then(|s| s.to_str())
             .map(ToString::to_string);
         crate::commands::ingest::run(
-            root,
+            std::slice::from_ref(root),
             &db_path,
             source_id.as_deref(),
             None,

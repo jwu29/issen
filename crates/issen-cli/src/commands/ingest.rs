@@ -37,7 +37,7 @@ fn default_feed_cache_dir() -> PathBuf {
 /// - `network_iocs`: network IOC files (IPs/domains/CIDRs)
 #[allow(clippy::too_many_arguments)]
 pub fn run(
-    evidence_path: &Path,
+    evidence_paths: &[PathBuf],
     output: &Path,
     evidence_source: Option<&str>,
     source_uri: Option<&str>,
@@ -78,11 +78,11 @@ pub fn run(
         return Ok(());
     }
 
-    if !evidence_path.exists() {
-        anyhow::bail!("Evidence path does not exist: {}", evidence_path.display());
+    for p in evidence_paths {
+        if !p.exists() {
+            anyhow::bail!("Evidence path does not exist: {}", p.display());
+        }
     }
-
-    println!("Ingesting evidence from: {}", evidence_path.display());
 
     // Open or create the DuckDB timeline store.
     let store = TimelineStore::open(output).context("Failed to open timeline database")?;
@@ -94,80 +94,123 @@ pub fn run(
         "another ingest is already running for this case (delete a stale *.ingest.lock if not)",
     )?;
 
-    // Register evidence source if provided.
-    let source_id = evidence_source.unwrap_or("default");
-    store
-        .register_evidence_source(source_id, &evidence_path.to_string_lossy(), None, None)
-        .context("Failed to register evidence source")?;
-
-    // Resumable, per-unit ingestion (issen #115). Each (artifact, parser) is a
-    // unit committed atomically; units already completed for this evidence
-    // source are skipped (resume by default) unless `--refresh` forces a full
-    // re-parse. commit_unit's delete-first makes a re-parse idempotent.
-    // Read the resume skip-list BEFORE parsing so completed units skip the
-    // parse cost entirely — not just the duplicate commit. `--refresh` forces a
-    // full re-parse; `commit_unit`'s delete-first keeps that idempotent.
-    let completed = if refresh {
-        std::collections::HashSet::new()
-    } else {
-        store
-            .completed_units(source_id)
-            .context("Failed to read resume state")?
-    };
+    // Resolve inputs into attributable evidence sources: a folder of disk images
+    // expands to one source per image; each gets a collision-resistant id so two
+    // hosts' otherwise-identical artifacts stay distinct in the unified timeline.
+    let mut sources = issen_fswalker::sources::resolve_evidence_sources(evidence_paths);
+    if sources.len() == 1 {
+        // Single source keeps the historical id (explicit --evidence-source, else
+        // "default") for backward compatibility and stable resume keys.
+        sources[0].source_id = evidence_source.unwrap_or("default").to_string();
+    } else if evidence_source.is_some() {
+        eprintln!(
+            "warning: --evidence-source is ignored for multi-source ingest; \
+             a distinct per-source id is used for each input"
+        );
+    }
 
     let progress = ProgressReporter::new();
-    // A unit is skipped when its (source, artifact-type, path, parser) identity
-    // — the same stable id `commit_unit` keys on — is already complete. The
-    // `bytes` field does not affect the id, so 0 here matches the commit path.
-    let skip = |at: &ArtifactType, path: &Path, parser: &str| {
-        let unit_id = issen_timeline::ingest::IngestUnit::new(
-            source_id,
-            &format!("{at:?}"),
-            &path.to_string_lossy(),
-            parser,
-            0,
-        )
-        .unit_id;
-        completed.contains(&unit_id)
-    };
-    let (units, result, skipped) =
-        run_auto_units(evidence_path, &progress, &skip).context("Pipeline execution failed")?;
-
     let mut inserted = 0u64;
     // The committed events, kept flat for the optional signature-scan phase.
     let mut events = Vec::new();
-    // Every returned unit is pending (completed ones were skipped before parse),
-    // so each is committed unconditionally.
-    for pu in units {
-        let unit = issen_timeline::ingest::IngestUnit::new(
-            source_id,
-            &format!("{:?}", pu.artifact_type),
-            &pu.path.to_string_lossy(),
-            &pu.parser,
-            i64::try_from(pu.bytes).unwrap_or(i64::MAX),
-        );
-        inserted += store
-            .commit_unit(&unit, &pu.events)
-            .context("Failed to commit ingest unit")?;
-        events.extend(pu.events);
+    let mut t_found = 0usize;
+    let mut t_parsed = 0usize;
+    let mut t_events = 0u64;
+    let mut t_bytes = 0u64;
+    let mut t_skipped = 0usize;
+    let mut all_errors: Vec<String> = Vec::new();
+
+    for src in &sources {
+        let source_id = src.source_id.as_str();
+        if sources.len() > 1 {
+            println!("\n=== Source [{source_id}]: {} ===", src.path.display());
+        } else {
+            println!("Ingesting evidence from: {}", src.path.display());
+        }
+        store
+            .register_evidence_source(source_id, &src.path.to_string_lossy(), None, None)
+            .context("Failed to register evidence source")?;
+
+        // Resumable, per-unit ingestion (issen #115). Each (artifact, parser) is a
+        // unit committed atomically; units already completed for this evidence
+        // source are skipped (resume by default) unless `--refresh` forces a full
+        // re-parse. Read the resume skip-list BEFORE parsing so completed units
+        // skip the parse cost entirely. `commit_unit`'s delete-first makes a
+        // re-parse idempotent.
+        let completed = if refresh {
+            std::collections::HashSet::new()
+        } else {
+            store
+                .completed_units(source_id)
+                .context("Failed to read resume state")?
+        };
+
+        // A unit is skipped when its (source, artifact-type, path, parser) identity
+        // — the same stable id `commit_unit` keys on — is already complete. The
+        // `bytes` field does not affect the id, so 0 here matches the commit path.
+        let skip = |at: &ArtifactType, path: &Path, parser: &str| {
+            let unit_id = issen_timeline::ingest::IngestUnit::new(
+                source_id,
+                &format!("{at:?}"),
+                &path.to_string_lossy(),
+                parser,
+                0,
+            )
+            .unit_id;
+            completed.contains(&unit_id)
+        };
+        let (units, result, skipped) =
+            run_auto_units(&src.path, &progress, &skip).context("Pipeline execution failed")?;
+
+        // Every returned unit is pending (completed ones were skipped before
+        // parse), so each is committed unconditionally.
+        for pu in units {
+            let unit = issen_timeline::ingest::IngestUnit::new(
+                source_id,
+                &format!("{:?}", pu.artifact_type),
+                &pu.path.to_string_lossy(),
+                &pu.parser,
+                i64::try_from(pu.bytes).unwrap_or(i64::MAX),
+            );
+            // Re-stamp each event's evidence_source_id with the resolved per-source
+            // id (parsers hardcode a placeholder, e.g. "evtx-evidence"). Without
+            // this, two hosts' identical events share a record_hash and one is
+            // dropped as a duplicate — the cross-host attribution would be lost.
+            let restamped: Vec<_> = pu
+                .events
+                .into_iter()
+                .map(|e| e.with_evidence_source(source_id))
+                .collect();
+            inserted += store
+                .commit_unit(&unit, &restamped)
+                .context("Failed to commit ingest unit")?;
+            events.extend(restamped);
+        }
+
+        t_found += result.artifacts_found;
+        t_parsed += result.artifacts_parsed;
+        t_events += result.total_events;
+        t_bytes += result.total_bytes;
+        t_skipped += skipped;
+        all_errors.extend(result.errors);
     }
 
-    println!("Artifacts found:  {}", result.artifacts_found);
-    println!("Artifacts parsed: {}", result.artifacts_parsed);
-    println!("Events generated: {}", result.total_events);
-    println!(
-        "Events committed: {inserted} across {} units",
-        result.artifacts_parsed
-    );
-    if skipped > 0 {
-        println!("Units resumed:    {skipped} (already complete, skipped)");
+    if sources.len() > 1 {
+        println!("\nSources ingested: {}", sources.len());
     }
-    println!("Bytes processed:  {}", format_bytes(result.total_bytes));
+    println!("Artifacts found:  {t_found}");
+    println!("Artifacts parsed: {t_parsed}");
+    println!("Events generated: {t_events}");
+    println!("Events committed: {inserted} across {t_parsed} units");
+    if t_skipped > 0 {
+        println!("Units resumed:    {t_skipped} (already complete, skipped)");
+    }
+    println!("Bytes processed:  {}", format_bytes(t_bytes));
     println!("Database:         {}", output.display());
 
-    if !result.errors.is_empty() {
-        eprintln!("\n{} error(s) during parsing:", result.errors.len());
-        for err in &result.errors {
+    if !all_errors.is_empty() {
+        eprintln!("\n{} error(s) during parsing:", all_errors.len());
+        for err in &all_errors {
             eprintln!("  - {err}");
         }
     }
@@ -302,9 +345,10 @@ pub fn run(
             stats.hash_stores, stats.network_stores, stats.sigma_rules
         );
 
-        // Run the scanning phase.
-        let (finding_rows, scan_summary) =
-            scanning::run_scan_phase(&events, &engine, evidence_path);
+        // Run the scanning phase. The evidence-root label is the first source
+        // (a per-event source_id already attributes findings per host).
+        let scan_root = sources.first().map_or(output, |s| s.path.as_path());
+        let (finding_rows, scan_summary) = scanning::run_scan_phase(&events, &engine, scan_root);
 
         // Enrich events with sig: tags from findings.
         let mut enriched_events = events;
