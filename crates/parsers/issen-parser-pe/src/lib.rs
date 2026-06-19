@@ -7,11 +7,13 @@
     clippy::doc_markdown,
     clippy::missing_errors_doc,
     clippy::missing_panics_doc,
-    clippy::must_use_candidate,
+    clippy::must_use_candidate
 )]
 
 pub mod detections;
 pub mod parser;
+pub mod wiring;
 
 pub use detections::{detect_all, PeDetection, PeDetectionKind};
 pub use parser::{parse_pe, PeError, PeInfo, PeSection};
+pub use wiring::{pe_events_from_info, pe_findings, PeParser};

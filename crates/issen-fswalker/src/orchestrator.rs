@@ -166,6 +166,33 @@ pub fn detect_artifact_type(path: &Path) -> Option<ArtifactType> {
         return Some(ArtifactType::DeviceInstall);
     }
 
+    // PE deep analysis (imports/sections/anomalies) is expensive, so route an
+    // executable to the PE parser ONLY when it sits in a user-writable /
+    // suspicious location (dropped-malware territory). System32 / Program Files /
+    // WinSxS executables — the overwhelming majority — are deliberately skipped
+    // so a disk ingest does not PE-parse every binary; System32-resident malware
+    // (e.g. a service binary) is reached later by correlation / IOC.
+    if name.ends_with(".exe") || name.ends_with(".dll") || name.ends_with(".scr") {
+        const SUSPICIOUS_DIRS: &[&str] = &[
+            "\\temp\\",
+            "/temp/",
+            "\\appdata\\",
+            "/appdata/",
+            "\\downloads\\",
+            "/downloads/",
+            "\\programdata\\",
+            "/programdata/",
+            "$recycle.bin",
+            "\\perflogs\\",
+            "/perflogs/",
+            "\\users\\public\\",
+            "/users/public/",
+        ];
+        if SUSPICIOUS_DIRS.iter().any(|d| full.contains(d)) {
+            return Some(ArtifactType::Pe);
+        }
+    }
+
     None
 }
 
@@ -682,6 +709,36 @@ mod tests {
             detect_artifact_type(Path::new("/Prefetch/CMD.EXE-12345.pf")),
             Some(ArtifactType::Prefetch),
         );
+    }
+
+    #[test]
+    fn test_detect_pe_gated_by_suspicious_location() {
+        // Executables in user-writable / dropped-malware locations → PE analysis.
+        for p in [
+            r"C:\Users\rick\AppData\Local\Temp\dropper.exe",
+            r"C:\Users\rick\Downloads\setup.exe",
+            r"C:\ProgramData\evil.dll",
+            r"C:\$Recycle.Bin\S-1-5-21\payload.scr",
+        ] {
+            assert_eq!(
+                detect_artifact_type(Path::new(p)),
+                Some(ArtifactType::Pe),
+                "{p} should route to PE analysis"
+            );
+        }
+        // The overwhelming majority — System32 / Program Files / WinSxS — are NOT
+        // routed, so a disk ingest does not PE-parse every binary.
+        for p in [
+            r"C:\Windows\System32\coreupdater.exe",
+            r"C:\Program Files\App\app.exe",
+            r"C:\Windows\WinSxS\amd64_x\foo.dll",
+        ] {
+            assert_eq!(
+                detect_artifact_type(Path::new(p)),
+                None,
+                "{p} must NOT be blanket PE-analyzed (correlation/IOC reaches it)"
+            );
+        }
     }
 
     #[test]

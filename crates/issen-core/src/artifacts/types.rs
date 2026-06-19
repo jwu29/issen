@@ -53,6 +53,9 @@ pub enum ArtifactType {
     SystemConfig,
     /// Windows device/driver install log (setupapi.dev.log)
     DeviceInstall,
+    /// Portable Executable (PE) — `.exe`/`.dll` deep analysis (imports, sections,
+    /// anomalies). Routed only for suspicious executables (see `detect_artifact_type`).
+    Pe,
 }
 
 impl std::fmt::Display for ArtifactType {
@@ -83,6 +86,7 @@ impl std::fmt::Display for ArtifactType {
             Self::RootkitScan => write!(f, "Rootkit Scan"),
             Self::SystemConfig => write!(f, "System Config"),
             Self::DeviceInstall => write!(f, "Device Install"),
+            Self::Pe => write!(f, "PE Executable"),
         }
     }
 }
@@ -122,6 +126,7 @@ impl ArtifactType {
             "RootkitScan" => Self::RootkitScan,
             "SystemConfig" => Self::SystemConfig,
             "DeviceInstall" => Self::DeviceInstall,
+            "Pe" => Self::Pe,
             _ => return None,
         })
     }

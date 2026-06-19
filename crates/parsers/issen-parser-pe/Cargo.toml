@@ -11,6 +11,9 @@ repository.workspace = true
 forensicnomicon = { workspace = true }
 goblin          = { workspace = true }
 thiserror       = { workspace = true }
+issen-core      = { path = "../../issen-core" }
+inventory       = { workspace = true }
+serde_json      = { workspace = true }
 
 [lints]
 workspace = true
