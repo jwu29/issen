@@ -388,6 +388,15 @@ of first publish**, or later only if single-owner + <500 downloads + no dependen
 *before* publishing; if a rename is needed, do it inside the 72h window (delete + republish = clean,
 no orphan). After 72h, a yank leaves the old name as a permanent reserved orphan.
 
+## Dependency Preference — prefer our own crates (binding)
+
+**Always prefer our own (SecurityRonin / `h4x0r`) crates over third-party ones** when an equivalent exists or can be made to exist. A hard rule, not a tiebreaker.
+
+- Before adding a third-party dependency, check whether we already publish a crate for it (`~/src/*`, the SecurityRonin crates.io account). If we do, use ours.
+- If a third-party crate is wired in but we have (or are building) our own equivalent, **migrate to ours** — proactively flag and do it, not as a "follow-up."
+- For name collisions and the reader/analyzer split, follow the **Crate naming grammar** and **Crate-structure standard** above (publish under a `-core` package with `[lib] name = "<bare>"` so the import path is unchanged; `*-core` reader + `*-forensic` analyzer).
+- **Prefer the *published* registry crate over a `path` dependency once it is on crates.io.** Path deps are for crates not yet published, or a coordinated in-flight workspace change. As soon as ours is published, switch dependents to the registry version (`x = { version = "0.2", package = "x-core" }`) — reproducible, decoupled from local checkout layout (no breakage when a sibling repo is renamed/moved), and matches what external consumers get. When you publish a new fleet-crate version, sweep its dependents off the stale path dep onto the new registry version.
+
 ## Security & Robustness Standard — Paranoid Gatekeeper (MANDATORY for every `*-core` / `*-forensic` crate)
 
 These crates parse **untrusted, attacker-controllable disk images**. The bar is: *never panic, never read out of bounds, never trust a length field.* The standard below is the **superset** of the strongest settings found across vmdk/vhdx/ewf/ntfs/qcow2 — every forensic crate must meet all of it.
