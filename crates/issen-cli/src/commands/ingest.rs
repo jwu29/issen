@@ -402,3 +402,22 @@ fn format_bytes(bytes: u64) -> String {
         format!("{bytes} B")
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use chrono::TimeZone;
+
+    #[test]
+    fn auto_output_name_is_utc_z_stamped() {
+        // A fixed UTC instant → a colon-free, Z-suffixed default DB name.
+        let ts = chrono::Utc
+            .with_ymd_and_hms(2026, 6, 20, 18, 1, 59)
+            .unwrap();
+        assert_eq!(
+            auto_output_path(ts),
+            PathBuf::from("issen-ingested-2026-06-20T180159Z.duckdb")
+        );
+    }
+}
