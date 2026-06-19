@@ -269,6 +269,19 @@ impl TimelineEvent {
         self.activity_category = Some(category);
         self
     }
+
+    /// Re-stamp this event with a different `evidence_source_id`, recomputing the
+    /// content-addressed `record_hash` so the new source participates in dedup.
+    ///
+    /// Parsers stamp a placeholder source id (e.g. `"evtx-evidence"`); the ingest
+    /// layer overrides it with the resolved per-source id so that, in a unified
+    /// multi-source timeline, two hosts' otherwise-identical events stay distinct
+    /// (and attributable) instead of colliding on one `record_hash`.
+    #[must_use]
+    pub fn with_evidence_source(mut self, evidence_source_id: impl Into<String>) -> Self {
+        self.evidence_source_id = evidence_source_id.into();
+        self
+    }
 }
 
 #[cfg(test)]
@@ -453,6 +466,27 @@ mod tests {
         assert_eq!(
             event1.record_hash, event2.record_hash,
             "Tags are annotations, not part of the content hash"
+        );
+    }
+
+    #[test]
+    fn with_evidence_source_restamps_id_and_record_hash() {
+        let base = sample_event(); // evidence_source_id = "evidence-001"
+        let restamped = sample_event().with_evidence_source("citadeldc01");
+        assert_eq!(restamped.evidence_source_id, "citadeldc01");
+        // evidence_source_id is part of the content hash, so re-stamping MUST
+        // recompute it — otherwise two hosts' identical events collide on one hash.
+        assert_ne!(
+            restamped.record_hash, base.record_hash,
+            "re-stamping the evidence source must recompute record_hash"
+        );
+        // Deterministic: re-stamping back to the original source reproduces the hash.
+        assert_eq!(
+            sample_event()
+                .with_evidence_source("evidence-001")
+                .record_hash,
+            base.record_hash,
+            "re-stamp is deterministic: same source -> same record_hash as a fresh build"
         );
     }
 
