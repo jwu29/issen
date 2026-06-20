@@ -479,8 +479,8 @@ mod tests {
 
         // Must have artifacts with disk or registry entries.
         let artifacts = def.artifacts.expect("should have artifacts");
-        let has_disk = artifacts.disk.as_ref().map_or(false, |d| !d.is_empty());
-        let has_registry = artifacts.registry.as_ref().map_or(false, |r| !r.is_empty());
+        let has_disk = artifacts.disk.as_ref().is_some_and(|d| !d.is_empty());
+        let has_registry = artifacts.registry.as_ref().is_some_and(|r| !r.is_empty());
         assert!(
             has_disk || has_registry,
             "AnyDesk should have disk or registry artifacts"

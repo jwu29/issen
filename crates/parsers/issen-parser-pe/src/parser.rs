@@ -144,7 +144,7 @@ fn extract_strings(bytes: &[u8], min_len: usize) -> Vec<String> {
     // ASCII pass
     let mut current = String::new();
     for &b in bytes {
-        if b >= 0x20 && b < 0x7F {
+        if (0x20..0x7F).contains(&b) {
             current.push(b as char);
         } else {
             if current.len() >= min_len {
@@ -163,7 +163,7 @@ fn extract_strings(bytes: &[u8], min_len: usize) -> Vec<String> {
     while i + 1 < bytes.len() {
         let lo = bytes[i];
         let hi = bytes[i + 1];
-        if hi == 0 && lo >= 0x20 && lo < 0x7F {
+        if hi == 0 && (0x20..0x7F).contains(&lo) {
             current16.push(lo as char);
             i += 2;
         } else {
@@ -269,7 +269,7 @@ mod tests {
     fn parse_pe_accepts_minimal_x64() {
         let bytes = make_minimal_pe_x64(0x5F00_0000);
         let result = parse_pe(&bytes);
-        assert!(result.is_ok(), "minimal PE should parse: {:?}", result);
+        assert!(result.is_ok(), "minimal PE should parse: {result:?}");
     }
 
     #[test]

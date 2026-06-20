@@ -46,7 +46,7 @@ mod tests {
         struct TestParser;
 
         impl ForensicParser for TestParser {
-            fn name(&self) -> &str {
+            fn name(&self) -> &'static str {
                 "Test Parser"
             }
             fn supported_artifacts(&self) -> &[ArtifactType] {

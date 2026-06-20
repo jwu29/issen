@@ -292,7 +292,7 @@ mod tests {
     #[test]
     fn test_ewf_error_from_io() {
         // Verify From<std::io::Error> for EwfError works.
-        let io_err = std::io::Error::new(std::io::ErrorKind::Other, "test");
+        let io_err = std::io::Error::other("test");
         let ewf_err: EwfError = io_err.into();
         assert!(
             matches!(ewf_err, EwfError::Io(_)),

@@ -323,7 +323,7 @@ mod tests {
     fn garbled_line_returns_ok_no_panic() {
         let mut tmp = tempfile::NamedTempFile::new().expect("tempfile");
         writeln!(tmp, "THIS IS NOT A VALID LOG LINE AT ALL !!!@#$%").expect("write");
-        writeln!(tmp, "").expect("write");
+        writeln!(tmp).expect("write");
         writeln!(tmp, "   ").expect("write");
         tmp.flush().expect("flush");
 

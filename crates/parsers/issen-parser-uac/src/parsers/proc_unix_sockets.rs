@@ -257,7 +257,7 @@ short line\n";
             entries: vec![
                 ProcUnixEntry { path: "/run/systemd/journal/socket".into() },
                 ProcUnixEntry { path: "@abstract".into() },
-                ProcUnixEntry { path: "".into() },
+                ProcUnixEntry { path: String::new() },
             ],
         }];
         let paths = named_paths_for_pid(&all, 977);

@@ -232,7 +232,7 @@ mod tests {
     struct FileSrc(PathBuf);
     impl DataSource for FileSrc {
         fn len(&self) -> u64 {
-            std::fs::metadata(&self.0).map(|m| m.len()).unwrap_or(0)
+            std::fs::metadata(&self.0).map_or(0, |m| m.len())
         }
         fn read_at(&self, _o: u64, _b: &mut [u8]) -> Result<usize, RtError> {
             Ok(0)

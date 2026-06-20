@@ -305,7 +305,7 @@ mod tests {
 
         // Check metadata present
         assert_eq!(
-            create_ev.metadata.get("file_size").and_then(|v| v.as_u64()),
+            create_ev.metadata.get("file_size").and_then(serde_json::Value::as_u64),
             Some(1234),
             "metadata file_size should be 1234"
         );
