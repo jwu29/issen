@@ -155,7 +155,7 @@ impl ForensicParser for UserAssistParser {
 
 // Compile-time registration with the parser inventory.
 inventory::submit! {
-    ParserRegistration { create: || Box::new(UserAssistParser) }
+    ParserRegistration { create: || Box::new(UserAssistParser), selector: None }
 }
 
 // ---------------------------------------------------------------------------

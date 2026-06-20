@@ -402,7 +402,7 @@ fn record_to_event(record: &UsnRecordV2, evidence_source_id: &str) -> TimelineEv
 
 // Compile-time registration with the parser inventory.
 inventory::submit! {
-    ParserRegistration { create: || Box::new(UsnJrnlParser) }
+    ParserRegistration { create: || Box::new(UsnJrnlParser), selector: None }
 }
 
 #[cfg(test)]

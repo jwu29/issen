@@ -163,7 +163,7 @@ impl ForensicParser for AmcacheParser {
 
 // Compile-time registration with the parser inventory.
 inventory::submit! {
-    ParserRegistration { create: || Box::new(AmcacheParser) }
+    ParserRegistration { create: || Box::new(AmcacheParser), selector: None }
 }
 
 // ---------------------------------------------------------------------------

@@ -1,3 +1,4 @@
+use super::selector::ArtifactSelector;
 use super::traits::ForensicParser;
 
 /// Registration entry for the parser inventory.
@@ -6,6 +7,13 @@ use super::traits::ForensicParser;
 /// themselves at compile time with zero runtime cost.
 pub struct ParserRegistration {
     pub create: fn() -> Box<dyn ForensicParser>,
+    /// The artifact this parser consumes — the single source of truth the
+    /// pipeline derives classification and disk collection from.
+    ///
+    /// `Option` only during the Stage-1 incremental population; hardened to a
+    /// required field once every parser declares one (so the compiler enforces
+    /// presence and a new parser cannot be added without a selector).
+    pub selector: Option<ArtifactSelector>,
 }
 
 inventory::collect!(ParserRegistration);
@@ -70,6 +78,7 @@ mod tests {
 
         let reg = ParserRegistration {
             create: || Box::new(TestParser),
+            selector: None,
         };
         let parser = (reg.create)();
         assert_eq!(parser.name(), "Test Parser");

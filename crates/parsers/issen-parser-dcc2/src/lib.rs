@@ -153,7 +153,7 @@ impl ForensicParser for Dcc2Parser {
 
 // Compile-time registration with the parser inventory.
 inventory::submit! {
-    ParserRegistration { create: || Box::new(Dcc2Parser) }
+    ParserRegistration { create: || Box::new(Dcc2Parser), selector: None }
 }
 
 // ---------------------------------------------------------------------------

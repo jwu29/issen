@@ -159,7 +159,7 @@ impl ForensicParser for ShellbagsParser {
 }
 
 inventory::submit! {
-    ParserRegistration { create: || Box::new(ShellbagsParser) }
+    ParserRegistration { create: || Box::new(ShellbagsParser), selector: None }
 }
 
 // ---------------------------------------------------------------------------

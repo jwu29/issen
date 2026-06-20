@@ -173,7 +173,7 @@ impl ForensicParser for TypedUrlsParser {
 
 // Compile-time registration with the parser inventory.
 inventory::submit! {
-    ParserRegistration { create: || Box::new(TypedUrlsParser) }
+    ParserRegistration { create: || Box::new(TypedUrlsParser), selector: None }
 }
 
 // ---------------------------------------------------------------------------

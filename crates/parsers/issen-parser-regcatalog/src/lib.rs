@@ -196,7 +196,7 @@ impl ForensicParser for RegCatalogParser {
 
 // Compile-time registration with the parser inventory.
 inventory::submit! {
-    ParserRegistration { create: || Box::new(RegCatalogParser) }
+    ParserRegistration { create: || Box::new(RegCatalogParser), selector: None }
 }
 
 // ---------------------------------------------------------------------------

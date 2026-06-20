@@ -151,7 +151,7 @@ impl ForensicParser for SrumParser {
 
 // Compile-time registration with the parser inventory.
 inventory::submit! {
-    ParserRegistration { create: || Box::new(SrumParser) }
+    ParserRegistration { create: || Box::new(SrumParser), selector: None }
 }
 
 #[cfg(test)]

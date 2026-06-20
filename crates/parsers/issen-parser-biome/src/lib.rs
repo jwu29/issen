@@ -143,7 +143,7 @@ impl ForensicParser for BiomeParser {
 
 // Compile-time registration with the parser inventory.
 inventory::submit! {
-    ParserRegistration { create: || Box::new(BiomeParser) }
+    ParserRegistration { create: || Box::new(BiomeParser), selector: None }
 }
 
 #[cfg(test)]

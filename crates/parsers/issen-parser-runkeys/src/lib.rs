@@ -153,7 +153,7 @@ impl ForensicParser for RunKeysParser {
 
 // Compile-time registration with the parser inventory.
 inventory::submit! {
-    ParserRegistration { create: || Box::new(RunKeysParser) }
+    ParserRegistration { create: || Box::new(RunKeysParser), selector: None }
 }
 
 // ---------------------------------------------------------------------------

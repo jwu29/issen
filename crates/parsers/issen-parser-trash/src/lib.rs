@@ -137,7 +137,7 @@ fn delete_event(
 
 // Compile-time registration with the parser inventory.
 inventory::submit! {
-    ParserRegistration { create: || Box::new(RecycleBinParser) }
+    ParserRegistration { create: || Box::new(RecycleBinParser), selector: None }
 }
 
 // ---------------------------------------------------------------------------

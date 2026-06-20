@@ -153,7 +153,7 @@ impl ForensicParser for ShimcacheParser {
 
 // Compile-time registration with the parser inventory.
 inventory::submit! {
-    ParserRegistration { create: || Box::new(ShimcacheParser) }
+    ParserRegistration { create: || Box::new(ShimcacheParser), selector: None }
 }
 
 // ---------------------------------------------------------------------------

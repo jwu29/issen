@@ -158,7 +158,7 @@ impl ForensicParser for SvcDiffParser {
 
 // Compile-time registration with the parser inventory.
 inventory::submit! {
-    ParserRegistration { create: || Box::new(SvcDiffParser) }
+    ParserRegistration { create: || Box::new(SvcDiffParser), selector: None }
 }
 
 // ---------------------------------------------------------------------------

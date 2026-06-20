@@ -102,7 +102,7 @@ impl ForensicParser for PrefetchParser {
 
 // Compile-time registration with the parser inventory.
 inventory::submit! {
-    ParserRegistration { create: || Box::new(PrefetchParser) }
+    ParserRegistration { create: || Box::new(PrefetchParser), selector: None }
 }
 
 // ---------------------------------------------------------------------------

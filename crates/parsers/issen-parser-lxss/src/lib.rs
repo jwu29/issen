@@ -170,7 +170,7 @@ impl ForensicParser for LxssParser {
 
 // Compile-time registration with the parser inventory.
 inventory::submit! {
-    ParserRegistration { create: || Box::new(LxssParser) }
+    ParserRegistration { create: || Box::new(LxssParser), selector: None }
 }
 
 // ---------------------------------------------------------------------------

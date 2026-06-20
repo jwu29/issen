@@ -86,7 +86,7 @@ impl ForensicParser for MacosUnifiedLogParser {
 }
 
 inventory::submit! {
-    ParserRegistration { create: || Box::new(MacosUnifiedLogParser) }
+    ParserRegistration { create: || Box::new(MacosUnifiedLogParser), selector: None }
 }
 
 // ── MacosFsEventsParser ───────────────────────────────────────────────────────
@@ -155,7 +155,7 @@ impl ForensicParser for MacosFsEventsParser {
 }
 
 inventory::submit! {
-    ParserRegistration { create: || Box::new(MacosFsEventsParser) }
+    ParserRegistration { create: || Box::new(MacosFsEventsParser), selector: None }
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

@@ -163,7 +163,7 @@ impl ForensicParser for ComHijackParser {
 
 // Compile-time registration with the parser inventory.
 inventory::submit! {
-    ParserRegistration { create: || Box::new(ComHijackParser) }
+    ParserRegistration { create: || Box::new(ComHijackParser), selector: None }
 }
 
 // ---------------------------------------------------------------------------

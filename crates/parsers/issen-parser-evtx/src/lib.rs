@@ -509,7 +509,7 @@ impl ForensicParser for EvtxFileParser {
 
 // Compile-time registration with the parser inventory.
 inventory::submit! {
-    ParserRegistration { create: || Box::new(EvtxFileParser) }
+    ParserRegistration { create: || Box::new(EvtxFileParser), selector: None }
 }
 
 // ---------------------------------------------------------------------------

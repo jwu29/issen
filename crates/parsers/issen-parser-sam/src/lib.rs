@@ -154,7 +154,7 @@ impl ForensicParser for SamParser {
 
 // Compile-time registration with the parser inventory.
 inventory::submit! {
-    ParserRegistration { create: || Box::new(SamParser) }
+    ParserRegistration { create: || Box::new(SamParser), selector: None }
 }
 
 // ---------------------------------------------------------------------------

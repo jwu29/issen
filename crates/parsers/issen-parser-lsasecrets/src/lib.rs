@@ -165,7 +165,7 @@ impl ForensicParser for LsaSecretsParser {
 
 // Compile-time registration with the parser inventory.
 inventory::submit! {
-    ParserRegistration { create: || Box::new(LsaSecretsParser) }
+    ParserRegistration { create: || Box::new(LsaSecretsParser), selector: None }
 }
 
 // ---------------------------------------------------------------------------

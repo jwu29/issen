@@ -96,7 +96,7 @@ impl ForensicParser for LnkParser {
 
 // Compile-time registration with the parser inventory.
 inventory::submit! {
-    ParserRegistration { create: || Box::new(LnkParser) }
+    ParserRegistration { create: || Box::new(LnkParser), selector: None }
 }
 
 // ---------------------------------------------------------------------------

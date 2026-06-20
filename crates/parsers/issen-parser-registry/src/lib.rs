@@ -108,7 +108,7 @@ impl ForensicParser for RegistryHiveParser {
 
 // Compile-time registration with the parser inventory.
 inventory::submit! {
-    ParserRegistration { create: || Box::new(RegistryHiveParser) }
+    ParserRegistration { create: || Box::new(RegistryHiveParser), selector: None }
 }
 
 // ---------------------------------------------------------------------------

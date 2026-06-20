@@ -250,7 +250,7 @@ impl ForensicParser for SetupApiParser {
 }
 
 inventory::submit! {
-    ParserRegistration { create: || Box::new(SetupApiParser) }
+    ParserRegistration { create: || Box::new(SetupApiParser), selector: None }
 }
 
 // ---------------------------------------------------------------------------

@@ -101,7 +101,7 @@ impl ForensicParser for LinuxAuthLogParser {
 }
 
 inventory::submit! {
-    ParserRegistration { create: || Box::new(LinuxAuthLogParser) }
+    ParserRegistration { create: || Box::new(LinuxAuthLogParser), selector: None }
 }
 
 // ── LinuxSyslogParser ─────────────────────────────────────────────────────────
@@ -158,7 +158,7 @@ impl ForensicParser for LinuxSyslogParser {
 }
 
 inventory::submit! {
-    ParserRegistration { create: || Box::new(LinuxSyslogParser) }
+    ParserRegistration { create: || Box::new(LinuxSyslogParser), selector: None }
 }
 
 // ── LinuxCronParser ───────────────────────────────────────────────────────────
@@ -215,7 +215,7 @@ impl ForensicParser for LinuxCronParser {
 }
 
 inventory::submit! {
-    ParserRegistration { create: || Box::new(LinuxCronParser) }
+    ParserRegistration { create: || Box::new(LinuxCronParser), selector: None }
 }
 
 // ── LinuxBashHistoryParser ────────────────────────────────────────────────────
@@ -272,7 +272,7 @@ impl ForensicParser for LinuxBashHistoryParser {
 }
 
 inventory::submit! {
-    ParserRegistration { create: || Box::new(LinuxBashHistoryParser) }
+    ParserRegistration { create: || Box::new(LinuxBashHistoryParser), selector: None }
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

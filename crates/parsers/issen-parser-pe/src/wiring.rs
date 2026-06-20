@@ -154,7 +154,7 @@ impl ForensicParser for PeParser {
 }
 
 inventory::submit! {
-    ParserRegistration { create: || Box::new(PeParser) }
+    ParserRegistration { create: || Box::new(PeParser), selector: None }
 }
 
 #[cfg(test)]

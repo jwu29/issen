@@ -402,7 +402,7 @@ impl ForensicParser for MftFileParser {
 
 // Compile-time registration with the parser inventory.
 inventory::submit! {
-    ParserRegistration { create: || Box::new(MftFileParser) }
+    ParserRegistration { create: || Box::new(MftFileParser), selector: None }
 }
 
 // ---------------------------------------------------------------------------
