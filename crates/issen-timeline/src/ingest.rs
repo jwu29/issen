@@ -381,6 +381,24 @@ impl TimelineStore {
         events: &[TimelineEvent],
     ) -> Result<u64, TimelineStoreError> {
         let conn = self.connection();
+        // Secure-by-default: never let an incomplete re-parse (e.g. a `--refresh`
+        // that regressed) DELETE or DOWNGRADE an already-`complete` unit. Keep the
+        // prior complete data and no-op; the CLI surfaces this loudly (fail-loud).
+        if !unit.complete {
+            let prior_complete: i64 = conn
+                .prepare(
+                    "SELECT count(*) FROM ingest_log WHERE unit_id = ? AND status = 'complete'",
+                )?
+                .query_row(duckdb::params![unit.unit_id], |r| r.get(0))?;
+            if prior_complete > 0 {
+                tracing::warn!(
+                    unit = %unit.unit_id,
+                    "re-parse returned incomplete for an already-complete unit — kept the prior \
+                     complete data (refresh downgrade refused)"
+                );
+                return Ok(0);
+            }
+        }
         // Delete-first: a resume re-parses a unit from scratch, so drop any rows
         // a prior partial attempt left tagged with this unit id.
         conn.execute(
@@ -559,6 +577,94 @@ mod tests {
         assert!(
             !done.contains(&unit.unit_id),
             "an incomplete unit must NOT be in the resume skip-set — resume re-parses it"
+        );
+    }
+
+    #[test]
+    fn refresh_must_not_downgrade_a_complete_unit_to_incomplete() {
+        // The HIGH data-loss path: `--refresh` re-parses a previously-complete unit;
+        // if that re-parse now returns incomplete, commit must NOT delete the prior
+        // complete rows or downgrade the log row. Secure-by-default: keep the good
+        // data, no-op the downgrade (the CLI warns loudly).
+        let store = TimelineStore::in_memory().expect("store");
+        let mut unit = IngestUnit::new("CASE", "Mft", "/C/$MFT", "MFT Parser", 10);
+
+        // 1) a clean complete parse with 3 events.
+        store
+            .commit_unit(
+                &unit,
+                &[
+                    sample_event(1, "a"),
+                    sample_event(2, "b"),
+                    sample_event(3, "c"),
+                ],
+            )
+            .expect("commit complete");
+        assert_eq!(store.event_count().expect("count"), 3);
+        assert!(store
+            .completed_units("CASE")
+            .expect("q")
+            .contains(&unit.unit_id));
+
+        // 2) a --refresh re-parse that REGRESSED to incomplete with fewer events.
+        unit.complete = false;
+        let inserted = store
+            .commit_unit(&unit, &[sample_event(1, "a")])
+            .expect("commit incomplete re-parse");
+
+        // The prior complete data must SURVIVE — not be deleted/downgraded.
+        assert_eq!(
+            inserted, 0,
+            "an incomplete re-parse over a complete unit must be a no-op (no data loss)"
+        );
+        assert_eq!(
+            store.event_count().expect("count"),
+            3,
+            "the prior complete events must survive a regressed re-parse"
+        );
+        assert!(
+            store
+                .completed_units("CASE")
+                .expect("q")
+                .contains(&unit.unit_id),
+            "the unit must stay 'complete' — never downgraded by a worse re-parse"
+        );
+    }
+
+    #[test]
+    fn incomplete_then_complete_reparse_replaces_partial_rows() {
+        // Recovery (the inverse of the downgrade guard): a unit first committed
+        // incomplete, then re-parsed complete, REPLACES its partial rows
+        // (delete-first) and becomes complete — the guard must not block the UPgrade.
+        let store = TimelineStore::in_memory().expect("store");
+        let mut unit = IngestUnit::new("CASE", "Mft", "/C/$MFT", "MFT Parser", 10);
+
+        unit.complete = false;
+        store
+            .commit_unit(&unit, &[sample_event(1, "partial")])
+            .expect("commit incomplete");
+        assert_eq!(store.event_count().expect("count"), 1);
+        assert!(!store
+            .completed_units("CASE")
+            .expect("q")
+            .contains(&unit.unit_id));
+
+        unit.complete = true;
+        let n = store
+            .commit_unit(&unit, &[sample_event(1, "a"), sample_event(2, "b")])
+            .expect("commit complete");
+        assert_eq!(n, 2);
+        assert_eq!(
+            store.event_count().expect("count"),
+            2,
+            "the partial row is replaced, not appended"
+        );
+        assert!(
+            store
+                .completed_units("CASE")
+                .expect("q")
+                .contains(&unit.unit_id),
+            "an incomplete→complete re-parse must upgrade to complete"
         );
     }
 
