@@ -79,13 +79,26 @@ pub fn parse_lnk_bytes(raw: &[u8], artifact_path: &str, source_id: &str) -> Vec<
         .and_then(|n| n.to_str())
         .unwrap_or("unknown.lnk");
 
+    // The `CommonNetworkRelativeLink` (network-share target): the UNC share name
+    // and the local device it was mapped to. Dropped by the old parser, this is
+    // the lateral-movement / network-share origin.
+    let net = info.and_then(|i| i.common_network_relative_link.as_ref());
+    let unc_path = net.and_then(|n| n.net_name.clone());
+    let net_device = net.and_then(|n| n.device_name.clone());
+
     // The target the shortcut points to — the primary forensic value the old
     // header-only parser dropped. Prefer the LinkInfo local base path, then the
-    // StringData relative path, then the reconstructed PIDL path.
+    // UNC network share, then the StringData relative path, then the
+    // reconstructed PIDL path.
     let target = info
         .and_then(|i| i.local_base_path.clone())
+        .or_else(|| unc_path.clone())
         .or_else(|| link.string_data.relative_path.clone())
-        .or_else(|| link.link_target_idlist.as_ref().and_then(|t| t.path.clone()));
+        .or_else(|| {
+            link.link_target_idlist
+                .as_ref()
+                .and_then(|t| t.path.clone())
+        });
 
     let description = match &target {
         Some(t) => format!("LNK shortcut {filename} \u{2192} {t}"),
@@ -95,7 +108,10 @@ pub fn parse_lnk_bytes(raw: &[u8], artifact_path: &str, source_id: &str) -> Vec<
     // Metadata shared by every emitted event.
     let mut meta: Vec<(&str, serde_json::Value)> = vec![
         ("file_size", serde_json::json!(h.file_size)),
-        ("link_flags", serde_json::json!(format!("0x{:08X}", h.link_flags))),
+        (
+            "link_flags",
+            serde_json::json!(format!("0x{:08X}", h.link_flags)),
+        ),
         (
             "file_attributes",
             serde_json::json!(format!("0x{:08X}", h.file_attributes)),
@@ -109,10 +125,19 @@ pub fn parse_lnk_bytes(raw: &[u8], artifact_path: &str, source_id: &str) -> Vec<
             "drive_serial",
             serde_json::json!(format!("0x{:08X}", v.drive_serial_number)),
         ));
-        meta.push(("drive_type", serde_json::json!(drive_type_label(v.drive_type))));
+        meta.push((
+            "drive_type",
+            serde_json::json!(drive_type_label(v.drive_type)),
+        ));
         if let Some(label) = &v.volume_label {
             meta.push(("volume_label", serde_json::json!(label)));
         }
+    }
+    if let Some(u) = &unc_path {
+        meta.push(("unc_path", serde_json::json!(u)));
+    }
+    if let Some(d) = &net_device {
+        meta.push(("network_device", serde_json::json!(d)));
     }
 
     let timestamps = [
