@@ -146,10 +146,18 @@ Detail: `archive/2026-06-20-registry-derived-extraction-design.md`.
    report + equal-timestamp tests. `id`/`ingested_at` are insertion/wall-clock derived — **must not** be the
    tie-break. (Pre-sorting before insert is optional hygiene, not the boundary.)
 3. **Evidence-source provenance (#110 P4) — do-before-parallel.** ingest passes `None, None` for source
-   hash/size (ingest.rs:130) though schema/fn support them (ingest.rs:309-315). **Codex: the pinned `ewf 0.1`
-   wrapper does NOT surface stored MD5/SHA1** (only `read_at`/`total_size`), so the repo-local fix is: loose
-   file → `metadata.len()` + streamed SHA-256; directory source → NULL (kind metadata later); EWF/container →
-   logical size now, acquisition hash only after upgrading/wrapping an EWF reader that exposes stored hashes.
+   hash/size (ingest.rs:130) though schema/fn support them (ingest.rs:309-315). **Correction (we own `ewf`):
+   the `ewf` crate ALREADY exposes the stored ACQUISITION hash** — `EwfReader::stored_hashes() ->
+   StoredHashes{md5, sha1}` (from the `hash`/`digest` sections), plus `metadata()`, `acquisition_errors()`,
+   and stored-vs-computed verification — but **issen pins a stale `ewf = "0.1"`** (Cargo.toml:196) while the
+   crate is at `0.2.1`. The stored acquisition hash is forensically *superior* to re-hashing (it's the
+   chain-of-custody value recorded at imaging; stored-vs-recomputed is an integrity check). Fix: **(a)** bump
+   issen `ewf 0.1 → 0.2` (publish 0.2.x first if needed — our crate); **(b)** `EwfDataSource` already holds
+   `Mutex<EwfReader>` (issen-ewf:95) → surface `stored_hashes()` (ideally via a provider-abstraction
+   `acquisition_metadata()` so EWF returns stored MD5/SHA1, raw/dd returns None); **(c)** loose file →
+   `len()` + streamed SHA-256; directory → NULL; **(d)** bonus: opt-in `--verify` (stored vs recomputed) as
+   a real chain-of-custody check. **Fleet-hygiene note:** the stale `ewf 0.1` pin means other fleet deps may
+   also be stale — audit + bump (prefer-published-latest).
 4. **CoverageManifest header (#114)** — KEEP; no such type exists yet; runtime completeness report.
 5. **ADS-preserving extraction + caps** — folded into Phase 2.1/2.3 (constraint + regression test).
 6. **Real-hive fixtures (6 winreg parsers)** — KEEP/ELEVATE; synthetic masked svcdiff/comhijack dead on real
