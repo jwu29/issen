@@ -446,73 +446,115 @@ pub fn parse_units(
     let mut errors = Vec::new();
     let mut skipped = 0usize;
     for artifact in artifacts {
-        // Partition this artifact's matching parsers into the ones still to
-        // parse and the ones already complete. A completed unit is counted as
-        // skipped and never parsed — the resume cost saving.
-        let mut to_parse = Vec::new();
-        for parser in parsers
-            .iter()
-            .filter(|p| p.supported_artifacts().contains(&artifact.artifact_type))
-        {
-            if skip(&artifact.artifact_type, &artifact.path, parser.name()) {
-                skipped += 1;
-            } else {
-                to_parse.push(parser);
-            }
-        }
-        if to_parse.is_empty() {
-            // Nothing pending for this artifact — don't even open the source.
-            continue;
-        }
-        // Open the source once and share it across this artifact's parsers.
-        let source = match FileDataSource::open(&artifact.path) {
-            Ok(source) => source,
-            Err(e) => {
-                errors.push(format!("Failed to open {}: {e}", artifact.path.display()));
-                progress.record_error();
-                continue;
-            }
-        };
-        for parser in to_parse {
-            // A fresh emitter per unit — this is what groups events by unit.
-            let emitter = CollectingEmitter::new();
-            let label = format!("{} [{}]", artifact.path.display(), parser.name());
-            let (bytes, completion) = match run_isolated(label, || parser.parse(&source, &emitter))
-            {
-                Isolated::Completed(stats) => {
-                    progress.add_events(stats.events_emitted);
-                    progress.add_bytes(stats.bytes_processed);
-                    progress.complete_artifact();
-                    (stats.bytes_processed, stats.completion)
-                }
-                Isolated::Failed(failure) => {
-                    // Fail loud: surface the failure rather than swallowing it.
-                    errors.push(failure.describe());
-                    progress.record_error();
-                    continue;
-                }
-            };
-            units.push(ParsedUnit {
-                artifact_type: artifact.artifact_type,
-                path: artifact.path.clone(),
-                parser: parser.name().to_string(),
-                events: emitter.into_events(),
-                bytes,
-                completion,
-            });
-        }
+        let (u, e, s) = parse_one_artifact(artifact, parsers, progress, skip);
+        units.extend(u);
+        errors.extend(e);
+        skipped += s;
     }
     (units, errors, skipped)
 }
 
-/// Run the pipeline using rayon parallel iteration across artifacts.
+/// Parse ONE artifact: run every matching, not-skipped parser under isolation,
+/// producing a [`ParsedUnit`] per parser. The shared per-artifact core that
+/// [`parse_units`] (sequential `for`) and [`parse_units_parallel`] (rayon
+/// `par_iter`) both call — so the two differ ONLY in how they iterate, never in
+/// per-artifact behavior (the duplication that previously let `*_parallel` drift).
+fn parse_one_artifact(
+    artifact: &DiscoveredArtifact,
+    parsers: &[Box<dyn ForensicParser>],
+    progress: &ProgressReporter,
+    skip: &dyn Fn(&ArtifactType, &Path, &str) -> bool,
+) -> (Vec<ParsedUnit>, Vec<String>, usize) {
+    let mut units = Vec::new();
+    let mut errors = Vec::new();
+    let mut skipped = 0usize;
+    // Partition matching parsers into the ones still to parse and the ones already
+    // complete (a skipped unit is counted and never parsed — the resume saving).
+    let mut to_parse = Vec::new();
+    for parser in parsers
+        .iter()
+        .filter(|p| p.supported_artifacts().contains(&artifact.artifact_type))
+    {
+        if skip(&artifact.artifact_type, &artifact.path, parser.name()) {
+            skipped += 1;
+        } else {
+            to_parse.push(parser);
+        }
+    }
+    if to_parse.is_empty() {
+        return (units, errors, skipped);
+    }
+    // Open the source once and share it across this artifact's parsers.
+    let source = match FileDataSource::open(&artifact.path) {
+        Ok(source) => source,
+        Err(e) => {
+            errors.push(format!("Failed to open {}: {e}", artifact.path.display()));
+            progress.record_error();
+            return (units, errors, skipped);
+        }
+    };
+    for parser in to_parse {
+        // A fresh emitter per unit — this is what groups events by unit.
+        let emitter = CollectingEmitter::new();
+        let label = format!("{} [{}]", artifact.path.display(), parser.name());
+        let (bytes, completion) = match run_isolated(label, || parser.parse(&source, &emitter)) {
+            Isolated::Completed(stats) => {
+                progress.add_events(stats.events_emitted);
+                progress.add_bytes(stats.bytes_processed);
+                progress.complete_artifact();
+                (stats.bytes_processed, stats.completion)
+            }
+            Isolated::Failed(failure) => {
+                // Fail loud: surface the failure rather than swallowing it.
+                errors.push(failure.describe());
+                progress.record_error();
+                continue;
+            }
+        };
+        units.push(ParsedUnit {
+            artifact_type: artifact.artifact_type,
+            path: artifact.path.clone(),
+            parser: parser.name().to_string(),
+            events: emitter.into_events(),
+            bytes,
+            completion,
+        });
+    }
+    (units, errors, skipped)
+}
+
+/// Parallel sibling of [`parse_units`] — `par_iter` over artifacts. `collect()`
+/// preserves artifact order, so the output is **identical** to the sequential
+/// version (locked by `parse_units_parallel_equals_sequential`). `skip` must be
+/// `Sync` to cross rayon workers (a read-only `HashSet` lookup is).
+#[must_use]
+pub fn parse_units_parallel(
+    artifacts: &[DiscoveredArtifact],
+    parsers: &[Box<dyn ForensicParser>],
+    progress: &ProgressReporter,
+    skip: &(dyn Fn(&ArtifactType, &Path, &str) -> bool + Sync),
+) -> (Vec<ParsedUnit>, Vec<String>, usize) {
+    let per_artifact: Vec<(Vec<ParsedUnit>, Vec<String>, usize)> = artifacts
+        .par_iter()
+        .map(|artifact| parse_one_artifact(artifact, parsers, progress, skip))
+        .collect();
+    let mut units = Vec::new();
+    let mut errors = Vec::new();
+    let mut skipped = 0usize;
+    for (u, e, s) in per_artifact {
+        units.extend(u);
+        errors.extend(e);
+        skipped += s;
+    }
+    (units, errors, skipped)
+}
+
+/// Parallel sibling of [`run_pipeline`] — the flat view over [`parse_units_parallel`].
 ///
-/// Produces the same successful-parse output as [`run_pipeline`] but executes
-/// parser dispatch concurrently. NOTE: this path still duplicates the sequential
-/// core (it does not route through `parse_units`/`run_isolated`), so it diverges on
-/// panic-isolation and event counts — it is dead in production (test-only) pending
-/// the parallel per-unit core (parallel-ingest design). Requires all parsers and
-/// the emitter to be `Send + Sync`, guaranteed by the trait bounds.
+/// Identical output to `run_pipeline` for the same evidence (rayon `collect`
+/// preserves artifact order); they share `parse_one_artifact`, so panic-isolation
+/// and event counts match. Dead in production today (test-only) but structurally
+/// unified now, not a copy-paste of the sequential core.
 ///
 /// # Errors
 ///
@@ -521,69 +563,13 @@ pub fn run_pipeline_parallel(
     evidence_path: &Path,
     progress: &ProgressReporter,
 ) -> Result<(Vec<TimelineEvent>, IngestResult), RtError> {
+    // Flat view over the PARALLEL per-unit core — mirrors `run_pipeline` exactly,
+    // only `parse_units_parallel` instead of `parse_units`.
     let artifacts = discover_artifacts(evidence_path)?;
-    let parsers = all_parsers();
-    let emitter = CollectingEmitter::new();
-
-    // Each artifact is dispatched in parallel. The emitter is Sync (Mutex-backed).
-    // ProgressReporter is Sync (Arc<AtomicU64>-backed).
-    // Run EVERY matching parser per artifact (see run_pipeline) — each artifact
-    // maps to a Vec of per-parser results that the aggregation below flattens.
-    let parse_results: Vec<Vec<Result<_, String>>> = artifacts
-        .par_iter()
-        .map(|artifact| {
-            let matching: Vec<_> = parsers
-                .iter()
-                .filter(|p| p.supported_artifacts().contains(&artifact.artifact_type))
-                .map(|p| p.as_ref())
-                .collect();
-            if matching.is_empty() {
-                return Vec::new();
-            }
-            let source = match FileDataSource::open(&artifact.path) {
-                Ok(source) => source,
-                Err(e) => {
-                    return vec![Err(format!(
-                        "Failed to open {}: {e}",
-                        artifact.path.display()
-                    ))]
-                }
-            };
-            matching
-                .into_iter()
-                .map(|parser| match parser.parse(&source, &emitter) {
-                    Ok(stats) => {
-                        progress.add_events(stats.events_emitted);
-                        progress.add_bytes(stats.bytes_processed);
-                        progress.complete_artifact();
-                        Ok(stats)
-                    }
-                    Err(e) => Err(format!("Parse error on {}: {e}", artifact.path.display())),
-                })
-                .collect()
-        })
-        .collect();
-
-    let mut result = IngestResult {
-        artifacts_found: artifacts.len(),
-        artifacts_parsed: 0,
-        total_events: 0,
-        total_bytes: 0,
-        errors: Vec::new(),
-    };
-
-    for entry in parse_results.into_iter().flatten() {
-        match entry {
-            Ok(stats) => {
-                result.artifacts_parsed += 1;
-                result.total_events += stats.events_emitted;
-                result.total_bytes += stats.bytes_processed;
-            }
-            Err(msg) => result.errors.push(msg),
-        }
-    }
-
-    let events = emitter.into_events();
+    let (units, errors, _skipped) =
+        parse_units_parallel(&artifacts, &all_parsers(), progress, &|_, _, _| false);
+    let result = ingest_result(&artifacts, &units, errors);
+    let events = units.into_iter().flat_map(|u| u.events).collect();
     Ok((events, result))
 }
 
@@ -625,11 +611,16 @@ pub fn run_auto_parallel(
     path: &Path,
     progress: &ProgressReporter,
 ) -> Result<(Vec<TimelineEvent>, IngestResult), RtError> {
-    if path.is_dir() {
-        run_pipeline_parallel(path, progress)
+    // Mirrors `run_auto`: the parallel flat pipelines now route through the shared
+    // parallel per-unit core, and the result is sorted the same way (the missing
+    // sort here was a copy-paste-drift bug before the collapse).
+    let mut out = if path.is_dir() {
+        run_pipeline_parallel(path, progress)?
     } else {
-        run_collection_pipeline_parallel(path, progress)
-    }
+        run_collection_pipeline_parallel(path, progress)?
+    };
+    sort_timeline_events(&mut out.0);
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -1082,6 +1073,89 @@ mod tests {
             matches!(units[0].completion, ParseCompletion::Incomplete { .. }),
             "the parser's Incomplete completion must propagate to the ParsedUnit, not be dropped"
         );
+    }
+
+    #[test]
+    fn parse_units_parallel_equals_sequential() {
+        // The parallel per-unit core must produce the SAME units as the sequential
+        // one — rayon `par_iter().collect()` preserves artifact order, so the two
+        // differ only in `for` vs `par_iter`, never in output.
+        use issen_core::plugin::traits::{DataSource, ParseStats, ParserCapabilities};
+        use issen_core::timeline::event::EventType;
+
+        struct EmitMock(String, ArtifactType, u64);
+        impl ForensicParser for EmitMock {
+            fn name(&self) -> &str {
+                &self.0
+            }
+            fn supported_artifacts(&self) -> &[ArtifactType] {
+                std::slice::from_ref(&self.1)
+            }
+            fn parse(
+                &self,
+                _i: &dyn DataSource,
+                e: &dyn EventEmitter,
+            ) -> Result<ParseStats, RtError> {
+                for k in 0..self.2 {
+                    e.emit(TimelineEvent::new(
+                        k as i64,
+                        "ts".into(),
+                        EventType::FileCreate,
+                        self.1,
+                        "p".into(),
+                        format!("{}-{k}", self.0),
+                        "ev".into(),
+                    ))?;
+                }
+                let mut s = ParseStats::new();
+                s.events_emitted = self.2;
+                Ok(s)
+            }
+            fn capabilities(&self) -> ParserCapabilities {
+                ParserCapabilities {
+                    max_memory_bytes: None,
+                    streaming: false,
+                    deterministic: true,
+                }
+            }
+        }
+
+        let dir = tempfile::tempdir().expect("tmp");
+        let mut artifacts = Vec::new();
+        for (n, t) in [
+            ("a", ArtifactType::UsnJournal),
+            ("b", ArtifactType::Mft),
+            ("c", ArtifactType::Prefetch),
+        ] {
+            let p = dir.path().join(n);
+            std::fs::write(&p, b"x").expect("w");
+            artifacts.push(DiscoveredArtifact {
+                path: p,
+                artifact_type: t,
+            });
+        }
+        let parsers: Vec<Box<dyn ForensicParser>> = vec![
+            Box::new(EmitMock("USN".into(), ArtifactType::UsnJournal, 3)),
+            Box::new(EmitMock("MFT".into(), ArtifactType::Mft, 2)),
+            Box::new(EmitMock("PF".into(), ArtifactType::Prefetch, 5)),
+        ];
+        let p1 = ProgressReporter::new();
+        let (su, se, sk) = parse_units(&artifacts, &parsers, &p1, &|_, _, _| false);
+        let p2 = ProgressReporter::new();
+        let (pu, pe, pk) = parse_units_parallel(&artifacts, &parsers, &p2, &|_, _, _| false);
+
+        let proj = |us: &[ParsedUnit]| {
+            us.iter()
+                .map(|u| (u.parser.clone(), u.events.len()))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            proj(&su),
+            proj(&pu),
+            "parallel units must match sequential (same order)"
+        );
+        assert_eq!(se, pe, "errors match");
+        assert_eq!(sk, pk, "skipped match");
     }
 
     #[test]
