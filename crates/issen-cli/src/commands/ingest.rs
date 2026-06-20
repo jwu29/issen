@@ -3,7 +3,6 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use issen_core::artifacts::ArtifactType;
 use issen_fswalker::orchestrator::run_auto_units;
-use issen_fswalker::progress::ProgressReporter;
 use issen_remote_io::gdrive;
 use issen_remote_io::uri::{is_remote_uri, UriScheme};
 use issen_signatures::engines::ioc_hash::HashIocStore;
@@ -12,6 +11,7 @@ use issen_signatures::engines::yara::YaraEngine;
 use issen_signatures::matching::engine::ScanEngine;
 use issen_timeline::findings;
 use issen_timeline::store::TimelineStore;
+use std::io::IsTerminal;
 use tracing::info;
 
 use crate::scanning;
@@ -47,6 +47,7 @@ pub fn run(
     hash_iocs: Option<&[PathBuf]>,
     network_iocs: Option<&[PathBuf]>,
     refresh: bool,
+    verbose: bool,
 ) -> Result<()> {
     // Remote source URI dispatch.
     if let Some(uri) = source_uri {
@@ -109,7 +110,11 @@ pub fn run(
         );
     }
 
-    let progress = ProgressReporter::new();
+    // Live display: one bar per source, only on an interactive terminal and not
+    // under --verbose (where the bar would fight scrolling logs). Bars draw to
+    // stderr, so the TTY check is on stderr.
+    let render = crate::progress_view::should_render_bar(std::io::stderr().is_terminal(), verbose);
+    let mp = indicatif::MultiProgress::new();
     let mut inserted = 0u64;
     // The committed events, kept flat for the optional signature-scan phase.
     let mut events = Vec::new();
@@ -122,11 +127,15 @@ pub fn run(
 
     for src in &sources {
         let source_id = src.source_id.as_str();
-        if sources.len() > 1 {
-            println!("\n=== Source [{source_id}]: {} ===", src.path.display());
-        } else {
-            println!("Ingesting evidence from: {}", src.path.display());
+        let source_label = src.path.display().to_string();
+        if !render {
+            if sources.len() > 1 {
+                println!("\n=== Source [{source_id}]: {source_label} ===");
+            } else {
+                println!("Ingesting evidence from: {source_label}");
+            }
         }
+        let sp = crate::ingest_progress::SourceProgress::start(&mp, &source_label, render);
         // Record source provenance (chain-of-custody): SHA-256 + size for a loose
         // evidence file, size only for a container (its acquisition hash is a
         // follow-up — needs an MD5/SHA1 schema field + ewf::stored_hashes).
@@ -169,7 +178,7 @@ pub fn run(
             completed.contains(&unit_id)
         };
         let (units, result, skipped) =
-            run_auto_units(&src.path, &progress, &skip).context("Pipeline execution failed")?;
+            run_auto_units(&src.path, sp.reporter(), &skip).context("Pipeline execution failed")?;
 
         // Every returned unit is pending (completed ones were skipped before
         // parse), so each is committed unconditionally.
@@ -205,7 +214,20 @@ pub fn run(
         t_events += result.total_events;
         t_bytes += result.total_bytes;
         t_skipped += skipped;
+        let (n_parsed, n_events, n_errors) = (
+            result.artifacts_parsed,
+            result.total_events,
+            result.errors.len(),
+        );
         all_errors.extend(result.errors);
+        let err_suffix = if n_errors > 0 {
+            format!(" · {n_errors} errors")
+        } else {
+            String::new()
+        };
+        sp.finish(&format!(
+            "✓ {n_parsed} artifacts · {n_events} events{err_suffix}"
+        ));
     }
 
     if sources.len() > 1 {

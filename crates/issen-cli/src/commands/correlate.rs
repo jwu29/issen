@@ -165,6 +165,7 @@ pub fn run(case_dir: &Path) -> Result<()> {
             None,
             None,
             false, // resume by default; correlate never forces a full re-parse
+            false, // no live bar from the correlate sub-ingest
         )
         .with_context(|| format!("ingesting evidence {}", root.display()))?;
     }

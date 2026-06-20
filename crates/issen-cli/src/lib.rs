@@ -88,6 +88,7 @@ extern crate issen_vhdx as _;
 extern crate issen_vmdk as _;
 
 pub mod commands;
+pub mod ingest_progress;
 pub mod parsers;
 pub mod progress_view;
 pub mod scanning;
@@ -572,6 +573,7 @@ pub fn run() -> ExitCode {
                 hash_iocs.as_deref(),
                 network_iocs.as_deref(),
                 refresh,
+                cli.verbose,
             )
         }
         Commands::Timeline {
