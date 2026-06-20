@@ -4755,6 +4755,8 @@ name = "issen-parser-lnk"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
+ "forensicnomicon 0.5.8",
  "inventory",
  "issen-core",
  "lnk-core 0.3.0",
