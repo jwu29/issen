@@ -253,70 +253,58 @@ fn walk_directory(dir: &Path, artifacts: &mut Vec<DiscoveredArtifact>) -> Result
 /// Run the pipeline: discover artifacts, match parsers, execute, collect events.
 ///
 /// Returns the collected events and an `IngestResult` summary.
+/// Run `f` over the artifacts discovered in `path` — a directory **or** a
+/// collection archive — keeping the archive's manifest (and its RAII `TempDir` of
+/// extracted files) alive for the duration of `f`, since parsers open those files
+/// by path. The single dir-vs-archive detector shared by every orchestration entry
+/// point (so they can't drift on how evidence is opened).
+fn with_evidence<R>(path: &Path, f: impl FnOnce(&[DiscoveredArtifact]) -> R) -> Result<R, RtError> {
+    if path.is_dir() {
+        Ok(f(&discover_artifacts(path)?))
+    } else {
+        let manifest = issen_unpack::registry::open_collection(path)
+            .map_err(|e| RtError::UnsupportedFormat(e.to_string()))?;
+        tracing::info!(
+            format = %manifest.format_name,
+            artifacts = manifest.artifacts.len(),
+            root = %manifest.extracted_root.display(),
+            "Collection opened",
+        );
+        let artifacts = discover_artifacts(&manifest.extracted_root)?;
+        Ok(f(&artifacts))
+        // manifest (and its TempDir) drops here — AFTER `f` has parsed.
+    }
+}
+
+/// Assemble the [`IngestResult`] from discovered artifacts and parsed units — the
+/// single place both the flat and per-unit paths compute their totals.
+fn ingest_result(
+    artifacts: &[DiscoveredArtifact],
+    units: &[ParsedUnit],
+    errors: Vec<String>,
+) -> IngestResult {
+    IngestResult {
+        artifacts_found: artifacts.len(),
+        artifacts_parsed: units.len(),
+        total_events: units.iter().map(|u| u.events.len() as u64).sum(),
+        total_bytes: units.iter().map(|u| u.bytes).sum(),
+        errors,
+    }
+}
+
 pub fn run_pipeline(
     evidence_path: &Path,
     progress: &ProgressReporter,
 ) -> Result<(Vec<TimelineEvent>, IngestResult), RtError> {
+    // Flat view over the per-unit core: parse every (artifact, parser) with no
+    // resume-skip, then flatten. Sharing `parse_units` keeps the flat and per-unit
+    // paths from drifting — "run every matching parser", panic-isolation, and the
+    // result counts all live in ONE place now.
     let artifacts = discover_artifacts(evidence_path)?;
-    let parsers = all_parsers();
-    let emitter = CollectingEmitter::new();
-    let mut result = IngestResult {
-        artifacts_found: artifacts.len(),
-        artifacts_parsed: 0,
-        total_events: 0,
-        total_bytes: 0,
-        errors: Vec::new(),
-    };
-
-    for artifact in &artifacts {
-        // Run EVERY parser that supports this artifact type, not just the first.
-        // Multiple parsers can claim one type — e.g. the registry walker and the
-        // Shimcache parser both consume the SYSTEM hive as ArtifactType::Registry;
-        // a `.find()` here silently starved all but the first.
-        let matching: Vec<_> = parsers
-            .iter()
-            .filter(|p| p.supported_artifacts().contains(&artifact.artifact_type))
-            .map(|p| p.as_ref())
-            .collect();
-        if matching.is_empty() {
-            continue;
-        }
-
-        // Open the source once and share it across the matching parsers (reads
-        // are random-access, so no per-parser reset is needed).
-        let source = match FileDataSource::open(&artifact.path) {
-            Ok(source) => source,
-            Err(e) => {
-                result
-                    .errors
-                    .push(format!("Failed to open {}: {e}", artifact.path.display()));
-                progress.record_error();
-                continue;
-            }
-        };
-
-        for parser in matching {
-            // A1: run each parser under isolation so a panicking/erroring one is
-            // captured and skipped — the pipeline always terminates.
-            let unit = format!("{} [{}]", artifact.path.display(), parser.name());
-            match run_isolated(unit, || parser.parse(&source, &emitter)) {
-                Isolated::Completed(stats) => {
-                    result.artifacts_parsed += 1;
-                    result.total_events += stats.events_emitted;
-                    result.total_bytes += stats.bytes_processed;
-                    progress.add_events(stats.events_emitted);
-                    progress.add_bytes(stats.bytes_processed);
-                    progress.complete_artifact();
-                }
-                Isolated::Failed(failure) => {
-                    result.errors.push(failure.describe());
-                    progress.record_error();
-                }
-            }
-        }
-    }
-
-    let events = emitter.into_events();
+    let (units, errors, _skipped) =
+        parse_units(&artifacts, &all_parsers(), progress, &|_, _, _| false);
+    let result = ingest_result(&artifacts, &units, errors);
+    let events = units.into_iter().flat_map(|u| u.events).collect();
     Ok((events, result))
 }
 
@@ -358,13 +346,12 @@ pub fn run_auto(
     path: &Path,
     progress: &ProgressReporter,
 ) -> Result<(Vec<TimelineEvent>, IngestResult), RtError> {
-    let mut out = if path.is_dir() {
-        run_pipeline(path, progress)?
-    } else {
-        run_collection_pipeline(path, progress)?
-    };
-    sort_timeline_events(&mut out.0);
-    Ok(out)
+    // The flat API is EXACTLY the sorted flattening of the per-unit core, so the
+    // two can never drift (the missing sort was a symptom of the old copy-paste).
+    let (units, result, _skipped) = run_auto_units(path, progress, &|_, _, _| false)?;
+    let mut events: Vec<TimelineEvent> = units.into_iter().flat_map(|u| u.events).collect();
+    sort_timeline_events(&mut events);
+    Ok((events, result))
 }
 
 /// Per-unit, resumable variant of [`run_auto`] (issen #115).
@@ -381,32 +368,13 @@ pub fn run_auto_units(
     progress: &ProgressReporter,
     skip: &dyn Fn(&ArtifactType, &Path, &str) -> bool,
 ) -> Result<(Vec<ParsedUnit>, IngestResult, usize), RtError> {
-    let parsers = all_parsers();
-    // A collection's files live in a RAII `TempDir` owned by its manifest, so
-    // parsing MUST happen while the manifest is still alive — dropping it early
-    // (e.g. scoping it to a discovery-only branch) deletes the extracted files
-    // before `parse_units` opens them, and every artifact fails to open. So the
-    // collection branch discovers AND parses before its `manifest` drops, the
-    // same way the flat `run_collection_pipeline` keeps it alive across
-    // `run_pipeline`.
-    let (artifacts, units, errors, skipped) = if path.is_dir() {
-        let artifacts = discover_artifacts(path)?;
-        let (units, errors, skipped) = parse_units(&artifacts, &parsers, progress, skip);
-        (artifacts, units, errors, skipped)
-    } else {
-        let manifest = issen_unpack::registry::open_collection(path)
-            .map_err(|e| RtError::UnsupportedFormat(e.to_string()))?;
-        let artifacts = discover_artifacts(&manifest.extracted_root)?;
-        let (units, errors, skipped) = parse_units(&artifacts, &parsers, progress, skip);
-        (artifacts, units, errors, skipped)
-    };
-    let result = IngestResult {
-        artifacts_found: artifacts.len(),
-        artifacts_parsed: units.len(),
-        total_events: units.iter().map(|u| u.events.len() as u64).sum(),
-        total_bytes: units.iter().map(|u| u.bytes).sum(),
-        errors,
-    };
+    // `with_evidence` keeps the collection manifest's TempDir alive across the
+    // parse (parsers open the extracted files by path).
+    let (units, result, skipped) = with_evidence(path, |artifacts| {
+        let (units, errors, skipped) = parse_units(artifacts, &all_parsers(), progress, skip);
+        let result = ingest_result(artifacts, &units, errors);
+        (units, result, skipped)
+    })?;
     Ok((units, result, skipped))
 }
 
