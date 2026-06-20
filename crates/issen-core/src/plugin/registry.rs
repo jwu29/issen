@@ -43,9 +43,11 @@ pub fn all_parsers() -> Vec<Box<dyn ForensicParser>> {
 /// linked the inventory is empty and it returns `None`.
 #[must_use]
 pub fn detect_from_registry(path: &Path) -> Option<ArtifactType> {
-    // Stage-2 stub: the differential test drives the real implementation.
-    let _ = path;
-    None
+    inventory::iter::<ParserRegistration>
+        .into_iter()
+        .filter(|reg| (reg.selector.matches)(path))
+        .max_by_key(|reg| reg.selector.priority)
+        .map(|reg| reg.selector.artifact_type)
 }
 
 #[cfg(test)]
