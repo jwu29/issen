@@ -455,6 +455,9 @@ pub fn parse_units(
     let mut skipped = 0usize;
     for artifact in artifacts {
         let (u, e, s) = parse_one_artifact(artifact, parsers, progress, skip);
+        // One completion per artifact (not per matching parser) so artifacts_completed
+        // tracks toward artifacts_total for a correct determinate bar.
+        progress.complete_artifact();
         units.extend(u);
         errors.extend(e);
         skipped += s;
@@ -509,7 +512,6 @@ fn parse_one_artifact(
             Isolated::Completed(stats) => {
                 progress.add_events(stats.events_emitted);
                 progress.add_bytes(stats.bytes_processed);
-                progress.complete_artifact();
                 (stats.bytes_processed, stats.completion)
             }
             Isolated::Failed(failure) => {
@@ -547,7 +549,13 @@ pub fn parse_units_parallel(
 ) -> (Vec<ParsedUnit>, Vec<String>, usize) {
     let per_artifact: Vec<(Vec<ParsedUnit>, Vec<String>, usize)> = artifacts
         .par_iter()
-        .map(|artifact| parse_one_artifact(artifact, parsers, progress, skip))
+        .map(|artifact| {
+            let unit = parse_one_artifact(artifact, parsers, progress, skip);
+            // One completion per artifact (see parse_units) — atomic, so safe
+            // across rayon workers.
+            progress.complete_artifact();
+            unit
+        })
         .collect();
     let mut units = Vec::new();
     let mut errors = Vec::new();
@@ -933,6 +941,12 @@ mod tests {
             progress.artifacts_total(),
             1,
             "total is set to the discovered artifact count (for a determinate bar)"
+        );
+        assert_eq!(
+            progress.artifacts_completed(),
+            1,
+            "each discovered artifact is counted complete exactly once — per artifact, \
+             not per (artifact,parser) unit — so artifacts_completed never overruns the total"
         );
     }
 
