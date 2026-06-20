@@ -118,6 +118,13 @@ impl ForensicParser for MftTouchParser {
 
 inventory::submit!(ParserRegistration {
     create: || Box::new(MftTouchParser),
+    selector: issen_core::plugin::selector::ArtifactSelector {
+        artifact_type: ArtifactType::Mft,
+        matches: issen_core::classify::mft,
+        priority: 99,
+        disk_sources: &[],
+        cost: issen_core::plugin::selector::CostTier::Default,
+    },
 });
 
 #[test]

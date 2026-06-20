@@ -1,11 +1,11 @@
 //! Disk-collection completeness gate (issen #114).
 //!
-//! `reachability_gate` proves advertised↔classified; `producer_coverage` proves
-//! every classified type has a parser. Neither checks the COLLECTION layer — the
-//! step that pulls artifact bytes off a raw NTFS disk image. This gate closes
-//! that gap: every `ArtifactType` the filename classifier can DISCOVER must also
-//! be COLLECTED by `issen_disk::extract_triage`'s allow-lists — or be on an
-//! explicit EXEMPT list with a stated reason.
+//! `selector_gate` proves every parser declares a consistent selector;
+//! `classifier_differential` proves the registry classifier is correct. Neither
+//! checks the COLLECTION layer — the step that pulls artifact bytes off a raw
+//! NTFS disk image. This gate closes that gap: every `ArtifactType` the registry
+//! classifier can produce must also be COLLECTED by `issen_disk::extract_triage`
+//! — or be on an explicit EXEMPT list with a stated reason.
 //!
 //! A classified-but-uncollected type is the dark-on-disk bug class: live on
 //! loose-file / KAPE ingest (the walker classifies every file) yet silently
@@ -15,18 +15,19 @@
 //! were registered, anchored, and classified.
 //!
 //! Method: the COLLECTED set is derived at runtime by running the real
-//! `WINDOWS_*` extraction targets through `detect_artifact_type`; the CLASSIFIED
-//! set is scraped from the classifier body. The diff, minus EXEMPT, must be
-//! empty.
+//! `WINDOWS_*` extraction targets through `detect_from_registry`; the CLASSIFIED
+//! set is each linked parser's declared selector type. The diff, minus EXEMPT,
+//! must be empty.
 
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
+use issen_cli as _;
+use issen_core::plugin::registry::{detect_from_registry, ParserRegistration};
 use issen_disk::{
     WINDOWS_TRIAGE_GLOBS, WINDOWS_TRIAGE_PATHS, WINDOWS_TRIAGE_STREAMS, WINDOWS_USER_FILES,
     WINDOWS_USER_LNK_DIRS,
 };
-use issen_fswalker::orchestrator::detect_artifact_type;
 
 /// Types the filename classifier can discover but that disk-image triage
 /// intentionally does NOT collect — each with the reason it is exempt:
@@ -34,35 +35,23 @@ use issen_fswalker::orchestrator::detect_artifact_type;
 ///   PE collection is opt-in, not part of default triage.
 /// - `SystemInfo` / `LoginHistory` / `CrontabConfig`: Linux/macOS artifacts.
 ///   `extract_triage` walks NTFS only; there is no ext4/APFS extraction path yet.
-const EXEMPT: &[&str] = &["Pe", "SystemInfo", "LoginHistory", "CrontabConfig"];
+/// - `BiomeMenuItem`: a macOS Biome SEGB artifact — likewise not on NTFS, and
+///   reachable via the dedicated `issen biome` command.
+const EXEMPT: &[&str] = &[
+    "Pe",
+    "SystemInfo",
+    "LoginHistory",
+    "CrontabConfig",
+    "BiomeMenuItem",
+];
 
-/// The `ArtifactType` variant names `detect_artifact_type` can return, scraped
-/// from its body (it is a pure path→type function; no parser registry needed).
+/// The `ArtifactType`s the registry classifier can produce — i.e. the type each
+/// linked parser declares on its selector (force-linked via `use issen_cli`).
 fn classified_types() -> BTreeSet<String> {
-    let src =
-        std::fs::read_to_string(workspace_root().join("crates/issen-fswalker/src/orchestrator.rs"))
-            .expect("read orchestrator.rs");
-    let start = src
-        .find("fn detect_artifact_type")
-        .expect("classifier present");
-    let body = &src[start..];
-    let end = body[1..]
-        .find("\nfn ")
-        .or_else(|| body[1..].find("\npub fn "))
-        .map_or(body.len(), |i| i + 1);
-    let mut out = BTreeSet::new();
-    let mut rest = &body[..end];
-    while let Some(i) = rest.find("ArtifactType::") {
-        rest = &rest[i + "ArtifactType::".len()..];
-        let name: String = rest
-            .chars()
-            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
-            .collect();
-        if !name.is_empty() {
-            out.insert(name);
-        }
-    }
-    out
+    inventory::iter::<ParserRegistration>
+        .into_iter()
+        .map(|r| format!("{:?}", r.selector.artifact_type))
+        .collect()
 }
 
 /// The `ArtifactType`s actually COLLECTED off an NTFS image, derived by running
@@ -94,14 +83,9 @@ fn collected_types() -> BTreeSet<String> {
         .iter()
         .filter_map(|p| {
             let unix = format!("/img/{}", p.replace('\\', "/").trim_start_matches('/'));
-            detect_artifact_type(Path::new(&unix)).map(|t| format!("{t:?}"))
+            detect_from_registry(Path::new(&unix)).map(|t| format!("{t:?}"))
         })
         .collect()
-}
-
-fn workspace_root() -> PathBuf {
-    // crates/issen-cli → repo root
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
 #[test]
