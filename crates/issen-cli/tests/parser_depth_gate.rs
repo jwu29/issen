@@ -105,6 +105,14 @@ fn manifest() -> Vec<DepthCase> {
             required_keys: &["drive_serial", "drive_type", "target_path"],
             required_iocs: &["payload.exe"],
         },
+        DepthCase {
+            label: "lnk command-line arguments + working dir",
+            fixture: "../parsers/issen-parser-lnk/tests/data/command_args.lnk",
+            committed: true,
+            drive: drive_lnk,
+            required_keys: &["arguments", "working_dir", "comment"],
+            required_iocs: &["-enc", "hidden"],
+        },
         // ── Gitignored real corpus (skip-loud when absent) ──
         DepthCase {
             label: "registry SOFTWARE: run-key persistence + OS version",

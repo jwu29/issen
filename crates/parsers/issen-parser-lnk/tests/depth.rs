@@ -86,9 +86,11 @@ fn surfaces_command_line_arguments() {
 #[test]
 fn surfaces_working_directory() {
     let events = parse_lnk_bytes(ARGS_LNK, "/Users/beth/Recent/System Update.lnk", "ev");
+    // The metadata is JSON-serialized, so backslashes render escaped — match the
+    // backslash-free path components, which appear only in the working dir.
     let blob = searchable(&events);
     assert!(
-        blob.contains(r"C:\Windows\System32"),
+        blob.contains("working_dir") && blob.contains("Windows") && blob.contains("System32"),
         "must surface the shortcut's working directory; got: {blob}"
     );
 }

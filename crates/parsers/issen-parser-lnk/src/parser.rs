@@ -139,6 +139,19 @@ pub fn parse_lnk_bytes(raw: &[u8], artifact_path: &str, source_id: &str) -> Vec<
     if let Some(d) = &net_device {
         meta.push(("network_device", serde_json::json!(d)));
     }
+    // StringData fields lnk-core decodes — the command line that turns a shortcut
+    // into a launcher (the weaponized-`.lnk` payload), plus its working
+    // directory and comment. Dropped by the old header-only parser.
+    let sd = &link.string_data;
+    if let Some(args) = &sd.arguments {
+        meta.push(("arguments", serde_json::json!(args)));
+    }
+    if let Some(wd) = &sd.working_dir {
+        meta.push(("working_dir", serde_json::json!(wd)));
+    }
+    if let Some(name) = &sd.name {
+        meta.push(("comment", serde_json::json!(name)));
+    }
 
     let timestamps = [
         (h.creation_time, EventType::FileCreate),
