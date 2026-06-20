@@ -522,8 +522,17 @@ pub fn run() -> ExitCode {
         }
     }
 
-    // Initialize tracing.
-    let filter = if cli.verbose { "debug" } else { "warn" };
+    // Initialize tracing. The third-party `evtx` crate logs one WARN per EVTX
+    // BinXML boolean that isn't the strict spec literal 0/1 — but those are valid
+    // Win32 BOOLs (any non-zero = true, per [MS-DTYP]) which it handles
+    // correctly, so the warning is benign noise that floods a real ingest. Mute
+    // it to ERROR in normal mode (genuine evtx errors still surface); `--verbose`
+    // restores everything.
+    let filter = if cli.verbose {
+        "debug"
+    } else {
+        "warn,evtx=error"
+    };
     tracing_subscriber::fmt()
         .with_env_filter(filter)
         .with_target(false)
