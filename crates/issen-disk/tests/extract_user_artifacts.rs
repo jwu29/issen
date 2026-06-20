@@ -97,17 +97,23 @@ fn recycle_bin_sweep_recovers_beths_deleted_secret() {
         }),
         "every swept recycle file must be a $I record"
     );
-    // Ground truth: one of the recovered $I records is Beth's deleted secret.
+    // Ground truth: exactly one recovered $I record is Beth's deleted secret.
     // The original path is stored as UTF-16LE in the $I tail; assert its bytes
     // are present without re-implementing the parser (that runs end-to-end).
+    // "Exactly one" guards against the NTFS 8.3 short-name alias of the SID
+    // directory (`S-1-5-…-500` and `S-1-5-~1` are the same dir) double-counting
+    // the deletion.
     let needle: Vec<u8> = "SECRET_beth.txt"
         .encode_utf16()
         .flat_map(u16::to_le_bytes)
         .collect();
-    assert!(
-        recycle
-            .iter()
-            .any(|f| f.data.windows(needle.len()).any(|w| w == needle)),
-        "the DC recycle sweep must recover Beth's deleted \\FileShare\\Secret\\SECRET_beth.txt $I record"
+    let beth_hits = recycle
+        .iter()
+        .filter(|f| f.data.windows(needle.len()).any(|w| w == needle))
+        .count();
+    assert_eq!(
+        beth_hits, 1,
+        "Beth's deleted \\FileShare\\Secret\\SECRET_beth.txt $I must be recovered exactly once \
+         (no DOS 8.3 short-name duplicate)"
     );
 }

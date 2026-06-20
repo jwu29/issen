@@ -454,6 +454,15 @@ pub fn extract_per_subdir(
 /// `$Recycle.Bin\desktop.ini` without an extra record read.
 const FN_ATTR_DIRECTORY: u32 = 0x1000_0000;
 
+/// NTFS `$FILE_NAME` namespace code for a DOS 8.3 short name.
+///
+/// A name in this namespace (e.g. `S-1-5-~1` for a long SID directory) is an
+/// alias of a separate Win32 entry for the same record, so sweeping it would
+/// double-count the artifact. Skipping namespace 2 dedups by construction; a
+/// record carrying *only* a short name uses the combined Win32&DOS namespace
+/// (3), not 2, so nothing is lost.
+const FN_NAMESPACE_DOS: u8 = 2;
+
 /// For each immediate **subdirectory** `<sub>` of `parent`, sweep the directory
 /// `<parent>\<sub>` (or `<parent>\<sub>\<rel>` when `rel` is non-empty) and
 /// extract every file whose name satisfies `matches`.
@@ -501,6 +510,9 @@ pub fn extract_subdir_sweep(
         let Some(fname) = sub.file_name else {
             continue; // terminal index entry — no name
         };
+        if fname.namespace == FN_NAMESPACE_DOS {
+            continue; // 8.3 alias of a Win32 subdir name — skip to avoid double-counting
+        }
         if fname.flags & FN_ATTR_DIRECTORY == 0 {
             continue; // a file (e.g. $Recycle.Bin\desktop.ini), never a sweep root
         }
@@ -518,9 +530,13 @@ pub fn extract_subdir_sweep(
         let dir_rec = fs.read_record(dir_record).map_err(to_disk)?;
         let entries = fs.directory_entries(&dir_rec).map_err(to_disk)?;
         for entry in entries {
-            let Some(name) = entry.file_name.map(|f| f.name) else {
+            let Some(fname) = entry.file_name else {
                 continue;
             };
+            if fname.namespace == FN_NAMESPACE_DOS {
+                continue; // 8.3 alias of a Win32 file name — skip to avoid double-counting
+            }
+            let name = fname.name;
             if !matches(&name) {
                 continue;
             }
