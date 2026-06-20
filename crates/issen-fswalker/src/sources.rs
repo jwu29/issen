@@ -118,6 +118,41 @@ fn source_id_for(path: &Path) -> String {
     format!("{sanitized}-{}", &digest[..8])
 }
 
+/// Provenance for an evidence source recorded in the timeline DB: the SHA-256 of a
+/// loose evidence file plus its size (the chain-of-custody value), or just the size
+/// for a container — re-hashing a multi-GB image is wrong, and the container's
+/// stored *acquisition* hash is MD5/SHA1 (a follow-up once the schema carries it).
+/// A directory has neither.
+#[must_use]
+pub fn source_provenance(path: &Path) -> (Option<String>, Option<i64>) {
+    if !path.is_file() {
+        return (None, None);
+    }
+    let size = std::fs::metadata(path)
+        .ok()
+        .map(|m| i64::try_from(m.len()).unwrap_or(i64::MAX));
+    if is_container(path) {
+        return (None, size);
+    }
+    (sha256_file(path).ok(), size)
+}
+
+/// Stream-hash a file with SHA-256 (constant memory).
+fn sha256_file(path: &Path) -> std::io::Result<String> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buf = vec![0u8; 64 * 1024];
+    loop {
+        let n = file.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(hex::encode(hasher.finalize()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -170,5 +205,35 @@ mod tests {
             1,
             "a directory with no containers is one (loose-artifact) source"
         );
+    }
+
+    #[test]
+    fn source_provenance_hashes_loose_files_sizes_all_files_nulls_dirs() {
+        let tmp = tempdir().unwrap();
+
+        // Loose file → SHA-256 + size (the chain-of-custody value).
+        let loose = tmp.path().join("NTUSER.DAT");
+        fs::write(&loose, b"hello").unwrap();
+        let (h, s) = source_provenance(&loose);
+        assert_eq!(s, Some(5), "loose file size");
+        assert_eq!(
+            h.as_deref(),
+            Some("2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"),
+            "loose file gets its SHA-256 (verified known value of \"hello\")"
+        );
+
+        // Container (by extension) → size now; acquisition hash is a follow-up
+        // (the stored hash is MD5/SHA1 and re-hashing 50 GB SHA-256 is wrong).
+        let cont = tmp.path().join("img.E01");
+        fs::write(&cont, b"xxxx").unwrap();
+        let (hc, sc) = source_provenance(&cont);
+        assert_eq!(sc, Some(4), "container file size");
+        assert!(
+            hc.is_none(),
+            "container hash deferred (needs an MD5/SHA1 schema field)"
+        );
+
+        // Directory → no single hash or size.
+        assert_eq!(source_provenance(tmp.path()), (None, None));
     }
 }

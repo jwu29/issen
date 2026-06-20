@@ -127,8 +127,17 @@ pub fn run(
         } else {
             println!("Ingesting evidence from: {}", src.path.display());
         }
+        // Record source provenance (chain-of-custody): SHA-256 + size for a loose
+        // evidence file, size only for a container (its acquisition hash is a
+        // follow-up — needs an MD5/SHA1 schema field + ewf::stored_hashes).
+        let (sha256, size) = issen_fswalker::sources::source_provenance(&src.path);
         store
-            .register_evidence_source(source_id, &src.path.to_string_lossy(), None, None)
+            .register_evidence_source(
+                source_id,
+                &src.path.to_string_lossy(),
+                sha256.as_deref(),
+                size,
+            )
             .context("Failed to register evidence source")?;
 
         // Resumable, per-unit ingestion (issen #115). Each (artifact, parser) is a
