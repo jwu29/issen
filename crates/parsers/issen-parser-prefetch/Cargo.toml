@@ -9,7 +9,9 @@ license.workspace = true
 anyhow = { workspace = true }
 issen-core = { path = "../../issen-core" }
 # Decode prefetch (MAM/Xpress-Huffman + SCCA v30/31) via OUR published fleet
-# crate — the real reader, not the old MAM-skipping header stub.
+# crates — the reader (`prefetch-core`, for the full loaded-file list) plus the
+# analyzer (`prefetch-forensic`, for graded anomalies).
+prefetch-core = "0.1"
 prefetch-forensic = "0.2"
 forensicnomicon = { workspace = true }
 chrono = { workspace = true }

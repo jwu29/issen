@@ -4838,6 +4838,7 @@ dependencies = [
  "forensicnomicon 0.5.8",
  "inventory",
  "issen-core",
+ "prefetch-core",
  "prefetch-forensic",
  "serde_json",
  "tempfile",

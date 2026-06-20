@@ -1,10 +1,10 @@
 //! Prefetch (`.pf`) parsing for Issen.
 //!
-//! Decoding is delegated to our published `prefetch-forensic` fleet crate, which
-//! handles the `MAM`/Xpress-Huffman wrapper and the SCCA v30/31 structure
-//! (executable, run count, up to eight last-run times, volume serial, loaded
-//! files) and grades masquerade / suspicious-location execution. We emit one
-//! `ProcessExec` [`TimelineEvent`] per recorded run time (each a distinct
+//! Decoding is delegated to our published fleet crates: `prefetch-core` reads the
+//! `MAM`/Xpress-Huffman wrapper and SCCA v30/31 structure (executable, run count,
+//! up to eight last-run times, volume serial, and the full loaded-file LIST), and
+//! `prefetch-forensic` grades masquerade / suspicious-location execution. We emit
+//! one `ProcessExec` [`TimelineEvent`] per recorded run time (each a distinct
 //! execution), or a single existence event when no run time is present.
 
 use std::path::Path;
@@ -47,18 +47,30 @@ pub fn parse_prefetch(path: &Path, source_id: &str) -> anyhow::Result<Vec<Timeli
 /// yields an empty vec.
 #[must_use]
 pub fn events_from_bytes(bytes: &[u8], source_id: &str) -> Vec<TimelineEvent> {
-    let Ok((rec, anomalies)) = prefetch_forensic::audit_bytes(bytes) else {
+    // Parse with the reader (`prefetch-core`) so we keep the full loaded-file
+    // LIST — the forensic payload of a `.pf` (which DLLs a run pulled in, the
+    // program's own on-disk origin) — then grade with the analyzer
+    // (`prefetch-forensic`). `audit_bytes` would discard the list down to a
+    // count, which is exactly the depth we want to surface.
+    let Ok(info) = prefetch_core::parse(bytes) else {
         return Vec::new();
     };
+    let anomalies = prefetch_forensic::audit(&info);
 
     // Carry the masquerade / suspicious-path signal on the timeline as the
     // finding codes (the analyzer narrative; hash matching stays elsewhere).
     let anomaly_codes: Vec<String> = anomalies.iter().map(|a| a.code().to_string()).collect();
-    let volume_serial = rec.volume_serial.map(|s| format!("{s:08X}"));
-    let image_path = rec
-        .image_path
-        .clone()
-        .unwrap_or_else(|| rec.executable.clone());
+    let volume_serial = info.volumes.first().map(|v| format!("{:08X}", v.serial));
+    // The executable's own load path: the loaded file whose name ends with the
+    // executable base name (the analyzer's `image_path_of` rule, applied here so
+    // we surface it without a second parse).
+    let exe_upper = info.executable.to_uppercase();
+    let image_path = info
+        .filenames
+        .iter()
+        .find(|f| f.to_uppercase().ends_with(&exe_upper))
+        .cloned()
+        .unwrap_or_else(|| info.executable.clone());
 
     let make_event = |timestamp_ns: i64, timestamp_display: String| {
         TimelineEvent::new(
@@ -69,31 +81,30 @@ pub fn events_from_bytes(bytes: &[u8], source_id: &str) -> Vec<TimelineEvent> {
             image_path.clone(),
             format!(
                 "Prefetch: {} executed (run count {})",
-                rec.executable, rec.run_count
+                info.executable, info.run_count
             ),
             source_id.to_string(),
         )
         .with_activity_category(issen_core::ActivityCategory::Execution)
-        .with_metadata("executable", serde_json::json!(rec.executable))
-        .with_metadata("run_count", serde_json::json!(rec.run_count))
-        .with_metadata("image_path", serde_json::json!(rec.image_path))
+        .with_metadata("executable", serde_json::json!(info.executable))
+        .with_metadata("run_count", serde_json::json!(info.run_count))
+        .with_metadata("image_path", serde_json::json!(image_path))
         .with_metadata("volume_serial", serde_json::json!(volume_serial))
-        .with_metadata("loaded_files", serde_json::json!(rec.loaded_file_count))
+        .with_metadata("loaded_file_count", serde_json::json!(info.filenames.len()))
+        .with_metadata("loaded_files", serde_json::json!(info.filenames))
         .with_metadata("anomalies", serde_json::json!(anomaly_codes))
     };
 
-    let events = if rec.last_run_filetimes.is_empty() {
+    if info.last_run_times.is_empty() {
         // No recorded run time — emit a single existence event.
         vec![make_event(0, String::new())]
     } else {
-        rec.last_run_filetimes
+        info.last_run_times
             .iter()
             .map(|&ft| {
                 let (ns, display) = filetime_to_unix(ft);
                 make_event(ns, display)
             })
             .collect()
-    };
-
-    events
+    }
 }
