@@ -1,5 +1,51 @@
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 use std::sync::Arc;
+
+/// The pipeline phase a source is currently in, for the live display.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum Phase {
+    /// Not started yet (another source is active).
+    Queued = 0,
+    /// Pulling artifacts off the disk image into a temp tree.
+    Extracting = 1,
+    /// Walking the extracted tree and classifying artifacts.
+    Discovering = 2,
+    /// Parsing artifacts into timeline events (the bulk phase).
+    Parsing = 3,
+    /// This source is finished.
+    Done = 4,
+}
+
+impl Phase {
+    fn from_u8(v: u8) -> Self {
+        match v {
+            1 => Self::Extracting,
+            2 => Self::Discovering,
+            3 => Self::Parsing,
+            4 => Self::Done,
+            _ => Self::Queued,
+        }
+    }
+}
+
+/// A consistent point-in-time read of a [`ProgressReporter`], for the render
+/// loop to map to a display without racing on individual counters.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProgressSnapshot {
+    /// Current pipeline phase.
+    pub phase: Phase,
+    /// Total artifacts to parse (`0` = not yet known — still discovering).
+    pub artifacts_total: u64,
+    /// Artifacts parsed so far.
+    pub artifacts_completed: u64,
+    /// Timeline events emitted so far.
+    pub events_emitted: u64,
+    /// Bytes processed so far.
+    pub bytes_processed: u64,
+    /// Parse errors so far.
+    pub errors_encountered: u64,
+}
 
 /// Thread-safe progress tracking for pipeline operations.
 #[derive(Debug, Clone)]
@@ -8,6 +54,8 @@ pub struct ProgressReporter {
     bytes_processed: Arc<AtomicU64>,
     artifacts_completed: Arc<AtomicU64>,
     errors_encountered: Arc<AtomicU64>,
+    artifacts_total: Arc<AtomicU64>,
+    phase: Arc<AtomicU8>,
 }
 
 impl ProgressReporter {
@@ -18,6 +66,44 @@ impl ProgressReporter {
             bytes_processed: Arc::new(AtomicU64::new(0)),
             artifacts_completed: Arc::new(AtomicU64::new(0)),
             errors_encountered: Arc::new(AtomicU64::new(0)),
+            artifacts_total: Arc::new(AtomicU64::new(0)),
+            phase: Arc::new(AtomicU8::new(Phase::Queued as u8)),
+        }
+    }
+
+    /// Set the current pipeline phase (for the live display).
+    pub fn set_phase(&self, phase: Phase) {
+        self.phase.store(phase as u8, Ordering::Relaxed);
+    }
+
+    /// The current pipeline phase.
+    #[must_use]
+    pub fn phase(&self) -> Phase {
+        Phase::from_u8(self.phase.load(Ordering::Relaxed))
+    }
+
+    /// Record the total artifact count once discovery knows it (enables a
+    /// determinate parse bar; `0` until then).
+    pub fn set_artifacts_total(&self, total: u64) {
+        self.artifacts_total.store(total, Ordering::Relaxed);
+    }
+
+    /// Total artifacts to parse (`0` = not yet known).
+    #[must_use]
+    pub fn artifacts_total(&self) -> u64 {
+        self.artifacts_total.load(Ordering::Relaxed)
+    }
+
+    /// A consistent point-in-time read of every counter.
+    #[must_use]
+    pub fn snapshot(&self) -> ProgressSnapshot {
+        ProgressSnapshot {
+            phase: self.phase(),
+            artifacts_total: self.artifacts_total(),
+            artifacts_completed: self.artifacts_completed(),
+            events_emitted: self.events_emitted(),
+            bytes_processed: self.bytes_processed(),
+            errors_encountered: self.errors_encountered(),
         }
     }
 
@@ -103,5 +189,57 @@ mod tests {
 
         progress2.add_events(5);
         assert_eq!(progress1.events_emitted(), 15);
+    }
+
+    #[test]
+    fn phase_defaults_to_queued_and_tracks() {
+        let p = ProgressReporter::new();
+        assert_eq!(p.phase(), Phase::Queued, "a fresh source is queued");
+        p.set_phase(Phase::Extracting);
+        assert_eq!(p.phase(), Phase::Extracting);
+        p.set_phase(Phase::Parsing);
+        assert_eq!(p.phase(), Phase::Parsing);
+    }
+
+    #[test]
+    fn artifacts_total_defaults_zero_and_is_settable() {
+        let p = ProgressReporter::new();
+        assert_eq!(
+            p.artifacts_total(),
+            0,
+            "0 = total not yet known (discovery)"
+        );
+        p.set_artifacts_total(417);
+        assert_eq!(p.artifacts_total(), 417);
+    }
+
+    #[test]
+    fn snapshot_is_a_consistent_view_of_all_counters() {
+        let p = ProgressReporter::new();
+        p.set_phase(Phase::Parsing);
+        p.set_artifacts_total(417);
+        p.add_events(120);
+        p.add_bytes(2048);
+        p.complete_artifact();
+        p.complete_artifact();
+        p.record_error();
+
+        let s = p.snapshot();
+        assert_eq!(s.phase, Phase::Parsing);
+        assert_eq!(s.artifacts_total, 417);
+        assert_eq!(s.artifacts_completed, 2);
+        assert_eq!(s.events_emitted, 120);
+        assert_eq!(s.bytes_processed, 2048);
+        assert_eq!(s.errors_encountered, 1);
+    }
+
+    #[test]
+    fn phase_and_total_share_arc_state_across_clones() {
+        let a = ProgressReporter::new();
+        let b = a.clone();
+        a.set_phase(Phase::Discovering);
+        a.set_artifacts_total(9);
+        assert_eq!(b.phase(), Phase::Discovering);
+        assert_eq!(b.artifacts_total(), 9);
     }
 }
