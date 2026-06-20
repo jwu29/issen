@@ -373,6 +373,30 @@ mod tests {
         );
     }
 
+    /// Real DC NTUSER.DAT: the UserAssist decoder must surface the implant's
+    /// interactive GUI execution `coreupdater.exe` (run 3×) as an Execution
+    /// event with its run count — a registry VALUE the generic walk drops.
+    #[test]
+    fn real_ntuser_hive_surfaces_userassist_execution() {
+        let p = hive("NTUSER.DAT");
+        if !p.exists() {
+            eprintln!("SKIP: NTUSER.DAT hive absent");
+            return;
+        }
+        let events = parse_hive(&p, "dc01-NTUSER").unwrap();
+        let exec = events
+            .iter()
+            .find(|e| e.description.to_lowercase().contains("coreupdater.exe"))
+            .expect("UserAssist coreupdater.exe execution event");
+        assert_eq!(
+            exec.activity_category,
+            Some(issen_core::ActivityCategory::Execution),
+            "UserAssist is program execution"
+        );
+        let blob = format!("{:?}", exec.metadata);
+        assert!(blob.contains("run_count"), "run count surfaced: {blob}");
+    }
+
     /// Real DC SYSTEM hive: timezone (F3: Pacific — the clock-skew root cause)
     /// resolved through Select\Current -> ControlSet00N.
     #[test]
