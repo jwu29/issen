@@ -1,3 +1,4 @@
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 //! Legacy VHD disk image reader for the Issen forensic pipeline.
 //!
 //! Wraps the [`vhd`] crate to provide a [`DataSource`] implementation for
@@ -32,7 +33,10 @@ impl From<VhdError> for RtError {
     fn from(e: VhdError) -> Self {
         match e {
             VhdError::Io(io) => Self::Io(io),
-            VhdError::Vhd(msg) => Self::Parse { offset: 0, message: format!("vhd: {msg}") },
+            VhdError::Vhd(msg) => Self::Parse {
+                offset: 0,
+                message: format!("vhd: {msg}"),
+            },
         }
     }
 }
@@ -45,7 +49,9 @@ pub struct VhdDataSource {
 
 impl std::fmt::Debug for VhdDataSource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("VhdDataSource").field("size", &self.size).finish()
+        f.debug_struct("VhdDataSource")
+            .field("size", &self.size)
+            .finish_non_exhaustive()
     }
 }
 
@@ -54,12 +60,17 @@ impl VhdDataSource {
     pub fn open(path: &Path) -> Result<Self, VhdError> {
         let reader = vhd::VhdReader::open(path)?;
         let size = reader.virtual_disk_size();
-        Ok(Self { reader: Mutex::new(reader), size })
+        Ok(Self {
+            reader: Mutex::new(reader),
+            size,
+        })
     }
 }
 
 impl DataSource for VhdDataSource {
-    fn len(&self) -> u64 { self.size }
+    fn len(&self) -> u64 {
+        self.size
+    }
 
     fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<usize, RtError> {
         let mut guard = self.reader.lock().expect("mutex poisoned");
@@ -77,13 +88,16 @@ impl DataSource for VhdDataSource {
 
 // ── CollectionProvider ────────────────────────────────────────────────
 
-use issen_unpack::{CollectionManifest, CollectionMetadata, CollectionProvider, Confidence, OsType};
+use issen_unpack::{
+    CollectionManifest, CollectionMetadata, CollectionProvider, Confidence, OsType,
+};
 
 /// Format-recognition and manifest provider for legacy VHD disk images.
 #[derive(Debug, Default)]
 pub struct VhdProvider;
 
 impl CollectionProvider for VhdProvider {
+    #[allow(clippy::unnecessary_literal_bound)] // trait fixes the `-> &str` signature
     fn name(&self) -> &str {
         "VHD"
     }
@@ -100,9 +114,7 @@ impl CollectionProvider for VhdProvider {
         let mut cookie = [0u8; 8];
         match f.read_exact(&mut cookie) {
             Ok(()) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
-                return Ok(Confidence::None)
-            }
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(Confidence::None),
             Err(e) => return Err(RtError::Io(e)),
         }
         if &cookie == b"conectix" {

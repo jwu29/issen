@@ -1,3 +1,4 @@
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 //! VMware VMDK disk image reader for the Issen forensic pipeline.
 //!
 //! Wraps the [`vmdk`] crate to provide a [`DataSource`] implementation for
@@ -50,7 +51,7 @@ impl std::fmt::Debug for VmdkDataSource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("VmdkDataSource")
             .field("size", &self.size)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -95,6 +96,7 @@ use issen_unpack::{CollectionManifest, CollectionProvider, Confidence};
 pub struct VmdkProvider;
 
 impl CollectionProvider for VmdkProvider {
+    #[allow(clippy::unnecessary_literal_bound)] // trait fixes the `-> &str` signature
     fn name(&self) -> &str {
         "VMDK"
     }

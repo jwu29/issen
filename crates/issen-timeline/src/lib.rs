@@ -35,12 +35,6 @@
     clippy::manual_contains,
     clippy::unnecessary_literal_bound
 )]
-#![allow(
-    clippy::doc_markdown,
-    clippy::missing_errors_doc,
-    clippy::missing_panics_doc,
-    clippy::must_use_candidate
-)]
 pub mod correlate_runner;
 pub mod correlations;
 pub mod epoch;

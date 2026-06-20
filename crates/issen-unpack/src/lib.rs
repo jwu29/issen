@@ -35,12 +35,7 @@
     clippy::manual_contains,
     clippy::unnecessary_literal_bound
 )]
-#![allow(
-    clippy::doc_markdown,
-    clippy::missing_errors_doc,
-    clippy::missing_panics_doc,
-    clippy::must_use_candidate
-)]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 pub mod registry;
 pub mod tempdir;
 
@@ -184,6 +179,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::clone_on_copy)] // deliberately exercises the Clone impl on a Copy type
     fn test_confidence_clone_copy() {
         let c = Confidence::High;
         let d = c; // Copy

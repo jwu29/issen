@@ -23,7 +23,7 @@ pub fn open_collection(path: &Path) -> Result<CollectionManifest, RtError> {
         match provider.probe(path) {
             Ok(confidence) if confidence > Confidence::None => {
                 info!(provider = provider.name(), ?confidence, "Provider matched");
-                if best.as_ref().map_or(true, |(_, c)| confidence > *c) {
+                if best.as_ref().is_none_or(|(_, c)| confidence > *c) {
                     best = Some((provider, confidence));
                 }
             }
@@ -78,7 +78,7 @@ mod tests {
             Ok(Confidence::High)
         }
 
-        fn open(&self, path: &Path) -> Result<CollectionManifest, issen_core::error::RtError> {
+        fn open(&self, _path: &Path) -> Result<CollectionManifest, issen_core::error::RtError> {
             let tempdir = tempfile::tempdir().map_err(issen_core::error::RtError::Io)?;
             Ok(CollectionManifest::new(
                 self.name().to_string(),
