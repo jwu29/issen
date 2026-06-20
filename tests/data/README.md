@@ -129,6 +129,33 @@ Used by automated tests in `rt-parser-uac` and `rt-navigator`. The small archive
 - **Contents:** `cridex.vmem` (512 MB) — the canonical Windows XP Cridex memory sample (2012-08-02) from the Volatility tutorials. *Confirmed by inspecting the archive (2026-06-09).*
 - **Redistribution:** Volatility Foundation public sample.
 
+### josh-hickman-ios17-biome-segb/
+
+Real iOS 17 device data — the DFIR community's standard public test image. Used by
+**`sqlite-forensic`** as a real-world SQLite + **WAL** validation source (env-gated robustness
+test; CI skips when absent — these files are gitignored and downloaded manually).
+
+- **Source:** Josh Hickman (The Binary Hick), iOS 17 public research image. Blog/index:
+  <https://thebinaryhick.blog/2023/12/05/ios-17-image-now-available-with-a-twist/> (series index
+  <https://thebinaryhick.blog/images/>). Documented + hashed on the source post; download via the
+  Mega link there (manual — Mega is not curl-fetchable).
+- **Contents:**
+  - `iOS_17_Public_Image.tar.gz` (21 GB) — the full file-system image (unextracted here). Holds the
+    full set of real app SQLite (e.g. `knowledgeC.db`, `sms.db`, Safari `History.db`, CallHistory) —
+    extract it to broaden the SQLite corpus.
+  - `biome_ffs/filesystem1/` — a Biome-focused partial extract. **3 genuine iOS app SQLite databases,
+    each with a live `-wal` + `-shm` sidecar** (real Write-Ahead Log, captured uncheckpointed):
+    `private/var/mobile/Library/Biome/sync/sync.db`,
+    `…/Biome/databases/ApplePay.Security.Features/ApplePay.Security.Features.sqlite3`, and
+    `…/Caches/CloudKit/com.apple.biomesyncd/…/MMCS/.cs/ChunkStoreDatabase`.
+  - `biome_extract/` — decoded Biome SEGB streams (Apple's `SEGB` event format).
+  - `iOS17-ImageCreation.pdf` (3 MB) — Josh Hickman's image-creation documentation.
+- **Use case (`sqlite-forensic`):** real iOS app SQLite + real WAL for the panic-free robustness suite
+  and WAL version-history validation — genuine on-device structures, not synthetic. Point the test at
+  this folder via `SQLITE_FORENSIC_IOS_CORPUS=<this path>` (or extract the full image and point there).
+- **Redistribution:** Josh Hickman's public research images — free for research/testing, attribution.
+  Belongs to **issen** (large, gitignored); `sqlite-forensic` reads it in place via the env var.
+
 ### Root (self-collected, no challenge affiliation)
 
 #### Collection-A380_localdomain-2025-08-10T03_41_20Z.zip (2.2 GB)
