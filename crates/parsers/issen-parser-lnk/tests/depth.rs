@@ -65,6 +65,34 @@ fn surfaces_unc_network_share_target() {
     );
 }
 
+/// Fixture `command_args.lnk` is a weaponized-shortcut shape: its StringData
+/// carries an encoded-PowerShell command line (`-nop -w hidden -enc <b64>`), a
+/// working directory, and a comment — the fields that turn a `.lnk` into a
+/// launcher. lnk-core decodes all of `StringData`; the wrapper dropped it.
+const ARGS_LNK: &[u8] = include_bytes!("data/command_args.lnk");
+
+#[test]
+fn surfaces_command_line_arguments() {
+    let events = parse_lnk_bytes(ARGS_LNK, "/Users/beth/Recent/System Update.lnk", "ev");
+    assert!(!events.is_empty(), "the .lnk parses to at least one event");
+    let blob = searchable(&events).to_lowercase();
+    assert!(
+        blob.contains("-enc") && blob.contains("hidden"),
+        "must surface the shortcut's command-line arguments (the weaponized \
+         encoded-PowerShell payload), not just the target; got: {blob}"
+    );
+}
+
+#[test]
+fn surfaces_working_directory() {
+    let events = parse_lnk_bytes(ARGS_LNK, "/Users/beth/Recent/System Update.lnk", "ev");
+    let blob = searchable(&events);
+    assert!(
+        blob.contains(r"C:\Windows\System32"),
+        "must surface the shortcut's working directory; got: {blob}"
+    );
+}
+
 #[test]
 fn surfaces_mapped_network_device() {
     let events = parse_lnk_bytes(NETWORK, "/Users/beth/Recent/Share.lnk", "ev");
