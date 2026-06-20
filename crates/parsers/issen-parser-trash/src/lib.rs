@@ -19,6 +19,8 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 use issen_core::artifacts::ArtifactType;
+use issen_core::classify;
+use issen_core::plugin::selector as sel;
 use issen_core::error::RtError;
 use issen_core::plugin::registry::ParserRegistration;
 use issen_core::plugin::traits::{
@@ -137,7 +139,15 @@ fn delete_event(
 
 // Compile-time registration with the parser inventory.
 inventory::submit! {
-    ParserRegistration { create: || Box::new(RecycleBinParser), selector: None }
+    ParserRegistration { create: || Box::new(RecycleBinParser), selector: Some(sel::ArtifactSelector {
+            artifact_type: issen_core::artifacts::ArtifactType::RecycleBin,
+            matches: classify::recycle_i,
+            priority: 80,
+            disk_sources: &[
+                sel::DiskSource::Ntfs(sel::NtfsLoc::PerSubdirSweep { parent: r"\$Recycle.Bin", rel: r"", name: sel::NameMatch::Prefix("$i") }),
+            ],
+            cost: sel::CostTier::Default,
+        }) }
 }
 
 // ---------------------------------------------------------------------------

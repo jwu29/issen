@@ -16,6 +16,8 @@ pub mod parser;
 use std::path::Path;
 
 use issen_core::artifacts::ArtifactType;
+use issen_core::classify;
+use issen_core::plugin::selector as sel;
 use issen_core::error::RtError;
 use issen_core::plugin::registry::ParserRegistration;
 use issen_core::plugin::traits::{
@@ -102,7 +104,15 @@ impl ForensicParser for PrefetchParser {
 
 // Compile-time registration with the parser inventory.
 inventory::submit! {
-    ParserRegistration { create: || Box::new(PrefetchParser), selector: None }
+    ParserRegistration { create: || Box::new(PrefetchParser), selector: Some(sel::ArtifactSelector {
+            artifact_type: issen_core::artifacts::ArtifactType::Prefetch,
+            matches: classify::prefetch,
+            priority: 97,
+            disk_sources: &[
+                sel::DiskSource::Ntfs(sel::NtfsLoc::DirSuffix { dir: r"\Windows\Prefetch", suffix: ".pf" }),
+            ],
+            cost: sel::CostTier::Default,
+        }) }
 }
 
 // ---------------------------------------------------------------------------

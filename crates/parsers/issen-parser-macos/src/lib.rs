@@ -18,6 +18,8 @@ pub mod unified_log;
 use std::path::Path;
 
 use issen_core::artifacts::ArtifactType;
+use issen_core::classify;
+use issen_core::plugin::selector as sel;
 use issen_core::error::RtError;
 use issen_core::plugin::registry::ParserRegistration;
 use issen_core::plugin::traits::{
@@ -86,7 +88,13 @@ impl ForensicParser for MacosUnifiedLogParser {
 }
 
 inventory::submit! {
-    ParserRegistration { create: || Box::new(MacosUnifiedLogParser), selector: None }
+    ParserRegistration { create: || Box::new(MacosUnifiedLogParser), selector: Some(sel::ArtifactSelector {
+            artifact_type: issen_core::artifacts::ArtifactType::SystemInfo,
+            matches: classify::macos_log,
+            priority: 50,
+            disk_sources: &[],
+            cost: sel::CostTier::Default,
+        }) }
 }
 
 // ── MacosFsEventsParser ───────────────────────────────────────────────────────
@@ -155,7 +163,13 @@ impl ForensicParser for MacosFsEventsParser {
 }
 
 inventory::submit! {
-    ParserRegistration { create: || Box::new(MacosFsEventsParser), selector: None }
+    ParserRegistration { create: || Box::new(MacosFsEventsParser), selector: Some(sel::ArtifactSelector {
+            artifact_type: issen_core::artifacts::ArtifactType::SystemInfo,
+            matches: classify::fsevents,
+            priority: 50,
+            disk_sources: &[],
+            cost: sel::CostTier::Default,
+        }) }
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

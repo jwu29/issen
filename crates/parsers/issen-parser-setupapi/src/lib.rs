@@ -29,6 +29,8 @@ use std::path::Path;
 
 use chrono::{NaiveDateTime, TimeZone, Utc};
 use issen_core::artifacts::ArtifactType;
+use issen_core::classify;
+use issen_core::plugin::selector as sel;
 use issen_core::plugin::registry::ParserRegistration;
 use issen_core::plugin::traits::{
     DataSource, EventEmitter, ForensicParser, ParseCompletion, ParseStats, ParserCapabilities,
@@ -250,7 +252,16 @@ impl ForensicParser for SetupApiParser {
 }
 
 inventory::submit! {
-    ParserRegistration { create: || Box::new(SetupApiParser), selector: None }
+    ParserRegistration { create: || Box::new(SetupApiParser), selector: Some(sel::ArtifactSelector {
+            artifact_type: issen_core::artifacts::ArtifactType::DeviceInstall,
+            matches: classify::setupapi,
+            priority: 70,
+            disk_sources: &[
+                sel::DiskSource::Ntfs(sel::NtfsLoc::FixedPath(r"\Windows\INF\setupapi.dev.log")),
+                sel::DiskSource::Ntfs(sel::NtfsLoc::FixedPath(r"\Windows\INF\setupapi.setup.log")),
+            ],
+            cost: sel::CostTier::Default,
+        }) }
 }
 
 // ---------------------------------------------------------------------------

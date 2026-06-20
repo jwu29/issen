@@ -45,6 +45,8 @@
 
 use chrono::{DateTime, Utc};
 use issen_core::artifacts::ArtifactType;
+use issen_core::classify;
+use issen_core::plugin::selector as sel;
 use issen_core::error::RtError;
 use issen_core::plugin::registry::ParserRegistration;
 use issen_core::plugin::traits::{
@@ -402,7 +404,15 @@ impl ForensicParser for MftFileParser {
 
 // Compile-time registration with the parser inventory.
 inventory::submit! {
-    ParserRegistration { create: || Box::new(MftFileParser), selector: None }
+    ParserRegistration { create: || Box::new(MftFileParser), selector: Some(sel::ArtifactSelector {
+            artifact_type: issen_core::artifacts::ArtifactType::Mft,
+            matches: classify::mft,
+            priority: 99,
+            disk_sources: &[
+                sel::DiskSource::Ntfs(sel::NtfsLoc::FixedPath(r"\$MFT")),
+            ],
+            cost: sel::CostTier::Default,
+        }) }
 }
 
 // ---------------------------------------------------------------------------

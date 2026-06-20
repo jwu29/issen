@@ -18,6 +18,8 @@ pub mod parser;
 use std::path::Path;
 
 use issen_core::artifacts::ArtifactType;
+use issen_core::classify;
+use issen_core::plugin::selector as sel;
 use issen_core::error::RtError;
 use issen_core::plugin::registry::ParserRegistration;
 use issen_core::plugin::traits::{
@@ -96,7 +98,16 @@ impl ForensicParser for LnkParser {
 
 // Compile-time registration with the parser inventory.
 inventory::submit! {
-    ParserRegistration { create: || Box::new(LnkParser), selector: None }
+    ParserRegistration { create: || Box::new(LnkParser), selector: Some(sel::ArtifactSelector {
+            artifact_type: issen_core::artifacts::ArtifactType::Lnk,
+            matches: classify::lnk,
+            priority: 80,
+            disk_sources: &[
+                sel::DiskSource::Ntfs(sel::NtfsLoc::PerSubdirSweep { parent: r"\Users", rel: r"AppData\Roaming\Microsoft\Windows\Recent", name: sel::NameMatch::Suffix(".lnk") }),
+                sel::DiskSource::Ntfs(sel::NtfsLoc::PerSubdirSweep { parent: r"\Users", rel: r"Desktop", name: sel::NameMatch::Suffix(".lnk") }),
+            ],
+            cost: sel::CostTier::Default,
+        }) }
 }
 
 // ---------------------------------------------------------------------------

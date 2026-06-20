@@ -43,6 +43,8 @@
 use evtx::err::{ChunkError, DeserializationError, EvtxError};
 use evtx::EvtxParser as EvtxCrateParser;
 use issen_core::artifacts::ArtifactType;
+use issen_core::classify;
+use issen_core::plugin::selector as sel;
 use issen_core::error::RtError;
 use issen_core::plugin::registry::ParserRegistration;
 use issen_core::plugin::traits::{
@@ -509,7 +511,15 @@ impl ForensicParser for EvtxFileParser {
 
 // Compile-time registration with the parser inventory.
 inventory::submit! {
-    ParserRegistration { create: || Box::new(EvtxFileParser), selector: None }
+    ParserRegistration { create: || Box::new(EvtxFileParser), selector: Some(sel::ArtifactSelector {
+            artifact_type: issen_core::artifacts::ArtifactType::EventLog,
+            matches: classify::evtx,
+            priority: 98,
+            disk_sources: &[
+                sel::DiskSource::Ntfs(sel::NtfsLoc::DirSuffix { dir: r"\Windows\System32\winevt\Logs", suffix: ".evtx" }),
+            ],
+            cost: sel::CostTier::Default,
+        }) }
 }
 
 // ---------------------------------------------------------------------------

@@ -29,6 +29,8 @@
 use std::path::Path;
 
 use issen_core::artifacts::ArtifactType;
+use issen_core::classify;
+use issen_core::plugin::selector as sel;
 use issen_core::plugin::registry::ParserRegistration;
 use issen_core::plugin::traits::{
     DataSource, EventEmitter, ForensicParser, ParseStats, ParserCapabilities,
@@ -163,7 +165,13 @@ impl ForensicParser for ComHijackParser {
 
 // Compile-time registration with the parser inventory.
 inventory::submit! {
-    ParserRegistration { create: || Box::new(ComHijackParser), selector: None }
+    ParserRegistration { create: || Box::new(ComHijackParser), selector: Some(sel::ArtifactSelector {
+            artifact_type: issen_core::artifacts::ArtifactType::Registry,
+            matches: classify::registry_hive,
+            priority: 96,
+            disk_sources: &[],
+            cost: sel::CostTier::Default,
+        }) }
 }
 
 // ---------------------------------------------------------------------------

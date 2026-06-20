@@ -18,6 +18,8 @@
 )]
 
 use issen_core::artifacts::ArtifactType;
+use issen_core::classify;
+use issen_core::plugin::selector as sel;
 use issen_core::error::RtError;
 use issen_core::plugin::registry::ParserRegistration;
 use issen_core::plugin::traits::{
@@ -143,7 +145,13 @@ impl ForensicParser for BiomeParser {
 
 // Compile-time registration with the parser inventory.
 inventory::submit! {
-    ParserRegistration { create: || Box::new(BiomeParser), selector: None }
+    ParserRegistration { create: || Box::new(BiomeParser), selector: Some(sel::ArtifactSelector {
+            artifact_type: issen_core::artifacts::ArtifactType::BiomeMenuItem,
+            matches: classify::segb,
+            priority: 40,
+            disk_sources: &[],
+            cost: sel::CostTier::Default,
+        }) }
 }
 
 #[cfg(test)]

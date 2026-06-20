@@ -7,6 +7,11 @@
 //! the differential test asserts the two agree before the hand-written classifier
 //! is retired. They are pure path predicates (the registry magic-byte fallback is
 //! the one I/O touch, kept for parity) and read nothing at module scope.
+//!
+//! `case_sensitive_file_extension_comparisons` is allowed: every predicate
+//! lowercases `name` first (mirroring the classifier), so the `ends_with(".evtx")`
+//! style checks are already case-insensitive.
+#![allow(clippy::case_sensitive_file_extension_comparisons)]
 
 use std::path::Path;
 
@@ -185,6 +190,7 @@ pub fn segb(path: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use std::io::Write;
     use tempfile::tempdir;

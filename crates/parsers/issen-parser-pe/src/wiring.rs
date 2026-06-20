@@ -8,6 +8,8 @@
 //! each carrying the MITRE technique id and evidence.
 
 use issen_core::artifacts::ArtifactType;
+use issen_core::classify;
+use issen_core::plugin::selector as sel;
 use issen_core::error::RtError;
 use issen_core::plugin::registry::ParserRegistration;
 use issen_core::plugin::traits::{
@@ -154,7 +156,13 @@ impl ForensicParser for PeParser {
 }
 
 inventory::submit! {
-    ParserRegistration { create: || Box::new(PeParser), selector: None }
+    ParserRegistration { create: || Box::new(PeParser), selector: Some(sel::ArtifactSelector {
+            artifact_type: issen_core::artifacts::ArtifactType::Pe,
+            matches: classify::pe_suspicious,
+            priority: 10,
+            disk_sources: &[],
+            cost: sel::CostTier::OptIn,
+        }) }
 }
 
 #[cfg(test)]

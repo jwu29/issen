@@ -38,6 +38,8 @@
 )]
 use chrono::DateTime;
 use issen_core::artifacts::ArtifactType;
+use issen_core::classify;
+use issen_core::plugin::selector as sel;
 use issen_core::error::RtError;
 use issen_core::plugin::registry::ParserRegistration;
 use issen_core::plugin::traits::{
@@ -402,7 +404,15 @@ fn record_to_event(record: &UsnRecordV2, evidence_source_id: &str) -> TimelineEv
 
 // Compile-time registration with the parser inventory.
 inventory::submit! {
-    ParserRegistration { create: || Box::new(UsnJrnlParser), selector: None }
+    ParserRegistration { create: || Box::new(UsnJrnlParser), selector: Some(sel::ArtifactSelector {
+            artifact_type: issen_core::artifacts::ArtifactType::UsnJournal,
+            matches: classify::usn,
+            priority: 100,
+            disk_sources: &[
+                sel::DiskSource::Ntfs(sel::NtfsLoc::NamedStream { path: r"\$Extend\$UsnJrnl", stream: "$J" }),
+            ],
+            cost: sel::CostTier::Default,
+        }) }
 }
 
 #[cfg(test)]

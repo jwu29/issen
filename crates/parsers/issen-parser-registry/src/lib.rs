@@ -19,6 +19,8 @@ pub mod parser;
 use std::path::Path;
 
 use issen_core::artifacts::ArtifactType;
+use issen_core::classify;
+use issen_core::plugin::selector as sel;
 use issen_core::error::RtError;
 use issen_core::plugin::registry::ParserRegistration;
 use issen_core::plugin::traits::{
@@ -108,7 +110,21 @@ impl ForensicParser for RegistryHiveParser {
 
 // Compile-time registration with the parser inventory.
 inventory::submit! {
-    ParserRegistration { create: || Box::new(RegistryHiveParser), selector: None }
+    ParserRegistration { create: || Box::new(RegistryHiveParser), selector: Some(sel::ArtifactSelector {
+            artifact_type: issen_core::artifacts::ArtifactType::Registry,
+            matches: classify::registry_hive,
+            priority: 96,
+            disk_sources: &[
+                sel::DiskSource::Ntfs(sel::NtfsLoc::FixedPath(r"\Windows\System32\config\SYSTEM")),
+                sel::DiskSource::Ntfs(sel::NtfsLoc::FixedPath(r"\Windows\System32\config\SOFTWARE")),
+                sel::DiskSource::Ntfs(sel::NtfsLoc::FixedPath(r"\Windows\System32\config\SAM")),
+                sel::DiskSource::Ntfs(sel::NtfsLoc::FixedPath(r"\Windows\System32\config\SECURITY")),
+                sel::DiskSource::Ntfs(sel::NtfsLoc::FixedPath(r"\Windows\System32\config\DEFAULT")),
+                sel::DiskSource::Ntfs(sel::NtfsLoc::PerUserFile(r"NTUSER.DAT")),
+                sel::DiskSource::Ntfs(sel::NtfsLoc::PerUserFile(r"AppData\Local\Microsoft\Windows\UsrClass.dat")),
+            ],
+            cost: sel::CostTier::Default,
+        }) }
 }
 
 // ---------------------------------------------------------------------------

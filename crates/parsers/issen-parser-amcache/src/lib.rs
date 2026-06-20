@@ -19,6 +19,8 @@
 use std::path::Path;
 
 use issen_core::artifacts::ArtifactType;
+use issen_core::classify;
+use issen_core::plugin::selector as sel;
 use issen_core::plugin::registry::ParserRegistration;
 use issen_core::plugin::traits::{
     DataSource, EventEmitter, ForensicParser, ParseStats, ParserCapabilities,
@@ -163,7 +165,15 @@ impl ForensicParser for AmcacheParser {
 
 // Compile-time registration with the parser inventory.
 inventory::submit! {
-    ParserRegistration { create: || Box::new(AmcacheParser), selector: None }
+    ParserRegistration { create: || Box::new(AmcacheParser), selector: Some(sel::ArtifactSelector {
+            artifact_type: issen_core::artifacts::ArtifactType::Amcache,
+            matches: classify::amcache,
+            priority: 90,
+            disk_sources: &[
+                sel::DiskSource::Ntfs(sel::NtfsLoc::FixedPath(r"\Windows\AppCompat\Programs\Amcache.hve")),
+            ],
+            cost: sel::CostTier::Default,
+        }) }
 }
 
 // ---------------------------------------------------------------------------
