@@ -197,7 +197,7 @@ not re-download — they come from `DESKTOP-E01.zip`.
 
 | File | MD5 | Committed in | Decompressed |
 |---|---|---|---|
-| `COREUPDATER.EXE-157C54BB.pf` | `d3db6935c7ad9f93964b0893997af049` | `prefetch-forensic/tests/data/` | 24316 B, SCCA v30, the implant |
+| `COREUPDATER.EXE-157C54BB.pf` | `d3db6935c7ad9f93964b0893997af049` | `prefetch-forensic/tests/data/` + `issen/crates/parsers/issen-parser-prefetch/tests/data/` (depth test) | 24316 B, SCCA v30, the implant |
 | `AUDIODG.EXE-AB22E9A6.pf` | `18bcdd9d31865769309053816e812811` | `prefetch-forensic/tests/data/` | 35954 B, run count 8 |
 | `AM_DELTA.EXE-78CA83B0.pf` | `0d48c5b117a3c9e71b66d51fad454354` | `prefetch-forensic/tests/data/` | 6948 B |
 
