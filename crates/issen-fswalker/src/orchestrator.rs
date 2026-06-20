@@ -524,9 +524,12 @@ fn parse_one_artifact(
 }
 
 /// Parallel sibling of [`parse_units`] — `par_iter` over artifacts. `collect()`
-/// preserves artifact order, so the output is **identical** to the sequential
-/// version (locked by `parse_units_parallel_equals_sequential`). `skip` must be
-/// `Sync` to cross rayon workers (a read-only `HashSet` lookup is).
+/// preserves artifact order, so for **deterministic/stateless parsers and a pure
+/// read-only `skip`** the parsed units match the sequential version exactly (locked
+/// by `parse_units_parallel_equals_sequential`). It does NOT promise identical
+/// progress/log/panic-hook *timing* or fd-scheduling — a parser with interior
+/// mutability (legal under `Sync`) or a side-effecting `skip` could still diverge.
+/// `skip` must be `Sync` to cross rayon workers (a read-only `HashSet` lookup is).
 #[must_use]
 pub fn parse_units_parallel(
     artifacts: &[DiscoveredArtifact],
@@ -551,10 +554,10 @@ pub fn parse_units_parallel(
 
 /// Parallel sibling of [`run_pipeline`] — the flat view over [`parse_units_parallel`].
 ///
-/// Identical output to `run_pipeline` for the same evidence (rayon `collect`
-/// preserves artifact order); they share `parse_one_artifact`, so panic-isolation
-/// and event counts match. Dead in production today (test-only) but structurally
-/// unified now, not a copy-paste of the sequential core.
+/// Matches `run_pipeline`'s output for deterministic/stateless parsers (rayon
+/// `collect` preserves artifact order); they share `parse_one_artifact`, so
+/// panic-isolation and event counts match. Dead in production today (test-only) but
+/// structurally unified now, not a copy-paste of the sequential core.
 ///
 /// # Errors
 ///
@@ -1144,15 +1147,29 @@ mod tests {
         let p2 = ProgressReporter::new();
         let (pu, pe, pk) = parse_units_parallel(&artifacts, &parsers, &p2, &|_, _, _| false);
 
+        // Compare the FULL unit identity + event contents, not just counts: parser,
+        // artifact type, path, bytes, completion, and the exact record_hash sequence.
         let proj = |us: &[ParsedUnit]| {
             us.iter()
-                .map(|u| (u.parser.clone(), u.events.len()))
+                .map(|u| {
+                    (
+                        u.parser.clone(),
+                        format!("{:?}", u.artifact_type),
+                        u.path.clone(),
+                        u.bytes,
+                        u.completion.clone(),
+                        u.events
+                            .iter()
+                            .map(|e| e.record_hash.clone())
+                            .collect::<Vec<_>>(),
+                    )
+                })
                 .collect::<Vec<_>>()
         };
         assert_eq!(
             proj(&su),
             proj(&pu),
-            "parallel units must match sequential (same order)"
+            "parallel units must match sequential exactly (order + contents)"
         );
         assert_eq!(se, pe, "errors match");
         assert_eq!(sk, pk, "skipped match");
