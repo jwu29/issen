@@ -196,10 +196,19 @@ mod tests {
     }
 
     #[test]
-    fn dd_provider_open_readable_file_returns_ok() {
+    fn dd_provider_open_refuses_to_emit_silent_empty_manifest() {
         let img = make_image(&[0u8; 512]);
-        // RED: stub returns Err — FAILS (expects Ok)
-        assert!(DdProvider.open(img.path()).is_ok());
+        // The DD container opens, but no triage extractor is wired for raw disk
+        // images yet. Returning an empty manifest would emit a silent,
+        // clean-looking timeline (indistinguishable from a genuinely empty
+        // image) — fail loud instead.
+        let err = DdProvider
+            .open(img.path())
+            .expect_err("must fail loud, not return an empty manifest");
+        assert!(
+            matches!(err, RtError::UnsupportedFormat(_)),
+            "expected UnsupportedFormat; got: {err:?}"
+        );
     }
 
     #[test]
