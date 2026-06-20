@@ -438,6 +438,31 @@ mod tests {
         assert!(blob.contains("run_count"), "run count surfaced: {blob}");
     }
 
+    /// Real DC SYSTEM hive: the Shimcache (AppCompatCache) decoder must surface
+    /// the binaries that were present/run on the host. The attacker staged the
+    /// VC++ runtime under `\Windows\Temp\{GUID}\` — `vcredist_x64.exe` appears in
+    /// the cache and is dropped by the generic key walk. (Shimcache's timestamp
+    /// is the binary's file mtime, not a run time — Execution category, presence
+    /// evidence.)
+    #[test]
+    fn real_system_hive_surfaces_shimcache_execution() {
+        let p = hive("SYSTEM");
+        if !p.exists() {
+            eprintln!("SKIP: SYSTEM hive absent");
+            return;
+        }
+        let events = parse_hive(&p, "dc01-SYSTEM").unwrap();
+        let shim = events
+            .iter()
+            .find(|e| e.description.to_lowercase().contains("vcredist_x64.exe"))
+            .expect("Shimcache vcredist_x64.exe presence event");
+        assert_eq!(
+            shim.activity_category,
+            Some(issen_core::ActivityCategory::Execution),
+            "Shimcache is an Execution (presence) artifact"
+        );
+    }
+
     /// Real DC SYSTEM hive: timezone (F3: Pacific — the clock-skew root cause)
     /// resolved through Select\Current -> ControlSet00N.
     #[test]
