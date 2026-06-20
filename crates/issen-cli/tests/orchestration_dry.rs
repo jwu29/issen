@@ -56,9 +56,13 @@ fn run_auto_is_sorted_flatten_of_run_auto_units() {
             .then_with(|| a.record_hash.cmp(&b.record_hash))
     });
 
-    assert!(
-        !flat.is_empty(),
-        "the USN parser must be linked so the $J actually parses (else the test is vacuous)"
+    // Exactly the 3 USN records must parse (guards against a vacuous pass if the
+    // parser were unlinked or only partially decoded the journal).
+    assert_eq!(flat.len(), 3, "the 3 USN records must all parse");
+    assert_eq!(
+        flat.len(),
+        from_units.len(),
+        "flat and per-unit must carry the same number of events"
     );
     let flat_hashes: Vec<&str> = flat.iter().map(|e| e.record_hash.as_str()).collect();
     let unit_hashes: Vec<&str> = from_units.iter().map(|e| e.record_hash.as_str()).collect();

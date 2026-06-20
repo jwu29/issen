@@ -250,9 +250,6 @@ fn walk_directory(dir: &Path, artifacts: &mut Vec<DiscoveredArtifact>) -> Result
     Ok(())
 }
 
-/// Run the pipeline: discover artifacts, match parsers, execute, collect events.
-///
-/// Returns the collected events and an `IngestResult` summary.
 /// Run `f` over the artifacts discovered in `path` — a directory **or** a
 /// collection archive — keeping the archive's manifest (and its RAII `TempDir` of
 /// extracted files) alive for the duration of `f`, since parsers open those files
@@ -292,6 +289,11 @@ fn ingest_result(
     }
 }
 
+/// Run the pipeline on a directory: discover artifacts, parse them, return a flat
+/// event list + an [`IngestResult`].
+///
+/// A thin flat view over the per-unit core ([`parse_units`]) — see the note below
+/// on the per-unit semantics this inherits (atomic units; actual-event counts).
 pub fn run_pipeline(
     evidence_path: &Path,
     progress: &ProgressReporter,
@@ -300,6 +302,12 @@ pub fn run_pipeline(
     // resume-skip, then flatten. Sharing `parse_units` keeps the flat and per-unit
     // paths from drifting — "run every matching parser", panic-isolation, and the
     // result counts all live in ONE place now.
+    //
+    // Vs the pre-refactor flat pipeline this differs ONLY for *misbehaving* parsers,
+    // and intentionally: (1) a parser that emits events then fails now discards its
+    // partial events (atomic unit — the old shared emitter kept them), and (2)
+    // `total_events` counts ACTUAL emitted events, not the parser's self-reported
+    // `stats.events_emitted`. For honest parsers the output is identical.
     let artifacts = discover_artifacts(evidence_path)?;
     let (units, errors, _skipped) =
         parse_units(&artifacts, &all_parsers(), progress, &|_, _, _| false);
@@ -499,9 +507,12 @@ pub fn parse_units(
 
 /// Run the pipeline using rayon parallel iteration across artifacts.
 ///
-/// Produces identical output to [`run_pipeline`] but executes parser dispatch
-/// concurrently. Requires all parsers and the emitter to be `Send + Sync`,
-/// which is guaranteed by the trait bounds.
+/// Produces the same successful-parse output as [`run_pipeline`] but executes
+/// parser dispatch concurrently. NOTE: this path still duplicates the sequential
+/// core (it does not route through `parse_units`/`run_isolated`), so it diverges on
+/// panic-isolation and event counts — it is dead in production (test-only) pending
+/// the parallel per-unit core (parallel-ingest design). Requires all parsers and
+/// the emitter to be `Send + Sync`, guaranteed by the trait bounds.
 ///
 /// # Errors
 ///
