@@ -80,7 +80,7 @@ issen-vhd        = { path = "crates/issen-vhd" }
 issen-vhdx       = { path = "crates/issen-vhdx" }
 issen-vmdk       = { path = "crates/issen-vmdk" }
 issen-disk       = { path = "crates/issen-disk" }
-disk-forensic    = "0.6.0"
+disk-forensic    = "0.8"
 ntfs-forensic    = "0.6.0"
 ntfs-core        = "0.7.2"
 issen-qcow2      = { path = "crates/issen-qcow2" }
@@ -193,7 +193,7 @@ srum-core        = "0.1.0"
 segb             = { version = "0.1", package = "segb-core" }
 useract-forensic = "0.3"
 goblin       = { version = "0.10", default-features = false, features = ["pe32", "pe64", "std"] }
-ewf          = "0.1"
+ewf          = "0.2"
 vhd          = "0.1.0"
 vhdx         = { version = "0.2.1", package = "vhdx-core" }
 vmdk         = { version = "0.6.4", package = "vmdk-core" }
