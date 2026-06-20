@@ -89,6 +89,7 @@ extern crate issen_vmdk as _;
 
 pub mod commands;
 pub mod parsers;
+pub mod progress_view;
 pub mod scanning;
 
 /// When to emit ANSI color codes.
