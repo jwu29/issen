@@ -4756,6 +4756,7 @@ dependencies = [
  "anyhow",
  "inventory",
  "issen-core",
+ "lnk-core 0.3.0",
  "serde",
  "serde_json",
  "tempfile",
@@ -5661,6 +5662,15 @@ checksum = "ade8b13b9dcdbed167a358dad01572423abc36eaa9ae23aaac56f4e7c70c0fa7"
 dependencies = [
  "forensicnomicon 0.5.8",
  "livedisk-core",
+]
+
+[[package]]
+name = "lnk-core"
+version = "0.3.0"
+dependencies = [
+ "cfb",
+ "forensicnomicon 0.5.8",
+ "shellitem",
 ]
 
 [[package]]
@@ -10668,7 +10678,7 @@ checksum = "15f34578a931293cc6b9da313f03cd28a179a523de633033754fd298dd87f868"
 dependencies = [
  "chrono",
  "forensicnomicon 0.5.8",
- "lnk-core",
+ "lnk-core 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "peripheral-core",
  "segb-core",
  "shellhist-core",
