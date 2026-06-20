@@ -339,7 +339,7 @@ impl WorkbenchApp {
     }
 
     fn cycle_timeline_filter(&mut self) {
-        use TimelineSource::*;
+        use TimelineSource::{Bodyfile, MftSi, MftFn, UsnJournal, LoginHistory, ProcessList};
         let cycle: [Option<TimelineSource>; 7] = [
             None, // All sources
             Some(Bodyfile),

@@ -46,10 +46,10 @@ fn draw_system_profile(frame: &mut Frame, meta: &CollectionMetadata, area: Rect)
         .add_modifier(Modifier::BOLD);
 
     // Build profile rows — only show fields that have data
-    let hostname_display = if !meta.fqdn.is_empty() {
-        &meta.fqdn
-    } else {
+    let hostname_display = if meta.fqdn.is_empty() {
         &meta.hostname
+    } else {
+        &meta.fqdn
     };
     if !hostname_display.is_empty() {
         lines.push(profile_row("Hostname", hostname_display, label_style));
@@ -444,31 +444,31 @@ mod tests {
     #[test]
     fn render_dashboard_with_metadata_no_panic() {
         let app = make_dashboard_app();
-        assert_renders(&app, |frame, app, area| draw_dashboard(frame, app, area));
+        assert_renders(&app, draw_dashboard);
     }
 
     #[test]
     fn render_dashboard_with_alerts_no_panic() {
         let app = make_dashboard_app();
-        assert_renders(&app, |frame, app, area| draw_dashboard(frame, app, area));
+        assert_renders(&app, draw_dashboard);
     }
 
     #[test]
     fn render_dashboard_empty_data_no_panic() {
         let app = empty_app();
-        assert_renders(&app, |frame, app, area| draw_dashboard(frame, app, area));
+        assert_renders(&app, draw_dashboard);
     }
 
     #[test]
     fn render_dashboard_small_terminal_no_panic() {
         let app = make_dashboard_app();
-        assert_renders(&app, |frame, app, area| draw_dashboard(frame, app, area));
+        assert_renders(&app, draw_dashboard);
     }
 
     #[test]
     fn render_dashboard_full_profile_no_panic() {
         let app = make_full_profile_app();
-        assert_renders(&app, |frame, app, area| draw_dashboard(frame, app, area));
+        assert_renders(&app, draw_dashboard);
     }
 
     #[test]
@@ -518,10 +518,10 @@ mod tests {
             ..Default::default()
         };
         // The draw_system_profile function uses FQDN when available
-        let hostname_display = if !meta.fqdn.is_empty() {
-            &meta.fqdn
-        } else {
+        let hostname_display = if meta.fqdn.is_empty() {
             &meta.hostname
+        } else {
+            &meta.fqdn
         };
         assert_eq!(hostname_display, "vbox.fci.int");
     }

@@ -66,7 +66,7 @@ fn extract_dmp(zip_path: &Path) -> PathBuf {
 
     // Reuse a previously-extracted dump to avoid re-inflating 4.29 GB.
     if out_path.exists()
-        && std::fs::metadata(&out_path).map(|m| m.len()).unwrap_or(0) == entry.size()
+        && std::fs::metadata(&out_path).map_or(0, |m| m.len()) == entry.size()
     {
         return out_path;
     }

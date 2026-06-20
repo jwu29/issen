@@ -16,9 +16,8 @@ pub struct FishHistoryEntry {
 
 /// Parse fish history bytes into a list of entries.
 pub fn parse_fish_history(input: &[u8]) -> Vec<FishHistoryEntry> {
-    let text = match std::str::from_utf8(input) {
-        Ok(s) => s,
-        Err(_) => return Vec::new(),
+    let Ok(text) = std::str::from_utf8(input) else {
+        return Vec::new();
     };
 
     let mut entries: Vec<FishHistoryEntry> = Vec::new();

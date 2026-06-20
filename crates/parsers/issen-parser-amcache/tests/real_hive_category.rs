@@ -5,7 +5,7 @@
 //! Fixture (gitignored): `tests/data/dfirmadness-szechuan-sauce/extracted/szechuan-sauce-hives/Amcache.hve` (carve via the
 //! `extract_amcache` issen-disk example, see `docs/corpus-catalog.md` §A3b).
 //! Skips if absent.
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::redundant_closure_for_method_calls)]
 
 use std::path::PathBuf;
 

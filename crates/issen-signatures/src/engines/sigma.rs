@@ -472,7 +472,7 @@ mod tests {
 
     /// Helper to create a simple Sigma rule YAML string.
     fn simple_sigma_rule() -> String {
-        r#"
+        r"
 title: Suspicious Process Creation
 id: test-rule-001
 status: test
@@ -491,7 +491,7 @@ detection:
 tags:
     - attack.execution
     - attack.t1059
-"#
+"
         .to_string()
     }
 
@@ -523,13 +523,13 @@ tags:
     // -----------------------------------------------------------------------
     #[test]
     fn test_parse_rule_missing_title_returns_error() {
-        let yaml = r#"
+        let yaml = r"
 id: test-no-title
 detection:
     selection:
         foo: bar
     condition: selection
-"#;
+";
         let mut engine = SigmaEngine::new();
         let result = engine.load_rule(yaml);
         assert!(result.is_err(), "should fail without title");
@@ -540,11 +540,11 @@ detection:
     // -----------------------------------------------------------------------
     #[test]
     fn test_parse_rule_missing_detection_returns_error() {
-        let yaml = r#"
+        let yaml = r"
 title: No Detection Rule
 id: test-no-detection
 level: low
-"#;
+";
         let mut engine = SigmaEngine::new();
         let result = engine.load_rule(yaml);
         assert!(result.is_err(), "should fail without detection block");
@@ -596,7 +596,7 @@ level: low
     // -----------------------------------------------------------------------
     #[test]
     fn test_multiple_selection_fields_and_logic() {
-        let yaml = r#"
+        let yaml = r"
 title: Multi-field AND Rule
 id: test-and-001
 level: medium
@@ -605,7 +605,7 @@ detection:
         FieldA: valueA
         FieldB: valueB
     condition: selection
-"#;
+";
         let mut engine = SigmaEngine::new();
         engine.load_rule(yaml).unwrap();
 
@@ -623,7 +623,7 @@ detection:
     // -----------------------------------------------------------------------
     #[test]
     fn test_contains_modifier() {
-        let yaml = r#"
+        let yaml = r"
 title: Contains Test
 id: test-contains-001
 level: low
@@ -631,7 +631,7 @@ detection:
     selection:
         CommandLine|contains: 'mimikatz'
     condition: selection
-"#;
+";
         let mut engine = SigmaEngine::new();
         engine.load_rule(yaml).unwrap();
 
@@ -647,7 +647,7 @@ detection:
     // -----------------------------------------------------------------------
     #[test]
     fn test_startswith_modifier() {
-        let yaml = r#"
+        let yaml = r"
 title: StartsWith Test
 id: test-sw-001
 level: low
@@ -655,7 +655,7 @@ detection:
     selection:
         Image|startswith: 'C:\Temp\'
     condition: selection
-"#;
+";
         let mut engine = SigmaEngine::new();
         engine.load_rule(yaml).unwrap();
 
@@ -671,7 +671,7 @@ detection:
     // -----------------------------------------------------------------------
     #[test]
     fn test_endswith_modifier() {
-        let yaml = r#"
+        let yaml = r"
 title: EndsWith Test
 id: test-ew-001
 level: low
@@ -679,7 +679,7 @@ detection:
     selection:
         Image|endswith: '\cmd.exe'
     condition: selection
-"#;
+";
         let mut engine = SigmaEngine::new();
         engine.load_rule(yaml).unwrap();
 
@@ -695,7 +695,7 @@ detection:
     // -----------------------------------------------------------------------
     #[test]
     fn test_multiple_rules_selective_matching() {
-        let rule_a = r#"
+        let rule_a = r"
 title: Rule A
 id: rule-a
 level: high
@@ -703,8 +703,8 @@ detection:
     selection:
         Category: malware
     condition: selection
-"#;
-        let rule_b = r#"
+";
+        let rule_b = r"
 title: Rule B
 id: rule-b
 level: low
@@ -712,7 +712,7 @@ detection:
     selection:
         Category: benign
     condition: selection
-"#;
+";
         let mut engine = SigmaEngine::new();
         engine.load_rule(rule_a).unwrap();
         engine.load_rule(rule_b).unwrap();
@@ -732,7 +732,7 @@ detection:
         let dir = tempfile::tempdir().unwrap();
 
         // Write two valid rule files and one non-YAML file.
-        let rule1 = r#"
+        let rule1 = r"
 title: Dir Rule 1
 id: dir-001
 level: medium
@@ -740,8 +740,8 @@ detection:
     selection:
         Action: login
     condition: selection
-"#;
-        let rule2 = r#"
+";
+        let rule2 = r"
 title: Dir Rule 2
 id: dir-002
 level: low
@@ -749,7 +749,7 @@ detection:
     selection:
         Action: logout
     condition: selection
-"#;
+";
 
         std::fs::write(dir.path().join("rule1.yml"), rule1).unwrap();
         std::fs::write(dir.path().join("rule2.yaml"), rule2).unwrap();
@@ -775,7 +775,7 @@ detection:
     // -----------------------------------------------------------------------
     #[test]
     fn test_level_severity_in_match() {
-        let yaml = r#"
+        let yaml = r"
 title: Critical Alert
 id: crit-001
 level: critical
@@ -786,7 +786,7 @@ detection:
     condition: selection
 tags:
     - attack.impact
-"#;
+";
         let mut engine = SigmaEngine::new();
         engine.load_rule(yaml).unwrap();
 
@@ -805,14 +805,14 @@ tags:
     // -----------------------------------------------------------------------
     #[test]
     fn test_default_level_informational() {
-        let yaml = r#"
+        let yaml = r"
 title: No Level Rule
 id: nolev-001
 detection:
     selection:
         Foo: bar
     condition: selection
-"#;
+";
         let mut engine = SigmaEngine::new();
         engine.load_rule(yaml).unwrap();
 
@@ -827,7 +827,7 @@ detection:
     // -----------------------------------------------------------------------
     #[test]
     fn test_value_list_or_logic() {
-        let yaml = r#"
+        let yaml = r"
 title: Value List OR
 id: or-001
 level: medium
@@ -838,7 +838,7 @@ detection:
             - logon
             - authenticate
     condition: selection
-"#;
+";
         let mut engine = SigmaEngine::new();
         engine.load_rule(yaml).unwrap();
 
@@ -862,7 +862,7 @@ detection:
     // -----------------------------------------------------------------------
     #[test]
     fn test_condition_with_not_filter() {
-        let yaml = r#"
+        let yaml = r"
 title: Selection with Filter
 id: filter-001
 level: high
@@ -872,7 +872,7 @@ detection:
     filter:
         User: SYSTEM
     condition: selection and not filter
-"#;
+";
         let mut engine = SigmaEngine::new();
         engine.load_rule(yaml).unwrap();
 
@@ -894,7 +894,7 @@ detection:
     // -----------------------------------------------------------------------
     #[test]
     fn test_tags_empty_when_not_specified() {
-        let yaml = r#"
+        let yaml = r"
 title: No Tags Rule
 id: notags-001
 level: low
@@ -902,7 +902,7 @@ detection:
     selection:
         X: Y
     condition: selection
-"#;
+";
         let mut engine = SigmaEngine::new();
         engine.load_rule(yaml).unwrap();
 
@@ -917,7 +917,7 @@ detection:
     // -----------------------------------------------------------------------
     #[test]
     fn test_condition_or_identifiers() {
-        let yaml = r#"
+        let yaml = r"
 title: OR Condition
 id: or-cond-001
 level: medium
@@ -927,7 +927,7 @@ detection:
     selection_b:
         Source: api
     condition: selection_a or selection_b
-"#;
+";
         let mut engine = SigmaEngine::new();
         engine.load_rule(yaml).unwrap();
 

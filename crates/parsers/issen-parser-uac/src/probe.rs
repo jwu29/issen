@@ -72,8 +72,6 @@ mod tests {
     use super::*;
 
     fn create_uac_tar_gz(dir: &Path, include_uac_log: bool) -> std::path::PathBuf {
-        use std::io::Write;
-
         let tar_gz_path = dir.join("uac-test.tar.gz");
         let file = std::fs::File::create(&tar_gz_path).expect("create");
         let gz = flate2::write::GzEncoder::new(file, flate2::Compression::fast());

@@ -8,9 +8,8 @@ fn main() {
     let a: Vec<String> = std::env::args().collect();
     let src = EwfDataSource::open(std::path::Path::new(&a[1])).expect("open");
     for w in find_ntfs_partitions(&src).expect("parts") {
-        let files = match extract_dir_suffix(&src, w, r"\Windows\System32\config", "SECURITY") {
-            Ok(f) => f,
-            Err(_) => continue,
+        let Ok(files) = extract_dir_suffix(&src, w, r"\Windows\System32\config", "SECURITY") else {
+            continue;
         };
         for f in files {
             std::fs::write(&a[2], &f.data).unwrap();

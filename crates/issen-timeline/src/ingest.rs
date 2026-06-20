@@ -856,7 +856,7 @@ mod tests {
             .with_entity_ref(EntityRef::Process("coreupdater.exe".to_string()))
             .with_entity_ref(EntityRef::Ip("203.78.103.109".to_string()));
         store
-            .inseissen_batch(&[event.clone()])
+            .inseissen_batch(std::slice::from_ref(&event))
             .expect("batch insert");
 
         let mut stmt = store
@@ -880,7 +880,7 @@ mod tests {
         let store = TimelineStore::in_memory().expect("store");
         let event = sample_event(2000, "plain event");
         store
-            .inseissen_batch(&[event.clone()])
+            .inseissen_batch(std::slice::from_ref(&event))
             .expect("batch insert");
         let mut stmt = store
             .connection()

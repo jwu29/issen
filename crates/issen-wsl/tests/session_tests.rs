@@ -1,6 +1,6 @@
 //! RED tests for WslSession — correlating EVTX events into WSL sessions.
 
-use issen_wsl::session::{WslSession, build_sessions, SessionEvent, SessionEventKind};
+use issen_wsl::session::{build_sessions, SessionEvent, SessionEventKind};
 
 fn make_event(kind: SessionEventKind, ts_ns: i64, pid: u32, distro: Option<&str>) -> SessionEvent {
     SessionEvent {

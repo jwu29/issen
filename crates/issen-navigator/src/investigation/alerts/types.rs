@@ -47,6 +47,7 @@ pub struct Alert {
 /// Populated from parsed EVTX files (Velociraptor collections, standalone
 /// `.evtx`). Carries the subset of fields needed by Windows detection engines.
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // forensic data carrier: collected, not all fields rendered yet
 pub struct WindowsEvent {
     /// Windows Event ID (e.g. 4624, 7045, 1102).
     pub event_id: u64,
@@ -90,6 +91,7 @@ pub struct TimestampedConnection {
 }
 
 /// Borrowed slices of parsed artifacts fed into the alert engine.
+#[allow(dead_code)] // forensic data carrier: not every input slice is consumed yet
 pub struct AlertInput<'a> {
     pub bodyfile: &'a [BodyfileEntry],
     pub network: &'a [NetworkConnection],

@@ -76,7 +76,7 @@ mod tests {
             LoginRecord {
                 user: "admin".into(),
                 terminal: "tty1".into(),
-                source: "".into(),
+                source: String::new(),
                 login_time: None,
                 logout_time: None,
                 duration: None,

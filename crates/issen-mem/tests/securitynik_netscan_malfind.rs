@@ -82,7 +82,7 @@ fn extract_dmp(zip_path: &Path) -> PathBuf {
 
     // Reuse a previously-extracted dump to avoid re-inflating multiple GB.
     if out_path.exists()
-        && std::fs::metadata(&out_path).map(|m| m.len()).unwrap_or(0) == entry.size()
+        && std::fs::metadata(&out_path).map_or(0, |m| m.len()) == entry.size()
     {
         return out_path;
     }
@@ -131,8 +131,8 @@ fn securitynik_netstat_surfaces_verified_c2() {
     // At least one verified ESTABLISHED C2 endpoint must surface. The write-up's
     // ground truth: 10.0.0.110 / 10.0.0.101 on ports 4444/443/22/38159.
     let established_external = rows.iter().any(|r| {
-        let remote = r.get(remote_col).map(String::as_str).unwrap_or("");
-        let state = r.get(state_col).map(String::as_str).unwrap_or("");
+        let remote = r.get(remote_col).map_or("", String::as_str);
+        let state = r.get(state_col).map_or("", String::as_str);
         state.contains("ESTABLISHED")
             && (remote.contains("10.0.0.110") || remote.contains("10.0.0.101"))
     });
@@ -170,8 +170,7 @@ fn securitynik_malfind_flags_injected_processes() {
         .iter()
         .filter(|r| {
             r.get(type_col)
-                .map(|t| t.starts_with("malfind"))
-                .unwrap_or(false)
+                .is_some_and(|t| t.starts_with("malfind"))
         })
         .collect();
     eprintln!("malfind flagged {} regions", malfind_rows.len());

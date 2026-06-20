@@ -1230,7 +1230,7 @@ mod tests {
             .expect("rule temporal.sam-security-hive-copy must be registered");
 
         let mut e0 = ev(
-            3000000000000000,
+            3_000_000_000_000_000,
             EventType::FileAccess,
             ArtifactType::EventLog,
             "handle to C:\\Windows\\System32\\config\\SAM opened",
@@ -1239,7 +1239,7 @@ mod tests {
             "C:\\Windows\\System32\\config\\SAM".to_string(),
         ));
         let mut e1 = ev(
-            3000020000000000,
+            3_000_020_000_000_000,
             EventType::FileCreate,
             ArtifactType::UsnJournal,
             "USN CREATE: C:\\Users\\Public\\sam.save",
@@ -1256,7 +1256,7 @@ mod tests {
         );
 
         let mut en0 = ev(
-            4000000000000000,
+            4_000_000_000_000_000,
             EventType::FileAccess,
             ArtifactType::EventLog,
             "handle to C:\\Windows\\System32\\config\\SOFTWARE opened (not SAM)",
@@ -1265,7 +1265,7 @@ mod tests {
             "C:\\Windows\\System32\\config\\SOFTWARE".to_string(),
         ));
         let mut en1 = ev(
-            4000020000000000,
+            4_000_020_000_000_000,
             EventType::FileCreate,
             ArtifactType::UsnJournal,
             "USN CREATE: C:\\Temp\\report.docx",
@@ -1289,14 +1289,14 @@ mod tests {
             .expect("rule temporal.logon-failure-burst-then-success must be registered");
 
         let mut e0 = ev(
-            5000000000000000,
+            5_000_000_000_000_000,
             EventType::LogonFailure,
             ArtifactType::EventLog,
             "4625 failed logon: bad password (administrator)",
         );
         e0 = e0.with_entity_ref(EntityRef::User("administrator".to_string()));
         let mut e1 = ev(
-            5000030000000000,
+            5_000_030_000_000_000,
             EventType::LogonSuccess,
             ArtifactType::EventLog,
             "4624 successful logon (administrator)",
@@ -1311,7 +1311,7 @@ mod tests {
         );
 
         let mut en0 = ev(
-            6000000000000000,
+            6_000_000_000_000_000,
             EventType::LogonSuccess,
             ArtifactType::EventLog,
             "4624 clean interactive logon, no preceding failures",
@@ -1335,7 +1335,7 @@ mod tests {
             .expect("rule temporal.exec-residue-predates-image-mft-birth must be registered");
 
         let mut e0 = ev(
-            1000000000000000,
+            1_000_000_000_000_000,
             EventType::ProcessExec,
             ArtifactType::Prefetch,
             "Prefetch last-run time for image",
@@ -1344,7 +1344,7 @@ mod tests {
             "C:\\Windows\\Temp\\svc.exe".to_string(),
         ));
         let mut e1 = ev(
-            1000600000000000,
+            1_000_600_000_000_000,
             EventType::FileCreate,
             ArtifactType::Mft,
             "$MFT $SI born time for the same image (600 s later)",
@@ -1360,7 +1360,7 @@ mod tests {
         );
 
         let mut en0 = ev(
-            2000000000000000,
+            2_000_000_000_000_000,
             EventType::ProcessExec,
             ArtifactType::Prefetch,
             "Prefetch last-run time for a normally-installed image",
@@ -1369,7 +1369,7 @@ mod tests {
             "C:\\Program Files\\App\\app.exe".to_string(),
         ));
         let mut en1 = ev(
-            1999900000000000,
+            1_999_900_000_000_000,
             EventType::FileCreate,
             ArtifactType::Mft,
             "$MFT born time precedes the run by 100 s (normal: created then run)",
@@ -1393,7 +1393,7 @@ mod tests {
             .expect("rule temporal.amcache-exec-predates-mft-born must be registered");
 
         let mut e0 = ev(
-            7000000000000000,
+            7_000_000_000_000_000,
             EventType::ProcessExec,
             ArtifactType::Amcache,
             "Amcache first-execution time for image",
@@ -1402,7 +1402,7 @@ mod tests {
             "C:\\Users\\Public\\runner.exe".to_string(),
         ));
         let mut e1 = ev(
-            7000600000000000,
+            7_000_600_000_000_000,
             EventType::FileCreate,
             ArtifactType::Mft,
             "$MFT $SI born time for the same image (600 s later)",
@@ -1419,7 +1419,7 @@ mod tests {
         );
 
         let mut en0 = ev(
-            8000000000000000,
+            8_000_000_000_000_000,
             EventType::ProcessExec,
             ArtifactType::Amcache,
             "Amcache first-execution for a normally-installed image",
@@ -1428,7 +1428,7 @@ mod tests {
             "C:\\Program Files\\Tool\\tool.exe".to_string(),
         ));
         let mut en1 = ev(
-            7999900000000000,
+            7_999_900_000_000_000,
             EventType::FileCreate,
             ArtifactType::Mft,
             "$MFT born time precedes the first run by 100 s (normal order)",
@@ -1454,14 +1454,14 @@ mod tests {
             .expect("rule temporal.persistence-created-then-dropper-deleted must be registered");
 
         let mut e0 = ev(
-            1000000000000000,
+            1_000_000_000_000_000,
             EventType::ScheduledTaskCreate,
             ArtifactType::EventLog,
             "EID 4698: scheduled task \\Updater registered",
         );
         e0 = e0.with_entity_ref(EntityRef::FilePath("C:/Windows/Tasks/Updater".to_string()));
         let mut e1 = ev(
-            1000090000000000,
+            1_000_090_000_000_000,
             EventType::FileDelete,
             ArtifactType::UsnJournal,
             "USN CLOSE+DELETE: C:/Users/Public/setup_tmp.exe",
@@ -1477,7 +1477,7 @@ mod tests {
         );
 
         let mut en0 = ev(
-            1000000000000000,
+            1_000_000_000_000_000,
             EventType::ScheduledTaskCreate,
             ArtifactType::EventLog,
             "EID 4698: GoogleUpdateTaskMachineCore registered",
@@ -1486,7 +1486,7 @@ mod tests {
             "C:/Windows/Tasks/GoogleUpdateTaskMachineCore".to_string(),
         ));
         let mut en1 = ev(
-            2000000000000000,
+            2_000_000_000_000_000,
             EventType::FileDelete,
             ArtifactType::UsnJournal,
             "USN DELETE: C:/Windows/Temp/installer.log",
@@ -1510,14 +1510,14 @@ mod tests {
             .expect("rule temporal.shadow-copy-deletion-near-mass-delete must be registered");
 
         let mut e0 = ev(
-            9000000000000000,
+            9_000_000_000_000_000,
             EventType::ProcessExec,
             ArtifactType::Prefetch,
             "VSSADMIN.EXE delete shadows /all /quiet",
         );
         e0 = e0.with_entity_ref(EntityRef::Process("vssadmin.exe".to_string()));
         let mut e1 = ev(
-            9000060000000000,
+            9_000_060_000_000_000,
             EventType::FileDelete,
             ArtifactType::UsnJournal,
             "USN DELETE: C:/Users/Bob/Documents/report.xlsx",
@@ -1533,14 +1533,14 @@ mod tests {
         );
 
         let mut en0 = ev(
-            10000000000000000,
+            10_000_000_000_000_000,
             EventType::ProcessExec,
             ArtifactType::Prefetch,
             "VSSADMIN.EXE list shadows (read-only enumeration)",
         );
         en0 = en0.with_entity_ref(EntityRef::Process("vssadmin.exe".to_string()));
         let mut en1 = ev(
-            10000060000000000,
+            10_000_060_000_000_000,
             EventType::FileDelete,
             ArtifactType::UsnJournal,
             "USN DELETE: C:/Temp/cache.tmp",
@@ -1562,14 +1562,14 @@ mod tests {
             .expect("rule temporal.backup-catalog-deleted-near-archiver must be registered");
 
         let mut e0 = ev(
-            11000000000000000,
+            11_000_000_000_000_000,
             EventType::ProcessExec,
             ArtifactType::Prefetch,
             "WBADMIN.EXE delete catalog -quiet",
         );
         e0 = e0.with_entity_ref(EntityRef::Process("wbadmin.exe".to_string()));
         let mut e1 = ev(
-            11000050000000000,
+            11_000_050_000_000_000,
             EventType::FileDelete,
             ArtifactType::UsnJournal,
             "USN DELETE: C:/WindowsImageBackup/Catalog/BackupGlobalCatalog",
@@ -1585,14 +1585,14 @@ mod tests {
         );
 
         let mut en0 = ev(
-            12000000000000000,
+            12_000_000_000_000_000,
             EventType::ProcessExec,
             ArtifactType::Prefetch,
             "WBADMIN.EXE get versions (read-only)",
         );
         en0 = en0.with_entity_ref(EntityRef::Process("wbadmin.exe".to_string()));
         let mut en1 = ev(
-            12000050000000000,
+            12_000_050_000_000_000,
             EventType::FileDelete,
             ArtifactType::UsnJournal,
             "USN DELETE: C:/Temp/scratch.bin (not the backup catalog)",
@@ -1614,21 +1614,21 @@ mod tests {
             .expect("rule temporal.mass-file-modify-burst must be registered");
 
         let mut e0 = ev(
-            13000000000000000,
+            13_000_000_000_000_000,
             EventType::FileModify,
             ArtifactType::UsnJournal,
             "USN DATA_OVERWRITE: C:/Users/Bob/a.docx",
         );
         e0 = e0.with_entity_ref(EntityRef::FilePath("C:/Users/Bob/a.docx".to_string()));
         let mut e1 = ev(
-            13000005000000000,
+            13_000_005_000_000_000,
             EventType::FileModify,
             ArtifactType::UsnJournal,
             "USN DATA_OVERWRITE: C:/Users/Bob/b.xlsx",
         );
         e1 = e1.with_entity_ref(EntityRef::FilePath("C:/Users/Bob/b.xlsx".to_string()));
         let mut e2 = ev(
-            13000008000000000,
+            13_000_008_000_000_000,
             EventType::FileCreate,
             ArtifactType::UsnJournal,
             "USN CREATE: C:/Users/Bob/a.docx.locked",
@@ -1637,7 +1637,7 @@ mod tests {
             "C:/Users/Bob/a.docx.locked".to_string(),
         ));
         let mut e3 = ev(
-            13000010000000000,
+            13_000_010_000_000_000,
             EventType::FileDelete,
             ArtifactType::UsnJournal,
             "USN DELETE: C:/Users/Bob/a.docx",
@@ -1652,7 +1652,7 @@ mod tests {
         );
 
         let mut en0 = ev(
-            14000000000000000,
+            14_000_000_000_000_000,
             EventType::FileModify,
             ArtifactType::UsnJournal,
             "USN DATA_OVERWRITE: single document save",
@@ -1676,21 +1676,21 @@ mod tests {
             .expect("rule temporal.service-install-then-start-exec must be registered");
 
         let mut e0 = ev(
-            5000000000000,
+            5_000_000_000_000,
             EventType::ServiceInstall,
             ArtifactType::EventLog,
             "7045 A new service was installed in the system",
         );
         e0 = e0.with_entity_ref(EntityRef::Process("msupdate.exe".to_string()));
         let mut e1 = ev(
-            5008000000000,
+            5_008_000_000_000,
             EventType::ServiceStart,
             ArtifactType::EventLog,
             "7036 service entered the running state",
         );
         e1 = e1.with_entity_ref(EntityRef::Process("msupdate.exe".to_string()));
         let mut e2 = ev(
-            5012000000000,
+            5_012_000_000_000,
             EventType::ProcessExec,
             ArtifactType::Prefetch,
             "MSUPDATE.EXE first execution",
@@ -1705,20 +1705,20 @@ mod tests {
         );
 
         let en0 = ev(
-            6000000000000,
+            6_000_000_000_000,
             EventType::SystemBoot,
             ArtifactType::EventLog,
             "system boot",
         );
         let mut en1 = ev(
-            6005000000000,
+            6_005_000_000_000,
             EventType::ServiceStart,
             ArtifactType::EventLog,
             "7036 spooler entered running state",
         );
         en1 = en1.with_entity_ref(EntityRef::Process("spoolsv.exe".to_string()));
         let mut en2 = ev(
-            6007000000000,
+            6_007_000_000_000,
             EventType::ProcessExec,
             ArtifactType::Prefetch,
             "SPOOLSV.EXE execution",
@@ -1742,21 +1742,21 @@ mod tests {
             .expect("rule temporal.scheduled-task-create-run-burst must be registered");
 
         let mut e0 = ev(
-            12000000000000,
+            12_000_000_000_000,
             EventType::ScheduledTaskCreate,
             ArtifactType::EventLog,
             "4698 a scheduled task was created",
         );
         e0 = e0.with_entity_ref(EntityRef::Process("updater.exe".to_string()));
         let mut e1 = ev(
-            12010000000000,
+            12_010_000_000_000,
             EventType::ScheduledTaskRun,
             ArtifactType::EventLog,
             "200 action started",
         );
         e1 = e1.with_entity_ref(EntityRef::Process("updater.exe".to_string()));
         let mut e2 = ev(
-            12013000000000,
+            12_013_000_000_000,
             EventType::ProcessExec,
             ArtifactType::Prefetch,
             "UPDATER.EXE execution",
@@ -1771,14 +1771,14 @@ mod tests {
         );
 
         let mut en0 = ev(
-            13000000000000,
+            13_000_000_000_000,
             EventType::ScheduledTaskCreate,
             ArtifactType::EventLog,
             "4698 daily backup task created",
         );
         en0 = en0.with_entity_ref(EntityRef::Process("backup.exe".to_string()));
         let mut en1 = ev(
-            13003000000000,
+            13_003_000_000_000,
             EventType::FileModify,
             ArtifactType::Mft,
             "task XML written under Tasks",
@@ -1802,7 +1802,7 @@ mod tests {
             .expect("rule temporal.crontab-modified-near-process-exec must be registered");
 
         let mut e0 = ev(
-            15000000000000000,
+            15_000_000_000_000_000,
             EventType::FileModify,
             ArtifactType::CrontabConfig,
             "/var/spool/cron/crontabs/root modified",
@@ -1811,7 +1811,7 @@ mod tests {
             "/var/spool/cron/crontabs/root".to_string(),
         ));
         let mut e1 = ev(
-            15000010000000000,
+            15_000_010_000_000_000,
             EventType::ProcessExec,
             ArtifactType::Bodyfile,
             "/tmp/.x execution",
@@ -1826,7 +1826,7 @@ mod tests {
         );
 
         let mut en0 = ev(
-            16000000000000000,
+            16_000_000_000_000_000,
             EventType::FileModify,
             ArtifactType::CrontabConfig,
             "admin edits crontab by hand",
@@ -1835,7 +1835,7 @@ mod tests {
             "/var/spool/cron/crontabs/admin".to_string(),
         ));
         let mut en1 = ev(
-            16000600000000000,
+            16_000_600_000_000_000,
             EventType::ProcessExec,
             ArtifactType::Bodyfile,
             "unrelated process 600s later",
@@ -1859,7 +1859,7 @@ mod tests {
             .expect("rule temporal.scheduled-task-created-no-logon must be registered");
 
         let mut e0 = ev(
-            20000000000000,
+            20_000_000_000_000,
             EventType::ScheduledTaskCreate,
             ArtifactType::EventLog,
             "scheduled task registered (4698) by resident process",
@@ -1874,14 +1874,14 @@ mod tests {
         );
 
         let mut en0 = ev(
-            21000000000000,
+            21_000_000_000_000,
             EventType::LogonSuccess,
             ArtifactType::EventLog,
             "interactive logon: administrator",
         );
         en0 = en0.with_entity_ref(EntityRef::User("administrator".to_string()));
         let mut en1 = ev(
-            21040000000000,
+            21_040_000_000_000,
             EventType::ScheduledTaskCreate,
             ArtifactType::EventLog,
             "admin creates nightly backup task",
@@ -1905,21 +1905,21 @@ mod tests {
             .expect("rule temporal.new-admin-account-then-logon must be registered");
 
         let mut e0 = ev(
-            17000000000000000,
+            17_000_000_000_000_000,
             EventType::UserAccountChange,
             ArtifactType::EventLog,
             "4720 user account created: svc_backup",
         );
         e0 = e0.with_entity_ref(EntityRef::User("svc_backup".to_string()));
         let mut e1 = ev(
-            17000030000000000,
+            17_000_030_000_000_000,
             EventType::PolicyChange,
             ArtifactType::EventLog,
             "4732 member added to Administrators",
         );
         e1 = e1.with_entity_ref(EntityRef::User("svc_backup".to_string()));
         let mut e2 = ev(
-            17000060000000000,
+            17_000_060_000_000_000,
             EventType::LogonSuccess,
             ArtifactType::EventLog,
             "4624 logon: svc_backup",
@@ -1934,7 +1934,7 @@ mod tests {
         );
 
         let mut en0 = ev(
-            18000000000000000,
+            18_000_000_000_000_000,
             EventType::UserAccountChange,
             ArtifactType::EventLog,
             "4720 user account created: intern1 (no privilege change, no logon)",
@@ -1958,7 +1958,7 @@ mod tests {
             .expect("rule temporal.exec-without-process-creation-log must be registered");
 
         let mut e0 = ev(
-            19000000000000000,
+            19_000_000_000_000_000,
             EventType::ProcessExec,
             ArtifactType::Prefetch,
             "EVIL.EXE execution recorded in Prefetch",
@@ -1973,14 +1973,14 @@ mod tests {
         );
 
         let mut en0 = ev(
-            20000000000000000,
+            20_000_000_000_000_000,
             EventType::ProcessExec,
             ArtifactType::Prefetch,
             "APP.EXE execution in Prefetch",
         );
         en0 = en0.with_entity_ref(EntityRef::Process("app.exe".to_string()));
         let mut en1 = ev(
-            20000010000000000,
+            20_000_010_000_000_000,
             EventType::ProcessExec,
             ArtifactType::EventLog,
             "4688 process creation: app.exe",
@@ -2004,14 +2004,14 @@ mod tests {
             .expect("rule temporal.network-logon-then-service-install must be registered");
 
         let mut e0 = ev(
-            21000000000000000,
+            21_000_000_000_000_000,
             EventType::LogonSuccess,
             ArtifactType::EventLog,
             "4624 successful logon, Logon Type 3 (network)",
         );
         e0 = e0.with_entity_ref(EntityRef::User("admin".to_string()));
         let mut e1 = ev(
-            21000040000000000,
+            21_000_040_000_000_000,
             EventType::ServiceInstall,
             ArtifactType::EventLog,
             "7045 A new service was installed",
@@ -2026,14 +2026,14 @@ mod tests {
         );
 
         let mut en0 = ev(
-            22000000000000000,
+            22_000_000_000_000_000,
             EventType::LogonSuccess,
             ArtifactType::EventLog,
             "4624 successful logon, Logon Type 2 (interactive)",
         );
         en0 = en0.with_entity_ref(EntityRef::User("admin".to_string()));
         let mut en1 = ev(
-            22000040000000000,
+            22_000_040_000_000_000,
             EventType::ServiceInstall,
             ArtifactType::EventLog,
             "7045 vendor agent service installed",
@@ -2057,14 +2057,14 @@ mod tests {
             .expect("rule temporal.remote-scheduled-task-create-run must be registered");
 
         let mut e0 = ev(
-            23000000000000000,
+            23_000_000_000_000_000,
             EventType::ScheduledTaskCreate,
             ArtifactType::EventLog,
             "4698 scheduled task created via RPC",
         );
         e0 = e0.with_entity_ref(EntityRef::Process("taskhost.exe".to_string()));
         let mut e1 = ev(
-            23000120000000000,
+            23_000_120_000_000_000,
             EventType::ScheduledTaskRun,
             ArtifactType::EventLog,
             "4700/200 task action started",
@@ -2079,14 +2079,14 @@ mod tests {
         );
 
         let mut en0 = ev(
-            24000000000000000,
+            24_000_000_000_000_000,
             EventType::ScheduledTaskCreate,
             ArtifactType::EventLog,
             "4698 long-standing daily task created",
         );
         en0 = en0.with_entity_ref(EntityRef::Process("backup.exe".to_string()));
         let mut en1 = ev(
-            24086400000000000,
+            24_086_400_000_000_000,
             EventType::ScheduledTaskRun,
             ArtifactType::EventLog,
             "task runs 24h later on its schedule",
@@ -2110,14 +2110,14 @@ mod tests {
             .expect("rule temporal.service-install-then-start must be registered");
 
         let mut e0 = ev(
-            1718000000000000000,
+            1_718_000_000_000_000_000,
             EventType::ServiceInstall,
             ArtifactType::EventLog,
             "New service installed via SCM (EID 7045)",
         );
         e0 = e0.with_entity_ref(EntityRef::FilePath("C:/Windows/svc-a1b2.exe".to_string()));
         let mut e1 = ev(
-            1718000012000000000,
+            1_718_000_012_000_000_000,
             EventType::ServiceStart,
             ArtifactType::EventLog,
             "Service entered the running state (EID 7036)",
@@ -2132,7 +2132,7 @@ mod tests {
         );
 
         let mut en0 = ev(
-            1718000000000000000,
+            1_718_000_000_000_000_000,
             EventType::ServiceInstall,
             ArtifactType::EventLog,
             "Vendor agent service installed by MSI (EID 7045)",
@@ -2141,7 +2141,7 @@ mod tests {
             "C:/Program Files/Vendor/agent.exe".to_string(),
         ));
         let mut en1 = ev(
-            1718000600000000000,
+            1_718_000_600_000_000_000,
             EventType::ServiceStart,
             ArtifactType::EventLog,
             "Vendor agent started 10 minutes later (EID 7036)",

@@ -218,7 +218,7 @@ mod tests {
     fn malformed_line_skipped_without_panic() {
         let mut tmp = tempfile::NamedTempFile::new().expect("tempfile");
         writeln!(tmp, "not-a-valid-fsevents-line").expect("write");
-        writeln!(tmp, "").expect("write");
+        writeln!(tmp).expect("write");
         tmp.flush().expect("flush");
 
         let result = parse_fsevents_log(tmp.path(), "test-source");

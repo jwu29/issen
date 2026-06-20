@@ -35,12 +35,7 @@
     clippy::manual_contains,
     clippy::unnecessary_literal_bound
 )]
-#![allow(
-    clippy::doc_markdown,
-    clippy::missing_errors_doc,
-    clippy::missing_panics_doc,
-    clippy::must_use_candidate
-)]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 pub mod attack_classifier;
 pub mod engines;
 pub mod feeds;

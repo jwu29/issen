@@ -38,12 +38,16 @@ pub fn detect_log_clearing(events: &[EvtxEvent]) -> Vec<AntiForensicsAlert> {
             description: format!(
                 "Event log cleared (EID {}) by '{}'",
                 e.event_id,
-                e.data.get("SubjectUserName").map(String::as_str).unwrap_or("?")
+                e.data.get("SubjectUserName").map_or("?", String::as_str)
             ),
             evidence: vec![e.clone()],
         })
         .collect()
 }
+
+/// Shutdown/restart event IDs and the proximity window (60 s) for gap correlation.
+const SHUTDOWN_EIDS: &[u32] = &[6005, 6006, 6008];
+const PROXIMITY_NS: i64 = 60 * 1_000_000_000;
 
 /// Detect service stop around event-log gaps using gap_inference.
 ///
@@ -55,9 +59,6 @@ pub fn detect_service_stop_around_gaps(events: &[EvtxEvent]) -> Vec<AntiForensic
         return vec![];
     }
 
-    // Find shutdown/restart events near gap boundaries (within 60 s)
-    const SHUTDOWN_EIDS: &[u32] = &[6005, 6006, 6008];
-    const PROXIMITY_NS: i64 = 60 * 1_000_000_000;
 
     let mut alerts = Vec::new();
     for gap in &gaps {
@@ -168,15 +169,14 @@ pub fn detect_ps_history_wipe(events: &[EvtxEvent]) -> Vec<AntiForensicsAlert> {
         .filter(|e| e.event_id == EID_SYSMON_FILE_DELETE && e.channel == SYSMON_CHANNEL)
         .filter(|e| {
             e.data.get("TargetFilename")
-                .map(|f| f.contains(PS_HISTORY_PATH_FRAGMENT))
-                .unwrap_or(false)
+                .is_some_and(|f| f.contains(PS_HISTORY_PATH_FRAGMENT))
         })
         .map(|e| AntiForensicsAlert {
             kind: AlertKind::PsHistoryWipe,
             description: format!(
                 "PowerShell history file deleted (EID {}): '{}'",
                 e.event_id,
-                e.data.get("TargetFilename").map(String::as_str).unwrap_or("?")
+                e.data.get("TargetFilename").map_or("?", String::as_str)
             ),
             evidence: vec![e.clone()],
         })

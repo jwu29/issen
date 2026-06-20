@@ -316,11 +316,9 @@ fn parse_hostnamectl(content: &str, profile: &mut SystemProfile) {
                         profile.platform = Some(value.to_string());
                     }
                 }
-                "Chassis" => {
-                    // If no virtualization found, chassis tells us physical vs vm
-                    if profile.platform.is_none() && value != "vm" {
-                        profile.platform = Some("Physical".to_string());
-                    }
+                // If no virtualization found, chassis tells us physical vs vm
+                "Chassis" if profile.platform.is_none() && value != "vm" => {
+                    profile.platform = Some("Physical".to_string());
                 }
                 _ => {}
             }

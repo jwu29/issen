@@ -58,6 +58,7 @@ impl SortMode {
 // App
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::struct_excessive_bools)] // UI toggle flags for the TUI app state
 pub struct App {
     pub tree: FileTree,
     pub anomaly_index: AnomalyIndex,

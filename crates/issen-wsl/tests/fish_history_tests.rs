@@ -6,7 +6,7 @@
 //!     paths:
 //!       - <path>
 
-use issen_wsl::fish_history::{FishHistoryEntry, parse_fish_history};
+use issen_wsl::fish_history::parse_fish_history;
 
 // ── Test 1: empty input returns empty vec ─────────────────────────────────────
 

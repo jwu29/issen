@@ -78,7 +78,7 @@ fn is_regf(path: &Path) -> bool {
     let mut buf = [0u8; 4];
     std::fs::File::open(path)
         .and_then(|mut f| f.read_exact(&mut buf))
-        .map_or(false, |()| &buf == b"regf")
+        .is_ok_and(|()| &buf == b"regf")
 }
 
 /// Detect artifact type from file path heuristics.

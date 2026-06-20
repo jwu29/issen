@@ -191,7 +191,7 @@ mod tests {
             .expect("a suspicious-import detection event");
         assert_eq!(det.source, ArtifactType::Pe);
         assert!(det.tags.iter().any(|t| t == "suspicious"));
-        assert!(det.metadata.get("mitre_technique").is_some());
+        assert!(det.metadata.contains_key("mitre_technique"));
     }
 
     #[test]

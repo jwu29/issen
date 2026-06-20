@@ -152,10 +152,10 @@ mod tests {
             .expect("parse ok")
             .expect("is alert");
         let ev: Evidence = alert.into();
-        assert_eq!(ev.attrs.get("src_ip").map(|s| s.as_str()), Some("192.168.1.100"));
-        assert_eq!(ev.attrs.get("dest_ip").map(|s| s.as_str()), Some("10.0.0.1"));
-        assert_eq!(ev.attrs.get("src_port").map(|s| s.as_str()), Some("4444"));
-        assert_eq!(ev.attrs.get("dest_port").map(|s| s.as_str()), Some("3333"));
+        assert_eq!(ev.attrs.get("src_ip").map(std::string::String::as_str), Some("192.168.1.100"));
+        assert_eq!(ev.attrs.get("dest_ip").map(std::string::String::as_str), Some("10.0.0.1"));
+        assert_eq!(ev.attrs.get("src_port").map(std::string::String::as_str), Some("4444"));
+        assert_eq!(ev.attrs.get("dest_port").map(std::string::String::as_str), Some("3333"));
     }
 
     #[test]

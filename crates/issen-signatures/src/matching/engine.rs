@@ -494,7 +494,7 @@ mod tests {
         let mut sigma = SigmaEngine::new();
         sigma
             .load_rule(
-                r#"
+                r"
 title: Suspicious Login
 id: sigma-test-001
 level: high
@@ -502,7 +502,7 @@ detection:
     selection:
         EventType: login_failed
     condition: selection
-"#,
+",
             )
             .unwrap();
 
@@ -524,7 +524,7 @@ detection:
         let mut sigma = SigmaEngine::new();
         sigma
             .load_rule(
-                r#"
+                r"
 title: Suspicious Login
 id: sigma-test-001
 level: high
@@ -532,7 +532,7 @@ detection:
     selection:
         EventType: login_failed
     condition: selection
-"#,
+",
             )
             .unwrap();
 
@@ -702,14 +702,14 @@ detection:
         let mut sigma = SigmaEngine::new();
         sigma
             .load_rule(
-                r#"
+                r"
 title: Test
 level: low
 detection:
     selection:
         A: B
     condition: selection
-"#,
+",
             )
             .unwrap();
 

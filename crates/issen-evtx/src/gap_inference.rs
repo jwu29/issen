@@ -66,8 +66,8 @@ pub fn detect_gaps(events: &[EvtxEvent], config: &GapConfig) -> Vec<Gap> {
     let mut sorted_intervals = intervals.clone();
     sorted_intervals.sort_by(f64::total_cmp);
     let mid = sorted_intervals.len() / 2;
-    let median = if sorted_intervals.len() % 2 == 0 {
-        (sorted_intervals[mid - 1] + sorted_intervals[mid]) / 2.0
+    let median = if sorted_intervals.len().is_multiple_of(2) {
+        f64::midpoint(sorted_intervals[mid - 1], sorted_intervals[mid])
     } else {
         sorted_intervals[mid]
     };

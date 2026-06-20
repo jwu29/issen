@@ -35,6 +35,7 @@
     clippy::manual_contains,
     clippy::unnecessary_literal_bound
 )]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 pub mod extract;
 pub mod parsers;
 pub mod probe;

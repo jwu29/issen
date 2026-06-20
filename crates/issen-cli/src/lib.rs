@@ -35,6 +35,9 @@
     clippy::manual_contains,
     clippy::unnecessary_literal_bound
 )]
+// Tests opt out of the panic lints (fleet standard) — unwrap/expect in test code.
+// Required in lib.rs (not main.rs) since L1 moved the command modules' tests here.
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 //! Issen CLI library — the single code path for the `issen` binary and every
 //! library-linked test harness. `main.rs` is a thin shim calling [`run`]; all
 //! force-link anchors live here so the binary and the lib share one parser

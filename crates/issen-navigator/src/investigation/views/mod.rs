@@ -75,7 +75,7 @@ mod tests {
         let app = make_all_views_app();
         // Default view is Dashboard (index 0).
         assert_eq!(app.current_view(), WorkbenchView::Dashboard);
-        assert_renders(&app, |frame, app, area| draw_view(frame, app, area));
+        assert_renders(&app, draw_view);
         // No panic = success.
     }
 
@@ -84,7 +84,7 @@ mod tests {
         let mut app = make_all_views_app();
         set_view(&mut app, WorkbenchView::MftTree);
         assert_eq!(app.current_view(), WorkbenchView::MftTree);
-        assert_renders(&app, |frame, app, area| draw_view(frame, app, area));
+        assert_renders(&app, draw_view);
     }
 
     // -----------------------------------------------------------------------
@@ -95,55 +95,55 @@ mod tests {
     fn draw_view_timeline_no_panic() {
         let mut app = make_all_views_app();
         set_view(&mut app, WorkbenchView::Timeline);
-        assert_renders(&app, |frame, app, area| draw_view(frame, app, area));
+        assert_renders(&app, draw_view);
     }
 
     #[test]
     fn draw_view_network_no_panic() {
         let mut app = make_all_views_app();
         set_view(&mut app, WorkbenchView::Network);
-        assert_renders(&app, |frame, app, area| draw_view(frame, app, area));
+        assert_renders(&app, draw_view);
     }
 
     #[test]
     fn draw_view_processes_no_panic() {
         let mut app = make_all_views_app();
         set_view(&mut app, WorkbenchView::Processes);
-        assert_renders(&app, |frame, app, area| draw_view(frame, app, area));
+        assert_renders(&app, draw_view);
     }
 
     #[test]
     fn draw_view_logins_no_panic() {
         let mut app = make_all_views_app();
         set_view(&mut app, WorkbenchView::Logins);
-        assert_renders(&app, |frame, app, area| draw_view(frame, app, area));
+        assert_renders(&app, draw_view);
     }
 
     #[test]
     fn draw_view_packages_no_panic() {
         let mut app = make_all_views_app();
         set_view(&mut app, WorkbenchView::Packages);
-        assert_renders(&app, |frame, app, area| draw_view(frame, app, area));
+        assert_renders(&app, draw_view);
     }
 
     #[test]
     fn draw_view_configs_no_panic() {
         let mut app = make_all_views_app();
         set_view(&mut app, WorkbenchView::Configs);
-        assert_renders(&app, |frame, app, area| draw_view(frame, app, area));
+        assert_renders(&app, draw_view);
     }
 
     #[test]
     fn draw_view_hashes_no_panic() {
         let mut app = make_all_views_app();
         set_view(&mut app, WorkbenchView::Hashes);
-        assert_renders(&app, |frame, app, area| draw_view(frame, app, area));
+        assert_renders(&app, draw_view);
     }
 
     #[test]
     fn draw_view_chkrootkit_no_panic() {
         let mut app = make_all_views_app();
         set_view(&mut app, WorkbenchView::Chkrootkit);
-        assert_renders(&app, |frame, app, area| draw_view(frame, app, area));
+        assert_renders(&app, draw_view);
     }
 }

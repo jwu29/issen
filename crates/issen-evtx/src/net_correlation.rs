@@ -139,7 +139,7 @@ pub fn correlate_with_zeek(
         .iter()
         .filter(|e| e.event_id == EID_SYSMON_NETWORK_CONNECT && e.channel == SYSMON_CHANNEL)
         .map(|ev| {
-            let dst_ip = ev.data.get("DestinationIp").map(String::as_str).unwrap_or("");
+            let dst_ip = ev.data.get("DestinationIp").map_or("", String::as_str);
             let dst_port: u16 = ev.data.get("DestinationPort")
                 .and_then(|p| p.parse().ok())
                 .unwrap_or(0);
@@ -185,13 +185,12 @@ pub fn enrich_network_events_with_sessions(
         if event.event_type != EventType::NetworkConnect {
             continue;
         }
-        let logon_id = match event.metadata.get("logon_id").and_then(|v| v.as_u64()) {
-            Some(id) => id,
-            None => continue,
+        let Some(logon_id) = event.metadata.get("logon_id").and_then(serde_json::Value::as_u64)
+        else {
+            continue;
         };
-        let session = match sessions.get(&logon_id) {
-            Some(s) => s,
-            None => continue,
+        let Some(session) = sessions.get(&logon_id) else {
+            continue;
         };
         event.entity_refs.push(EntityRef::Session(logon_id));
         if let Some(session_ip) = &session.src_ip {
@@ -246,7 +245,7 @@ mod tests {
 
     #[test]
     fn entropy_of_empty_string_is_zero() {
-        assert_eq!(shannon_entropy(""), 0.0);
+        assert!(shannon_entropy("").abs() < f64::EPSILON);
     }
 
     #[test]
@@ -342,7 +341,7 @@ mod tests {
             logon_type: 3,
             username: "alice".to_string(),
             domain: "CORP".to_string(),
-            src_ip: session_src_ip.map(|s| s.to_string()),
+            src_ip: session_src_ip.map(std::string::ToString::to_string),
             logon_time_ns: 1_700_000_000_000_000_000,
             logoff_time_ns: None,
             duration_secs: None,

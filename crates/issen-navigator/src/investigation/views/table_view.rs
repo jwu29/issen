@@ -27,6 +27,7 @@ pub struct Column {
 ///   Receives the *absolute* index into the data (not the viewport-relative index).
 /// - `color_fn`: optional per-row base foreground color (e.g. red for infected items).
 ///   Receives the absolute index. Return `None` for the default color.
+#[allow(clippy::too_many_arguments)] // table renderer needs frame, area, data, and several display callbacks
 pub fn draw_table<F, C>(
     frame: &mut Frame,
     app: &WorkbenchApp,
@@ -139,7 +140,7 @@ mod tests {
                 width: Constraint::Min(20),
             },
         ];
-        let items = vec![("alpha", "1"), ("beta", "2"), ("gamma", "3")];
+        let items = [("alpha", "1"), ("beta", "2"), ("gamma", "3")];
         assert_renders(&app, |frame, app, area| {
             draw_plain_table(frame, app, area, "Items", &cols, items.len(), |i| {
                 vec![items[i].0.into(), items[i].1.into()]

@@ -35,7 +35,7 @@
     clippy::manual_contains,
     clippy::unnecessary_literal_bound
 )]
-#![allow(clippy::doc_markdown)]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 pub mod cmd_memf;
 pub mod correlate;

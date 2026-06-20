@@ -39,7 +39,7 @@ static MFT_KINDS: [ArtifactType; 1] = [ArtifactType::Mft];
 struct SentinelProvider;
 
 impl CollectionProvider for SentinelProvider {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "SentinelTestCollection"
     }
 
@@ -80,7 +80,7 @@ inventory::submit!(ProviderRegistration {
 struct MftTouchParser;
 
 impl ForensicParser for MftTouchParser {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "MftTouch"
     }
 

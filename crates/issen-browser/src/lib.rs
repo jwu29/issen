@@ -1,3 +1,4 @@
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 /// Browser forensic integration layer for Issen.
 ///
 /// Wraps browser-core, browser-chrome, and browser-firefox.

@@ -93,7 +93,7 @@ pub fn correlate_with_usn(
 ///
 /// Returns the original string if no separator is found.
 pub fn basename(path: &str) -> &str {
-    path.rsplit(|c| c == '\\' || c == '/')
+    path.rsplit(['\\', '/'])
         .next()
         .unwrap_or(path)
 }

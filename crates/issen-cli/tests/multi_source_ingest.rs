@@ -25,10 +25,7 @@ fn build_usn_v2_record(
     parent_ref: u64,
     usn: i64,
 ) -> Vec<u8> {
-    let name_utf16: Vec<u8> = filename
-        .encode_utf16()
-        .flat_map(|c| c.to_le_bytes())
-        .collect();
+    let name_utf16: Vec<u8> = filename.encode_utf16().flat_map(u16::to_le_bytes).collect();
     let file_name_offset: u16 = 60;
     let file_name_length = name_utf16.len() as u16;
     let record_length = file_name_offset as usize + name_utf16.len();

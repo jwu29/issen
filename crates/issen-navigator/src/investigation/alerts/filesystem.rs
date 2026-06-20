@@ -139,8 +139,8 @@ pub(super) fn check_permission_anomalies(bodyfile: &[BodyfileEntry], alerts: &mu
             let path = entry.path.as_str();
             // Trim trailing slash for comparison
             let trimmed = path.trim_end_matches('/');
-            let is_critical = CRITICAL_SYSTEM_DIRS.iter().any(|d| trimmed == *d);
-            let is_expected = EXPECTED_WORLD_WRITABLE.iter().any(|d| trimmed == *d);
+            let is_critical = CRITICAL_SYSTEM_DIRS.contains(&trimmed);
+            let is_expected = EXPECTED_WORLD_WRITABLE.contains(&trimmed);
 
             if is_critical && !is_expected {
                 alerts.push(Alert {

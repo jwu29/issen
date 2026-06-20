@@ -1,6 +1,6 @@
 use forensic_pivot::{
-    FeedKind, FeedSpec, SyncManifest,
-    downloader::{download_feed, load_manifest, prepare_feed_cache, save_manifest},
+    FeedKind, FeedSpec,
+    downloader::download_feed,
     loader::default_feeds,
 };
 use tempfile::TempDir;

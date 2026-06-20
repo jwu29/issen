@@ -4,10 +4,10 @@ use forensicnomicon::heuristics::evtx::{
     AMSI_BYPASS_PATTERNS, ARCHIVER_PROCESS_NAMES, BITS_CLIENT_CHANNEL, BYOVD_DRIVER_NAMES,
     DEFENDER_CHANNEL, DEFENDER_TAMPER_PATTERNS, EID_BITS_TRANSFER_START,
     EID_DIRECTORY_SERVICE_ACCESS, EID_HYPERV_VM_STATE_CHANGE, EID_HYPERV_VM_STOPPED,
-    EID_KERBEROS_TGS_REQUEST, EID_KERBEROS_TGT_REQUEST, EID_LOG_CLEARED,
+    EID_KERBEROS_TGS_REQUEST, EID_KERBEROS_TGT_REQUEST,
     EID_PROCESS_CREATE, EID_PS_SCRIPT_BLOCK, EID_REGISTRY_VALUE_SET,
     EID_SECURITY_TASK_CREATED, EID_SERVICE_INSTALLED, EID_SERVICE_INSTALLED_SECURITY,
-    EID_SMB_SHARE_ACCESS, EID_SYSMON_DNS_QUERY, EID_SYSMON_FILE_CREATE,
+    EID_SMB_SHARE_ACCESS, EID_SYSMON_DNS_QUERY,
     EID_SYSMON_NETWORK_CONNECT, EID_SYSMON_PROCESS_ACCESS, EID_SYSMON_PROCESS_CREATE,
     EID_TASK_COMPLETED, EID_TASK_DELETED, EID_TASK_LAUNCHED, EID_TASK_REGISTERED,
     EID_TASK_UPDATED, EID_VSS_ERROR, EID_VSS_SNAPSHOT_DELETED,
@@ -51,14 +51,12 @@ pub fn detect_kerberoasting(events: &[EvtxEvent]) -> Vec<Detection> {
         .filter(|e| e.event_id == EID_KERBEROS_TGS_REQUEST)
         .filter(|e| {
             e.data.get("TicketEncryptionType")
-                .map(|t| t.trim().to_lowercase() == "0x17")
-                .unwrap_or(false)
+                .is_some_and(|t| t.trim().to_lowercase() == "0x17")
         })
         .filter(|e| {
             // Skip machine accounts (end with $)
             !e.data.get("TargetUserName")
-                .map(|u| u.ends_with('$'))
-                .unwrap_or(false)
+                .is_some_and(|u| u.ends_with('$'))
         })
         .map(|e| Detection {
             technique: "Kerberoasting",
@@ -68,7 +66,7 @@ pub fn detect_kerberoasting(events: &[EvtxEvent]) -> Vec<Detection> {
             evidence: vec![e.clone()],
             description: format!(
                 "RC4 (0x17) TGS request for service '{}'",
-                e.data.get("ServiceName").map(String::as_str).unwrap_or("?")
+                e.data.get("ServiceName").map_or("?", String::as_str)
             ),
         })
         .collect()
@@ -81,8 +79,7 @@ pub fn detect_asrep_roasting(events: &[EvtxEvent]) -> Vec<Detection> {
         .filter(|e| e.event_id == EID_KERBEROS_TGT_REQUEST)
         .filter(|e| {
             e.data.get("PreAuthType")
-                .map(|t| t.trim() == "0")
-                .unwrap_or(false)
+                .is_some_and(|t| t.trim() == "0")
         })
         .map(|e| Detection {
             technique: "AS-REP Roasting",
@@ -92,7 +89,7 @@ pub fn detect_asrep_roasting(events: &[EvtxEvent]) -> Vec<Detection> {
             evidence: vec![e.clone()],
             description: format!(
                 "Pre-authentication disabled for '{}'",
-                e.data.get("TargetUserName").map(String::as_str).unwrap_or("?")
+                e.data.get("TargetUserName").map_or("?", String::as_str)
             ),
         })
         .collect()
@@ -125,7 +122,7 @@ pub fn detect_dcsync(events: &[EvtxEvent]) -> Vec<Detection> {
             evidence: vec![e.clone()],
             description: format!(
                 "DS-Replication GUID seen for account '{}'",
-                e.data.get("SubjectUserName").map(String::as_str).unwrap_or("?")
+                e.data.get("SubjectUserName").map_or("?", String::as_str)
             ),
         })
         .collect()
@@ -147,14 +144,12 @@ pub fn detect_lsass_access(events: &[EvtxEvent]) -> Vec<Detection> {
         .filter(|e| e.event_id == EID_SYSMON_PROCESS_ACCESS && e.channel == SYSMON_CHANNEL)
         .filter(|e| {
             e.data.get(SYSMON_FIELD_TARGET_IMAGE)
-                .map(|img| img.to_lowercase().ends_with(LSASS_IMAGE_NAME))
-                .unwrap_or(false)
+                .is_some_and(|img| img.to_lowercase().ends_with(LSASS_IMAGE_NAME))
         })
         .filter(|e| {
             e.data.get(SYSMON_FIELD_GRANTED_ACCESS)
                 .and_then(|m| parse_access_mask(m))
-                .map(|mask| LSASS_DUMP_ACCESS_MASKS.contains(&mask))
-                .unwrap_or(false)
+                .is_some_and(|mask| LSASS_DUMP_ACCESS_MASKS.contains(&mask))
         })
         .map(|e| Detection {
             technique: "LSASS Memory Dump",
@@ -164,8 +159,8 @@ pub fn detect_lsass_access(events: &[EvtxEvent]) -> Vec<Detection> {
             evidence: vec![e.clone()],
             description: format!(
                 "LSASS accessed with mask {} from '{}'",
-                e.data.get(SYSMON_FIELD_GRANTED_ACCESS).map(String::as_str).unwrap_or("?"),
-                e.data.get("SourceImage").map(String::as_str).unwrap_or("?")
+                e.data.get(SYSMON_FIELD_GRANTED_ACCESS).map_or("?", String::as_str),
+                e.data.get("SourceImage").map_or("?", String::as_str)
             ),
         })
         .collect()
@@ -178,8 +173,7 @@ pub fn detect_psexec(events: &[EvtxEvent]) -> Vec<Detection> {
         .filter(|e| e.event_id == EID_SERVICE_INSTALLED)
         .filter(|e| {
             e.data.get("ServiceName")
-                .map(|n| PSEXEC_SERVICE_PATTERNS.iter().any(|p| n.contains(p)))
-                .unwrap_or(false)
+                .is_some_and(|n| PSEXEC_SERVICE_PATTERNS.iter().any(|p| n.contains(p)))
         })
         .map(|e| Detection {
             technique: "PsExec / Remote Execution Service",
@@ -189,7 +183,7 @@ pub fn detect_psexec(events: &[EvtxEvent]) -> Vec<Detection> {
             evidence: vec![e.clone()],
             description: format!(
                 "PsExec-pattern service '{}' installed",
-                e.data.get("ServiceName").map(String::as_str).unwrap_or("?")
+                e.data.get("ServiceName").map_or("?", String::as_str)
             ),
         })
         .collect()
@@ -214,7 +208,7 @@ pub fn detect_scheduled_task_abuse(events: &[EvtxEvent]) -> Vec<Detection> {
             description: format!(
                 "Scheduled task activity (EID {}) for '{}'",
                 e.event_id,
-                e.data.get("TaskName").map(String::as_str).unwrap_or("?")
+                e.data.get("TaskName").map_or("?", String::as_str)
             ),
         })
         .collect()
@@ -228,8 +222,7 @@ pub fn detect_service_persistence(events: &[EvtxEvent]) -> Vec<Detection> {
         .filter(|e| {
             // Skip PsExec patterns — handled by detect_psexec
             !e.data.get("ServiceName")
-                .map(|n| PSEXEC_SERVICE_PATTERNS.iter().any(|p| n.contains(p)))
-                .unwrap_or(false)
+                .is_some_and(|n| PSEXEC_SERVICE_PATTERNS.iter().any(|p| n.contains(p)))
         })
         .map(|e| Detection {
             technique: "Service Persistence",
@@ -239,7 +232,7 @@ pub fn detect_service_persistence(events: &[EvtxEvent]) -> Vec<Detection> {
             evidence: vec![e.clone()],
             description: format!(
                 "Service '{}' installed (EID {})",
-                e.data.get("ServiceName").map(String::as_str).unwrap_or("?"),
+                e.data.get("ServiceName").map_or("?", String::as_str),
                 e.event_id
             ),
         })
@@ -261,7 +254,7 @@ pub fn detect_wmi_subscription(events: &[EvtxEvent]) -> Vec<Detection> {
             description: format!(
                 "WMI subscription event (EID {}) — consumer: {}",
                 e.event_id,
-                e.data.get("Consumer").map(String::as_str).unwrap_or("?")
+                e.data.get("Consumer").map_or("?", String::as_str)
             ),
         })
         .collect()
@@ -276,7 +269,7 @@ fn extract_image_basename(ev: &EvtxEvent) -> Option<String> {
         return None;
     };
     Some(
-        path.rsplit(|c| c == '\\' || c == '/')
+        path.rsplit(['\\', '/'])
             .next()
             .unwrap_or(path)
             .to_lowercase(),
@@ -296,7 +289,7 @@ pub fn detect_lolbas(events: &[EvtxEvent]) -> Vec<Detection> {
                     tactic: "defense-evasion",
                     confidence: Confidence::Medium,
                     evidence: vec![e.clone()],
-                    description: format!("LOLBAS binary '{}' executed", basename),
+                    description: format!("LOLBAS binary '{basename}' executed"),
                 })
             } else {
                 None
@@ -320,7 +313,7 @@ pub fn detect_amsi_bypass(events: &[EvtxEvent]) -> Vec<Detection> {
                 tactic: "defense-evasion",
                 confidence: Confidence::High,
                 evidence: vec![e.clone()],
-                description: format!("AMSI bypass pattern '{}' in script block", pattern),
+                description: format!("AMSI bypass pattern '{pattern}' in script block"),
             })
         })
         .collect()
@@ -335,8 +328,7 @@ pub fn detect_defender_tampering(events: &[EvtxEvent]) -> Vec<Detection> {
                 && (e.event_id == EID_DEFENDER_REALTIME_DISABLED || e.event_id == EID_DEFENDER_CONFIG_CHANGED);
             let is_ps_tamper = e.event_id == EID_PS_SCRIPT_BLOCK
                 && e.data.get("ScriptBlockText")
-                    .map(|s| DEFENDER_TAMPER_PATTERNS.iter().any(|p| s.contains(p)))
-                    .unwrap_or(false);
+                    .is_some_and(|s| DEFENDER_TAMPER_PATTERNS.iter().any(|p| s.contains(p)));
             is_defender_event || is_ps_tamper
         })
         .map(|e| Detection {
@@ -358,8 +350,8 @@ pub fn detect_smb_lateral_movement(events: &[EvtxEvent]) -> Vec<Detection> {
     let type3_ids: HashSet<u64> = events.iter()
         .filter(|e| {
             e.event_id == EID_LOGON
-                && e.data.get("LogonType").map(|t| t == "3").unwrap_or(false)
-                && e.data.get("IpAddress").map(|ip| !ip.is_empty() && ip != "-").unwrap_or(false)
+                && e.data.get("LogonType").is_some_and(|t| t == "3")
+                && e.data.get("IpAddress").is_some_and(|ip| !ip.is_empty() && ip != "-")
         })
         .filter_map(|e| {
             e.logon_id.or_else(|| {
@@ -385,7 +377,7 @@ pub fn detect_smb_lateral_movement(events: &[EvtxEvent]) -> Vec<Detection> {
                     evidence: vec![e.clone()],
                     description: format!(
                         "SMB share '{}' accessed via Type-3 logon (LogonId 0x{lid:x})",
-                        e.data.get("ShareName").map(String::as_str).unwrap_or("?")
+                        e.data.get("ShareName").map_or("?", String::as_str)
                     ),
                 })
             } else {
@@ -411,10 +403,9 @@ pub fn detect_pass_the_hash(events: &[EvtxEvent]) -> Vec<Detection> {
         .iter()
         .filter(|e| {
             e.event_id == EID_LOGON
-                && e.data.get("LogonType").map(|t| t == "9").unwrap_or(false)
+                && e.data.get("LogonType").is_some_and(|t| t == "9")
                 && e.data.get("AuthenticationPackageName")
-                    .map(|pkg| pkg.to_uppercase().contains("NTLM"))
-                    .unwrap_or(false)
+                    .is_some_and(|pkg| pkg.to_uppercase().contains("NTLM"))
         })
         .map(|e| Detection {
             technique: "Pass-the-Hash",
@@ -424,7 +415,7 @@ pub fn detect_pass_the_hash(events: &[EvtxEvent]) -> Vec<Detection> {
             evidence: vec![e.clone()],
             description: format!(
                 "LogonType=9 NTLM logon for '{}'",
-                e.data.get("TargetUserName").map(String::as_str).unwrap_or("?")
+                e.data.get("TargetUserName").map_or("?", String::as_str)
             ),
         })
         .collect()
@@ -461,7 +452,7 @@ pub fn detect_compression_staging(events: &[EvtxEvent]) -> Vec<Detection> {
         .filter(|e| e.event_id == EID_SYSMON_PROCESS_CREATE && e.channel == SYSMON_CHANNEL)
         .filter_map(|e| {
             let image = e.data.get(SYSMON_FIELD_IMAGE)?;
-            let basename = image.rsplit(|c| c == '\\' || c == '/').next().unwrap_or(image.as_str()).to_lowercase();
+            let basename = image.rsplit(['\\', '/']).next().unwrap_or(image.as_str()).to_lowercase();
             if ARCHIVER_PROCESS_NAMES.iter().any(|a| basename == *a) {
                 Some(Detection {
                     technique: "Data Compression / Staging",
@@ -469,7 +460,7 @@ pub fn detect_compression_staging(events: &[EvtxEvent]) -> Vec<Detection> {
                     tactic: "collection",
                     confidence: Confidence::Medium,
                     evidence: vec![e.clone()],
-                    description: format!("Archiver '{}' executed", basename),
+                    description: format!("Archiver '{basename}' executed"),
                 })
             } else {
                 None
@@ -519,8 +510,7 @@ pub fn detect_byovd_driver_install(events: &[EvtxEvent]) -> Vec<Detection> {
         .filter(|e| e.event_id == EID_SERVICE_INSTALLED)
         .filter(|e| {
             e.data.get("ServiceName")
-                .map(|n| BYOVD_DRIVER_NAMES.iter().any(|d| n.eq_ignore_ascii_case(d)))
-                .unwrap_or(false)
+                .is_some_and(|n| BYOVD_DRIVER_NAMES.iter().any(|d| n.eq_ignore_ascii_case(d)))
         })
         .map(|e| Detection {
             technique: "BYOVD Driver Install",
@@ -530,7 +520,7 @@ pub fn detect_byovd_driver_install(events: &[EvtxEvent]) -> Vec<Detection> {
             evidence: vec![e.clone()],
             description: format!(
                 "Known-vulnerable driver '{}' installed as a service (BYOVD — T1068)",
-                e.data.get("ServiceName").map(String::as_str).unwrap_or("?")
+                e.data.get("ServiceName").map_or("?", String::as_str)
             ),
         })
         .collect()
@@ -625,8 +615,7 @@ pub fn detect_wmi_lateral_movement(events: &[EvtxEvent]) -> Vec<Detection> {
         })
         .filter(|e| {
             e.data.get("ClientMachine")
-                .map(|m| m.starts_with("\\\\"))
-                .unwrap_or(false)
+                .is_some_and(|m| m.starts_with("\\\\"))
         })
         .map(|e| Detection {
             technique: "WMI Remote Lateral Movement",
@@ -636,8 +625,8 @@ pub fn detect_wmi_lateral_movement(events: &[EvtxEvent]) -> Vec<Detection> {
             evidence: vec![e.clone()],
             description: format!(
                 "Remote WMI operation from '{}' by '{}'",
-                e.data.get("ClientMachine").map(String::as_str).unwrap_or("?"),
-                e.data.get("User").map(String::as_str).unwrap_or("?"),
+                e.data.get("ClientMachine").map_or("?", String::as_str),
+                e.data.get("User").map_or("?", String::as_str),
             ),
         })
         .collect()
@@ -660,7 +649,7 @@ pub fn detect_qwcrypt_ps_patterns(events: &[EvtxEvent]) -> Vec<Detection> {
                 tactic: "execution",
                 confidence: Confidence::High,
                 evidence: vec![e.clone()],
-                description: format!("QWCrypt pattern '{}' in PowerShell script block", pattern),
+                description: format!("QWCrypt pattern '{pattern}' in PowerShell script block"),
             })
         })
         .collect()
@@ -682,8 +671,8 @@ pub fn detect_security_task_created(events: &[EvtxEvent]) -> Vec<Detection> {
             evidence: vec![e.clone()],
             description: format!(
                 "Scheduled task '{}' created (Security EID 4698, user '{}')",
-                e.data.get("TaskName").map(String::as_str).unwrap_or("?"),
-                e.data.get("SubjectUserName").map(String::as_str).unwrap_or("?"),
+                e.data.get("TaskName").map_or("?", String::as_str),
+                e.data.get("SubjectUserName").map_or("?", String::as_str),
             ),
         })
         .collect()
@@ -746,12 +735,12 @@ pub fn detect_lnk_webdav_execution(events: &[EvtxEvent]) -> Vec<Detection> {
         .iter()
         .filter(|e| e.event_id == EID_PROCESS_CREATE)
         .filter(|e| {
-            let name = e.data.get("NewProcessName").map(String::as_str).unwrap_or("");
+            let name = e.data.get("NewProcessName").map_or("", String::as_str);
             let basename = name.rsplit(['\\', '/']).next().unwrap_or(name);
             WEBDAV_LOL_PROCESSES.iter().any(|p| basename.eq_ignore_ascii_case(p))
         })
         .filter(|e| {
-            let cmdline = e.data.get("CommandLine").map(String::as_str).unwrap_or("");
+            let cmdline = e.data.get("CommandLine").map_or("", String::as_str);
             cmdline.contains("http") || cmdline.contains("\\\\")
         })
         .map(|e| Detection {
@@ -762,7 +751,7 @@ pub fn detect_lnk_webdav_execution(events: &[EvtxEvent]) -> Vec<Detection> {
             evidence: vec![e.clone()],
             description: format!(
                 "LOLBin '{}' launched with network/WebDAV path",
-                e.data.get("NewProcessName").map(String::as_str).unwrap_or("?")
+                e.data.get("NewProcessName").map_or("?", String::as_str)
             ),
         })
         .collect()
@@ -775,7 +764,7 @@ pub fn detect_webdav_c2(events: &[EvtxEvent]) -> Vec<Detection> {
         .iter()
         .filter(|e| e.event_id == EID_SYSMON_NETWORK_CONNECT && e.channel == SYSMON_CHANNEL)
         .filter(|e| {
-            let image = e.data.get(SYSMON_FIELD_IMAGE).map(String::as_str).unwrap_or("");
+            let image = e.data.get(SYSMON_FIELD_IMAGE).map_or("", String::as_str);
             let basename = image.rsplit(['\\', '/']).next().unwrap_or(image);
             WEBDAV_LOL_PROCESSES.iter().any(|p| basename.eq_ignore_ascii_case(p))
         })
@@ -787,7 +776,7 @@ pub fn detect_webdav_c2(events: &[EvtxEvent]) -> Vec<Detection> {
             evidence: vec![e.clone()],
             description: format!(
                 "LOLBin '{}' made outbound network connection (potential WebDAV C2)",
-                e.data.get(SYSMON_FIELD_IMAGE).map(String::as_str).unwrap_or("?")
+                e.data.get(SYSMON_FIELD_IMAGE).map_or("?", String::as_str)
             ),
         })
         .collect()
@@ -801,8 +790,8 @@ pub fn detect_hvci_registry_disable(events: &[EvtxEvent]) -> Vec<Detection> {
         .iter()
         .filter(|e| e.event_id == EID_REGISTRY_VALUE_SET)
         .filter(|e| {
-            let obj_name = e.data.get("ObjectName").map(String::as_str).unwrap_or("");
-            let val_name = e.data.get("ObjectValueName").map(String::as_str).unwrap_or("");
+            let obj_name = e.data.get("ObjectName").map_or("", String::as_str);
+            let val_name = e.data.get("ObjectValueName").map_or("", String::as_str);
             let key_match = HVCI_REGISTRY_KEY_PATHS.iter().any(|k| obj_name.contains(k));
             let val_match = HVCI_REGISTRY_VALUE_NAMES.iter().any(|v| val_name.eq_ignore_ascii_case(v));
             key_match || val_match
@@ -815,8 +804,8 @@ pub fn detect_hvci_registry_disable(events: &[EvtxEvent]) -> Vec<Detection> {
             evidence: vec![e.clone()],
             description: format!(
                 "HVCI/VBS security registry key modified: '{}' = '{}'",
-                e.data.get("ObjectValueName").map(String::as_str).unwrap_or("?"),
-                e.data.get("NewValue").map(String::as_str).unwrap_or("?")
+                e.data.get("ObjectValueName").map_or("?", String::as_str),
+                e.data.get("NewValue").map_or("?", String::as_str)
             ),
         })
         .collect()
@@ -830,9 +819,9 @@ pub fn detect_qwcrypt_ioc_filename(events: &[EvtxEvent]) -> Vec<Detection> {
         .filter(|e| e.event_id == EID_PROCESS_CREATE || e.event_id == EID_SYSMON_PROCESS_CREATE)
         .filter(|e| {
             let name = if e.event_id == EID_PROCESS_CREATE {
-                e.data.get("NewProcessName").map(String::as_str).unwrap_or("")
+                e.data.get("NewProcessName").map_or("", String::as_str)
             } else {
-                e.data.get(SYSMON_FIELD_IMAGE).map(String::as_str).unwrap_or("")
+                e.data.get(SYSMON_FIELD_IMAGE).map_or("", String::as_str)
             };
             let basename = name.rsplit(['\\', '/']).next().unwrap_or(name);
             QWCRYPT_IOC_FILENAMES.iter().any(|ioc| basename.eq_ignore_ascii_case(ioc))
@@ -840,8 +829,7 @@ pub fn detect_qwcrypt_ioc_filename(events: &[EvtxEvent]) -> Vec<Detection> {
         .map(|e| {
             let proc_name = e.data.get("NewProcessName")
                 .or_else(|| e.data.get(SYSMON_FIELD_IMAGE))
-                .map(String::as_str)
-                .unwrap_or("?");
+                .map_or("?", String::as_str);
             Detection {
                 technique: "QWCrypt IOC Filename Match",
                 mitre_technique_id: "T1486",
@@ -849,8 +837,7 @@ pub fn detect_qwcrypt_ioc_filename(events: &[EvtxEvent]) -> Vec<Detection> {
                 confidence: Confidence::High,
                 evidence: vec![e.clone()],
                 description: format!(
-                    "Known QWCrypt/RedCurl IOC executable launched: '{}'",
-                    proc_name
+                    "Known QWCrypt/RedCurl IOC executable launched: '{proc_name}'"
                 ),
             }
         })

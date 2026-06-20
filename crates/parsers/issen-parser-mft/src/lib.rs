@@ -521,8 +521,8 @@ mod tests {
         // (132_000_000_000_000_000 - 116_444_736_000_000_000) * 100 ns
         // = 15_555_264_000_000_000 * 100 = 1_555_526_400_000_000_000 ns
         // = 1_555_526_400 seconds = 2019-04-17T18:40:00Z
-        let ns: i64 = 1_555_526_400_000_000_000;
         use chrono::TimeZone;
+        let ns: i64 = 1_555_526_400_000_000_000;
         let dt = Utc.timestamp_nanos(ns);
         let display = datetime_to_display(&dt);
         assert!(

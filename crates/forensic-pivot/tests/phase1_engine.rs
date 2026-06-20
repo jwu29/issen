@@ -161,7 +161,7 @@ fn cross_source_finding_requires_evidence_from_multiple_sources() {
 
     // Only Sigma evidence — rule must NOT fire
     let sigma_ev = make_evidence("ev-006", EvidenceSource::Sigma, EvidenceKind::ProcessName, "evil.exe", None);
-    let findings = engine.evaluate(&[sigma_ev.clone()]);
+    let findings = engine.evaluate(std::slice::from_ref(&sigma_ev));
     assert!(findings.is_empty(), "rule should not fire with only Sigma evidence");
 
     // Both sources — rule MUST fire

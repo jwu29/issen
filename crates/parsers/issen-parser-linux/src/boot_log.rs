@@ -166,7 +166,7 @@ mod tests {
         let events = parse_boot_log(content, "test", Some(2025));
         let cats: Vec<_> = events
             .iter()
-            .map(|e| e.activity_category.map(|c| c.code()))
+            .map(|e| e.activity_category.map(issen_core::ActivityCategory::code))
             .collect();
         assert!(
             cats.contains(&Some("persistence")),

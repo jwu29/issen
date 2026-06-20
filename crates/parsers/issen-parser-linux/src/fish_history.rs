@@ -72,16 +72,15 @@ pub fn parse_fish_history_bytes(
     artifact_path: &str,
     source_id: &str,
 ) -> Vec<TimelineEvent> {
-    let text = match std::str::from_utf8(input) {
-        Ok(s) => s,
-        Err(_) => return Vec::new(),
-    };
-
     struct Entry {
         command: String,
         when_ns: i64,
         paths: Vec<String>,
     }
+
+    let Ok(text) = std::str::from_utf8(input) else {
+        return Vec::new();
+    };
 
     let mut entries: Vec<Entry> = Vec::new();
     let mut current: Option<Entry> = None;
@@ -190,7 +189,7 @@ mod tests {
             .metadata
             .get("accessed_paths")
             .expect("accessed_paths");
-        assert!(paths.as_array().map_or(false, |a| {
+        assert!(paths.as_array().is_some_and(|a| {
             a.iter().any(|v| v.as_str() == Some("/etc/shadow"))
         }));
     }

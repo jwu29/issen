@@ -1,3 +1,4 @@
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 //! ISO 9660 optical disc image reader for the Issen forensic pipeline.
 //!
 //! Uses [`hadris_iso`] for format validation and exposes the raw sector
@@ -24,7 +25,10 @@ impl From<IsoError> for RtError {
     fn from(e: IsoError) -> Self {
         match e {
             IsoError::Io(io) => Self::Io(io),
-            IsoError::InvalidIso(msg) => Self::Parse { offset: 0, message: format!("iso: {msg}") },
+            IsoError::InvalidIso(msg) => Self::Parse {
+                offset: 0,
+                message: format!("iso: {msg}"),
+            },
         }
     }
 }
@@ -37,7 +41,9 @@ pub struct IsoDataSource {
 
 impl std::fmt::Debug for IsoDataSource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("IsoDataSource").field("size", &self.size).finish()
+        f.debug_struct("IsoDataSource")
+            .field("size", &self.size)
+            .finish_non_exhaustive()
     }
 }
 
@@ -55,12 +61,17 @@ impl IsoDataSource {
         // Raw read handle for DataSource I/O.
         let raw = File::open(path)?;
         let size = raw.metadata()?.len();
-        Ok(Self { reader: Mutex::new(raw), size })
+        Ok(Self {
+            reader: Mutex::new(raw),
+            size,
+        })
     }
 }
 
 impl DataSource for IsoDataSource {
-    fn len(&self) -> u64 { self.size }
+    fn len(&self) -> u64 {
+        self.size
+    }
 
     fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<usize, RtError> {
         let mut guard = self.reader.lock().expect("mutex poisoned");
@@ -78,13 +89,16 @@ impl DataSource for IsoDataSource {
 
 // ── CollectionProvider ────────────────────────────────────────────────
 
-use issen_unpack::{CollectionManifest, CollectionMetadata, CollectionProvider, Confidence, OsType};
+use issen_unpack::{
+    CollectionManifest, CollectionMetadata, CollectionProvider, Confidence, OsType,
+};
 
 /// Format-recognition and manifest provider for ISO 9660 disc images.
 #[derive(Debug, Default)]
 pub struct IsoProvider;
 
 impl CollectionProvider for IsoProvider {
+    #[allow(clippy::unnecessary_literal_bound)] // trait fixes the `-> &str` signature
     fn name(&self) -> &str {
         "ISO"
     }
@@ -100,9 +114,7 @@ impl CollectionProvider for IsoProvider {
         let mut id = [0u8; 5];
         match f.read_exact(&mut id) {
             Ok(()) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
-                return Ok(Confidence::None)
-            }
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(Confidence::None),
             Err(e) => return Err(RtError::Io(e)),
         }
         if &id == b"CD001" {
@@ -191,7 +203,8 @@ mod tests {
         let f = write_tmp(&img);
         let src = IsoDataSource::open(f.path()).expect("open");
         let mut buf = [0u8; 2];
-        src.read_at((18 * SECTOR + 10) as u64, &mut buf).expect("read_at");
+        src.read_at((18 * SECTOR + 10) as u64, &mut buf)
+            .expect("read_at");
         assert_eq!(buf, [0xCA, 0xFE]);
     }
 

@@ -229,7 +229,7 @@ mod tests {
     struct StubParser;
 
     impl ForensicParser for StubParser {
-        fn name(&self) -> &str {
+        fn name(&self) -> &'static str {
             "Stub Parser"
         }
 

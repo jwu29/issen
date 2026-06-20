@@ -35,6 +35,7 @@ pub struct TimelineEvent {
 
 /// The semantic meaning of a timestamp.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[allow(dead_code)] // full MACB+log timestamp taxonomy; not every variant is emitted yet
 pub enum TimestampType {
     Modified,
     Accessed,
@@ -473,6 +474,7 @@ pub fn parse_ps_start_time(s: &str) -> Result<i64, ()> {
 mod tests {
     use super::*;
 
+    #[allow(clippy::similar_names)] // mtime/atime/ctime/crtime are canonical MACB field names
     fn make_bodyfile_entry(
         path: &str,
         mtime: Option<i64>,

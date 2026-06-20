@@ -35,12 +35,6 @@
     clippy::manual_contains,
     clippy::unnecessary_literal_bound
 )]
-#![allow(
-    clippy::doc_markdown,
-    clippy::missing_errors_doc,
-    clippy::missing_panics_doc,
-    clippy::must_use_candidate
-)]
 //! E01/EWF forensic image reader.
 //!
 //! Wraps the [`ewf`] crate to provide a [`DataSource`] implementation for the
@@ -190,9 +184,7 @@ impl CollectionProvider for EwfProvider {
         let mut magic = [0u8; 8];
         match f.read_exact(&mut magic) {
             Ok(()) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
-                return Ok(Confidence::None)
-            }
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(Confidence::None),
             Err(e) => return Err(RtError::Io(e)),
         }
         if magic == EVF_SIG {
@@ -300,7 +292,7 @@ mod tests {
     #[test]
     fn test_ewf_error_from_io() {
         // Verify From<std::io::Error> for EwfError works.
-        let io_err = std::io::Error::new(std::io::ErrorKind::Other, "test");
+        let io_err = std::io::Error::other("test");
         let ewf_err: EwfError = io_err.into();
         assert!(
             matches!(ewf_err, EwfError::Io(_)),

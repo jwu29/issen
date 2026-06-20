@@ -194,7 +194,7 @@ impl SetupApiParser {
 }
 
 impl ForensicParser for SetupApiParser {
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "SetupAPI Log Parser"
     }
 

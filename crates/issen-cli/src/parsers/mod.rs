@@ -1,3 +1,5 @@
-// All built-in parsers were consolidated into the issen-parser-* plugin crates
-// (issen-parser-mft / issen-parser-usnjrnl), which register via inventory and
-// carry both the CADET category and the FilePath correlation entity ref.
+//! Built-in parser registrations.
+//!
+//! The former in-crate MFT and USN Journal parsers were removed in favor of the
+//! `issen-parser-*` plugin crates, which self-register via `inventory::submit!`
+//! at link time (see the `extern crate … as _;` anchors in `lib.rs`).

@@ -11,6 +11,8 @@
     clippy::must_use_candidate,
     clippy::unnecessary_literal_bound
 )]
+// Tests opt out of the panic lints (fleet standard) — unwrap/expect in test code.
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 pub mod parser;
 
@@ -214,8 +216,7 @@ mod tests {
         let result = parser::parse_hive(tmp.path(), "test-source");
         assert!(
             result.is_ok(),
-            "parse_hive should return Ok for an empty/zero-byte file, got: {:?}",
-            result
+            "parse_hive should return Ok for an empty/zero-byte file, got: {result:?}"
         );
     }
 

@@ -58,8 +58,8 @@ fn szechuan_netstat_recovers_coreupdater_c2() {
 
     // The published answer key: 203.78.103.109:443 owned by coreupdater.exe.
     let c2 = rows.iter().any(|r| {
-        let remote = r.get(remote_col).map(String::as_str).unwrap_or("");
-        let proc = r.get(proc_col).map(String::as_str).unwrap_or("");
+        let remote = r.get(remote_col).map_or("", String::as_str);
+        let proc = r.get(proc_col).map_or("", String::as_str);
         remote.contains("203.78.103.109")
             && remote.contains(":443")
             && proc.to_ascii_lowercase().contains("coreupdater")

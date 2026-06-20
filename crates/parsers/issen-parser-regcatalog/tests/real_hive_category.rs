@@ -10,7 +10,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 fn case001_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../tests/data/dfirmadness-szechuan-sauce/extracted/szechuan-sauce-hives")
@@ -28,9 +28,7 @@ fn category_by_catalog_id() -> HashMap<String, String> {
         for e in events {
             if let Some(cid) = e.metadata.get("catalog_id").and_then(|v| v.as_str()) {
                 let cat = e
-                    .activity_category
-                    .map(|c| c.code().to_string())
-                    .unwrap_or_else(|| "<none>".to_string());
+                    .activity_category.map_or_else(|| "<none>".to_string(), |c| c.code().to_string());
                 out.entry(cid.to_string()).or_insert(cat);
             }
         }

@@ -9,9 +9,7 @@ pub fn event_to_ecs(event: &EvtxEvent) -> serde_json::Value {
     // Convert nanoseconds to ISO-8601 UTC string
     let secs = event.timestamp_ns / 1_000_000_000;
     let nanos = (event.timestamp_ns % 1_000_000_000).unsigned_abs();
-    let ts = chrono::DateTime::from_timestamp(secs, nanos as u32)
-        .map(|dt| dt.format("%Y-%m-%dT%H:%M:%S%.9fZ").to_string())
-        .unwrap_or_else(|| event.timestamp_ns.to_string());
+    let ts = chrono::DateTime::from_timestamp(secs, nanos as u32).map_or_else(|| event.timestamp_ns.to_string(), |dt| dt.format("%Y-%m-%dT%H:%M:%S%.9fZ").to_string());
 
     let event_data: serde_json::Map<String, serde_json::Value> = event
         .data

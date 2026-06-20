@@ -131,7 +131,7 @@ pub fn detect_all(pe: &PeInfo) -> Vec<PeDetection> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parser::{PeSection};
+    use crate::parser::PeSection;
 
     fn make_pe(imports: Vec<&str>, sections: Vec<PeSection>, strings: Vec<&str>) -> PeInfo {
         PeInfo {
@@ -161,15 +161,26 @@ mod tests {
     fn suspicious_import_virtualalloc_detected() {
         let pe = make_pe(vec!["VirtualAlloc", "WriteProcessMemory"], vec![], vec![]);
         let hits = detect_suspicious_imports(&pe);
-        assert!(!hits.is_empty(), "VirtualAlloc must trigger SuspiciousImport");
-        assert!(hits.iter().all(|h| h.kind == PeDetectionKind::SuspiciousImport));
+        assert!(
+            !hits.is_empty(),
+            "VirtualAlloc must trigger SuspiciousImport"
+        );
+        assert!(hits
+            .iter()
+            .all(|h| h.kind == PeDetectionKind::SuspiciousImport));
         assert_eq!(hits[0].mitre_technique_id, "T1055");
     }
 
     #[test]
     fn suspicious_import_benign_api_not_detected() {
         let pe = make_pe(
-            vec!["CreateFile", "ReadFile", "WriteFile", "CloseHandle", "GetLastError"],
+            vec![
+                "CreateFile",
+                "ReadFile",
+                "WriteFile",
+                "CloseHandle",
+                "GetLastError",
+            ],
             vec![],
             vec![],
         );
@@ -185,12 +196,20 @@ mod tests {
     #[test]
     fn suspicious_import_multiple_findings() {
         let pe = make_pe(
-            vec!["VirtualAllocEx", "CreateRemoteThread", "WriteProcessMemory", "OpenProcess"],
+            vec![
+                "VirtualAllocEx",
+                "CreateRemoteThread",
+                "WriteProcessMemory",
+                "OpenProcess",
+            ],
             vec![],
             vec![],
         );
         let hits = detect_suspicious_imports(&pe);
-        assert!(hits.len() >= 4, "all four suspicious imports should produce findings");
+        assert!(
+            hits.len() >= 4,
+            "all four suspicious imports should produce findings"
+        );
     }
 
     // ── detect_packed_pe ──────────────────────────────────────────────────────
@@ -199,30 +218,44 @@ mod tests {
     fn packed_pe_detected_on_upx0_section() {
         let pe = make_pe(
             vec![],
-            vec![make_section("UPX0", 7.8, true), make_section("UPX1", 7.9, true)],
+            vec![
+                make_section("UPX0", 7.8, true),
+                make_section("UPX1", 7.9, true),
+            ],
             vec![],
         );
         let hits = detect_packed_pe(&pe);
-        assert!(!hits.is_empty(), "UPX section names must trigger PackedExecutable");
-        assert!(hits.iter().any(|h| h.kind == PeDetectionKind::PackedExecutable));
+        assert!(
+            !hits.is_empty(),
+            "UPX section names must trigger PackedExecutable"
+        );
+        assert!(hits
+            .iter()
+            .any(|h| h.kind == PeDetectionKind::PackedExecutable));
     }
 
     #[test]
     fn packed_pe_detected_on_high_entropy() {
         let pe = make_pe(
             vec![],
-            vec![make_section(".text", 7.5, true)],   // entropy > 6.8 threshold
+            vec![make_section(".text", 7.5, true)], // entropy > 6.8 threshold
             vec![],
         );
         let hits = detect_packed_pe(&pe);
-        assert!(!hits.is_empty(), "section entropy 7.5 must trigger PackedExecutable");
+        assert!(
+            !hits.is_empty(),
+            "section entropy 7.5 must trigger PackedExecutable"
+        );
     }
 
     #[test]
     fn packed_pe_normal_section_not_detected() {
         let pe = make_pe(
             vec![],
-            vec![make_section(".text", 5.2, true), make_section(".data", 3.1, false)],
+            vec![
+                make_section(".text", 5.2, true),
+                make_section(".data", 3.1, false),
+            ],
             vec![],
         );
         assert!(detect_packed_pe(&pe).is_empty());
@@ -253,7 +286,10 @@ mod tests {
     fn av_exclusion_mpcmdrun_detected() {
         let pe = make_pe(vec![], vec![], vec!["MpCmdRun.exe -RemoveDynamicSignature"]);
         let hits = detect_av_exclusion_strings(&pe);
-        assert!(!hits.is_empty(), "MpCmdRun pattern must trigger AV exclusion detection");
+        assert!(
+            !hits.is_empty(),
+            "MpCmdRun pattern must trigger AV exclusion detection"
+        );
     }
 
     #[test]
@@ -261,7 +297,11 @@ mod tests {
         let pe = make_pe(
             vec![],
             vec![],
-            vec!["C:\\Windows\\System32\\notepad.exe", "Hello World", "error occurred"],
+            vec![
+                "C:\\Windows\\System32\\notepad.exe",
+                "Hello World",
+                "error occurred",
+            ],
         );
         assert!(detect_av_exclusion_strings(&pe).is_empty());
     }
@@ -278,7 +318,10 @@ mod tests {
     fn qwcrypt_ioc_qwcrypt_extension_detected() {
         let pe = make_pe(vec![], vec![], vec!["encrypted file extension: .qwCrypt"]);
         let hits = detect_qwcrypt_pe_iocs(&pe);
-        assert!(!hits.is_empty(), ".qwCrypt string must be detected as QWCrypt IOC");
+        assert!(
+            !hits.is_empty(),
+            ".qwCrypt string must be detected as QWCrypt IOC"
+        );
         assert_eq!(hits[0].kind, PeDetectionKind::QWCryptPeIoc);
     }
 
@@ -332,6 +375,9 @@ mod tests {
             vec!["Windows Defender\\Exclusions\\Paths"],
         );
         let hits = detect_all(&pe);
-        assert!(hits.len() >= 2, "should aggregate suspicious imports + packed PE + AV exclusion");
+        assert!(
+            hits.len() >= 2,
+            "should aggregate suspicious imports + packed PE + AV exclusion"
+        );
     }
 }

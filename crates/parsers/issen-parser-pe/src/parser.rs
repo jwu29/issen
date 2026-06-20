@@ -63,11 +63,7 @@ pub fn parse_pe(bytes: &[u8]) -> Result<PeInfo, PeError> {
     let compile_timestamp = pe.header.coff_header.time_date_stamp;
     let is_dll = pe.is_lib;
 
-    let imports: Vec<String> = pe
-        .imports
-        .iter()
-        .map(|imp| imp.name.to_string())
-        .collect();
+    let imports: Vec<String> = pe.imports.iter().map(|imp| imp.name.to_string()).collect();
 
     let sections = pe
         .sections
@@ -144,7 +140,7 @@ fn extract_strings(bytes: &[u8], min_len: usize) -> Vec<String> {
     // ASCII pass
     let mut current = String::new();
     for &b in bytes {
-        if b >= 0x20 && b < 0x7F {
+        if (0x20..0x7F).contains(&b) {
             current.push(b as char);
         } else {
             if current.len() >= min_len {
@@ -163,7 +159,7 @@ fn extract_strings(bytes: &[u8], min_len: usize) -> Vec<String> {
     while i + 1 < bytes.len() {
         let lo = bytes[i];
         let hi = bytes[i + 1];
-        if hi == 0 && lo >= 0x20 && lo < 0x7F {
+        if hi == 0 && (0x20..0x7F).contains(&lo) {
             current16.push(lo as char);
             i += 2;
         } else {
@@ -190,16 +186,19 @@ mod tests {
         let mut pe = vec![0u8; 512]; // plenty of room, SizeOfHeaders = 0x200
 
         // DOS header
-        pe[0] = b'M'; pe[1] = b'Z';
+        pe[0] = b'M';
+        pe[1] = b'Z';
         // e_lfanew at offset 0x3C → PE header starts at 0x40
         pe[0x3C] = 0x40;
 
         // PE signature at 0x40
-        pe[0x40] = b'P'; pe[0x41] = b'E';
+        pe[0x40] = b'P';
+        pe[0x41] = b'E';
 
         // COFF header at 0x44
         // Machine: AMD64 = 0x8664 (little-endian)
-        pe[0x44] = 0x64; pe[0x45] = 0x86;
+        pe[0x44] = 0x64;
+        pe[0x45] = 0x86;
         // NumberOfSections = 0
         // TimeDateStamp at 0x48
         pe[0x48..0x4C].copy_from_slice(&timestamp.to_le_bytes());
@@ -210,29 +209,42 @@ mod tests {
 
         // Optional header (PE32+) starts at 0x58
         // Magic = 0x020B at 0x58
-        pe[0x58] = 0x0B; pe[0x59] = 0x02;
+        pe[0x58] = 0x0B;
+        pe[0x59] = 0x02;
         // ImageBase (u64) at 0x58+24 = 0x70: 0x0000000000400000
-        pe[0x70] = 0x00; pe[0x71] = 0x00; pe[0x72] = 0x40;
+        pe[0x70] = 0x00;
+        pe[0x71] = 0x00;
+        pe[0x72] = 0x40;
         // SectionAlignment (u32) at 0x58+32 = 0x78: 0x1000
-        pe[0x78] = 0x00; pe[0x79] = 0x10;
+        pe[0x78] = 0x00;
+        pe[0x79] = 0x10;
         // FileAlignment (u32) at 0x58+36 = 0x7C: 0x200
-        pe[0x7C] = 0x00; pe[0x7D] = 0x02;
+        pe[0x7C] = 0x00;
+        pe[0x7D] = 0x02;
         // MajorSubsystemVersion at 0x58+48 = 0x88: 6
         pe[0x88] = 0x06;
         // SizeOfImage (u32) at 0x58+56 = 0x90: 0x1000
-        pe[0x90] = 0x00; pe[0x91] = 0x10;
+        pe[0x90] = 0x00;
+        pe[0x91] = 0x10;
         // SizeOfHeaders (u32) at 0x58+60 = 0x94: 0x200
-        pe[0x94] = 0x00; pe[0x95] = 0x02;
+        pe[0x94] = 0x00;
+        pe[0x95] = 0x02;
         // Subsystem at 0x58+68 = 0x9C: 2 (GUI)
         pe[0x9C] = 0x02;
         // SizeOfStackReserve (u64) at 0x58+72 = 0xA0: 0x100000
-        pe[0xA0] = 0x00; pe[0xA1] = 0x00; pe[0xA2] = 0x10;
+        pe[0xA0] = 0x00;
+        pe[0xA1] = 0x00;
+        pe[0xA2] = 0x10;
         // SizeOfStackCommit (u64) at 0x58+80 = 0xA8: 0x1000
-        pe[0xA8] = 0x00; pe[0xA9] = 0x10;
+        pe[0xA8] = 0x00;
+        pe[0xA9] = 0x10;
         // SizeOfHeapReserve (u64) at 0x58+88 = 0xB0: 0x100000
-        pe[0xB0] = 0x00; pe[0xB1] = 0x00; pe[0xB2] = 0x10;
+        pe[0xB0] = 0x00;
+        pe[0xB1] = 0x00;
+        pe[0xB2] = 0x10;
         // SizeOfHeapCommit (u64) at 0x58+96 = 0xB8: 0x1000
-        pe[0xB8] = 0x00; pe[0xB9] = 0x10;
+        pe[0xB8] = 0x00;
+        pe[0xB9] = 0x10;
         // NumberOfRvaAndSizes (u32) at 0x58+108 = 0xC4: 16
         pe[0xC4] = 0x10;
 
@@ -269,7 +281,7 @@ mod tests {
     fn parse_pe_accepts_minimal_x64() {
         let bytes = make_minimal_pe_x64(0x5F00_0000);
         let result = parse_pe(&bytes);
-        assert!(result.is_ok(), "minimal PE should parse: {:?}", result);
+        assert!(result.is_ok(), "minimal PE should parse: {result:?}");
     }
 
     #[test]

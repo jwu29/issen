@@ -7,7 +7,9 @@
     clippy::doc_markdown,
     clippy::missing_errors_doc,
     clippy::missing_panics_doc,
-    clippy::must_use_candidate
+    clippy::must_use_candidate,
+    clippy::trivially_copy_pass_by_ref,
+    clippy::unnecessary_literal_bound
 )]
 
 pub mod detections;

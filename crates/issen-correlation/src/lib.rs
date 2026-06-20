@@ -1,3 +1,4 @@
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 pub mod artifact_correlation;
 pub mod attack_flow;
 pub mod cluster;
@@ -118,7 +119,7 @@ mod tests {
         .with_timestamp(ts + chrono::Duration::seconds(30))
         .with_tag("suspicious_port");
 
-        let findings = CorrelationEngine::default().evaluate(&[rule], &[command, network]);
+        let findings = CorrelationEngine.evaluate(&[rule], &[command, network]);
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].rule_id, "pivot.reverse-shell");
@@ -157,7 +158,6 @@ mod tests {
             &feed,
             &SyncOptions {
                 suricata_version: Some("8.0".into()),
-                ..SyncOptions::default()
             },
         );
 
@@ -236,7 +236,7 @@ mod tests {
         let rule_path = tmp.path().join("rule.yml");
         fs::write(
             &rule_path,
-            r#"id: correlation.reverse-shell
+            r"id: correlation.reverse-shell
 title: Reverse shell over suspicious port
 severity: high
 within_seconds: 300
@@ -247,7 +247,7 @@ clauses:
     required_tag: reverse_shell
   - source: zeek
     required_tag: suspicious_port
-"#,
+",
         )
         .expect("write rule");
 
@@ -313,7 +313,7 @@ clauses:
         .with_timestamp(ts + chrono::Duration::seconds(10))
         .with_tag("mining_pool");
 
-        let findings = CorrelationEngine::default().evaluate(&[rule], &[rootkit, hidden, network]);
+        let findings = CorrelationEngine.evaluate(&[rule], &[rootkit, hidden, network]);
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].rule_id, "correlation.miner.rootkit-concealment");
@@ -334,14 +334,14 @@ clauses:
         fs::create_dir_all(&custom_dir).expect("create custom dir");
         fs::write(
             custom_dir.join("custom.yml"),
-            r#"id: correlation.custom.test
+            r"id: correlation.custom.test
 title: Custom test correlation
 severity: medium
 within_seconds: 60
 clauses:
   - source: artifact
     required_tag: persistence_artifact
-"#,
+",
         )
         .expect("write custom rule");
 
@@ -426,7 +426,7 @@ clauses:
         .with_timestamp(ts + chrono::Duration::seconds(10))
         .with_attr("dst_port", "3333");
 
-        let findings = CorrelationEngine::default().evaluate(&[rule], &[process, network]);
+        let findings = CorrelationEngine.evaluate(&[rule], &[process, network]);
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].rule_id, "correlation.miner.attr-driven");
@@ -451,7 +451,7 @@ clauses:
     #[test]
     fn intel_kind_variants_are_defined() {
         use crate::model::{IndicatorType, IntelKind};
-        let _kinds = [
+        let _ = [
             IntelKind::ContentSignature,
             IntelKind::EventRule,
             IntelKind::NetworkSignature,
@@ -460,7 +460,7 @@ clauses:
             IntelKind::ReferenceDataset,
             IntelKind::CorrelationRule,
         ];
-        let _types = [
+        let _ = [
             IndicatorType::IpAddr,
             IndicatorType::Domain,
             IndicatorType::Url,
@@ -698,29 +698,27 @@ clauses:
   - source: artifact
     required_tag: test_tag
 "#;
-        use crate::model::AssertionLevel;
         let rule: CorrelationRule = serde_yaml::from_str(yaml).expect("parse");
         assert_eq!(rule.summary_template.as_deref(), Some("Summary from template"));
         assert_eq!(rule.explanation_template.as_deref(), Some("Explanation from template"));
         assert_eq!(rule.default_confidence, 75);
-        assert!(matches!(rule.assertion_level, AssertionLevel::Inferred));
+        assert!(matches!(rule.assertion_level, crate::model::AssertionLevel::Inferred));
     }
 
     #[test]
     fn rule_without_template_fields_defaults_to_zero_confidence() {
-        let yaml = r#"
+        let yaml = r"
 id: test.rule.no-template
 title: No template rule
 severity: low
 clauses:
   - source: artifact
     required_tag: something
-"#;
-        use crate::model::AssertionLevel;
+";
         let rule: CorrelationRule = serde_yaml::from_str(yaml).expect("parse");
         assert!(rule.summary_template.is_none());
         assert_eq!(rule.default_confidence, 0);
-        assert!(matches!(rule.assertion_level, AssertionLevel::Correlated));
+        assert!(matches!(rule.assertion_level, crate::model::AssertionLevel::Correlated));
     }
 
     #[test]
@@ -747,9 +745,9 @@ clauses:
             subject: None,
             tags: vec!["rk_tag".into()],
             timestamp: None,
-            attrs: Default::default(),
+            attrs: std::collections::BTreeMap::default(),
         }];
-        let engine = CorrelationEngine::default();
+        let engine = CorrelationEngine;
         let findings = engine.evaluate(&[rule], &evidence);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].summary.as_deref(), Some("Templated summary"));
@@ -883,7 +881,7 @@ clauses:
             subject: Some(SubjectRef::Process(977)),
             tags: vec!["confirmed_xmrig".into()],
             timestamp: None,
-            attrs: Default::default(),
+            attrs: std::collections::BTreeMap::default(),
         }];
         let engine = CorrelationEngine;
         let findings = engine.evaluate(&[confirmed_rule], &evidence);

@@ -213,9 +213,7 @@ pub(super) fn check_network_topology(network: &[NetworkConnection], alerts: &mut
                         conn.local_addr,
                         conn.remote_addr,
                         conn.state,
-                        conn.pid
-                            .map(|p| p.to_string())
-                            .unwrap_or_else(|| "-".into()),
+                        conn.pid.map_or_else(|| "-".into(), |p| p.to_string()),
                         conn.program.as_deref().unwrap_or("-")
                     ),
                 });
