@@ -9,6 +9,7 @@
 use std::io::{Read, Seek, SeekFrom};
 
 use issen_core::error::RtError;
+use issen_core::plugin::selector::NtfsLoc;
 use issen_core::plugin::traits::DataSource;
 
 /// A byte window of a partition within the whole-disk image.
@@ -184,38 +185,64 @@ pub const WINDOWS_USER_LNK_DIRS: &[&str] =
 ///
 /// [`DiskError`] if the partition table or a volume can't be read.
 pub fn extract_triage(source: &dyn DataSource) -> Result<Vec<ExtractedFile>, DiskError> {
+    // Registry-driven: the artifacts to collect are whatever the linked parsers
+    // declare via their `ArtifactSelector::disk_sources` (gathered here), not a
+    // hand-maintained list — so collection can no longer drift from the parsers.
+    // The `WINDOWS_*` consts remain as the spec the `collection_differential`
+    // test proves this set reproduces.
+    collect_sources(source, &issen_core::plugin::registry::triage_ntfs_sources())
+}
+
+/// Collect `sources` from every NTFS partition in `source`. The shared core of
+/// the registry-driven [`extract_triage`] and [`triage_manifest`]; tests drive it
+/// with an explicit source list since the parser inventory is empty outside the
+/// linked binary.
+fn collect_sources(
+    source: &dyn DataSource,
+    sources: &[NtfsLoc],
+) -> Result<Vec<ExtractedFile>, DiskError> {
     let mut out = Vec::new();
     for window in find_ntfs_partitions(source)? {
-        out.extend(extract_files(source, window, WINDOWS_TRIAGE_PATHS)?);
-        for glob in WINDOWS_TRIAGE_GLOBS {
-            out.extend(extract_dir_suffix(source, window, glob.dir, glob.suffix)?);
+        out.extend(extract_ntfs_sources(source, window, sources)?);
+    }
+    Ok(out)
+}
+
+/// Extract every artifact named by `sources` from one NTFS partition window,
+/// dispatching each [`NtfsLoc`] to the matching `extract_*` primitive.
+///
+/// The registry-driven collection core. `extract_triage` gathers the sources
+/// from the parser registry and drives extraction through here; a caller with a
+/// bespoke source list (e.g. a future selective collection) can call it directly.
+///
+/// # Errors
+///
+/// [`DiskError`] if the volume can't be opened or a read fails for a reason other
+/// than the artifact being absent.
+pub fn extract_ntfs_sources(
+    source: &dyn DataSource,
+    window: PartitionWindow,
+    sources: &[NtfsLoc],
+) -> Result<Vec<ExtractedFile>, DiskError> {
+    let mut out = Vec::new();
+    for loc in sources {
+        match *loc {
+            NtfsLoc::FixedPath(path) => out.extend(extract_files(source, window, &[path])?),
+            NtfsLoc::DirSuffix { dir, suffix } => {
+                out.extend(extract_dir_suffix(source, window, dir, suffix)?);
+            }
+            NtfsLoc::PerUserFile(child) => {
+                out.extend(extract_per_subdir(source, window, r"\Users", child)?);
+            }
+            NtfsLoc::PerSubdirSweep { parent, rel, name } => {
+                out.extend(extract_subdir_sweep(source, window, parent, rel, &|n| {
+                    name.matches(n)
+                })?);
+            }
+            NtfsLoc::NamedStream { path, stream } => {
+                out.extend(extract_named_streams(source, window, &[(path, stream)])?);
+            }
         }
-        for child in WINDOWS_USER_FILES {
-            out.extend(extract_per_subdir(source, window, r"\Users", child)?);
-        }
-        // Per-user `.lnk` shortcuts (Recent + Desktop), keyed by user folder.
-        for rel in WINDOWS_USER_LNK_DIRS {
-            out.extend(extract_subdir_sweep(
-                source,
-                window,
-                r"\Users",
-                rel,
-                &|n| n.to_ascii_lowercase().ends_with(".lnk"),
-            )?);
-        }
-        // Recycle-bin metadata: `$Recycle.Bin\<SID>\$I*`, keyed by SID.
-        out.extend(extract_subdir_sweep(
-            source,
-            window,
-            r"\$Recycle.Bin",
-            "",
-            &|n| n.to_ascii_lowercase().starts_with("$i"),
-        )?);
-        out.extend(extract_named_streams(
-            source,
-            window,
-            WINDOWS_TRIAGE_STREAMS,
-        )?);
     }
     Ok(out)
 }
@@ -237,9 +264,28 @@ pub fn triage_manifest(
     source: &dyn DataSource,
     format_name: &str,
 ) -> Result<issen_unpack::CollectionManifest, DiskError> {
+    triage_manifest_from(
+        source,
+        format_name,
+        &issen_core::plugin::registry::triage_ntfs_sources(),
+    )
+}
+
+/// Build a triage manifest from an explicit NTFS source list (rather than the
+/// parser registry). The collection core of [`triage_manifest`]; lets tests and
+/// selective-collection callers drive extraction without the linked inventory.
+///
+/// # Errors
+///
+/// [`DiskError`] if a volume can't be opened or a read/write fails.
+pub fn triage_manifest_from(
+    source: &dyn DataSource,
+    format_name: &str,
+    sources: &[NtfsLoc],
+) -> Result<issen_unpack::CollectionManifest, DiskError> {
     use issen_unpack::{CollectionManifest, CollectionMetadata, ManifestEntry, OsType};
 
-    let files = extract_triage(source)?;
+    let files = collect_sources(source, sources)?;
     let tempdir = tempfile::tempdir()?;
 
     let mut artifacts = Vec::new();
@@ -1039,7 +1085,8 @@ mod tests {
             "fixture sanity: two NTFS partitions"
         );
 
-        let manifest = triage_manifest(&src, "TEST").expect("manifest");
+        let manifest =
+            triage_manifest_from(&src, "TEST", &[NtfsLoc::FixedPath(r"\$MFT")]).expect("manifest");
         let mfts: Vec<_> = manifest
             .artifacts
             .iter()
@@ -1166,10 +1213,20 @@ mod tests {
 
     #[test]
     fn extract_triage_runs_globs_without_breaking_fixed_paths() {
-        // The synthetic volume lacks the glob dirs, so they add nothing — but the
-        // glob loop must not disturb the fixed-path extraction (\$MFT).
+        // The synthetic volume lacks the glob dir, so it adds nothing — but the
+        // glob source must not disturb the fixed-path extraction (\$MFT).
+        // (extract_triage itself is registry-driven and empty here; the dispatch
+        // core takes explicit sources.)
         let src = disk_with_volume(2048);
-        let files = extract_triage(&src).expect("triage");
+        let parts = find_ntfs_partitions(&src).expect("find");
+        let sources = [
+            NtfsLoc::FixedPath(r"\$MFT"),
+            NtfsLoc::DirSuffix {
+                dir: r"\Windows\System32\winevt\Logs",
+                suffix: ".evtx",
+            },
+        ];
+        let files = extract_ntfs_sources(&src, parts[0], &sources).expect("extract");
         assert!(files.iter().any(|f| f.path == r"\$MFT"));
     }
 
@@ -1192,7 +1249,9 @@ mod tests {
     fn extract_triage_collects_present_artifacts() {
         // The synthetic volume exposes \$MFT in its root index.
         let src = disk_with_volume(2048);
-        let files = extract_triage(&src).expect("triage");
+        let parts = find_ntfs_partitions(&src).expect("find");
+        let files =
+            extract_ntfs_sources(&src, parts[0], &[NtfsLoc::FixedPath(r"\$MFT")]).expect("extract");
         let mft = files
             .iter()
             .find(|f| f.path == r"\$MFT")
@@ -1217,7 +1276,8 @@ mod tests {
     #[test]
     fn triage_manifest_writes_artifacts_to_tempdir() {
         let src = disk_with_volume(2048);
-        let manifest = triage_manifest(&src, "TEST").expect("manifest");
+        let manifest =
+            triage_manifest_from(&src, "TEST", &[NtfsLoc::FixedPath(r"\$MFT")]).expect("manifest");
         assert_eq!(manifest.format_name, "TEST");
         assert!(matches!(
             manifest.metadata.os_type,
