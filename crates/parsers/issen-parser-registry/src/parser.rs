@@ -8,7 +8,7 @@ use std::path::Path;
 use issen_core::artifacts::ArtifactType;
 use issen_core::timeline::event::{EventType, TimelineEvent};
 use winreg_artifacts::registry_keys::walk_keys;
-use winreg_artifacts::run_keys;
+use winreg_artifacts::{run_keys, typed_urls};
 use winreg_core::hive::Hive;
 
 /// Parse a Windows registry hive file and emit [`TimelineEvent`]s.
@@ -81,7 +81,50 @@ fn events_from_hive(
     }
     events.extend(extract_named_values(hive, hive_name, source_id));
     events.extend(extract_run_keys(hive, hive_name, source_id));
+    events.extend(extract_typed_urls(hive, hive_name, source_id));
     events
+}
+
+/// Decode IE/Explorer `TypedURLs` (hand-typed addresses) via
+/// `winreg-artifacts::typed_urls` and emit one BrowserActivity event per URL,
+/// keyed on its last-visited time. A raw-IP or otherwise suspicious URL carries
+/// the `suspicious` tag — these are high-signal IOCs (the attacker typing a C2
+/// address). Self-filters: a hive with no TypedURLs values yields none.
+fn extract_typed_urls(
+    hive: &Hive<Cursor<Vec<u8>>>,
+    hive_name: &str,
+    source_id: &str,
+) -> Vec<TimelineEvent> {
+    typed_urls::parse(hive)
+        .into_iter()
+        .map(|u| {
+            let (ts_ns, ts_display) = match &u.last_visited {
+                Some(s) => (iso_to_ns(s), s.clone()),
+                None => (0, String::new()),
+            };
+            let mut event = TimelineEvent::new(
+                ts_ns,
+                ts_display,
+                EventType::Other("typed-url".into()),
+                ArtifactType::Registry,
+                u.url.clone(),
+                format!("Typed URL: {}", u.url),
+                source_id.to_string(),
+            )
+            .with_activity_category(issen_core::ActivityCategory::BrowserActivity)
+            .with_tag("typed-url")
+            .with_metadata("hive", serde_json::json!(hive_name))
+            .with_metadata("url", serde_json::json!(u.url))
+            .with_metadata("suspicious", serde_json::json!(u.is_suspicious));
+            if u.is_suspicious {
+                event = event.with_tag("suspicious");
+                if let Some(reason) = &u.suspicious_reason {
+                    event = event.with_metadata("suspicious_reason", serde_json::json!(reason));
+                }
+            }
+            event
+        })
+        .collect()
 }
 
 /// Decode autorun (Run / RunOnce / Winlogon) persistence entries via
