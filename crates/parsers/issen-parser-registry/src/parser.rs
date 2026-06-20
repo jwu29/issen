@@ -308,6 +308,28 @@ mod tests {
         );
     }
 
+    /// Real DC NTUSER.DAT: the TypedURLs decoder must surface the attacker's
+    /// hand-typed C2 URL `http://194.61.24.102/` (a raw-IP IOC) as a
+    /// BrowserActivity event — a registry VALUE the generic walk drops.
+    #[test]
+    fn real_ntuser_hive_surfaces_typed_url_c2() {
+        let p = hive("NTUSER.DAT");
+        if !p.exists() {
+            eprintln!("SKIP: NTUSER.DAT hive absent");
+            return;
+        }
+        let events = parse_hive(&p, "dc01-NTUSER").unwrap();
+        let url = events
+            .iter()
+            .find(|e| e.description.contains("194.61.24.102"))
+            .expect("typed-URL C2 event");
+        assert_eq!(
+            url.activity_category,
+            Some(issen_core::ActivityCategory::BrowserActivity),
+            "a typed URL is a BrowserActivity"
+        );
+    }
+
     /// Real DC SYSTEM hive: timezone (F3: Pacific — the clock-skew root cause)
     /// resolved through Select\Current -> ControlSet00N.
     #[test]
