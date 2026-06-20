@@ -24,20 +24,17 @@ use std::path::Path;
 use issen_core::artifacts::ArtifactType;
 use issen_core::timeline::event::{EventType, TimelineEvent};
 
-/// Minimum byte count needed to parse the Shell Link header.
-const HEADER_LEN: usize = 76;
-/// Expected four-byte signature at offset 0 (`L\0\0\0` = 0x0000004C LE).
-const LNK_SIG: &[u8; 4] = &[0x4C, 0x00, 0x00, 0x00];
-
-/// Convert a Windows FILETIME (100-ns intervals since 1601-01-01) to a
-/// nanosecond-precision Unix timestamp.
-///
-/// Returns 0 if the FILETIME predates the Unix epoch (should not happen for
-/// valid forensic timestamps).
-pub fn filetime_to_ns(ft: u64) -> i64 {
-    let ns = (i128::from(ft) - 116_444_736_000_000_000_i128) * 100;
-    // Valid forensic timestamps fit within i64 nanoseconds; saturate on overflow.
-    i64::try_from(ns).unwrap_or(i64::MAX)
+/// Human label for a `VolumeID` DriveType ([MS-SHLLINK] §2.3.1).
+fn drive_type_label(dt: u32) -> &'static str {
+    match dt {
+        1 => "NO_ROOT_DIR",
+        2 => "REMOVABLE",
+        3 => "FIXED",
+        4 => "REMOTE",
+        5 => "CDROM",
+        6 => "RAMDISK",
+        _ => "UNKNOWN",
+    }
 }
 
 /// Parse a Windows LNK (Shell Link) file and return [`TimelineEvent`]s.
@@ -71,63 +68,78 @@ pub fn parse_lnk(path: &Path, source_id: &str) -> anyhow::Result<Vec<TimelineEve
 /// signature yields no events (never an error).
 #[must_use]
 pub fn parse_lnk_bytes(raw: &[u8], artifact_path: &str, source_id: &str) -> Vec<TimelineEvent> {
-    if raw.len() < HEADER_LEN {
+    let Some(link) = lnk_core::parse_shell_link(raw) else {
         return vec![];
-    }
-
-    // Validate LNK signature.
-    if &raw[0..4] != LNK_SIG {
-        return vec![];
-    }
-
-    // Parse fixed fields.
-    let link_flags = u32::from_le_bytes(raw[20..24].try_into().expect("4 bytes"));
-    let file_attributes = u32::from_le_bytes(raw[24..28].try_into().expect("4 bytes"));
-    let creation_time = u64::from_le_bytes(raw[28..36].try_into().expect("8 bytes"));
-    let access_time = u64::from_le_bytes(raw[36..44].try_into().expect("8 bytes"));
-    let write_time = u64::from_le_bytes(raw[44..52].try_into().expect("8 bytes"));
-    let file_size = u32::from_le_bytes(raw[52..56].try_into().expect("4 bytes"));
+    };
+    let h = &link.header;
+    let info = link.link_info.as_ref();
 
     let filename = Path::new(artifact_path)
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("unknown.lnk");
-    let description = format!("LNK shortcut: {filename}");
 
-    let link_flags_str = format!("0x{link_flags:08X}");
-    let file_attributes_str = format!("0x{file_attributes:08X}");
+    // The target the shortcut points to — the primary forensic value the old
+    // header-only parser dropped. Prefer the LinkInfo local base path, then the
+    // StringData relative path, then the reconstructed PIDL path.
+    let target = info
+        .and_then(|i| i.local_base_path.clone())
+        .or_else(|| link.string_data.relative_path.clone())
+        .or_else(|| link.link_target_idlist.as_ref().and_then(|t| t.path.clone()));
 
-    let mut events = Vec::with_capacity(3);
+    let description = match &target {
+        Some(t) => format!("LNK shortcut {filename} \u{2192} {t}"),
+        None => format!("LNK shortcut: {filename}"),
+    };
 
-    let timestamps: &[(u64, EventType)] = &[
-        (creation_time, EventType::FileCreate),
-        (access_time, EventType::FileAccess),
-        (write_time, EventType::FileModify),
+    // Metadata shared by every emitted event.
+    let mut meta: Vec<(&str, serde_json::Value)> = vec![
+        ("file_size", serde_json::json!(h.file_size)),
+        ("link_flags", serde_json::json!(format!("0x{:08X}", h.link_flags))),
+        (
+            "file_attributes",
+            serde_json::json!(format!("0x{:08X}", h.file_attributes)),
+        ),
     ];
+    if let Some(t) = &target {
+        meta.push(("target_path", serde_json::json!(t)));
+    }
+    if let Some(v) = info.and_then(|i| i.volume_id.as_ref()) {
+        meta.push((
+            "drive_serial",
+            serde_json::json!(format!("0x{:08X}", v.drive_serial_number)),
+        ));
+        meta.push(("drive_type", serde_json::json!(drive_type_label(v.drive_type))));
+        if let Some(label) = &v.volume_label {
+            meta.push(("volume_label", serde_json::json!(label)));
+        }
+    }
 
-    for (ft, event_type) in timestamps {
-        if *ft == 0 {
+    let timestamps = [
+        (h.creation_time, EventType::FileCreate),
+        (h.access_time, EventType::FileAccess),
+        (h.write_time, EventType::FileModify),
+    ];
+    let mut events = Vec::with_capacity(3);
+    for (secs, event_type) in timestamps {
+        if secs == 0 {
             continue;
         }
-        let ts_ns = filetime_to_ns(*ft);
-        let event = TimelineEvent::new(
+        let ts_ns = secs.saturating_mul(1_000_000_000);
+        let mut event = TimelineEvent::new(
             ts_ns,
             String::new(),
-            event_type.clone(),
+            event_type,
             ArtifactType::Lnk,
             artifact_path.to_string(),
             description.clone(),
             source_id.to_string(),
         )
-        .with_activity_category(issen_core::ActivityCategory::FileSystemActivity)
-        .with_metadata("file_size", serde_json::json!(file_size))
-        .with_metadata("link_flags", serde_json::json!(link_flags_str.clone()))
-        .with_metadata(
-            "file_attributes",
-            serde_json::json!(file_attributes_str.clone()),
-        );
+        .with_activity_category(issen_core::ActivityCategory::FileSystemActivity);
+        for (k, value) in &meta {
+            event = event.with_metadata(*k, value.clone());
+        }
         events.push(event);
     }
-
     events
 }

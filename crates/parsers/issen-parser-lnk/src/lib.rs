@@ -158,6 +158,12 @@ mod tests {
         // (the zero AccessTime must be skipped → 2 events, not 3).
         let mut data = vec![0u8; 80];
         data[0..4].copy_from_slice(&[0x4C, 0x00, 0x00, 0x00]);
+        // Valid LNK LinkCLSID (00021401-0000-0000-C000-000000000046) — lnk-core
+        // validates it; the old offset-reader did not.
+        data[4..20].copy_from_slice(&[
+            0x01, 0x14, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x46,
+        ]);
         data[20..24].copy_from_slice(&1u32.to_le_bytes());
         data[24..28].copy_from_slice(&0x20u32.to_le_bytes());
         data[28..36].copy_from_slice(&132_000_000_000_000_000u64.to_le_bytes());
@@ -257,6 +263,12 @@ mod tests {
         let mut data = vec![0u8; 80];
         // LNK signature
         data[0..4].copy_from_slice(&[0x4C, 0x00, 0x00, 0x00]);
+        // Valid LNK LinkCLSID (00021401-0000-0000-C000-000000000046) — lnk-core
+        // validates it; the old offset-reader did not.
+        data[4..20].copy_from_slice(&[
+            0x01, 0x14, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x46,
+        ]);
         // LinkFlags
         data[20..24].copy_from_slice(&1u32.to_le_bytes());
         // FileAttributes
@@ -327,6 +339,12 @@ mod tests {
         // LNK target MACE timestamps are FileSystemActivity (CADET meaning axis).
         let mut data = vec![0u8; 80];
         data[0..4].copy_from_slice(&[0x4C, 0x00, 0x00, 0x00]);
+        // Valid LNK LinkCLSID (00021401-0000-0000-C000-000000000046) — lnk-core
+        // validates it; the old offset-reader did not.
+        data[4..20].copy_from_slice(&[
+            0x01, 0x14, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x46,
+        ]);
         data[20..24].copy_from_slice(&1u32.to_le_bytes());
         data[28..36].copy_from_slice(&132_000_000_000_000_000u64.to_le_bytes());
 
