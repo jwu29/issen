@@ -500,6 +500,32 @@ mod tests {
         );
     }
 
+    /// Real DC SAM hive: the SAM decoder must surface local account inventory.
+    /// The built-in `Administrator` (RID 500) is decoded from the binary
+    /// V-structure — its username is NOT a key name, so it can ONLY appear via
+    /// the decoder, never the generic key walk. (Domain accounts live in
+    /// NTDS.dit, not the local SAM; a DC's SAM carries only the built-ins.)
+    #[test]
+    fn real_sam_hive_surfaces_local_accounts() {
+        let p = hive("SAM");
+        if !p.exists() {
+            eprintln!("SKIP: SAM hive absent");
+            return;
+        }
+        let events = parse_hive(&p, "dc01-SAM").unwrap();
+        let admin = events
+            .iter()
+            .find(|e| e.description.contains("Administrator"))
+            .expect("SAM Administrator account event");
+        assert_eq!(
+            admin.activity_category,
+            Some(issen_core::ActivityCategory::SystemState),
+            "a SAM account record is host (account) inventory"
+        );
+        let blob = format!("{:?}", admin.metadata);
+        assert!(blob.contains("500"), "RID 500 surfaced: {blob}");
+    }
+
     /// Real DC SYSTEM hive: timezone (F3: Pacific — the clock-skew root cause)
     /// resolved through Select\Current -> ControlSet00N.
     #[test]
