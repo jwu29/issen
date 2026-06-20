@@ -65,4 +65,32 @@ mod parser_registration_tests {
             "no registered parser supports ArtifactType::Registry — the crate is not linked"
         );
     }
+
+    #[test]
+    fn library_linked_registry_is_complete_not_just_registry() {
+        // L1: the LIBRARY (not only the binary) must force-link every parser, or any
+        // library-linked harness — lib unit tests, `tests/*.rs` using `use issen_cli`,
+        // external consumers — sees an incomplete registry. This is the lib/bin skew
+        // the supertimeline bug exposed. A lib unit test's link set == the library's
+        // anchors, so it fails here until L1 moves all anchors into lib.rs.
+        let supported: std::collections::HashSet<ArtifactType> = all_parsers()
+            .iter()
+            .flat_map(|p| p.supported_artifacts().iter().copied())
+            .collect();
+        for t in [
+            ArtifactType::Registry,
+            ArtifactType::Mft,
+            ArtifactType::UsnJournal,
+            ArtifactType::Lnk,
+            ArtifactType::Prefetch,
+            ArtifactType::Amcache,
+            ArtifactType::EventLog,
+        ] {
+            assert!(
+                supported.contains(&t),
+                "library-linked registry missing a producer for {t:?} — force-link \
+                 anchors must live in lib.rs, not only main.rs (L1)"
+            );
+        }
+    }
 }
