@@ -126,8 +126,18 @@ Detail: `archive/2026-06-20-registry-derived-extraction-design.md`.
   SetInformation vs current `$SI`), recent-metadata recovery (undo data), anti-forensic (`$J`-clearing)
   detection. The David Cowen **NTFS TriForce** idea (`$MFT`+`$LogFile`+`$UsnJrnl`); prior art:
   Schicht LogFileParser, NTFS Log Tracker. Each MFT record header carries the `$LogFile` LSN of its
-  last modification → MFT↔$LogFile LSN consistency check. (Codex review still pending — synthesize when
-  it lands.) (2) **`$MFT` vs `$MFTMirr`** — mirror is record #1, copies the first `max(4,
+  last modification → MFT↔$LogFile LSN consistency check. **BUILD PLAN (researched+verified
+  2026-06-20):** no general-purpose Rust `$LogFile` crate exists; **build-from-scratch in Rust, do NOT
+  bind C** (libfsntfs has no `$LogFile` decoder + fleet is `forbid(unsafe)`). Two partial fleet readers
+  to CONSOLIDATE (avoid a third): `crates/issen-mft-tree/src/logfile.rs` (**RSTR restart-area parsing —
+  DONE**, ~105 hits) + `usnjrnl-forensic` (recovers USN records from `$LogFile`, NOT full RCRD
+  redo/undo). Path: extend a fleet `*-core` reader to RSTR+RCRD-fixup+LSN/redo-undo, then a thin
+  `issen-parser-logfile` wrapper. **Needs a NEW `ArtifactType::LogFile` variant** (none today).
+  Selector: `artifact_type: LogFile`, matcher on RSTR/RCRD magic, `disk_sources: FixedPath(\$LogFile)`
+  (un-exempts the Stage-3 drop). **Effort M; risk = USA/fixup + circular-buffer wrap** (mis-applied
+  fixups silently corrupt every record); LSN redo/undo is the long tail. **First TDD increment: parse
+  + USA-fixup-validate an RCRD page** from a real Szechuan `$LogFile` (RSTR header already done). Oracle:
+  Schicht LogFileParser / NTFS Log Tracker on the same extracted `$LogFile`. (2) **`$MFT` vs `$MFTMirr`** — mirror is record #1, copies the first `max(4,
   cluster/record)` records; compare the mirrored byte range **after fixups** → integrity-anomaly /
   **recovery anchor** for a damaged `$MFT[0]` (relocate the full MFT via the mirrored `$MFT::$DATA`
   runlist). Classify as anomaly/recovery, **NEVER "tamper detected"** (desync has benign causes:
