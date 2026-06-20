@@ -28,10 +28,15 @@ use issen_core::timeline::event::TimelineEvent;
 /// Returns them in the order declared (deterministic) so a failure names exactly
 /// what regressed. This is the Humble Object — fixture-free and unit-tested.
 fn missing_keys(events: &[TimelineEvent], required: &[&str]) -> Vec<String> {
-    // STUB — replaced in GREEN.
-    let _ = events;
-    let _ = required;
-    Vec::new()
+    let present: std::collections::HashSet<&str> = events
+        .iter()
+        .flat_map(|e| e.metadata.keys().map(String::as_str))
+        .collect();
+    required
+        .iter()
+        .filter(|k| !present.contains(**k))
+        .map(|k| (*k).to_string())
+        .collect()
 }
 
 #[test]
