@@ -163,6 +163,14 @@ pub const WINDOWS_USER_FILES: &[&str] = &[
     r"AppData\Local\Microsoft\Windows\UsrClass.dat",
 ];
 
+/// Per-user directories swept for `.lnk` shortcuts, relative to `\Users\<user>`.
+///
+/// Recent tracks files the user opened; Desktop holds pinned/placed shortcuts
+/// (e.g. the Loot/Secret shortcuts on the Szechuan workstation). Each shortcut
+/// embeds its target path and the target's MAC times.
+pub const WINDOWS_USER_LNK_DIRS: &[&str] =
+    &[r"AppData\Roaming\Microsoft\Windows\Recent", "Desktop"];
+
 /// Extract the standard Windows triage artifacts — the fixed
 /// [`WINDOWS_TRIAGE_PATHS`] plus the [`WINDOWS_TRIAGE_GLOBS`] directory sweeps —
 /// from every NTFS partition in the disk image.
@@ -180,6 +188,24 @@ pub fn extract_triage(source: &dyn DataSource) -> Result<Vec<ExtractedFile>, Dis
         for child in WINDOWS_USER_FILES {
             out.extend(extract_per_subdir(source, window, r"\Users", child)?);
         }
+        // Per-user `.lnk` shortcuts (Recent + Desktop), keyed by user folder.
+        for rel in WINDOWS_USER_LNK_DIRS {
+            out.extend(extract_subdir_sweep(
+                source,
+                window,
+                r"\Users",
+                rel,
+                &|n| n.to_ascii_lowercase().ends_with(".lnk"),
+            )?);
+        }
+        // Recycle-bin metadata: `$Recycle.Bin\<SID>\$I*`, keyed by SID.
+        out.extend(extract_subdir_sweep(
+            source,
+            window,
+            r"\$Recycle.Bin",
+            "",
+            &|n| n.to_ascii_lowercase().starts_with("$i"),
+        )?);
         out.extend(extract_named_streams(
             source,
             window,
@@ -414,6 +440,100 @@ pub fn extract_per_subdir(
             }),
             Err(NtfsError::NotFound(_) | NtfsError::NotADirectory(_)) => {}
             Err(e) => return Err(to_disk(e)),
+        }
+    }
+    Ok(out)
+}
+
+/// NTFS `$FILE_NAME` attribute flag marking the entry as a directory.
+///
+/// In the `$FILE_NAME` `FileAttributes` field NTFS sets bit `0x1000_0000` for
+/// directories (libfsntfs `FILE_ATTRIBUTE_FLAG_DIRECTORY`; the Win32 `0x10`
+/// directory bit is *not* used here). Checking it lets the per-subdir sweep
+/// descend only into real directories, skipping stray files such as
+/// `$Recycle.Bin\desktop.ini` without an extra record read.
+const FN_ATTR_DIRECTORY: u32 = 0x1000_0000;
+
+/// For each immediate **subdirectory** `<sub>` of `parent`, sweep the directory
+/// `<parent>\<sub>` (or `<parent>\<sub>\<rel>` when `rel` is non-empty) and
+/// extract every file whose name satisfies `matches`.
+///
+/// This collects per-principal artifacts whose container directory is keyed by
+/// a variable name that the fixed-path and fixed-suffix sweeps cannot express:
+/// per-user `Recent\*.lnk` / `Desktop\*.lnk` (keyed by the user folder) and
+/// per-SID `$Recycle.Bin\<SID>\$I*` (keyed by the SID). `matches` takes a name
+/// predicate rather than a suffix so a prefix rule (`$I…`) needs no special case.
+///
+/// Tolerant by construction: a missing `parent`, a non-directory child, or a
+/// subtree lacking `rel` each contribute nothing rather than erroring — triage
+/// expects most artifacts to be absent on any given image.
+///
+/// # Errors
+///
+/// [`DiskError`] if the volume can't be opened, or a read fails for a reason
+/// other than the path being absent / not a directory.
+pub fn extract_subdir_sweep(
+    source: &dyn DataSource,
+    window: PartitionWindow,
+    parent: &str,
+    rel: &str,
+    matches: &dyn Fn(&str) -> bool,
+) -> Result<Vec<ExtractedFile>, DiskError> {
+    use ntfs_core::{NtfsError, NtfsFs, OffsetReader};
+
+    let to_disk = |e: NtfsError| DiskError::Ntfs(e.to_string());
+    let reader = DataSourceReader::new(source);
+    let part = OffsetReader::new(reader, window.offset, window.length).map_err(to_disk)?;
+    let mut fs = NtfsFs::open(part).map_err(to_disk)?;
+
+    let parent_record = match fs.resolve_path(parent) {
+        Ok(n) => n,
+        Err(NtfsError::NotFound(_) | NtfsError::NotADirectory(_)) => return Ok(Vec::new()),
+        Err(e) => return Err(to_disk(e)),
+    };
+    let record = fs.read_record(parent_record).map_err(to_disk)?;
+    let subdirs = fs.directory_entries(&record).map_err(to_disk)?;
+
+    let parent_base = parent.trim_end_matches('\\');
+    let rel = rel.trim_matches('\\');
+    let mut out = Vec::new();
+    for sub in subdirs {
+        let Some(fname) = sub.file_name else {
+            continue; // terminal index entry — no name
+        };
+        if fname.flags & FN_ATTR_DIRECTORY == 0 {
+            continue; // a file (e.g. $Recycle.Bin\desktop.ini), never a sweep root
+        }
+        let sweep_dir = if rel.is_empty() {
+            format!("{parent_base}\\{}", fname.name)
+        } else {
+            format!("{parent_base}\\{}\\{rel}", fname.name)
+        };
+        // Resolve the (possibly nested) sweep directory; absent on this user is fine.
+        let dir_record = match fs.resolve_path(&sweep_dir) {
+            Ok(n) => n,
+            Err(NtfsError::NotFound(_) | NtfsError::NotADirectory(_)) => continue,
+            Err(e) => return Err(to_disk(e)),
+        };
+        let dir_rec = fs.read_record(dir_record).map_err(to_disk)?;
+        let entries = fs.directory_entries(&dir_rec).map_err(to_disk)?;
+        for entry in entries {
+            let Some(name) = entry.file_name.map(|f| f.name) else {
+                continue;
+            };
+            if !matches(&name) {
+                continue;
+            }
+            let path = format!("{sweep_dir}\\{name}");
+            match fs.read_file(&path) {
+                Ok(data) => out.push(ExtractedFile {
+                    path,
+                    data,
+                    partition_offset: window.offset,
+                }),
+                Err(NtfsError::NotFound(_) | NtfsError::NotADirectory(_)) => {}
+                Err(e) => return Err(to_disk(e)),
+            }
         }
     }
     Ok(out)
