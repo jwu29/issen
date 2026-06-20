@@ -8,7 +8,7 @@ use std::path::Path;
 use issen_core::artifacts::ArtifactType;
 use issen_core::timeline::event::{EventType, TimelineEvent};
 use winreg_artifacts::registry_keys::walk_keys;
-use winreg_artifacts::{run_keys, shimcache, typed_urls, userassist};
+use winreg_artifacts::{run_keys, sam, shimcache, typed_urls, userassist};
 use winreg_core::hive::Hive;
 
 /// Parse a Windows registry hive file and emit [`TimelineEvent`]s.
@@ -84,7 +84,68 @@ fn events_from_hive(
     events.extend(extract_typed_urls(hive, hive_name, source_id));
     events.extend(extract_userassist(hive, hive_name, source_id));
     events.extend(extract_shimcache(hive, hive_name, source_id));
+    events.extend(extract_sam_accounts(hive, hive_name, source_id));
     events
+}
+
+/// Decode local user accounts from a SAM hive via `winreg-artifacts::sam` and
+/// emit one account-inventory event per user: RID, login count, disabled/locked
+/// state, and the password-last-set / last-login times. Keyed on
+/// password-last-set (the account's own write proxy). Self-filters: a non-SAM
+/// hive yields no users.
+fn extract_sam_accounts(
+    hive: &Hive<Cursor<Vec<u8>>>,
+    hive_name: &str,
+    source_id: &str,
+) -> Vec<TimelineEvent> {
+    sam::parse(hive)
+        .into_iter()
+        .map(|u| {
+            let (ts_ns, ts_display) = match &u.password_last_set {
+                Some(s) => (iso_to_ns(s), s.clone()),
+                None => (0, String::new()),
+            };
+            let mut state = Vec::new();
+            if u.is_disabled {
+                state.push("disabled");
+            }
+            if u.is_locked {
+                state.push("locked");
+            }
+            let state_label = if state.is_empty() {
+                "enabled".to_string()
+            } else {
+                state.join(",")
+            };
+            TimelineEvent::new(
+                ts_ns,
+                ts_display,
+                EventType::UserAccountChange,
+                ArtifactType::Registry,
+                format!("SAM\\{}", u.username),
+                format!(
+                    "Local account: {} (RID {}, {state_label}, {} logins)",
+                    u.username, u.rid, u.login_count
+                ),
+                source_id.to_string(),
+            )
+            .with_activity_category(issen_core::ActivityCategory::SystemState)
+            .with_tag("local-account")
+            .with_metadata("hive", serde_json::json!(hive_name))
+            .with_metadata("username", serde_json::json!(u.username))
+            .with_metadata("rid", serde_json::json!(u.rid))
+            .with_metadata("login_count", serde_json::json!(u.login_count))
+            .with_metadata(
+                "account_flags",
+                serde_json::json!(format!("0x{:08X}", u.account_flags)),
+            )
+            .with_metadata("is_disabled", serde_json::json!(u.is_disabled))
+            .with_metadata("is_locked", serde_json::json!(u.is_locked))
+            .with_metadata("last_login", serde_json::json!(u.last_login))
+            .with_metadata("password_last_set", serde_json::json!(u.password_last_set))
+            .with_metadata("account_expires", serde_json::json!(u.account_expires))
+        })
+        .collect()
 }
 
 /// Decode `AppCompatCache` (Shimcache) via `winreg-artifacts::shimcache` and
@@ -513,9 +574,15 @@ mod tests {
             return;
         }
         let events = parse_hive(&p, "dc01-SAM").unwrap();
+        // Target the decoded ACCOUNT event specifically — the SAM hive also has a
+        // *key* literally named `Administrator` (`Users\Names\Administrator`) that
+        // the generic walk emits, so match the decoder's "Local account:" event.
         let admin = events
             .iter()
-            .find(|e| e.description.contains("Administrator"))
+            .find(|e| {
+                e.description.starts_with("Local account:")
+                    && e.description.contains("Administrator")
+            })
             .expect("SAM Administrator account event");
         assert_eq!(
             admin.activity_category,
