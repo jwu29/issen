@@ -562,7 +562,9 @@ macOS and cannot author a real `.lnk`/Jump List); full per-file detail + the gen
 [`lnk-forensic/tests/data/README.md`](https://github.com/SecurityRonin/lnk-forensic/blob/main/tests/data/README.md).
 - **`.lnk` fixtures** (`gen_lnk.rs`, dependency-free `rustc`): `removable_media.lnk`
   (DRIVE_REMOVABLE, serial 0xDEADBEEF, label KINGSTON USB, TrackerDataBlock ANALYST-PC) +
-  `network_share.lnk` (CommonNetworkRelativeLink `\\SERVER\share`).
+  `network_share.lnk` (CommonNetworkRelativeLink `\\SERVER\share`, device `Z:`). Both are also
+  vendored into `issen/crates/parsers/issen-parser-lnk/tests/data/` for the wrapper depth tests
+  (USB-origin + UNC-share-origin regressions).
 - **Jump List fixtures** (`core/examples/gen_jumplist.rs`, needs the `cfb` crate — run
   `cargo run --example gen_jumplist -p lnk-core`): `pinned_removable.automaticDestinations-ms` — a
   real OLE/CFB compound file, DestList v2 (Win10) one pinned entry (hostname OTHER-PC, access count 7,
