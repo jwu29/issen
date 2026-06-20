@@ -39,6 +39,177 @@ fn missing_keys(events: &[TimelineEvent], required: &[&str]) -> Vec<String> {
         .collect()
 }
 
+// ── Depth manifest: the declared current depth of each parser ────────────────
+
+use std::path::{Path, PathBuf};
+
+/// One parser's declared depth, checked against a real fixture.
+struct DepthCase {
+    label: &'static str,
+    /// Fixture path, relative to this crate's manifest dir.
+    fixture: &'static str,
+    /// `true` = committed fixture (absence is a hard failure, real CI teeth);
+    /// `false` = gitignored real-corpus (absence skips-loud).
+    committed: bool,
+    /// Drive the parser over the fixture into timeline events.
+    drive: fn(&Path) -> Vec<TimelineEvent>,
+    /// Metadata keys that MUST appear across the emitted events.
+    required_keys: &'static [&'static str],
+    /// Real-IOC substrings that MUST appear in some event's description or
+    /// metadata value — catches the "hollow shell" regression (the container
+    /// key is present but the forensic value under it was dropped).
+    required_iocs: &'static [&'static str],
+}
+
+fn drive_prefetch(p: &Path) -> Vec<TimelineEvent> {
+    issen_parser_prefetch::parser::parse_prefetch(p, "depth-gate").unwrap()
+}
+fn drive_lnk(p: &Path) -> Vec<TimelineEvent> {
+    issen_parser_lnk::parser::parse_lnk(p, "depth-gate").unwrap()
+}
+fn drive_hive(p: &Path) -> Vec<TimelineEvent> {
+    issen_parser_registry::parser::parse_hive(p, "depth-gate").unwrap()
+}
+
+const HIVES: &str = "../../tests/data/dfirmadness-szechuan-sauce/extracted/szechuan-sauce-hives";
+
+fn manifest() -> Vec<DepthCase> {
+    vec![
+        // ── Committed fixtures (always run) ──
+        DepthCase {
+            label: "prefetch loaded-file list",
+            fixture: "../parsers/issen-parser-prefetch/tests/data/COREUPDATER.EXE-157C54BB.pf",
+            committed: true,
+            drive: drive_prefetch,
+            required_keys: &[
+                "loaded_files",
+                "loaded_file_count",
+                "executable",
+                "run_count",
+            ],
+            required_iocs: &["WS2_32.DLL", "NTDLL.DLL"],
+        },
+        DepthCase {
+            label: "lnk UNC network origin",
+            fixture: "../parsers/issen-parser-lnk/tests/data/network_share.lnk",
+            committed: true,
+            drive: drive_lnk,
+            required_keys: &["unc_path", "network_device", "target_path"],
+            required_iocs: &[r"\\SERVER\share"],
+        },
+        DepthCase {
+            label: "lnk USB removable origin",
+            fixture: "../parsers/issen-parser-lnk/tests/data/removable_media.lnk",
+            committed: true,
+            drive: drive_lnk,
+            required_keys: &["drive_serial", "drive_type", "target_path"],
+            required_iocs: &["payload.exe"],
+        },
+        // ── Gitignored real corpus (skip-loud when absent) ──
+        DepthCase {
+            label: "registry SOFTWARE: run-key persistence + OS version",
+            fixture: "SOFTWARE",
+            committed: false,
+            drive: drive_hive,
+            required_keys: &["command", "value_name", "product_name"],
+            required_iocs: &["coreupdate"],
+        },
+        DepthCase {
+            label: "registry NTUSER.DAT: userassist + typed URLs",
+            fixture: "NTUSER.DAT",
+            committed: false,
+            drive: drive_hive,
+            required_keys: &["program", "run_count", "url"],
+            required_iocs: &["coreupdater.exe", "194.61.24.102"],
+        },
+        DepthCase {
+            label: "registry SYSTEM: shimcache + timezone",
+            fixture: "SYSTEM",
+            committed: false,
+            drive: drive_hive,
+            required_keys: &["path", "entry_index", "timezone"],
+            required_iocs: &["vcredist"],
+        },
+        DepthCase {
+            label: "registry SAM: local accounts",
+            fixture: "SAM",
+            committed: false,
+            drive: drive_hive,
+            required_keys: &["username", "rid", "login_count"],
+            required_iocs: &["Administrator"],
+        },
+        DepthCase {
+            label: "registry SECURITY: LSA secrets",
+            fixture: "SECURITY",
+            committed: false,
+            drive: drive_hive,
+            required_keys: &["secret_name", "has_current", "has_old"],
+            required_iocs: &["$MACHINE.ACC"],
+        },
+    ]
+}
+
+/// All searchable text of an event: its description plus every metadata value.
+fn searchable(e: &TimelineEvent) -> String {
+    let mut s = e.description.clone();
+    for v in e.metadata.values() {
+        s.push(' ');
+        s.push_str(&v.to_string());
+    }
+    s.to_lowercase()
+}
+
+/// The ratchet: every parser must surface its declared depth on real data. A
+/// committed-fixture case always runs; a corpus-backed case skips-loud when the
+/// gitignored data is absent. A dropped key OR a dropped IOC fails here.
+#[test]
+fn parsers_surface_declared_depth() {
+    let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let mut failures: Vec<String> = Vec::new();
+
+    for case in manifest() {
+        let fixture = if case.committed {
+            base.join(case.fixture)
+        } else {
+            base.join(HIVES).join(case.fixture)
+        };
+        if !fixture.exists() {
+            assert!(
+                !case.committed,
+                "committed depth fixture missing: {} ({})",
+                case.label,
+                fixture.display()
+            );
+            eprintln!(
+                "SKIP depth case '{}': corpus fixture absent ({}); see docs/corpus-catalog.md",
+                case.label,
+                fixture.display()
+            );
+            continue;
+        }
+
+        let events = (case.drive)(&fixture);
+        for key in missing_keys(&events, case.required_keys) {
+            failures.push(format!("[{}] dropped metadata key '{key}'", case.label));
+        }
+        let blob: String = events.iter().map(searchable).collect::<Vec<_>>().join("  ");
+        for ioc in case.required_iocs {
+            if !blob.contains(&ioc.to_lowercase()) {
+                failures.push(format!(
+                    "[{}] dropped forensic value '{ioc}' (key present but value hollow?)",
+                    case.label
+                ));
+            }
+        }
+    }
+
+    assert!(
+        failures.is_empty(),
+        "parser depth regressed — a parser stopped surfacing a declared field:\n{}",
+        failures.join("\n")
+    );
+}
+
 #[test]
 fn flags_dropped_metadata_key() {
     use issen_core::artifacts::ArtifactType;
