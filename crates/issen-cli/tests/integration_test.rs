@@ -175,6 +175,17 @@ fn test_pipeline_with_mixed_artifacts() {
     assert_eq!(result.artifacts_found, 1);
     assert_eq!(result.artifacts_parsed, 1);
     assert_eq!(events.len(), 1);
+
+    // Progress instrumentation with REAL artifacts — the determinate-bar data the
+    // issen-fswalker pipeline tests can no longer assert (they run with an empty
+    // registry ⇒ 0 discovered). This guards the Stage-3a phase/total wiring: without
+    // run_pipeline's set_artifacts_total / set_phase calls these would be 0 / Queued.
+    assert_eq!(progress.phase(), issen_fswalker::progress::Phase::Done);
+    assert!(progress.artifacts_total() > 0, "total set for a determinate bar");
+    assert!(
+        progress.artifacts_completed() > 0,
+        "completion counted once per discovered artifact"
+    );
 }
 
 #[test]
