@@ -19,9 +19,9 @@
 
 use issen_core::artifacts::ArtifactType;
 use issen_core::classify;
-use issen_core::plugin::selector as sel;
 use issen_core::error::RtError;
 use issen_core::plugin::registry::ParserRegistration;
+use issen_core::plugin::selector as sel;
 use issen_core::plugin::traits::{
     DataSource, EventEmitter, ForensicParser, ParseStats, ParserCapabilities,
 };
@@ -286,6 +286,32 @@ mod tests {
         assert_eq!(
             events[0].activity_category,
             Some(issen_core::ActivityCategory::UserActivity)
+        );
+    }
+
+    /// Depth (integrity): a SEGB whose Written record fails CRC must surface a
+    /// `SEGB-CRC-MISMATCH` Integrity event — the tamper/corruption evidence that
+    /// segb-forensic::audit already grades but the wrapper dropped. The synthetic
+    /// fixture stores crc=0 over a real protobuf payload, so its Written record's
+    /// computed CRC differs → a genuine mismatch.
+    #[test]
+    fn parse_bytes_surfaces_crc_mismatch_integrity_event() {
+        let segb = synthetic_segb_one_menu_item();
+        let events = BiomeParser.parse_bytes(&segb, "/x/local");
+        let integ = events
+            .iter()
+            .find(|e| {
+                e.activity_category == Some(issen_core::ActivityCategory::Integrity)
+                    && (e.description.contains("SEGB-CRC-MISMATCH")
+                        || e.metadata
+                            .iter()
+                            .any(|(_, v)| v.to_string().contains("SEGB-CRC-MISMATCH")))
+            })
+            .expect("a SEGB-CRC-MISMATCH Integrity event");
+        // The integrity finding must carry its location (offset) for correlation.
+        assert!(
+            integ.metadata.iter().any(|(k, _)| k == "offset"),
+            "integrity event must carry the record offset"
         );
     }
 

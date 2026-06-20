@@ -4690,6 +4690,7 @@ dependencies = [
  "inventory",
  "issen-core",
  "segb-core",
+ "segb-forensic",
  "serde_json",
  "useract-forensic",
 ]
@@ -8826,6 +8827,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ee686498081b9d89cf4dab622990d2873f237d238e90cc51a387af47d5093814"
 dependencies = [
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "segb-forensic"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5bb1f120e6f439dad40af2f66a22065e459b9776c5e0fd1379a6282937f45f1a"
+dependencies = [
+ "forensicnomicon 0.5.8",
+ "segb-core",
 ]
 
 [[package]]

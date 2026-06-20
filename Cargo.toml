@@ -191,6 +191,7 @@ tar          = "0.4"
 srum-parser      = "0.1.0"
 srum-core        = "0.1.0"
 segb             = { version = "0.1", package = "segb-core" }
+segb-forensic    = "0.1"
 useract-forensic = "0.3"
 goblin       = { version = "0.10", default-features = false, features = ["pe32", "pe64", "std"] }
 ewf          = "0.2"
