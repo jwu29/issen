@@ -37,7 +37,6 @@
     clippy::unnecessary_literal_bound
 )]
 use chrono::DateTime;
-use inventory;
 use issen_core::artifacts::ArtifactType;
 use issen_core::error::RtError;
 use issen_core::plugin::registry::ParserRegistration;
@@ -83,9 +82,9 @@ impl UsnReasonFlags {
             EventType::FileDelete
         } else if r & (Self::RENAME_OLD_NAME | Self::RENAME_NEW_NAME) != 0 {
             EventType::FileRename
-        } else if r & (Self::DATA_OVERWRITE | Self::DATA_EXTEND | Self::DATA_TRUNCATION) != 0 {
-            EventType::FileModify
-        } else if r & Self::SECURITY_CHANGE != 0 {
+        } else if r & (Self::DATA_OVERWRITE | Self::DATA_EXTEND | Self::DATA_TRUNCATION) != 0
+            || r & Self::SECURITY_CHANGE != 0
+        {
             EventType::FileModify
         } else {
             EventType::FileAccess
@@ -190,7 +189,7 @@ impl UsnRecordV2 {
         }
 
         let record_length = u32::from_le_bytes(data[0..4].try_into().ok()?);
-        if record_length < Self::MIN_RECORD_SIZE || record_length > Self::MAX_RECORD_SIZE {
+        if !(Self::MIN_RECORD_SIZE..=Self::MAX_RECORD_SIZE).contains(&record_length) {
             return None;
         }
         if record_length as usize > data.len() {
@@ -289,7 +288,6 @@ impl ForensicParser for UsnJrnlParser {
                 // Skip zero-filled regions (common in USN journal).
                 if chunk[pos] == 0 {
                     // Skip to next 8-byte aligned non-zero position.
-                    let _skip_start = pos;
                     while pos < chunk.len() && chunk[pos] == 0 {
                         pos += 1;
                     }

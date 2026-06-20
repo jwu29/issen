@@ -378,7 +378,7 @@ mod tests {
         let fmt = OutputFormat::Json;
         let cloned = fmt; // Copy
         assert_eq!(fmt, cloned);
-        let cloned2 = fmt.clone();
+        let cloned2 = fmt;
         assert_eq!(fmt, cloned2);
     }
 

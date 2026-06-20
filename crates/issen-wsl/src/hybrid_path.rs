@@ -91,30 +91,24 @@ impl HybridPath {
     }
 
     /// Canonical key for equality comparison (case-folded Windows path string).
-    fn canonical_key(&self) -> Option<String> {
+    fn canonical_key(&self) -> String {
         match self {
-            Self::DrvFs { windows, .. } => {
-                Some(windows.to_string_lossy().to_ascii_uppercase())
-            }
-            Self::Windows(p) => Some(p.to_string_lossy().to_ascii_uppercase()),
-            Self::Wsl(p) => Some(p.to_string_lossy().into_owned()),
+            Self::DrvFs { windows, .. } => windows.to_string_lossy().to_ascii_uppercase(),
+            Self::Windows(p) => p.to_string_lossy().to_ascii_uppercase(),
+            Self::Wsl(p) => p.to_string_lossy().into_owned(),
         }
     }
 
     /// Returns `true` if `other` refers to the same file.
     pub fn same_file(&self, other: &HybridPath) -> bool {
-        match (self.canonical_key(), other.canonical_key()) {
-            (Some(a), Some(b)) => a == b,
-            _ => false,
-        }
+        self.canonical_key() == other.canonical_key()
     }
 }
 
 impl fmt::Display for HybridPath {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Windows(p) => write!(f, "{}", p.display()),
-            Self::Wsl(p) => write!(f, "{}", p.display()),
+            Self::Windows(p) | Self::Wsl(p) => write!(f, "{}", p.display()),
             Self::DrvFs { windows, wsl } => {
                 write!(f, "{} (WSL: {})", windows.display(), wsl.display())
             }

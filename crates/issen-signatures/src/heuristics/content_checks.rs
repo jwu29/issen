@@ -192,7 +192,7 @@ fn check_en_002(
     }
 
     // Heuristic: file with size multiple of 512, high entropy, no recognized header
-    if node.size >= 1024 && node.size % 512 == 0 && identify_format(data).is_none() {
+    if node.size >= 1024 && node.size.is_multiple_of(512) && identify_format(data).is_none() {
         let entropy = shannon_entropy(data);
         if entropy > 7.9 {
             index.add(
@@ -413,7 +413,7 @@ mod tests {
 
     #[test]
     fn entropy_empty_is_zero() {
-        assert_eq!(shannon_entropy(&[]), 0.0);
+        assert!(shannon_entropy(&[]).abs() < f64::EPSILON);
     }
 
     #[test]

@@ -289,14 +289,14 @@ mod tests {
     // 10. Rule with hex strings.
     #[test]
     fn rule_with_hex_strings() {
-        let rule = r#"
+        let rule = r"
             rule hex_detect {
                 strings:
                     $hex = { 4D 5A 90 00 }
                 condition:
                     $hex
             }
-        "#;
+        ";
         let engine = YaraEngine::from_source(rule).unwrap();
 
         // Data that contains the hex pattern (MZ header).

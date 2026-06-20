@@ -1,3 +1,4 @@
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 //! Disk-image orchestration: bridge a container [`DataSource`] (VMDK, EWF, raw
 //! image, …) to the partition table and the NTFS filesystem inside it, then
 //! extract the artifacts a triage pipeline needs.

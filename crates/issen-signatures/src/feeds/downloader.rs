@@ -88,7 +88,7 @@ pub fn download_feed(config: &FeedConfig, cache: &FeedCache) -> DownloadResult {
     // Build the HTTP client.
     let client = match reqwest::blocking::Client::builder()
         .user_agent("Issen/0.1")
-        .timeout(std::time::Duration::from_secs(120))
+        .timeout(std::time::Duration::from_mins(2))
         .build()
     {
         Ok(c) => c,
@@ -416,7 +416,7 @@ mod tests {
     /// Download the CISA KEV feed (small, public, free).
     /// This test makes a real HTTP request and is marked #[ignore] for CI.
     #[test]
-    #[ignore]
+    #[ignore = "makes a real HTTP request"]
     fn test_download_real_feed() {
         let dir = tempfile::tempdir().expect("tmpdir");
         let cache = FeedCache::new(dir.path());

@@ -10,7 +10,7 @@ use tempfile::TempDir;
 // ---------------------------------------------------------------------------
 #[test]
 fn load_rules_from_yaml_string_returns_rule_with_correct_id() {
-    let yaml = r#"
+    let yaml = r"
 id: test-001
 name: Test Rule
 description: Test
@@ -18,7 +18,7 @@ severity: High
 assertion_level: Observed
 default_confidence: 75
 clauses: []
-"#;
+";
     let rules = load_rules_from_yaml_str(yaml).expect("parse should succeed");
     assert_eq!(rules.len(), 1);
     let r = &rules[0];
@@ -35,7 +35,7 @@ clauses: []
 // ---------------------------------------------------------------------------
 #[test]
 fn load_rules_from_yaml_string_parses_multiple_docs() {
-    let yaml = r#"
+    let yaml = r"
 id: rule-a
 name: Rule A
 description: First
@@ -51,7 +51,7 @@ severity: Critical
 assertion_level: Correlated
 default_confidence: 90
 clauses: []
-"#;
+";
     let rules = load_rules_from_yaml_str(yaml).expect("parse should succeed");
     assert_eq!(rules.len(), 2);
     assert_eq!(rules[0].id, "rule-a");

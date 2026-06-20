@@ -1,4 +1,3 @@
-use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -77,6 +76,8 @@ pub fn prepare_feed_cache(spec: &FeedSpec, cache_dir: &Path) -> anyhow::Result<P
 ///
 /// # Errors
 /// Returns an error on network failure, I/O error, or archive parse error.
+// URL already lowercased above; ends_with is the correct case-insensitive test
+#[allow(clippy::case_sensitive_file_extension_comparisons)]
 pub fn download_feed(spec: &FeedSpec, cache_dir: &Path) -> anyhow::Result<()> {
     let feed_dir = prepare_feed_cache(spec, cache_dir)?;
 

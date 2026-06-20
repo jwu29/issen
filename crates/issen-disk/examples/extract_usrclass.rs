@@ -9,9 +9,8 @@ fn main() {
     let src = EwfDataSource::open(std::path::Path::new(&a[1])).expect("open");
     for w in find_ntfs_partitions(&src).expect("parts") {
         let child = r"AppData\Local\Microsoft\Windows\UsrClass.dat";
-        let files = match extract_per_subdir(&src, w, r"\Users", child) {
-            Ok(f) => f,
-            Err(_) => continue,
+        let Ok(files) = extract_per_subdir(&src, w, r"\Users", child) else {
+            continue;
         };
         for f in files {
             let user = f.path.split('\\').nth(2).unwrap_or("unknown");

@@ -1479,7 +1479,7 @@ mod tests {
     #[test]
     fn build_reader_scans_for_dtb_before_demanding_cr3() {
         let mut f = tempfile::NamedTempFile::new().unwrap();
-        f.write_all(&[0u8; 64 * 1024]).unwrap(); // raw, no metadata, no PML4
+        f.write_all(&vec![0u8; 64 * 1024]).unwrap(); // raw, no metadata, no PML4
         f.flush().unwrap();
 
         let result = build_reader(f.path(), None, None);
@@ -1661,7 +1661,7 @@ mod tests {
     fn dispatch_linux_check_headers_correct() {
         // Calls the real dispatch function — panics at todo!() in RED phase.
         // Once GREEN: asserts headers contain "Check" and "Status".
-        let (headers, _rows) = dispatch_linux_check(&*Box::new(make_stub_reader())).unwrap();
+        let (headers, _rows) = dispatch_linux_check(&Box::new(make_stub_reader())).unwrap();
         assert!(
             headers.contains(&"Check"),
             "headers should contain 'Check', got: {headers:?}"
@@ -1674,7 +1674,7 @@ mod tests {
 
     #[test]
     fn dispatch_linux_scan_headers_correct() {
-        let (headers, _rows) = dispatch_linux_scan(&*Box::new(make_stub_reader())).unwrap();
+        let (headers, _rows) = dispatch_linux_scan(&Box::new(make_stub_reader())).unwrap();
         assert!(
             headers.contains(&"PID"),
             "headers should contain 'PID', got: {headers:?}"
@@ -1687,7 +1687,7 @@ mod tests {
 
     #[test]
     fn dispatch_linux_creds_headers_correct() {
-        let (headers, _rows) = dispatch_linux_creds(&*Box::new(make_stub_reader())).unwrap();
+        let (headers, _rows) = dispatch_linux_creds(&Box::new(make_stub_reader())).unwrap();
         assert!(
             headers.contains(&"Type"),
             "headers should contain 'Type', got: {headers:?}"
@@ -1700,7 +1700,7 @@ mod tests {
 
     #[test]
     fn dispatch_linux_timeline_headers_correct() {
-        let (headers, _rows) = dispatch_linux_timeline(&*Box::new(make_stub_reader())).unwrap();
+        let (headers, _rows) = dispatch_linux_timeline(&Box::new(make_stub_reader())).unwrap();
         assert!(
             headers.contains(&"Time"),
             "headers should contain 'Time', got: {headers:?}"
@@ -1751,24 +1751,18 @@ mod tests {
     #[test]
     fn dispatch_linux_modules_returns_ok_with_non_empty_headers() {
         let reader = make_stub_reader();
-        match dispatch_linux_modules(&reader) {
-            Ok((headers, _rows)) => {
-                assert!(!headers.is_empty());
-                assert!(headers.contains(&"Name"));
-            }
-            Err(_) => {}
+        if let Ok((headers, _rows)) = dispatch_linux_modules(&reader) {
+            assert!(!headers.is_empty());
+            assert!(headers.contains(&"Name"));
         }
     }
 
     #[test]
     fn dispatch_linux_netstat_returns_ok_with_non_empty_headers() {
         let reader = make_stub_reader();
-        match dispatch_linux_netstat(&reader) {
-            Ok((headers, _rows)) => {
-                assert!(!headers.is_empty());
-                assert!(headers.contains(&"Proto"));
-            }
-            Err(_) => {}
+        if let Ok((headers, _rows)) = dispatch_linux_netstat(&reader) {
+            assert!(!headers.is_empty());
+            assert!(headers.contains(&"Proto"));
         }
     }
 
@@ -1976,7 +1970,7 @@ mod tests {
         // Panics with todo!() in RED phase (test FAILS). In GREEN: asserts
         // headers contain "PID", "Capability", "Detail".
         let reader = make_stub_reader();
-        let (headers, _rows) = dispatch_linux_security(&*Box::new(reader)).unwrap();
+        let (headers, _rows) = dispatch_linux_security(&Box::new(reader)).unwrap();
         assert!(
             headers.contains(&"PID"),
             "headers should contain 'PID', got: {headers:?}"
@@ -1996,7 +1990,7 @@ mod tests {
         // Panics with todo!() in RED phase (test FAILS). In GREEN: asserts
         // Ok with non-empty headers and at least one fallback row.
         let reader = make_stub_reader();
-        let result = dispatch_linux_security(&*Box::new(reader));
+        let result = dispatch_linux_security(&Box::new(reader));
         assert!(result.is_ok(), "dispatch_linux_security must return Ok");
         let (headers, rows) = result.unwrap();
         assert!(!headers.is_empty());

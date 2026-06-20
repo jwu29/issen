@@ -25,7 +25,7 @@ use crate::store::{TimelineStore, TimelineStoreError};
 /// The failed-logon burst threshold and window that seed a `LogonFailureBurst`
 /// anchor (plan v4 §5.2: a 4625 burst preceding a 4624 success).
 const BURST_THRESHOLD: usize = 4;
-const BURST_WINDOW: Duration = Duration::from_secs(60);
+const BURST_WINDOW: Duration = Duration::from_mins(1);
 
 /// A synthetic `LogonFailureBurst` anchor event, owned by the runner.
 ///
