@@ -61,6 +61,7 @@ pub fn parse_m365_ual(json: &str) -> Vec<EvtxEvent> {
     }).collect()
 }
 
+#[allow(clippy::map_identity, clippy::unnecessary_lazy_evaluations)] // pre-existing convoluted parse chain whose `?` short-circuit is load-bearing
 fn parse_iso8601_ns(s: &str) -> Option<i64> {
     chrono::DateTime::parse_from_rfc3339(s)
         .or_else(|_| {
@@ -72,17 +73,17 @@ fn parse_iso8601_ns(s: &str) -> Option<i64> {
         .timestamp_nanos_opt()
         .map(|n| n)
         .map(|_| ())
-        .and_then(|_| {
+        .and_then(|()| {
             // Re-parse to get timestamp_nanos
             None::<()>
         });
 
     // Simpler: parse with naive then assume UTC
     if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S") {
-        return Some(dt.and_utc().timestamp_nanos_opt()?);
+        return dt.and_utc().timestamp_nanos_opt();
     }
     if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
-        return Some(dt.timestamp_nanos_opt()?);
+        return dt.timestamp_nanos_opt();
     }
     None
 }

@@ -73,6 +73,7 @@ pub struct CollectionMetadata {
 /// Implements `Debug` with summary counts (not full data dumps) for
 /// practical debuggability without overwhelming output.
 #[derive(Default)]
+#[allow(dead_code)] // forensic data carrier: collected, not all fields rendered yet
 pub struct InvestigationData {
     pub metadata: CollectionMetadata,
     pub alerts: Vec<Alert>,
@@ -129,7 +130,7 @@ impl InvestigationData {
             .filter(|(_label, count)| *count > 0)
             .collect();
 
-        counts.sort_by(|a, b| b.1.cmp(&a.1));
+        counts.sort_by_key(|x| std::cmp::Reverse(x.1));
         counts
     }
 }
@@ -284,7 +285,7 @@ fn conveissen_manifest_metadata(m: &issen_unpack::CollectionMetadata) -> Collect
         hostname: m.hostname.clone().unwrap_or_default(),
         os: os.to_string(),
         collection_tool: m.tool_version.clone().unwrap_or_default(),
-        acquisition_time: m.collection_time.map(|dt| dt.timestamp()).unwrap_or(0),
+        acquisition_time: m.collection_time.map_or(0, |dt| dt.timestamp()),
         ..CollectionMetadata::default()
     }
 }
@@ -328,8 +329,7 @@ pub fn parse_uac_metadata(path: &Path) -> CollectionMetadata {
 /// Parse a UAC timestamp string (YYYYMMDDHHMMSS) into Unix epoch seconds.
 fn parse_uac_timestamp(ts: &str) -> i64 {
     chrono::NaiveDateTime::parse_from_str(ts, "%Y%m%d%H%M%S")
-        .map(|dt| dt.and_utc().timestamp())
-        .unwrap_or(0)
+        .map_or(0, |dt| dt.and_utc().timestamp())
 }
 
 // ---------------------------------------------------------------------------
@@ -793,10 +793,9 @@ mod tests {
             "expected diamorphine finding"
         );
 
-        use crate::investigation::alerts::AlertSeverity;
         assert!(
             data.alerts.iter().any(|a| a.category == "rootkit"
-                && a.severity == AlertSeverity::Critical
+                && a.severity == crate::investigation::alerts::AlertSeverity::Critical
                 && a.message.contains("diamorphine")),
             "expected critical rootkit alert for diamorphine, got: {:?}",
             data.alerts

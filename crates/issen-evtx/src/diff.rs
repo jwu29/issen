@@ -39,7 +39,7 @@ fn image_basename(ev: &EvtxEvent) -> Option<String> {
         return None;
     };
     Some(
-        path.rsplit(|c| c == '\\' || c == '/')
+        path.rsplit(['\\', '/'])
             .next()
             .unwrap_or(path)
             .to_lowercase(),

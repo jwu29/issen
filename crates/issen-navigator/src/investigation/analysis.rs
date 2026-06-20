@@ -7,6 +7,10 @@
 //! Follows the Question → Evidence → Confidence → Interpretation pattern
 //! from the ntfs-core USN triage system, adapted for Linux/Windows UAC data.
 
+// Built-but-unwired IR analysis engine: exercised by unit tests, not yet
+// called from the live navigator pipeline. Keep intact for wiring.
+#![allow(dead_code)]
+
 use super::alerts::{Alert, AlertInput, AlertSeverity};
 
 // ---------------------------------------------------------------------------
@@ -82,19 +86,19 @@ pub struct AnalysisResult {
 /// Returns results sorted by tier (Tier 1 first), then by confidence (highest first).
 #[must_use]
 pub fn analyze(alerts: &[Alert], input: &AlertInput<'_>) -> Vec<AnalysisResult> {
-    let mut results = Vec::new();
-
-    results.push(analyze_system_compromised(alerts));
-    results.push(analyze_initial_access(alerts, input));
-    results.push(analyze_malware_tools(alerts, input));
-    results.push(analyze_rootkit_present(alerts));
-    results.push(analyze_resource_abuse(alerts, input));
-    results.push(analyze_persistence(alerts, input));
-    results.push(analyze_active_access(alerts, input));
-    results.push(analyze_lateral_movement(alerts, input));
-    results.push(analyze_hidden_processes(alerts));
-    results.push(analyze_evidence_tampering(alerts, input));
-    results.push(analyze_attack_timeline(alerts, input));
+    let mut results = vec![
+        analyze_system_compromised(alerts),
+        analyze_initial_access(alerts, input),
+        analyze_malware_tools(alerts, input),
+        analyze_rootkit_present(alerts),
+        analyze_resource_abuse(alerts, input),
+        analyze_persistence(alerts, input),
+        analyze_active_access(alerts, input),
+        analyze_lateral_movement(alerts, input),
+        analyze_hidden_processes(alerts),
+        analyze_evidence_tampering(alerts, input),
+        analyze_attack_timeline(alerts, input),
+    ];
 
     results.sort_by(|a, b| {
         a.tier.cmp(&b.tier).then(
@@ -1044,6 +1048,7 @@ fn classify_answer(confidence: f64) -> Answer {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
+#[allow(clippy::float_cmp)] // confidence values are exact (0.0/1.0 boundaries)
 mod tests {
     use super::*;
     use crate::investigation::alerts::AlertInput;

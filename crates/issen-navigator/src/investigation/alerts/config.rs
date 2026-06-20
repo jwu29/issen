@@ -92,7 +92,7 @@ pub(super) fn check_config_baseline(configs: &[ConfigFile], alerts: &mut Vec<Ale
                 }
 
                 // Interactive accounts
-                let is_interactive = !NON_INTERACTIVE_SHELLS.iter().any(|s| shell == *s);
+                let is_interactive = !NON_INTERACTIVE_SHELLS.contains(&shell);
                 if is_interactive {
                     interactive_accounts.push(name.to_string());
                 }
@@ -241,8 +241,7 @@ pub(super) fn check_config_baseline(configs: &[ConfigFile], alerts: &mut Vec<Ale
         // --- SSH private keys ---
         if (path.contains("id_rsa") || path.contains("id_ed25519") || path.contains("id_ecdsa"))
             && !path.ends_with(".pub")
-        {
-            if content.starts_with("-----BEGIN") {
+            && content.starts_with("-----BEGIN") {
                 alerts.push(Alert {
                     severity: AlertSeverity::Warning,
                     category: "config".into(),
@@ -250,7 +249,6 @@ pub(super) fn check_config_baseline(configs: &[ConfigFile], alerts: &mut Vec<Ale
                     detail: format!("source: {path}"),
                 });
             }
-        }
 
         // --- macOS LaunchDaemons / LaunchAgents ---
         if path.contains("LaunchDaemons") || path.contains("LaunchAgents") {

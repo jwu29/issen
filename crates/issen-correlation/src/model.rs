@@ -274,9 +274,11 @@ mod finding_model_tests {
 
     #[test]
     fn assertion_level_variants_exist() {
-        let _observed = AssertionLevel::Observed;
-        let _correlated = AssertionLevel::Correlated;
-        let _inferred = AssertionLevel::Inferred;
+        let _ = (
+            AssertionLevel::Observed,
+            AssertionLevel::Correlated,
+            AssertionLevel::Inferred,
+        );
     }
 
     #[test]

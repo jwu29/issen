@@ -35,6 +35,7 @@
     clippy::manual_contains,
     clippy::unnecessary_literal_bound
 )]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 //! `rt-nav` — Forensic file navigator and investigation workbench.
 //!
 //! Parses a raw `$MFT` file, reconstructs the NTFS directory tree in memory,

@@ -1,3 +1,10 @@
+#![allow(
+    // deliberate exhaustive event-ID mappings keep every action type visible
+    clippy::match_same_arms,
+    // internal app APIs need not be generic over the HashMap hasher
+    clippy::implicit_hasher
+)]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 pub mod analyze;
 pub mod session;
 pub mod wsl_events;
@@ -40,19 +47,17 @@ pub fn find_evtx_files(dir: &Path) -> Vec<PathBuf> {
 }
 
 fn walk_dir(dir: &Path, out: &mut Vec<PathBuf>) {
-    let entries = match std::fs::read_dir(dir) {
-        Ok(e) => e,
-        Err(_) => return,
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
     };
-    for entry in entries.filter_map(|e| e.ok()) {
+    for entry in entries.filter_map(std::result::Result::ok) {
         let path = entry.path();
         if path.is_dir() {
             walk_dir(&path, out);
         } else if path
             .extension()
             .and_then(|e| e.to_str())
-            .map(|e| e.eq_ignore_ascii_case("evtx"))
-            .unwrap_or(false)
+            .is_some_and(|e| e.eq_ignore_ascii_case("evtx"))
         {
             out.push(path);
         }
@@ -81,9 +86,8 @@ pub fn parse_evtx_to_events(evtx_files: &[PathBuf]) -> Vec<winevt_core::EvtxEven
             Err(_) => continue,
         };
         for record in parser.records_json_value() {
-            let rec = match record {
-                Ok(r) => r,
-                Err(_) => continue,
+            let Ok(rec) = record else {
+                continue;
             };
             if let Some(ev) = evtx_record_to_event(&rec.timestamp, &rec.data) {
                 all_events.push(ev);
@@ -134,6 +138,8 @@ pub fn analyse_evtx_sessions(evtx_files: &[PathBuf]) -> anyhow::Result<EvtxSessi
 /// Convert a `serde_json::Value` EVTX record to an `EvtxEvent`.
 ///
 /// Returns `None` if the record cannot be interpreted.
+/// Event IDs we surface from the Security/Sysmon channels.
+const INTERESTING: &[u32] = &[4624, 4634, 4647, 4648, 4688, 4689];
 fn evtx_record_to_event(
     timestamp: &evtx::Timestamp,
     value: &serde_json::Value,
@@ -154,8 +160,6 @@ fn evtx_record_to_event(
         })
         .and_then(|n| u32::try_from(n).ok())?;
 
-    // Filter to only the event IDs we care about
-    const INTERESTING: &[u32] = &[4624, 4634, 4647, 4648, 4688, 4689];
     if !INTERESTING.contains(&event_id) {
         return None;
     }
@@ -309,7 +313,7 @@ mod tests {
         let result = find_evtx_files(dir.path());
         assert_eq!(result.len(), 1, "should only find .evtx files");
         assert!(
-            result[0].extension().map(|e| e == "evtx").unwrap_or(false),
+            result[0].extension().is_some_and(|e| e == "evtx"),
             "found file has wrong extension"
         );
     }
@@ -380,9 +384,11 @@ mod tests {
 
         #[test]
         fn frequency_key_variants_are_usable() {
-            let _cmd = FrequencyKey::CommandLine;
-            let _img = FrequencyKey::ProcessImage;
-            let _usr = FrequencyKey::Username;
+            let _ = (
+                FrequencyKey::CommandLine,
+                FrequencyKey::ProcessImage,
+                FrequencyKey::Username,
+            );
         }
 
         #[test]

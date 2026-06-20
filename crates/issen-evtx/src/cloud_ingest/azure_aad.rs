@@ -16,7 +16,7 @@ pub fn parse_azure_aad_signin(json: &str) -> Vec<EvtxEvent> {
         // errorCode == 0 → success (4624), else failure (4625)
         let error_code = rec.get("status")
             .and_then(|s| s.get("errorCode"))
-            .and_then(|v| v.as_i64())
+            .and_then(serde_json::Value::as_i64)
             .unwrap_or(-1);
         let event_id: u32 = if error_code == 0 { 4624 } else { 4625 };
 
@@ -54,9 +54,9 @@ pub fn parse_azure_aad_signin(json: &str) -> Vec<EvtxEvent> {
 fn parse_iso8601_ns(s: &str) -> Option<i64> {
     // Try chrono parse
     let dt = chrono::DateTime::parse_from_rfc3339(s)
-        .or_else(|_| chrono::DateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%SZ").map(|d| d.into()))
+        .or_else(|_| chrono::DateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%SZ"))
         .ok()?;
-    Some(dt.timestamp_nanos_opt()?)
+    dt.timestamp_nanos_opt()
 }
 
 #[cfg(test)]

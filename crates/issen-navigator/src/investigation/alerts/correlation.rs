@@ -95,8 +95,7 @@ pub fn correlate_network_eventlog(input: &AlertInput<'_>) -> Vec<Alert> {
                 // Handle "ip:port" format — split at last ':'
                 conn.remote_addr
                     .rfind(':')
-                    .map(|idx| &conn.remote_addr[..idx])
-                    .unwrap_or(&conn.remote_addr)
+                    .map_or(&conn.remote_addr, |idx| &conn.remote_addr[..idx])
             },
         );
 
@@ -194,7 +193,7 @@ pub fn correlate_c2_beacon(input: &AlertInput<'_>) -> Vec<Alert> {
             alerts.push(Alert {
                 severity: AlertSeverity::Warning,
                 category: "network".into(),
-                message: format!("Possible C2 beacon to {ip}: interval ~{:.0}s", mean),
+                message: format!("Possible C2 beacon to {ip}: interval ~{mean:.0}s"),
                 detail: format!(
                     "remote_ip={ip} connections={} mean_interval={mean:.1}s std_dev={std_dev:.1}s",
                     timestamps.len()

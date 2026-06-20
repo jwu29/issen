@@ -67,8 +67,7 @@ pub fn join_with_execution_artifacts(
             .filter(|a| image_basename(&a.image_name) == ev_basename)
             .min_by_key(|a| {
                 a.last_run_ns
-                    .map(|t| (t - ev.timestamp_ns).unsigned_abs())
-                    .unwrap_or(u64::MAX)
+                    .map_or(u64::MAX, |t| (t - ev.timestamp_ns).unsigned_abs())
             });
 
         if let Some(artifact) = best {
@@ -97,7 +96,7 @@ pub fn join_with_execution_artifacts(
 ///
 /// `C:\Windows\System32\cmd.exe` → `cmd.exe`
 pub fn image_basename(path: &str) -> String {
-    path.rsplit(|c| c == '\\' || c == '/')
+    path.rsplit(['\\', '/'])
         .next()
         .unwrap_or(path)
         .to_lowercase()

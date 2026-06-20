@@ -64,10 +64,7 @@ impl ProcessTree {
         let mut result = Vec::new();
         let mut current_key = key.to_string();
         let mut visited = std::collections::HashSet::new();
-        loop {
-            let Some(node) = self.nodes.get(&current_key) else {
-                break;
-            };
+        while let Some(node) = self.nodes.get(&current_key) {
             let Some(parent_key) = node.parent_key.as_deref() else {
                 break;
             };

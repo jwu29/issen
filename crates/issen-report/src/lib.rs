@@ -776,9 +776,9 @@ mod tests {
             *by_type.entry(ev.event_type.clone()).or_insert(0) += 1;
         }
         let mut events_by_source: Vec<(String, usize)> = by_source.into_iter().collect();
-        events_by_source.sort_by(|a, b| b.1.cmp(&a.1));
+        events_by_source.sort_by_key(|x| std::cmp::Reverse(x.1));
         let mut events_by_type: Vec<(String, usize)> = by_type.into_iter().collect();
-        events_by_type.sort_by(|a, b| b.1.cmp(&a.1));
+        events_by_type.sort_by_key(|x| std::cmp::Reverse(x.1));
 
         let time_range = if events.is_empty() {
             None

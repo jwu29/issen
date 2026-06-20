@@ -123,11 +123,11 @@ mod tests {
     use super::*;
     use std::io::Read as _;
 
-    const SIMPLE_HTML: &str = r#"<!DOCTYPE html>
+    const SIMPLE_HTML: &str = r"<!DOCTYPE html>
 <html><head><title>Test Report</title></head>
 <body><h1>Issen Report</h1>
 <p>Event count: <strong>42</strong></p>
-</body></html>"#;
+</body></html>";
 
     /// `export_pdf` must create a non-empty file at the given path.
     #[test]

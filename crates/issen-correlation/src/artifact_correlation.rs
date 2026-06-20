@@ -208,7 +208,7 @@ mod tests {
             title: "All rule".into(),
             severity: "high".into(),
             description: None,
-            artifact_ids: artifact_ids.iter().map(|s| s.to_string()).collect(),
+            artifact_ids: artifact_ids.iter().map(std::string::ToString::to_string).collect(),
             requirement: ArtifactRequirement::All,
             mitre_techniques: vec![],
             absence_note: None,
@@ -222,7 +222,7 @@ mod tests {
             title: "At least N rule".into(),
             severity: "medium".into(),
             description: None,
-            artifact_ids: artifact_ids.iter().map(|s| s.to_string()).collect(),
+            artifact_ids: artifact_ids.iter().map(std::string::ToString::to_string).collect(),
             requirement: ArtifactRequirement::AtLeastN { n },
             mitre_techniques: vec![],
             absence_note: None,
@@ -286,7 +286,7 @@ mod tests {
     fn at_least_n_equal_to_len_behaves_like_all() {
         let rule = at_least_n_rule(&["userassist_exe", "prefetch_file"], 2);
         // Missing one → should not fire
-        let findings = evaluate_artifacts(&[rule.clone()], &["userassist_exe"]);
+        let findings = evaluate_artifacts(std::slice::from_ref(&rule), &["userassist_exe"]);
         assert!(findings.is_empty());
         // All present → fires
         let findings = evaluate_artifacts(&[rule], &["userassist_exe", "prefetch_file"]);
@@ -297,7 +297,7 @@ mod tests {
 
     #[test]
     fn finding_records_matched_and_absent_artifacts() {
-        let rule = all_rule(&["userassist_exe", "prefetch_file", "shimcache"]);
+        let _rule = all_rule(&["userassist_exe", "prefetch_file", "shimcache"]);
         // Force a non-firing case by using AtLeastN so it fires with 2 present
         let rule_n = at_least_n_rule(&["userassist_exe", "prefetch_file", "shimcache"], 2);
         let present = &["userassist_exe", "prefetch_file"]; // shimcache absent

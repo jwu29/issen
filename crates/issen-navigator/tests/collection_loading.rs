@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 //! Integration tests for the collection-loading pipeline.
 //!
 //! These tests exercise the full path from archive file to parsed investigation
@@ -36,7 +37,7 @@ const VELOCIRAPTOR_ARCHIVE: &str = concat!(
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore]
+#[ignore = "requires large local test corpus (see module docs)"]
 fn test_uac_collection_opens() {
     let path = Path::new(UAC_ARCHIVE);
     assert!(path.exists(), "UAC test archive not found: {UAC_ARCHIVE}");
@@ -59,7 +60,7 @@ fn test_uac_collection_opens() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore]
+#[ignore = "requires large local test corpus (see module docs)"]
 fn test_uac_collection_has_artifacts() {
     let path = Path::new(UAC_ARCHIVE);
     assert!(path.exists(), "UAC test archive not found: {UAC_ARCHIVE}");
@@ -89,7 +90,7 @@ fn test_uac_collection_has_artifacts() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore]
+#[ignore = "requires large local test corpus (see module docs)"]
 fn test_velociraptor_collection_opens() {
     let path = Path::new(VELOCIRAPTOR_ARCHIVE);
     assert!(
@@ -116,7 +117,7 @@ fn test_velociraptor_collection_opens() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore]
+#[ignore = "requires large local test corpus (see module docs)"]
 fn test_velociraptor_collection_has_mft() {
     let path = Path::new(VELOCIRAPTOR_ARCHIVE);
     assert!(
@@ -156,7 +157,7 @@ fn test_velociraptor_collection_has_mft() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore]
+#[ignore = "requires large local test corpus (see module docs)"]
 fn test_uac_loads_investigation_data() {
     let path = Path::new(UAC_ARCHIVE);
     assert!(path.exists(), "UAC test archive not found: {UAC_ARCHIVE}");
@@ -194,7 +195,7 @@ fn test_uac_loads_investigation_data() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore]
+#[ignore = "requires large local test corpus (see module docs)"]
 fn test_velociraptor_loads_investigation_data() {
     let path = Path::new(VELOCIRAPTOR_ARCHIVE);
     assert!(

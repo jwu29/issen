@@ -118,7 +118,9 @@ fn draw_header(frame: &mut Frame, area: Rect, app: &App) {
     let depth = app.entries.len();
 
     // Selected entry's full path (shrunk to fit terminal width).
-    let selected_path = if !app.entries.is_empty() {
+    let selected_path = if app.entries.is_empty() {
+        String::new()
+    } else {
         let full = app.tree.cached_path(app.entries[app.selected]);
         let max_w = area.width.saturating_sub(2) as usize; // leave margin
         if full.len() > max_w {
@@ -126,8 +128,6 @@ fn draw_header(frame: &mut Frame, area: Rect, app: &App) {
         } else {
             full.to_string()
         }
-    } else {
-        String::new()
     };
 
     let lines = vec![
@@ -472,25 +472,25 @@ fn draw_detail_panel(frame: &mut Frame, area: Rect, app: &mut App) {
         let warn = Style::default().fg(Color::LightRed);
         let ok = val;
 
-        let c_style = if fn_ts.created != node.si_timestamps.created {
-            warn
-        } else {
+        let c_style = if fn_ts.created == node.si_timestamps.created {
             ok
+        } else {
+            warn
         };
-        let m_style = if fn_ts.modified != node.si_timestamps.modified {
-            warn
-        } else {
+        let m_style = if fn_ts.modified == node.si_timestamps.modified {
             ok
+        } else {
+            warn
         };
-        let a_style = if fn_ts.accessed != node.si_timestamps.accessed {
-            warn
-        } else {
+        let a_style = if fn_ts.accessed == node.si_timestamps.accessed {
             ok
+        } else {
+            warn
         };
-        let e_style = if fn_ts.entry_modified != node.si_timestamps.entry_modified {
-            warn
-        } else {
+        let e_style = if fn_ts.entry_modified == node.si_timestamps.entry_modified {
             ok
+        } else {
+            warn
         };
 
         lines.push(Line::from(vec![

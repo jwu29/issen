@@ -205,13 +205,12 @@ pub fn enrich_timeline_events(
     sessions: &HashMap<u64, LogonSession>,
 ) {
     for event in events {
-        let logon_id = match event.metadata.get("logon_id").and_then(|v| v.as_u64()) {
-            Some(id) => id,
-            None => continue,
+        let Some(logon_id) = event.metadata.get("logon_id").and_then(serde_json::Value::as_u64)
+        else {
+            continue;
         };
-        let session = match sessions.get(&logon_id) {
-            Some(s) => s,
-            None => continue,
+        let Some(session) = sessions.get(&logon_id) else {
+            continue;
         };
         event.entity_refs.push(EntityRef::Session(logon_id));
         event.metadata.insert("session_username".into(), session.username.clone().into());
@@ -267,7 +266,7 @@ mod tests {
             logon_type,
             username: username.to_string(),
             domain: domain.to_string(),
-            src_ip: src_ip.map(|s| s.to_string()),
+            src_ip: src_ip.map(std::string::ToString::to_string),
             logon_time_ns: 1_700_000_000_000_000_000,
             logoff_time_ns: None,
             duration_secs: None,
@@ -301,7 +300,7 @@ mod tests {
         let meta = &events[0].metadata;
         assert_eq!(meta.get("session_username").and_then(|v| v.as_str()), Some("alice"));
         assert_eq!(meta.get("session_domain").and_then(|v| v.as_str()), Some("CORP"));
-        assert_eq!(meta.get("session_logon_type").and_then(|v| v.as_u64()), Some(3));
+        assert_eq!(meta.get("session_logon_type").and_then(serde_json::Value::as_u64), Some(3));
         assert_eq!(meta.get("session_src_ip").and_then(|v| v.as_str()), Some("10.0.0.5"));
     }
 
@@ -390,22 +389,20 @@ mod tests {
     fn extract_process_events_returns_process_events_with_image_path() {
         let corpus = corpus_security_evtx();
         if !corpus.exists() {
-            eprintln!("skip: corpus not found at {:?}", corpus);
+            eprintln!("skip: corpus not found at {corpus:?}");
             return;
         }
         let procs = extract_process_events(&corpus);
         // Security.evtx from an enterprise system must have EID 4688 events.
         assert!(
             !procs.is_empty(),
-            "expected ≥1 ProcessEvent from {:?}, got 0",
-            corpus
+            "expected ≥1 ProcessEvent from {corpus:?}, got 0"
         );
         // Every returned event must have a non-empty image_path.
         for p in &procs {
             assert!(
                 !p.image_path.is_empty(),
-                "image_path must not be empty: {:?}",
-                p
+                "image_path must not be empty: {p:?}"
             );
         }
     }
@@ -414,7 +411,7 @@ mod tests {
     fn extract_process_events_result_has_no_logon_id() {
         let corpus = corpus_security_evtx();
         if !corpus.exists() {
-            eprintln!("skip: corpus not found at {:?}", corpus);
+            eprintln!("skip: corpus not found at {corpus:?}");
             return;
         }
         let procs = extract_process_events(&corpus);

@@ -52,7 +52,7 @@ pub fn parse_mde_advanced_hunting(json: &str) -> Vec<EvtxEvent> {
         if let Some(rip) = rec.get("RemoteIP").and_then(|v| v.as_str()) {
             if !rip.is_empty() { data.insert("RemoteIP".into(), rip.into()); }
         }
-        if let Some(rport) = rec.get("RemotePort").and_then(|v| v.as_u64()) {
+        if let Some(rport) = rec.get("RemotePort").and_then(serde_json::Value::as_u64) {
             if rport > 0 { data.insert("RemotePort".into(), rport.to_string()); }
         }
 
@@ -72,10 +72,10 @@ pub fn parse_mde_advanced_hunting(json: &str) -> Vec<EvtxEvent> {
 
 fn parse_iso8601_ns(s: &str) -> Option<i64> {
     if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
-        return Some(dt.timestamp_nanos_opt()?);
+        return dt.timestamp_nanos_opt();
     }
     if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%SZ") {
-        return Some(dt.and_utc().timestamp_nanos_opt()?);
+        return dt.and_utc().timestamp_nanos_opt();
     }
     None
 }

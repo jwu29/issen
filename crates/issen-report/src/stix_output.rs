@@ -225,7 +225,7 @@ mod tests {
             .find(|o| o.get("type").and_then(|t| t.as_str()) == Some("attack-action"))
             .expect("attack-action must exist");
         assert_eq!(
-            action.get("confidence").and_then(|c| c.as_u64()),
+            action.get("confidence").and_then(serde_json::Value::as_u64),
             Some(100),
             "critical severity must map to confidence 100"
         );

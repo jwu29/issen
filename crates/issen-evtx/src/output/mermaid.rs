@@ -13,7 +13,7 @@ pub fn process_tree_to_mermaid(tree: &ProcessTree) -> String {
         lines.push(format!("    {}[\"{}\"]\n", safe_key, label.replace('"', "'")));
         if let Some(parent) = &node.parent_key {
             let safe_parent = parent.replace(['{', '}', '-'], "_");
-            lines.push(format!("    {} --> {}", safe_parent, safe_key));
+            lines.push(format!("    {safe_parent} --> {safe_key}"));
         }
     }
     lines.join("\n")
@@ -52,7 +52,7 @@ mod tests {
         let mut data = std::collections::HashMap::new();
         data.insert("Image".into(), "C:\\Windows\\System32\\cmd.exe".into());
         data.insert("ProcessGuid".into(), "{AAAA}".into());
-        data.insert("ParentProcessGuid".into(), "".into());
+        data.insert("ParentProcessGuid".into(), String::new());
         data.insert("CommandLine".into(), "cmd.exe".into());
         let ev = EvtxEvent { event_id: 1, channel: "Microsoft-Windows-Sysmon/Operational".into(), timestamp_ns: 1_000_000_000, computer: "WS01".into(), user_sid: None, logon_id: None, process_id: Some(1234), thread_id: None, data };
         let tree = ProcessTree::from_events(&[ev]);

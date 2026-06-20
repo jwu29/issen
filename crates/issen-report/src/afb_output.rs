@@ -203,6 +203,7 @@ pub fn write_afb(doc: &AfbDocument, path: &Path) -> anyhow::Result<()> {
 // ===========================================================================
 
 #[cfg(test)]
+#[allow(clippy::float_cmp)] // layout coords are exact (index * spacing); equality is intended
 mod tests {
     use super::*;
     use issen_correlation::model::{AssertionLevel, Finding};

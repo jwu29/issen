@@ -651,6 +651,7 @@ mod tests {
     // ── Test 9 ────────────────────────────────────────────────────────────────
 
     #[test]
+    #[allow(clippy::similar_names)] // action_a_id/action_b_id are intentionally parallel
     fn bundle_to_rules_chain_creates_multi_clause_rule() {
         let action_b_id = "attack-action--bbbbbbbb-0000-0000-0000-000000000002";
         let flow_id = "attack-flow--cccccccc-0000-0000-0000-000000000001";
