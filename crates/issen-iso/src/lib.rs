@@ -90,7 +90,7 @@ impl DataSource for IsoDataSource {
 // ── CollectionProvider ────────────────────────────────────────────────
 
 use issen_unpack::{
-    CollectionManifest, CollectionMetadata, CollectionProvider, Confidence, OsType,
+    CollectionManifest, CollectionProvider, Confidence,
 };
 
 /// Format-recognition and manifest provider for ISO 9660 disc images.
@@ -125,20 +125,16 @@ impl CollectionProvider for IsoProvider {
     }
 
     fn open(&self, path: &Path) -> Result<CollectionManifest, RtError> {
-        let source = IsoDataSource::open(path)?;
-        let size = source.len();
-        let tempdir = tempfile::tempdir().map_err(RtError::Io)?;
-        Ok(CollectionManifest::new(
-            self.name().to_string(),
-            tempdir,
-            vec![],
-            CollectionMetadata {
-                hostname: None,
-                collection_time: None,
-                os_type: OsType::Unknown,
-                tool_version: Some(format!("{size} bytes")),
-            },
-        ))
+        // The container opens (format decodes), but no triage extractor is
+        // wired for it yet. Returning an empty manifest would emit a silent,
+        // clean-looking timeline (indistinguishable from a genuinely clean
+        // image) — fail loud instead of fabricating "no findings".
+        IsoDataSource::open(path)?;
+        Err(RtError::UnsupportedFormat(format!(
+            "{}: image opens, but artifact extraction is not yet wired for \
+             this container (refusing to emit a silent empty timeline)",
+            self.name()
+        )))
     }
 }
 

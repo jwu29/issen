@@ -100,7 +100,7 @@ impl DataSource for VhdxDataSource {
 
 // ── CollectionProvider ────────────────────────────────────────────────
 
-use issen_unpack::{CollectionManifest, CollectionMetadata, CollectionProvider, Confidence, OsType};
+use issen_unpack::{CollectionManifest, CollectionProvider, Confidence};
 
 /// Format-recognition and manifest provider for VHDX disk images.
 #[derive(Debug, Default)]
@@ -130,20 +130,16 @@ impl CollectionProvider for VhdxProvider {
     }
 
     fn open(&self, path: &Path) -> Result<CollectionManifest, RtError> {
-        let source = VhdxDataSource::open(path)?;
-        let size = source.len();
-        let tempdir = tempfile::tempdir().map_err(RtError::Io)?;
-        Ok(CollectionManifest::new(
-            self.name().to_string(),
-            tempdir,
-            vec![],
-            CollectionMetadata {
-                hostname: None,
-                collection_time: None,
-                os_type: OsType::Unknown,
-                tool_version: Some(format!("{size} bytes")),
-            },
-        ))
+        // The container opens (format decodes), but no triage extractor is
+        // wired for it yet. Returning an empty manifest would emit a silent,
+        // clean-looking timeline (indistinguishable from a genuinely clean
+        // image) — fail loud instead of fabricating "no findings".
+        VhdxDataSource::open(path)?;
+        Err(RtError::UnsupportedFormat(format!(
+            "{}: image opens, but artifact extraction is not yet wired for \
+             this container (refusing to emit a silent empty timeline)",
+            self.name()
+        )))
     }
 }
 
