@@ -8,6 +8,7 @@ use std::path::Path;
 use issen_core::artifacts::ArtifactType;
 use issen_core::timeline::event::{EventType, TimelineEvent};
 use winreg_artifacts::registry_keys::walk_keys;
+use winreg_artifacts::run_keys;
 use winreg_core::hive::Hive;
 
 /// Parse a Windows registry hive file and emit [`TimelineEvent`]s.
@@ -79,7 +80,59 @@ fn events_from_hive(
         events.push(event);
     }
     events.extend(extract_named_values(hive, hive_name, source_id));
+    events.extend(extract_run_keys(hive, hive_name, source_id));
     events
+}
+
+/// Decode autorun (Run / RunOnce / Winlogon) persistence entries via
+/// `winreg-artifacts::run_keys` and emit one Persistence event per VALUE — the
+/// command that runs at startup, which `walk_keys` (key-level only) drops. The
+/// decoder self-filters by hive type (HKLM for SOFTWARE, HKCU for NTUSER.DAT),
+/// so it is safe to call on every hive: a hive with no Run values yields none.
+fn extract_run_keys(
+    hive: &Hive<Cursor<Vec<u8>>>,
+    hive_name: &str,
+    source_id: &str,
+) -> Vec<TimelineEvent> {
+    run_keys::parse(hive)
+        .into_iter()
+        .map(|e| {
+            let (ts_ns, ts_display) = e.last_written.map_or((0, String::new()), |dt| {
+                (
+                    dt.timestamp_nanos_opt().unwrap_or(0),
+                    dt.format("%Y-%m-%dT%H:%M:%S").to_string(),
+                )
+            });
+            let full_key = format!(r"{}\{}", e.key_path, e.value_name);
+            let mut event = TimelineEvent::new(
+                ts_ns,
+                ts_display,
+                EventType::RegistryModify,
+                ArtifactType::Registry,
+                full_key,
+                format!(
+                    "Registry autorun [{}]: {} = {}",
+                    e.hive, e.value_name, e.command
+                ),
+                source_id.to_string(),
+            )
+            .with_activity_category(issen_core::ActivityCategory::Persistence)
+            .with_tag("persistence")
+            .with_metadata("hive", serde_json::json!(hive_name))
+            .with_metadata("autorun_hive", serde_json::json!(e.hive))
+            .with_metadata("key", serde_json::json!(e.key_path))
+            .with_metadata("value_name", serde_json::json!(e.value_name))
+            .with_metadata("command", serde_json::json!(e.command))
+            .with_metadata("suspicious", serde_json::json!(e.is_suspicious));
+            if e.is_suspicious {
+                event = event.with_tag("suspicious");
+                if let Some(reason) = &e.suspicious_reason {
+                    event = event.with_metadata("suspicious_reason", serde_json::json!(reason));
+                }
+            }
+            event
+        })
+        .collect()
 }
 
 /// Read a REG_SZ named value as a string (None if key/value absent or wrong type).
