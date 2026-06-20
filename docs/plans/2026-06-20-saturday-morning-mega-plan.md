@@ -68,10 +68,23 @@ This is the archived extraction doc's targeted S1–S3 path — Codex-endorsed a
   files into `Vec<u8>`): max files/bytes per pattern + global, max dir entries, max depth + MFT-ref cycle
   guard, loud truncation reporting. Defensive prerequisite for any new sweep.
 - **2.2 Bounded LNK + recycle-bin extraction** — per-user `.lnk` sweeps (Recent + Desktop) and
-  `$Recycle.Bin\<SID>\$I*` (NOT `$R` — no consumer), paths as **local `issen-disk` consts for now**,
-  **ADS preserved** (`$UsnJrnl:$J`). **→ Closes gaps 2 (LNK targets) + 4 (Beth's `SECRET_beth.txt` `$I`).**
-- **2.3 End-to-end test + real-image oracle** — synthetic NTFS (Recent LNK + `$IABC`) survives
-  extract→classify→parse; then real DC+WS vs an independent oracle (TSK `fls`, LECmd).
+  `$Recycle.Bin\<SID>\$I*` (NOT `$R` — no consumer), paths as **local `issen-disk` consts for now**.
+  **→ Closes gaps 2 (LNK targets) + 4 (Beth's `SECRET_beth.txt` `$I`).** (The new artifacts `.lnk`/`$I`
+  do **not** use ADS, so the ADS work below is a *non-regression* constraint, not part of their extraction.)
+- **2.3 ADS non-regression guard (investigated 2026-06-20).** Clarification: `sanitize_ntfs_path`
+  (issen-disk:248) strips the colon only from the **output filename** (you can't host a file named
+  `$UsnJrnl:$J`); the ADS *data* is read correctly via `extract_named_streams` → `read_named_stream(path,
+  stream)` (issen-disk:435+), and `ExtractedFile.path` keeps `path:stream`. So the current code does NOT
+  lose ADS data — **this is a constraint+test, not a blocker.** Two real risks to guard when Epic K
+  migrates the static arrays to a catalog/registry model: **(a)** the `TriagePattern` model MUST carry an
+  ADS `(path,stream)` shape routed to `extract_named_streams`, or USN-journal (`$UsnJrnl:$J`) extraction
+  regresses — add a regression test asserting `$J` still extracts after the migration; **(b)** an
+  **output-name collision**: if a future pattern extracts both `$UsnJrnl:$J` and `$UsnJrnl:$Max`, both
+  sanitize to `$Extend/$UsnJrnl` and one overwrites the other (today only `:$J` is extracted, so no
+  collision yet) — the migration should encode the stream into the output name (e.g. `$UsnJrnl_$J`) or
+  collision-check.
+- **2.4 End-to-end test + real-image oracle** — synthetic NTFS (Recent LNK + `$IABC` + a `$J` ADS to lock
+  2.3) survives extract→classify→parse; then real DC+WS vs an independent oracle (TSK `fls`, LECmd).
 
 ### Phase 3 — Epic L2/L3: aggregators + drift gate (land L3 with/before L2)
 - **L2 `issen-parsers` + `issen-providers` aggregators** (providers `issen_dd/ewf/iso/qcow2/vhd/vhdx/vmdk`
@@ -112,16 +125,62 @@ Detail: `archive/2026-06-20-registry-derived-extraction-design.md`.
 
 ---
 
-## 🟡 Carry-forward backlog (from the prior Mega-Plan; still open)
-- **Supertimeline #114**: CoverageManifest header · dirty-hive `.LOG` replay · catalog breadth scanner ·
-  breadth/depth dedup · fleet-capability gate · nested archive/VHD/VSS expansion. *(link-gate items fold into L/K.)*
-- **Unified timeline #110**: P3 smart front-door · P4 forensic soundness (provenance, `timestamp_quality`, manifest cache).
-- **Temporal rules #112**: de-specialize the 2 over-fit originals; real Case-001 validation.
-- **CI greening #109**: after Phase 0.2 + churn settles.
-- **Housekeeping**: `srum-gui`→egui (+`publish=false` audit); `forensic-mount` MIT→Apache-2.0; ext4fs/ewf→`blazehash-core`; real-hive fixtures (6 winreg parsers); regcatalog `scan_users` multi-profile.
+## 🟡 Carry-forward backlog — **triaged 2026-06-20 (my review × Codex critic)**
 
-## 🔵 Strategic (larger)
-- correlate capstone #37 · fleet hierarchy reorg #70 · FindEvil MCP fleet · forensicnomicon version unification · artifact expansion. (Detail in `archive/`.)
+**Correctness-first do-next (Codex elevated these above features):**
+1. **ParseCompletion on commit — ✅ core DONE** (`f585856`): incomplete units re-parse on resume.
+   **Hardening follow-ups (Codex review of the fix):** **(HIGH)** `--refresh` re-parsing a previously-`complete`
+   unit that now returns incomplete deletes the good rows and downgrades to `incomplete` (data loss) —
+   guard: reject complete→incomplete downgrade (or gate behind an explicit destructive flag) + test;
+   **(MED)** don't collapse `ParseCompletion` to `bool` — `Unsupported`/`CorruptFatal` (not-valid / unparseable)
+   arguably should NOT commit events at all, unlike `Incomplete` (partial-but-real); **(MED)** surface
+   partial provenance — tag timeline rows / warn in the CLI summary so incomplete-derived events are visible;
+   **(LOW)** add resume-contract tests (incomplete→complete clears rows, incomplete→incomplete replaces,
+   complete→incomplete under refresh, events-with-Unsupported/CorruptFatal).
+2. **Deterministic per-unit ordering (#110 P4 / parallel-ingest prereq) — do-before-parallel (Codex: not
+   "cosmetic").** `run_auto` already sorts `timestamp_ns, record_hash` (orchestrator.rs:421) but
+   `run_auto_units` (the resumable ingest path) does not, and **every DB reader orders only by `timestamp_ns`**
+   — `query()` (query.rs:134), `fetch_events()`/`load_timeline_events()` (events.rs:310/371), report
+   (report/lib.rs:230), SQLite export (export.rs:12). Equal-timestamp order is SQL-undefined → non-deterministic
+   exports/narrative/temporal-eval. Fix = `ORDER BY timestamp_ns ASC, record_hash ASC` in **every** read/export/
+   report + equal-timestamp tests. `id`/`ingested_at` are insertion/wall-clock derived — **must not** be the
+   tie-break. (Pre-sorting before insert is optional hygiene, not the boundary.)
+3. **Evidence-source provenance (#110 P4) — do-before-parallel.** ingest passes `None, None` for source
+   hash/size (ingest.rs:130) though schema/fn support them (ingest.rs:309-315). **Codex: the pinned `ewf 0.1`
+   wrapper does NOT surface stored MD5/SHA1** (only `read_at`/`total_size`), so the repo-local fix is: loose
+   file → `metadata.len()` + streamed SHA-256; directory source → NULL (kind metadata later); EWF/container →
+   logical size now, acquisition hash only after upgrading/wrapping an EWF reader that exposes stored hashes.
+4. **CoverageManifest header (#114)** — KEEP; no such type exists yet; runtime completeness report.
+5. **ADS-preserving extraction + caps** — folded into Phase 2.1/2.3 (constraint + regression test).
+6. **Real-hive fixtures (6 winreg parsers)** — KEEP/ELEVATE; synthetic masked svcdiff/comhijack dead on real
+   images; real Szechuan hives now available. (Skip-if-absent corpus tests — not always CI-enforced.)
+
+**Fold into Epic K (knowledge→forensicnomicon):** catalog-driven discovery (#114 breadth scanner);
+migrate the existing static gates (link/producer/reachability) into L/K rather than add a 5th; coordinate
+`forensicnomicon` version-unification in the Epic-K compatibility wave (its ArtifactType-debug-string
+persistence needs the same compat tests). **NOTE (Codex):** breadth/depth **dedup** does NOT fold away —
+`regcatalog` emits broad events overlapping specialized parsers, so dedup stays an issen timeline/report task.
+
+**Keep separate (own roadmaps):**
+- **dirty-hive `.LOG` replay** — SPLIT: parser replay → `winreg-core`; **issen keeps an extraction item** —
+  it pulls hives but not adjacent `.LOG1/.LOG2` (issen-disk:118/211), and must collocate + preserve source paths.
+- **Nested archive/VHD/VSS expansion (#114)** — KEEP, big; coordinates with parallel-ingest + `[H]`.
+- **Artifact expansion** — KEEP as its own parser/fixture/validation roadmap (Codex: do NOT fold wholly
+  into Epic K — K is only the knowledge/detection substrate).
+- **Temporal rules #112** — de-specialize the over-fit `/tmp/silly.txt` rule (temporal_rule.rs:240) + real Case-001 validation.
+- **CI greening #109** — clippy now green; finish full test/fmt/deny/coverage/fuzz.
+
+**Dropped from issen's plan (verified other repos / out of focus):**
+- `srum-gui`→egui, `forensic-mount` relicense, ext4fs/ewf→`blazehash-core` — **`srum-forensic`/`ext4fs-forensic`
+  are separate repos**; track in their plans, not issen's (keep only issen-local dep/publish fallout).
+- **FindEvil MCP fleet** — DEFER (design-only, broad surface). **Fleet hierarchy reorg #70** — below correctness work.
+
+**Rescoped (partly done this session):**
+- **#110 P3 smart front-door** — multi-source/folder + auto-naming done (sources.rs); remaining = remote-URI
+  ingest (still a stub returning early, ingest.rs:51) + managed workspace DB.
+- **correlate capstone #37** — Codex: my "join-key FP tail" is **stale** — regression tests for the brute-force
+  AND dense-success FP already exist (correlate_runner.rs:493/514); remaining = real-data oracle closure/reporting.
+- **regcatalog `scan_users` multi-profile** — KEEP, small (explicitly out of scope today, regcatalog lib.rs:15).
 
 ---
 
