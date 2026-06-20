@@ -120,6 +120,14 @@ Detail: `archive/2026-06-20-registry-derived-extraction-design.md`.
 
 ### Phase 5 — Remaining forensic gaps + carry-forward
 - **Shimcache wiring** — linked + SYSTEM hive extracted, 0 events; wire AppCompatCache decode.
+- **LNK parser depth (capability-built-not-surfaced, 2026-06-20).** `issen-parser-lnk` reads only the
+  76-byte header → 3 target MAC times + size/flags; the event description is the `.lnk`'s *own* name,
+  **not** the target. The owned `lnk-forensic` core already parses the full richness — target/local-base
+  path, volume serial, `CommonNetworkRelativeLink` (UNC/host), birth-droid GUIDs + **NetBIOS** machine
+  name (cross-machine origin attribution), command-line args (weaponized-LNK lead), JumpLists. Surface
+  these as multiple `TimelineEvent`s + `ActivityCategory` (file-access vs USB-usage vs origin vs
+  execution-lead) — one decoder, many meanings. **Orthogonal to the selector refactor** (this is parser
+  depth, not wiring); validate on the real Szechuan `.lnk` corpus. Same pattern applies to JumpLists.
 - **Timestomp `$FN`** — MFT is `$SI`-only; add `$FN` parsing + `$SI`<`$FN` detector (keep **Info** — FP-prone).
 - *(G1 execution DONE via Prefetch+Amcache; G3 registry values largely DONE, minor DWORD-render bug.)*
 
