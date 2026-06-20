@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use super::selector::{ArtifactSelector, NtfsLoc};
+use super::selector::{ArtifactSelector, CostTier, DiskSource, NtfsLoc};
 use super::traits::ForensicParser;
 use crate::artifacts::ArtifactType;
 
@@ -56,8 +56,14 @@ pub fn detect_from_registry(path: &Path) -> Option<ArtifactType> {
 /// triage. Only meaningful where parser crates are linked (empty otherwise).
 #[must_use]
 pub fn triage_ntfs_sources() -> Vec<NtfsLoc> {
-    // Stage-3 stub: the collection differential drives the real implementation.
-    Vec::new()
+    inventory::iter::<ParserRegistration>
+        .into_iter()
+        .filter(|reg| reg.selector.cost == CostTier::Default)
+        .flat_map(|reg| reg.selector.disk_sources.iter())
+        .map(|src| match src {
+            DiskSource::Ntfs(loc) => *loc,
+        })
+        .collect()
 }
 
 #[cfg(test)]

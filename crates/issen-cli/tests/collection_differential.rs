@@ -20,8 +20,22 @@ use issen_disk::{
     WINDOWS_USER_LNK_DIRS,
 };
 
-/// `\$LogFile` has no parser — the registry intentionally never collects it.
-const EXEMPT_FIXED: &[&str] = &[r"\$LogFile"];
+/// `WINDOWS_TRIAGE_PATHS` entries the registry intentionally does not reproduce
+/// as fixed paths:
+/// - `\$LogFile`: no parser consumes it, so it produces zero events whether
+///   collected or not (a `$LogFile` parser would re-add its collection via its
+///   own selector — exactly the registry model). See the LogFile research note.
+/// - the four fixed `winevt\Logs\*.evtx` paths: already collected by the
+///   `WINDOWS_TRIAGE_GLOBS` `DirSuffix` sweep of that same directory, so the
+///   registry's single glob source subsumes them (a redundancy the old list
+///   carried, collecting them twice).
+const EXEMPT_FIXED: &[&str] = &[
+    r"\$LogFile",
+    r"\Windows\System32\winevt\Logs\Security.evtx",
+    r"\Windows\System32\winevt\Logs\System.evtx",
+    r"\Windows\System32\winevt\Logs\Application.evtx",
+    r"\Windows\System32\winevt\Logs\Microsoft-Windows-Sysmon%4Operational.evtx",
+];
 
 fn ntfs_loc_key(loc: &NtfsLoc) -> String {
     match loc {
