@@ -62,8 +62,57 @@ impl BiomeParser {
             })
             .collect();
         let activities = BiomeMenuItemSource::new(&menu_items, None).activities();
-        activities_to_events(&activities, evidence_source)
+        let mut events = activities_to_events(&activities, evidence_source);
+        // Integrity dimension: surface segb-forensic's graded anomalies
+        // (CRC-mismatch = tamper/corruption; timestamp-out-of-order = reordering)
+        // as standalone Integrity events. Attribution to a specific menu event is
+        // deliberately NOT attempted — two order-dropping filter stages
+        // (Written+decodable, then menu_item-present) sit between records and menu
+        // events, so a positional record->event link would be fragile. The
+        // finding carries its record offset/index for correlation instead.
+        events.extend(integrity_events(&records, evidence_source));
+        events
     }
+}
+
+/// Map `segb-forensic`'s graded SEGB anomalies onto `Integrity`-category timeline
+/// events (the tamper/corruption dimension, distinct from the menu-selection
+/// activity). Pure over the decoded records (Humble Object).
+fn integrity_events(records: &[segb::SegbRecord], evidence_source: &str) -> Vec<TimelineEvent> {
+    segb_forensic::audit(records)
+        .into_iter()
+        .map(|a| {
+            let code = a.code();
+            let offset = a.kind.offset();
+            let index = a.kind.index();
+            let mut event = TimelineEvent::new(
+                0,
+                String::new(),
+                EventType::Other("integrity".into()),
+                ArtifactType::BiomeMenuItem,
+                evidence_source.to_string(),
+                format!("Biome SEGB integrity finding: {code} (record {index}, offset {offset})"),
+                evidence_source.to_string(),
+            )
+            .with_activity_category(issen_core::ActivityCategory::Integrity)
+            .with_tag("integrity")
+            .with_metadata("code", serde_json::json!(code))
+            .with_metadata("offset", serde_json::json!(offset))
+            .with_metadata("record_index", serde_json::json!(index));
+            if let segb_forensic::AnomalyKind::CrcMismatch {
+                stored, computed, ..
+            } = a.kind
+            {
+                event = event
+                    .with_metadata("stored_crc", serde_json::json!(format!("0x{stored:08X}")))
+                    .with_metadata(
+                        "computed_crc",
+                        serde_json::json!(format!("0x{computed:08X}")),
+                    );
+            }
+            event
+        })
+        .collect()
 }
 
 /// Map normalized Biome menu-selection activities onto Issen timeline events.
@@ -199,9 +248,35 @@ mod tests {
     /// Layout follows `segb-core`: 56-byte file header (magic `b"SEGB"` at
     /// offsets 52–55, `end_of_data_offset` u32LE at 0), then a 32-byte record
     /// header `<iiddIi>` (length, state, ts1, ts2, crc, unknown), then payload,
-    /// 8-byte aligned. The parse path does not CRC-validate, so the stored CRC
-    /// is left 0.
+    /// 8-byte aligned. The stored CRC is the correct zlib CRC-32 of the payload,
+    /// so the record is valid (no integrity finding).
     fn synthetic_segb_one_menu_item() -> Vec<u8> {
+        build_menu_item_segb(true)
+    }
+
+    /// Same single-record SEGB but with a deliberately WRONG stored CRC (payload
+    /// intact, so it still decodes) — exercises the SEGB-CRC-MISMATCH path.
+    fn synthetic_segb_bad_crc() -> Vec<u8> {
+        build_menu_item_segb(false)
+    }
+
+    /// zlib CRC-32 (identical to segb-core's `crc32_of`).
+    fn crc32(data: &[u8]) -> u32 {
+        let mut crc: u32 = 0xFFFF_FFFF;
+        for &b in data {
+            crc ^= u32::from(b);
+            for _ in 0..8 {
+                crc = if crc & 1 == 1 {
+                    (crc >> 1) ^ 0xEDB8_8320
+                } else {
+                    crc >> 1
+                };
+            }
+        }
+        !crc
+    }
+
+    fn build_menu_item_segb(valid_crc: bool) -> Vec<u8> {
         // Protobuf payload: field 1 (app) + field 2 (menu_item), both wire-type 2.
         let mut payload = Vec::new();
         let app = b"Finder";
@@ -221,7 +296,8 @@ mod tests {
                                                     // Cocoa time for unix 1_700_000_000 = 1_700_000_000 - 978_307_200.
         rec.extend_from_slice(&721_692_800f64.to_le_bytes()); // 8: timestamp1
         rec.extend_from_slice(&721_692_800f64.to_le_bytes()); // 16: timestamp2
-        rec.extend_from_slice(&0u32.to_le_bytes()); // 24: crc32 (not validated)
+        let stored_crc = if valid_crc { crc32(&payload) } else { 0 };
+        rec.extend_from_slice(&stored_crc.to_le_bytes()); // 24: crc32
         rec.extend_from_slice(&0i32.to_le_bytes()); // 28: unknown
 
         let header_len = 56usize;
@@ -296,7 +372,7 @@ mod tests {
     /// computed CRC differs → a genuine mismatch.
     #[test]
     fn parse_bytes_surfaces_crc_mismatch_integrity_event() {
-        let segb = synthetic_segb_one_menu_item();
+        let segb = synthetic_segb_bad_crc();
         let events = BiomeParser.parse_bytes(&segb, "/x/local");
         let integ = events
             .iter()
@@ -312,6 +388,17 @@ mod tests {
         assert!(
             integ.metadata.iter().any(|(k, _)| k == "offset"),
             "integrity event must carry the record offset"
+        );
+
+        // Benign path: a record with the CORRECT stored CRC must NOT produce an
+        // integrity event (also confirms the test's crc32 matches segb-core's).
+        let valid = synthetic_segb_one_menu_item();
+        let valid_events = BiomeParser.parse_bytes(&valid, "/x/local");
+        assert!(
+            !valid_events
+                .iter()
+                .any(|e| e.activity_category == Some(issen_core::ActivityCategory::Integrity)),
+            "a CRC-valid record must yield no integrity event"
         );
     }
 
