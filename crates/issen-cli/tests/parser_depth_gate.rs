@@ -70,6 +70,11 @@ fn drive_lnk(p: &Path) -> Vec<TimelineEvent> {
 fn drive_hive(p: &Path) -> Vec<TimelineEvent> {
     issen_parser_registry::parser::parse_hive(p, "depth-gate").unwrap()
 }
+fn drive_jumplist(p: &Path) -> Vec<TimelineEvent> {
+    let bytes = std::fs::read(p).unwrap();
+    let filename = p.file_name().unwrap().to_string_lossy();
+    issen_parser_lnk::jumplist::parse_jumplist_bytes(&bytes, &filename, "depth-gate")
+}
 
 const HIVES: &str = "../../tests/data/dfirmadness-szechuan-sauce/extracted/szechuan-sauce-hives";
 
@@ -112,6 +117,15 @@ fn manifest() -> Vec<DepthCase> {
             drive: drive_lnk,
             required_keys: &["arguments", "working_dir", "comment"],
             required_iocs: &["-enc", "hidden"],
+        },
+        DepthCase {
+            label: "jumplist automatic destinations",
+            fixture:
+                "../parsers/issen-parser-lnk/tests/data/pinned_removable.automaticDestinations-ms",
+            committed: true,
+            drive: drive_jumplist,
+            required_keys: &["target_path", "hostname", "pinned"],
+            required_iocs: &["report.docx", "OTHER-PC"],
         },
         // ── Gitignored real corpus (skip-loud when absent) ──
         DepthCase {
