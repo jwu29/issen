@@ -83,7 +83,11 @@ fn test_full_pipeline_usnjrnl_to_duckdb() {
     std::fs::write(evidence_dir.path().join("$J"), &journal_data).expect("write $J");
 
     // Step 1: Discover artifacts.
-    let artifacts = discover_artifacts(evidence_dir.path()).expect("discover");
+    let artifacts = discover_artifacts(
+        evidence_dir.path(),
+        &issen_core::plugin::registry::detect_from_registry,
+    )
+    .expect("discover");
     assert_eq!(artifacts.len(), 1);
     assert_eq!(artifacts[0].artifact_type, ArtifactType::UsnJournal);
 
@@ -159,7 +163,11 @@ fn test_pipeline_with_mixed_artifacts() {
     std::fs::write(evidence_dir.path().join("readme.txt"), b"not an artifact").expect("write");
     std::fs::write(evidence_dir.path().join("notes.md"), b"also not").expect("write");
 
-    let artifacts = discover_artifacts(evidence_dir.path()).expect("discover");
+    let artifacts = discover_artifacts(
+        evidence_dir.path(),
+        &issen_core::plugin::registry::detect_from_registry,
+    )
+    .expect("discover");
     assert_eq!(artifacts.len(), 1, "Only $J should be discovered");
 
     let progress = ProgressReporter::new();

@@ -3,7 +3,7 @@ use std::sync::Mutex;
 
 use issen_core::artifacts::ArtifactType;
 use issen_core::error::RtError;
-use issen_core::plugin::registry::all_parsers;
+use issen_core::plugin::registry::{all_parsers, detect_from_registry};
 use issen_core::plugin::traits::{EventEmitter, ForensicParser, ParseCompletion};
 use issen_core::timeline::event::TimelineEvent;
 use rayon::prelude::*;
@@ -215,17 +215,28 @@ pub fn detect_artifact_type(path: &Path) -> Option<ArtifactType> {
     None
 }
 
-/// Walk a directory tree and discover artifacts that can be parsed.
-pub fn discover_artifacts(root: &Path) -> Result<Vec<DiscoveredArtifact>, RtError> {
+/// Walk a directory tree and discover artifacts, classifying each file with the
+/// injected `classify` function. Production passes
+/// [`issen_core::plugin::registry::detect_from_registry`] (the registry-derived
+/// classifier); the classifier is a parameter — rather than a hardcoded call —
+/// so this stays unit-testable without linking the whole parser inventory.
+pub fn discover_artifacts(
+    root: &Path,
+    classify: &dyn Fn(&Path) -> Option<ArtifactType>,
+) -> Result<Vec<DiscoveredArtifact>, RtError> {
     let mut artifacts = Vec::new();
-    walk_directory(root, &mut artifacts)?;
+    walk_directory(root, &mut artifacts, classify)?;
     Ok(artifacts)
 }
 
-fn walk_directory(dir: &Path, artifacts: &mut Vec<DiscoveredArtifact>) -> Result<(), RtError> {
+fn walk_directory(
+    dir: &Path,
+    artifacts: &mut Vec<DiscoveredArtifact>,
+    classify: &dyn Fn(&Path) -> Option<ArtifactType>,
+) -> Result<(), RtError> {
     if !dir.is_dir() {
         // Single file — check if it's an artifact.
-        if let Some(artifact_type) = detect_artifact_type(dir) {
+        if let Some(artifact_type) = classify(dir) {
             artifacts.push(DiscoveredArtifact {
                 path: dir.to_path_buf(),
                 artifact_type,
@@ -239,8 +250,8 @@ fn walk_directory(dir: &Path, artifacts: &mut Vec<DiscoveredArtifact>) -> Result
         let entry = entry?;
         let path = entry.path();
         if path.is_dir() {
-            walk_directory(&path, artifacts)?;
-        } else if let Some(artifact_type) = detect_artifact_type(&path) {
+            walk_directory(&path, artifacts, classify)?;
+        } else if let Some(artifact_type) = classify(&path) {
             artifacts.push(DiscoveredArtifact {
                 path,
                 artifact_type,
@@ -257,7 +268,7 @@ fn walk_directory(dir: &Path, artifacts: &mut Vec<DiscoveredArtifact>) -> Result
 /// point (so they can't drift on how evidence is opened).
 fn with_evidence<R>(path: &Path, f: impl FnOnce(&[DiscoveredArtifact]) -> R) -> Result<R, RtError> {
     if path.is_dir() {
-        Ok(f(&discover_artifacts(path)?))
+        Ok(f(&discover_artifacts(path, &detect_from_registry)?))
     } else {
         let manifest = issen_unpack::registry::open_collection(path)
             .map_err(|e| RtError::UnsupportedFormat(e.to_string()))?;
@@ -267,7 +278,7 @@ fn with_evidence<R>(path: &Path, f: impl FnOnce(&[DiscoveredArtifact]) -> R) -> 
             root = %manifest.extracted_root.display(),
             "Collection opened",
         );
-        let artifacts = discover_artifacts(&manifest.extracted_root)?;
+        let artifacts = discover_artifacts(&manifest.extracted_root, &detect_from_registry)?;
         Ok(f(&artifacts))
         // manifest (and its TempDir) drops here — AFTER `f` has parsed.
     }
@@ -309,7 +320,7 @@ pub fn run_pipeline(
     // `total_events` counts ACTUAL emitted events, not the parser's self-reported
     // `stats.events_emitted`. For honest parsers the output is identical.
     progress.set_phase(Phase::Discovering);
-    let artifacts = discover_artifacts(evidence_path)?;
+    let artifacts = discover_artifacts(evidence_path, &detect_from_registry)?;
     progress.set_artifacts_total(artifacts.len() as u64);
     progress.set_phase(Phase::Parsing);
     let (units, errors, _skipped) =
@@ -585,7 +596,7 @@ pub fn run_pipeline_parallel(
     // Flat view over the PARALLEL per-unit core — mirrors `run_pipeline` exactly,
     // only `parse_units_parallel` instead of `parse_units`.
     progress.set_phase(Phase::Discovering);
-    let artifacts = discover_artifacts(evidence_path)?;
+    let artifacts = discover_artifacts(evidence_path, &detect_from_registry)?;
     progress.set_artifacts_total(artifacts.len() as u64);
     progress.set_phase(Phase::Parsing);
     let (units, errors, _skipped) =
@@ -649,6 +660,22 @@ pub fn run_auto_parallel(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A minimal classifier for the discovery tests, built from the shared
+    /// `issen_core::classify` predicates — production uses `detect_from_registry`
+    /// (which needs the linked parser inventory, absent in this crate's tests).
+    fn test_classify(p: &std::path::Path) -> Option<ArtifactType> {
+        use issen_core::classify as c;
+        if c::usn(p) {
+            Some(ArtifactType::UsnJournal)
+        } else if c::evtx(p) {
+            Some(ArtifactType::EventLog)
+        } else if c::prefetch(p) {
+            Some(ArtifactType::Prefetch)
+        } else {
+            None
+        }
+    }
 
     fn mk_event(ts: i64, desc: &str) -> TimelineEvent {
         use issen_core::artifacts::ArtifactType;
@@ -891,7 +918,7 @@ mod tests {
         std::fs::write(dir.path().join("Security.evtx"), b"fake evtx").expect("write");
         std::fs::write(dir.path().join("readme.txt"), b"not an artifact").expect("write");
 
-        let artifacts = discover_artifacts(dir.path()).expect("discover");
+        let artifacts = discover_artifacts(dir.path(), &test_classify).expect("discover");
         assert_eq!(artifacts.len(), 2);
 
         let types: Vec<ArtifactType> = artifacts.iter().map(|a| a.artifact_type).collect();
@@ -906,7 +933,7 @@ mod tests {
         std::fs::create_dir_all(&sub).expect("mkdirs");
         std::fs::write(sub.join("CMD.EXE-1234.pf"), b"fake prefetch").expect("write");
 
-        let artifacts = discover_artifacts(dir.path()).expect("discover");
+        let artifacts = discover_artifacts(dir.path(), &test_classify).expect("discover");
         assert_eq!(artifacts.len(), 1);
         assert_eq!(artifacts[0].artifact_type, ArtifactType::Prefetch);
     }
@@ -920,7 +947,7 @@ mod tests {
         let progress = ProgressReporter::new();
         let (events, result) = run_pipeline(dir.path(), &progress).expect("pipeline");
 
-        assert_eq!(result.artifacts_found, 1);
+        assert_eq!(result.artifacts_found, 0, "registry model: no parsers linked in this test binary ⇒ nothing classified ⇒ nothing discovered (real discovery is covered by the discover_artifacts+test_classify tests and the issen-cli integration tests)");
         // No parsers registered in this test binary, so nothing parsed.
         assert_eq!(result.artifacts_parsed, 0);
         assert!(events.is_empty());
@@ -929,7 +956,8 @@ mod tests {
     #[test]
     fn run_pipeline_drives_phase_and_total_for_the_display() {
         use crate::progress::Phase;
-        // discovery classifies $J → 1 artifact even with no parsers linked.
+        // Registry discovery needs linked parsers; none here, so it finds 0 — the
+        // test still validates the phase reaches Done.
         let dir = tempfile::tempdir().expect("tmpdir");
         std::fs::write(dir.path().join("$J"), b"fake data").expect("write");
 
@@ -937,17 +965,11 @@ mod tests {
         let _ = run_pipeline(dir.path(), &progress).expect("pipeline");
 
         assert_eq!(progress.phase(), Phase::Done, "phase ends at Done");
-        assert_eq!(
-            progress.artifacts_total(),
-            1,
-            "total is set to the discovered artifact count (for a determinate bar)"
-        );
-        assert_eq!(
-            progress.artifacts_completed(),
-            1,
-            "each discovered artifact is counted complete exactly once — per artifact, \
-             not per (artifact,parser) unit — so artifacts_completed never overruns the total"
-        );
+        // No parsers linked here ⇒ registry discovery finds 0 ⇒ a determinate bar
+        // with total 0; the transition still reaches Done. The total>0 / per-artifact
+        // completion path is exercised in the issen-cli integration tests.
+        assert_eq!(progress.artifacts_total(), 0);
+        assert_eq!(progress.artifacts_completed(), 0);
     }
 
     #[test]
@@ -968,7 +990,7 @@ mod tests {
 
         let progress = ProgressReporter::new();
         let (events, result) = run_auto(dir.path(), &progress).expect("run_auto");
-        assert_eq!(result.artifacts_found, 1);
+        assert_eq!(result.artifacts_found, 0, "registry model: no parsers linked in this test binary ⇒ nothing classified ⇒ nothing discovered (real discovery is covered by the discover_artifacts+test_classify tests and the issen-cli integration tests)");
         assert!(events.is_empty()); // No parsers registered in test binary
     }
 
@@ -1408,7 +1430,7 @@ mod tests {
         let (events, result) =
             run_pipeline_parallel(dir.path(), &progress).expect("parallel single artifact");
 
-        assert_eq!(result.artifacts_found, 1);
+        assert_eq!(result.artifacts_found, 0, "registry model: no parsers linked in this test binary ⇒ nothing classified ⇒ nothing discovered (real discovery is covered by the discover_artifacts+test_classify tests and the issen-cli integration tests)");
         assert_eq!(
             result.artifacts_parsed, 0,
             "no parsers registered in test binary"
