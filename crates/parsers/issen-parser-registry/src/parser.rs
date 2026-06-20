@@ -226,6 +226,35 @@ mod tests {
         assert!(matches!(&os.event_type, EventType::Other(s) if s == "system-info"));
     }
 
+    /// Real DC SOFTWARE hive: the Run-key persistence decoder must surface the
+    /// implant's autorun `coreupdate` (fileless PowerShell loaded from a
+    /// registry blob) — a persistence VALUE, not just the Run key's write
+    /// timestamp. This is the highest-value registry artifact and was dark
+    /// (`walk_keys` emits the `Run` key, never the `coreupdate` value under it).
+    #[test]
+    fn real_software_hive_surfaces_run_key_persistence() {
+        let p = hive("SOFTWARE");
+        if !p.exists() {
+            eprintln!("SKIP: SOFTWARE hive absent");
+            return;
+        }
+        let events = parse_hive(&p, "dc01-SOFTWARE").unwrap();
+        let persist = events
+            .iter()
+            .find(|e| e.description.contains("coreupdate"))
+            .expect("coreupdate Run-key persistence event");
+        assert_eq!(
+            persist.activity_category,
+            Some(issen_core::ActivityCategory::Persistence),
+            "a Run-key autorun is a Persistence activity"
+        );
+        let blob = format!("{} {:?}", persist.description, persist.metadata).to_lowercase();
+        assert!(
+            blob.contains("powershell"),
+            "the autorun command must be surfaced: {blob}"
+        );
+    }
+
     /// Real DC SYSTEM hive: timezone (F3: Pacific — the clock-skew root cause)
     /// resolved through Select\Current -> ControlSet00N.
     #[test]
