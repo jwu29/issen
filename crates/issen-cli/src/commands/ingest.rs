@@ -165,13 +165,17 @@ pub fn run(
         // Every returned unit is pending (completed ones were skipped before
         // parse), so each is committed unconditionally.
         for pu in units {
-            let unit = issen_timeline::ingest::IngestUnit::new(
+            let mut unit = issen_timeline::ingest::IngestUnit::new(
                 source_id,
                 &format!("{:?}", pu.artifact_type),
                 &pu.path.to_string_lossy(),
                 &pu.parser,
                 i64::try_from(pu.bytes).unwrap_or(i64::MAX),
             );
+            // Only mark the unit complete for resume if the parse terminally
+            // completed; an Undeclared/Incomplete/Unsupported/CorruptFatal parse
+            // keeps its events but stays re-parseable (issen #115 correctness).
+            unit.complete = pu.completion.marks_complete();
             // Re-stamp each event's evidence_source_id with the resolved per-source
             // id (parsers hardcode a placeholder, e.g. "evtx-evidence"). Without
             // this, two hosts' identical events share a record_hash and one is

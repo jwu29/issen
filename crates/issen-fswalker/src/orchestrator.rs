@@ -4,7 +4,7 @@ use std::sync::Mutex;
 use issen_core::artifacts::ArtifactType;
 use issen_core::error::RtError;
 use issen_core::plugin::registry::all_parsers;
-use issen_core::plugin::traits::{EventEmitter, ForensicParser};
+use issen_core::plugin::traits::{EventEmitter, ForensicParser, ParseCompletion};
 use issen_core::timeline::event::TimelineEvent;
 use rayon::prelude::*;
 
@@ -440,6 +440,9 @@ pub struct ParsedUnit {
     pub events: Vec<TimelineEvent>,
     /// Bytes the parser reported processing.
     pub bytes: u64,
+    /// The parse's terminal completion state — propagated so the commit layer
+    /// only marks `marks_complete()` units complete for resume (issen #115).
+    pub completion: ParseCompletion,
 }
 
 /// Parse each `(artifact, matching-parser)` pair into its own [`ParsedUnit`].
@@ -498,12 +501,13 @@ pub fn parse_units(
             // A fresh emitter per unit — this is what groups events by unit.
             let emitter = CollectingEmitter::new();
             let label = format!("{} [{}]", artifact.path.display(), parser.name());
-            let bytes = match run_isolated(label, || parser.parse(&source, &emitter)) {
+            let (bytes, completion) = match run_isolated(label, || parser.parse(&source, &emitter))
+            {
                 Isolated::Completed(stats) => {
                     progress.add_events(stats.events_emitted);
                     progress.add_bytes(stats.bytes_processed);
                     progress.complete_artifact();
-                    stats.bytes_processed
+                    (stats.bytes_processed, stats.completion)
                 }
                 Isolated::Failed(failure) => {
                     // Fail loud: surface the failure rather than swallowing it.
@@ -518,6 +522,7 @@ pub fn parse_units(
                 parser: parser.name().to_string(),
                 events: emitter.into_events(),
                 bytes,
+                completion,
             });
         }
     }
@@ -1042,6 +1047,62 @@ mod tests {
         assert!(usn.events.iter().all(|e| e.description.starts_with("USN-")));
         let mft = units.iter().find(|u| u.parser == "MFT").expect("MFT unit");
         assert_eq!(mft.events.len(), 2);
+    }
+
+    #[test]
+    fn parse_units_propagates_parse_completion() {
+        // ParseCompletion must reach the ParsedUnit so the commit layer marks only
+        // terminally-complete units complete (issen #115 correctness — it used to
+        // be dropped, so every Ok parse was marked complete on resume).
+        use issen_core::plugin::traits::{
+            DataSource, ParseCompletion, ParseStats, ParserCapabilities,
+        };
+
+        struct CompletionMock(ParseCompletion);
+        impl ForensicParser for CompletionMock {
+            fn name(&self) -> &str {
+                "CM"
+            }
+            fn supported_artifacts(&self) -> &[ArtifactType] {
+                std::slice::from_ref(&ArtifactType::Mft)
+            }
+            fn parse(
+                &self,
+                _input: &dyn DataSource,
+                _emitter: &dyn EventEmitter,
+            ) -> Result<ParseStats, RtError> {
+                let mut s = ParseStats::new();
+                s.completion = self.0.clone();
+                Ok(s)
+            }
+            fn capabilities(&self) -> ParserCapabilities {
+                ParserCapabilities {
+                    max_memory_bytes: None,
+                    streaming: false,
+                    deterministic: true,
+                }
+            }
+        }
+
+        let dir = tempfile::tempdir().expect("tmp");
+        let p = dir.path().join("$MFT");
+        std::fs::write(&p, b"x").expect("w");
+        let artifacts = vec![DiscoveredArtifact {
+            path: p,
+            artifact_type: ArtifactType::Mft,
+        }];
+        let parsers: Vec<Box<dyn ForensicParser>> =
+            vec![Box::new(CompletionMock(ParseCompletion::Incomplete {
+                offset: 5,
+                reason: "truncated".into(),
+            }))];
+        let progress = ProgressReporter::new();
+        let (units, _, _) = parse_units(&artifacts, &parsers, &progress, &|_, _, _| false);
+        assert_eq!(units.len(), 1);
+        assert!(
+            matches!(units[0].completion, ParseCompletion::Incomplete { .. }),
+            "the parser's Incomplete completion must propagate to the ParsedUnit, not be dropped"
+        );
     }
 
     #[test]

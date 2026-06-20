@@ -86,6 +86,19 @@ pub enum ParseCompletion {
     CorruptFatal { reason: String },
 }
 
+impl ParseCompletion {
+    /// Whether this terminal state is eligible for resume's "complete" marker.
+    ///
+    /// Only a genuine full pass — [`Complete`](Self::Complete) or
+    /// [`CompleteWithRecoveries`](Self::CompleteWithRecoveries) — counts. Every
+    /// other state (Undeclared / Incomplete / Unsupported / CorruptFatal) must be
+    /// re-parsed on resume rather than silently skipped (secure-by-default, #115).
+    #[must_use]
+    pub fn marks_complete(&self) -> bool {
+        matches!(self, Self::Complete | Self::CompleteWithRecoveries)
+    }
+}
+
 /// Parse statistics returned after a successful parse.
 #[derive(Debug, Clone)]
 pub struct ParseStats {
@@ -164,6 +177,25 @@ mod tests {
         let stats = ParseStats::new();
         assert_eq!(stats.completion, ParseCompletion::Undeclared);
         assert_ne!(stats.completion, ParseCompletion::Complete);
+    }
+
+    #[test]
+    fn marks_complete_only_for_terminal_complete_states() {
+        // Resume's "complete" marker may be written ONLY for a genuine full pass.
+        // Every non-terminal-complete state must re-parse on resume (secure-by-default).
+        assert!(ParseCompletion::Complete.marks_complete());
+        assert!(ParseCompletion::CompleteWithRecoveries.marks_complete());
+        assert!(!ParseCompletion::Undeclared.marks_complete());
+        assert!(!ParseCompletion::Unsupported.marks_complete());
+        assert!(!ParseCompletion::Incomplete {
+            offset: 0,
+            reason: String::new()
+        }
+        .marks_complete());
+        assert!(!ParseCompletion::CorruptFatal {
+            reason: String::new()
+        }
+        .marks_complete());
     }
 
     // ── Test doubles ──────────────────────────────────────────

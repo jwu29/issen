@@ -17,6 +17,11 @@ pub struct IngestUnit {
     pub artifact_type: String,
     pub parser: String,
     pub bytes: i64,
+    /// Whether this unit's parse terminally completed (eligible for the resume
+    /// `complete` marker). When `false`, the unit's events are still written but
+    /// it is logged `incomplete`, so a resume re-parses it (secure-by-default,
+    /// driven by `ParseCompletion::marks_complete`). `new()` defaults to `true`.
+    pub complete: bool,
 }
 
 impl IngestUnit {
@@ -65,6 +70,7 @@ impl IngestUnit {
             artifact_type: artifact_type.to_string(),
             parser: parser.to_string(),
             bytes,
+            complete: true,
         }
     }
 }
@@ -418,11 +424,19 @@ impl TimelineStore {
         }
         let count = events.len() as u64;
         // The completion marker lands in the SAME transaction as the events.
+        // Only a terminally-complete unit gets the 'complete' status that
+        // `completed_units` treats as the resume skip-set; an incomplete unit's
+        // events are written but it stays re-parseable (status 'incomplete').
+        let status = if unit.complete {
+            "complete"
+        } else {
+            "incomplete"
+        };
         conn.execute(
             "INSERT OR REPLACE INTO ingest_log (
                 unit_id, evidence_key, artifact_type, parser, bytes,
                 event_count, status, completed_at
-            ) VALUES (?, ?, ?, ?, ?, ?, 'complete', current_timestamp)",
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, current_timestamp)",
             duckdb::params![
                 unit.unit_id,
                 unit.evidence_key,
@@ -430,6 +444,7 @@ impl TimelineStore {
                 unit.parser,
                 unit.bytes,
                 count as i64,
+                status,
             ],
         )?;
         Ok(count)
@@ -488,6 +503,7 @@ mod tests {
             artifact_type: "Mft".to_string(),
             parser: "MFT Parser".to_string(),
             bytes: 1024,
+            complete: true,
         };
         let events = vec![sample_event(100, "a"), sample_event(200, "b")];
 
@@ -518,6 +534,32 @@ mod tests {
             .query_row([&unit.unit_id], |r| r.get(0))
             .expect("q");
         assert_eq!(total, 2, "re-commit must not duplicate the unit's rows");
+    }
+
+    #[test]
+    fn incomplete_unit_is_excluded_from_completed_units() {
+        // A parse that did not terminally complete must NOT get the 'complete'
+        // marker — resume must re-parse it. Its events are still written (no data
+        // loss / fail-loud surfaces the partial), but ingest_log.status is
+        // 'incomplete', so completed_units omits it. Fixes the bug where every Ok
+        // parse was marked complete regardless of ParseCompletion.
+        let store = TimelineStore::in_memory().expect("store");
+        let mut unit = IngestUnit::new("CASE", "Mft", "/C/$MFT", "MFT Parser", 10);
+        unit.complete = false;
+        store
+            .commit_unit(&unit, &[sample_event(1, "a")])
+            .expect("commit");
+
+        assert_eq!(
+            store.event_count().expect("count"),
+            1,
+            "incomplete unit's events are still written (no data loss)"
+        );
+        let done = store.completed_units("CASE").expect("query");
+        assert!(
+            !done.contains(&unit.unit_id),
+            "an incomplete unit must NOT be in the resume skip-set — resume re-parses it"
+        );
     }
 
     #[test]
