@@ -1,11 +1,42 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended"],
+  "lockFileMaintenance": {
+    "enabled": true,
+    "automerge": true,
+    "schedule": ["before 6am on monday"]
+  },
   "packageRules": [
     {
+      "description": "Base: all cargo deps update weekly, never auto-merge. Fleet rules below OVERRIDE this for SecurityRonin/h4x0r crates (Renovate applies packageRules in order; later wins). Keep this FIRST.",
       "matchManagers": ["cargo"],
       "automerge": false,
       "schedule": ["before 6am on monday"]
+    },
+    {
+      "description": "Fleet crates (SecurityRonin/h4x0r) — patch/minor: WIDEN the requirement (rangeStrategy=bump un-sticks a caret pin like ewf \"0.1\" that cannot reach a published 0.2.x), GROUP into one PR per wave, AUTOMERGE. Safe for an APP/binary repo (no downstream MSRV promise). For a published LIBRARY repo set automerge=false here — auto-bumping its deps can silently raise its MSRV. Owner-based matcher (the crate's `repository` URL) won't over-match third-party `-core`/`-forensic` crates; requires fleet crates to set `repository = https://github.com/SecurityRonin/<repo>` in Cargo.toml.",
+      "matchManagers": ["cargo"],
+      "matchSourceUrls": [
+        "https://github.com/SecurityRonin/**",
+        "https://github.com/h4x0r/**"
+      ],
+      "matchUpdateTypes": ["patch", "minor"],
+      "rangeStrategy": "bump",
+      "groupName": "securityronin fleet",
+      "automerge": true,
+      "automergeType": "branch"
+    },
+    {
+      "description": "Fleet crates — MAJOR: still widen + group, but require human review (API breaks).",
+      "matchManagers": ["cargo"],
+      "matchSourceUrls": [
+        "https://github.com/SecurityRonin/**",
+        "https://github.com/h4x0r/**"
+      ],
+      "matchUpdateTypes": ["major"],
+      "rangeStrategy": "bump",
+      "groupName": "securityronin fleet (major)",
+      "automerge": false
     }
   ]
 }
