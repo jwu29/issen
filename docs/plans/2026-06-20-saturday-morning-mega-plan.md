@@ -119,6 +119,24 @@ Detail: `archive/2026-06-20-registry-derived-extraction-design.md`.
   memory/live-only.
 
 ### Phase 5 — Remaining forensic gaps + carry-forward
+- **NTFS metadata-integrity capability (researched 2026-06-20, Codex-verified).** A new analyzer
+  family cross-referencing NTFS system metadata for tamper-detection + recovery. Components:
+  (1) **`$LogFile` parser** — the metadata transaction journal (RSTR/RCRD pages, log records with
+  LSN + redo/undo); finer-grained metadata ops than `$UsnJrnl`, timestomp detection (logged
+  SetInformation vs current `$SI`), recent-metadata recovery (undo data), anti-forensic (`$J`-clearing)
+  detection. The David Cowen **NTFS TriForce** idea (`$MFT`+`$LogFile`+`$UsnJrnl`); prior art:
+  Schicht LogFileParser, NTFS Log Tracker. Each MFT record header carries the `$LogFile` LSN of its
+  last modification → MFT↔$LogFile LSN consistency check. (Codex review still pending — synthesize when
+  it lands.) (2) **`$MFT` vs `$MFTMirr`** — mirror is record #1, copies the first `max(4,
+  cluster/record)` records; compare the mirrored byte range **after fixups** → integrity-anomaly /
+  **recovery anchor** for a damaged `$MFT[0]` (relocate the full MFT via the mirrored `$MFT::$DATA`
+  runlist). Classify as anomaly/recovery, **NEVER "tamper detected"** (desync has benign causes:
+  deferred mirror write, crash, unreplayed `$LogFile`). (3) **`$Boot` vs backup `$Boot`** (volume end)
+  — both carry `$MFT`/`$MFTMirr` LCNs. Verdict: real value, but findings must be **graded as
+  consistency anomalies fused with replay-state/fixup-validity/sector-health**, not standalone tamper
+  proof. Registry-model bonus: a `$LogFile`/`$MFTMirr` parser auto-re-collects those files via its
+  selector (e.g. `$LogFile` un-exempts the Stage-3 drop). Validate on real images (Szechuan + a
+  known-timestomped corpus).
 - **Shimcache wiring** — linked + SYSTEM hive extracted, 0 events; wire AppCompatCache decode.
 - **Parser Output Depth — SYSTEMIC (capability-built-not-surfaced, researched 2026-06-20).** Not an LNK
   one-off: a 14-parser survey found **11/14 wrappers materially shallow** — they surface a fraction of the
