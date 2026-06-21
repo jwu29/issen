@@ -36,7 +36,9 @@ fn main() {
     for dep in &deps {
         // Crate names use `-`; the Rust path identifier uses `_`.
         let ident = dep.replace('-', "_");
-        out.push_str(&format!("extern crate {ident} as _;\n"));
+        out.push_str("extern crate ");
+        out.push_str(&ident);
+        out.push_str(" as _;\n");
     }
 
     let out_dir = env::var("OUT_DIR").expect("OUT_DIR set by cargo");

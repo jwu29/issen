@@ -73,6 +73,16 @@ predicates = { workspace = true }
 sha2 = { workspace = true }
 tar = { workspace = true }
 tempfile = { workspace = true }
+# link_completeness drift gate parses the issen-parsers aggregator manifest.
+toml = { workspace = true }
+# Parser crates whose APIs are exercised directly by integration tests
+# (parser_depth_gate / timestomp_real_szechuan). They link as anchors via the
+# issen-parsers aggregator at runtime, but a test that calls their API needs a
+# direct dev-dependency.
+issen-parser-mft = { workspace = true }
+issen-parser-lnk = { workspace = true }
+issen-parser-prefetch = { workspace = true }
+issen-parser-registry = { workspace = true }
 
 [lints]
 workspace = true
