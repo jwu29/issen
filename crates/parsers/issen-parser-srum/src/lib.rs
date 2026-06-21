@@ -157,8 +157,83 @@ impl SrumParser {
             &evidence_source,
         ));
 
+        // Energy usage — an app drawing power ⇒ it ran. Same aggregate-per-app
+        // treatment (low-signal; avoids a per-row flood).
+        events.extend(energy_aggregate_events(
+            srum_parser::parse_energy_usage(path)?,
+            &id_map,
+            &evidence_source,
+        ));
+
         Ok(events)
     }
+}
+
+/// Per-app energy-usage rollup: record count, total energy consumed, the latest
+/// charge level, and the time span.
+#[derive(Default)]
+struct EnergyAgg {
+    occurrences: u64,
+    total_energy: u64,
+    last_charge: u64,
+    first: Option<DateTime<Utc>>,
+    last: Option<DateTime<Utc>>,
+}
+
+/// Aggregate SRUM EnergyUsage per app into one `Execution` event each (an app
+/// consuming power is execution evidence), keyed on last-seen.
+fn energy_aggregate_events(
+    records: Vec<srum_core::EnergyUsageRecord>,
+    id_map: &HashMap<i32, String>,
+    evidence_source: &str,
+) -> Vec<TimelineEvent> {
+    let mut by_app: BTreeMap<i32, EnergyAgg> = BTreeMap::new();
+    for r in records {
+        let a = by_app.entry(r.app_id).or_default();
+        a.occurrences += 1;
+        a.total_energy += r.energy_consumed;
+        if a.last.is_none_or(|l| r.timestamp >= l) {
+            a.last_charge = r.charge_level;
+        }
+        a.first = Some(a.first.map_or(r.timestamp, |f| f.min(r.timestamp)));
+        a.last = Some(a.last.map_or(r.timestamp, |l| l.max(r.timestamp)));
+    }
+    by_app
+        .into_iter()
+        .filter_map(|(app_id, agg)| {
+            let last = agg.last?;
+            let app_name = resolve_name(id_map, app_id);
+            let app_label = app_name
+                .clone()
+                .unwrap_or_else(|| format!("app_id={app_id}"));
+            let mut event = TimelineEvent::new(
+                last.timestamp_nanos_opt().unwrap_or(0),
+                last.to_rfc3339(),
+                EventType::Other("EnergyUsage".into()),
+                ArtifactType::Srum,
+                evidence_source.to_string(),
+                format!(
+                    "SRUM EnergyUsage: {app_label} ({} records, {} energy consumed)",
+                    agg.occurrences, agg.total_energy
+                ),
+                evidence_source.to_string(),
+            )
+            .with_activity_category(issen_core::ActivityCategory::Execution)
+            .with_metadata("occurrences", serde_json::json!(agg.occurrences))
+            .with_metadata("total_energy_consumed", serde_json::json!(agg.total_energy))
+            .with_metadata("last_charge_level", serde_json::json!(agg.last_charge))
+            .with_metadata("app_id", serde_json::json!(app_id))
+            .with_metadata(
+                "first_seen",
+                serde_json::json!(agg.first.map(|t| t.to_rfc3339())),
+            )
+            .with_metadata("last_seen", serde_json::json!(last.to_rfc3339()));
+            if let Some(name) = &app_name {
+                event = event.with_metadata("app_name", serde_json::json!(name));
+            }
+            Some(event)
+        })
+        .collect()
 }
 
 /// Per-app push-notification rollup: how many records, total notifications, and
