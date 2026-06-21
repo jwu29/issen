@@ -46,9 +46,9 @@
 use chrono::{DateTime, Utc};
 use issen_core::artifacts::ArtifactType;
 use issen_core::classify;
-use issen_core::plugin::selector as sel;
 use issen_core::error::RtError;
 use issen_core::plugin::registry::ParserRegistration;
+use issen_core::plugin::selector as sel;
 use issen_core::plugin::traits::{
     DataSource, EventEmitter, ForensicParser, ParseCompletion, ParseStats, ParserCapabilities,
 };
@@ -410,6 +410,10 @@ inventory::submit! {
             priority: 99,
             disk_sources: &[
                 sel::DiskSource::Ntfs(sel::NtfsLoc::FixedPath(r"\$MFT")),
+                // $MFTMirr is collected (not parsed as an MFT — classify::mft
+                // excludes it) so the cross-file $MFT/$MFTMirr integrity check
+                // (issen_disk::mft_mirror_integrity_events) has both files.
+                sel::DiskSource::Ntfs(sel::NtfsLoc::FixedPath(r"\$MFTMirr")),
             ],
             cost: sel::CostTier::Default,
         } }

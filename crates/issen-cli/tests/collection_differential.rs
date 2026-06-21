@@ -89,6 +89,10 @@ fn hardcoded_keys() -> BTreeSet<String> {
         r"sweep:\Users:AppData\Roaming\Microsoft\Windows\Recent\CustomDestinations:suffix:.customDestinations-ms"
             .to_string(),
     );
+    // $MFTMirr: collected via the MFT parser's selector (a 2nd disk_source) so the
+    // cross-file $MFT/$MFTMirr integrity check has both files. It is NOT parsed as
+    // an MFT (classify::mft excludes it); no legacy const carried it.
+    keys.insert(r"fixed:\$MFTMirr".to_string());
     keys
 }
 

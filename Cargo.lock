@@ -4590,6 +4590,7 @@ dependencies = [
  "insta",
  "inventory",
  "issen-core",
+ "issen-disk",
  "issen-unpack",
  "memmap2",
  "rayon",

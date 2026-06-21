@@ -23,6 +23,7 @@ use issen_core::plugin::registry::{detect_from_registry, ParserRegistration};
 const CORPUS: &[(&str, &str)] = &[
     ("/img/$MFT", "Mft"),
     ("/img/$LogFile", "LogFile"),
+    ("/img/$MFTMirr", ""), // mirror is read by the cross-file check, not parsed as a full MFT
     ("/img/$Extend/$UsnJrnl", "UsnJournal"),
     ("/img/Windows/Prefetch/CMD.EXE-0AB12345.pf", "Prefetch"),
     ("/img/mft.pf", "Mft"), // overlap: mft (prio 99) beats prefetch (97)

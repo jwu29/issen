@@ -9,6 +9,7 @@ repository.workspace = true
 
 [dependencies]
 issen-core = { workspace = true }
+issen-disk = { workspace = true }
 issen-unpack = { workspace = true }
 rayon = { workspace = true }
 tracing = { workspace = true }

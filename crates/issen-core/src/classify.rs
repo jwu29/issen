@@ -55,7 +55,7 @@ pub fn mft(path: &Path) -> bool {
     let Some((name, _)) = name_full(path) else {
         return false;
     };
-    name == "$mft" || name.contains("mft") && !name.contains("prefetch")
+    name == "$mft" || name.contains("mft") && !name.contains("prefetch") && !name.contains("mirr")
 }
 
 /// `$LogFile` NTFS transaction journal (MFT record 2).

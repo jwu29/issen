@@ -121,9 +121,12 @@ fn walk_directory(
 /// extracted files) alive for the duration of `f`, since parsers open those files
 /// by path. The single dir-vs-archive detector shared by every orchestration entry
 /// point (so they can't drift on how evidence is opened).
-fn with_evidence<R>(path: &Path, f: impl FnOnce(&[DiscoveredArtifact]) -> R) -> Result<R, RtError> {
+fn with_evidence<R>(
+    path: &Path,
+    f: impl FnOnce(&Path, &[DiscoveredArtifact]) -> R,
+) -> Result<R, RtError> {
     if path.is_dir() {
-        Ok(f(&discover_artifacts(path, &detect_from_registry)?))
+        Ok(f(path, &discover_artifacts(path, &detect_from_registry)?))
     } else {
         let manifest = issen_unpack::registry::open_collection(path)
             .map_err(|e| RtError::UnsupportedFormat(e.to_string()))?;
@@ -134,9 +137,59 @@ fn with_evidence<R>(path: &Path, f: impl FnOnce(&[DiscoveredArtifact]) -> R) -> 
             "Collection opened",
         );
         let artifacts = discover_artifacts(&manifest.extracted_root, &detect_from_registry)?;
-        Ok(f(&artifacts))
+        // The extraction root (not just the classified artifacts) is passed so a
+        // cross-file check can reach files no parser claims (e.g. $MFTMirr).
+        Ok(f(&manifest.extracted_root, &artifacts))
         // manifest (and its TempDir) drops here — AFTER `f` has parsed.
     }
+}
+
+/// Cross-file `$MFT`/`$MFTMirr` integrity over an extraction root: find each
+/// directory holding BOTH files (the per-partition extraction layout, or a loose
+/// pair) and surface any divergence as Integrity events. Only the first four MFT
+/// records (4 KiB) of each are read — the mirror covers exactly those. `$MFTMirr`
+/// is collected but unclassified (no parser), so this is the only thing that
+/// consumes it.
+fn mft_mirror_events_from_root(root: &Path) -> Vec<TimelineEvent> {
+    const FOUR_RECORDS: usize = 1024 * 4;
+    let mut events = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        let (mut mft, mut mirr): (Option<PathBuf>, Option<PathBuf>) = (None, None);
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
+                if name.eq_ignore_ascii_case("$MFT") {
+                    mft = Some(p);
+                } else if name.eq_ignore_ascii_case("$MFTMirr") {
+                    mirr = Some(p);
+                }
+            }
+        }
+        if let (Some(mft_path), Some(mirr_path)) = (mft, mirr) {
+            events.extend(issen_disk::mft_mirror_integrity_events(
+                &read_prefix(&mft_path, FOUR_RECORDS),
+                &read_prefix(&mirr_path, FOUR_RECORDS),
+                "mftmirr-integrity",
+            ));
+        }
+    }
+    events
+}
+
+/// Read up to `n` bytes from the start of `path` (empty on any error).
+fn read_prefix(path: &Path, n: usize) -> Vec<u8> {
+    use std::io::Read;
+    let mut buf = Vec::new();
+    if let Ok(f) = std::fs::File::open(path) {
+        let _ = f.take(n as u64).read_to_end(&mut buf);
+    }
+    buf
 }
 
 /// Assemble the [`IngestResult`] from discovered artifacts and parsed units — the
@@ -249,10 +302,23 @@ pub fn run_auto_units(
     // `with_evidence` keeps the collection manifest's TempDir alive across the
     // parse (parsers open the extracted files by path).
     progress.set_phase(Phase::Extracting);
-    let (units, result, skipped) = with_evidence(path, |artifacts| {
+    let (units, result, skipped) = with_evidence(path, |root, artifacts| {
         progress.set_artifacts_total(artifacts.len() as u64);
         progress.set_phase(Phase::Parsing);
-        let (units, errors, skipped) = parse_units(artifacts, &all_parsers(), progress, skip);
+        let (mut units, errors, skipped) = parse_units(artifacts, &all_parsers(), progress, skip);
+        // Cross-file $MFT/$MFTMirr integrity (not a parser — a 2-file check):
+        // emit as a synthetic unit so it commits and resumes like any other.
+        let mirror_events = mft_mirror_events_from_root(root);
+        if !mirror_events.is_empty() {
+            units.push(ParsedUnit {
+                artifact_type: ArtifactType::Mft,
+                path: PathBuf::from(r"\$MFTMirr"),
+                parser: "$MFTMirr Integrity".to_string(),
+                events: mirror_events,
+                bytes: 0,
+                completion: ParseCompletion::Complete,
+            });
+        }
         let result = ingest_result(artifacts, &units, errors);
         (units, result, skipped)
     })?;
@@ -515,6 +581,35 @@ pub fn run_auto_parallel(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mft_mirror_events_from_root_flags_a_divergent_pair() {
+        // Per-partition extraction layout: part-*/$MFT + part-*/$MFTMirr.
+        let tmp = tempfile::tempdir().unwrap();
+        let part = tmp.path().join("part-0000000000");
+        std::fs::create_dir_all(&part).unwrap();
+        let mft = vec![0xAAu8; 1024 * 4];
+        let mut mirr = mft.clone();
+        mirr[0] = 0xBB; // record 0 differs
+        std::fs::write(part.join("$MFT"), &mft).unwrap();
+        std::fs::write(part.join("$MFTMirr"), &mirr).unwrap();
+
+        let events = mft_mirror_events_from_root(tmp.path());
+        assert_eq!(
+            events.len(),
+            1,
+            "a divergent $MFT/$MFTMirr pair -> one event"
+        );
+        assert!(events[0].description.contains("NTFS-MFTMIRR-MISMATCH"));
+    }
+
+    #[test]
+    fn mft_mirror_events_from_root_silent_without_a_pair() {
+        let tmp = tempfile::tempdir().unwrap();
+        // $MFT alone (no mirror) → nothing to compare.
+        std::fs::write(tmp.path().join("$MFT"), vec![0xAAu8; 1024 * 4]).unwrap();
+        assert!(mft_mirror_events_from_root(tmp.path()).is_empty());
+    }
 
     /// A minimal classifier for the discovery tests, built from the shared
     /// `issen_core::classify` predicates — production uses `detect_from_registry`
