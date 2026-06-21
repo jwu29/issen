@@ -190,7 +190,11 @@ pub fn extract_triage(source: &dyn DataSource) -> Result<Vec<ExtractedFile>, Dis
     // hand-maintained list — so collection can no longer drift from the parsers.
     // The `WINDOWS_*` consts remain as the spec the `collection_differential`
     // test proves this set reproduces.
-    collect_sources(source, &issen_core::plugin::registry::triage_ntfs_sources())
+    let outcome = collect_sources(source, &issen_core::plugin::registry::triage_ntfs_sources())?;
+    for limit in &outcome.limits {
+        eprintln!("Warning: triage extraction was bounded: {limit}");
+    }
+    Ok(outcome.files)
 }
 
 /// Collect `sources` from every NTFS partition in `source`. The shared core of
@@ -200,12 +204,71 @@ pub fn extract_triage(source: &dyn DataSource) -> Result<Vec<ExtractedFile>, Dis
 fn collect_sources(
     source: &dyn DataSource,
     sources: &[NtfsLoc],
-) -> Result<Vec<ExtractedFile>, DiskError> {
-    let mut out = Vec::new();
+) -> Result<ExtractOutcome, DiskError> {
+    collect_with_caps(source, sources, ExtractCaps::default())
+}
+
+/// Collect `sources` from every NTFS partition in `source`, enforcing `caps`.
+///
+/// The capped collection core: returns the extracted files together with any
+/// [`ExtractionLimit`]s that were hit. A non-empty `limits` is a forensic
+/// completeness gap the caller MUST surface — the files are a bounded partial,
+/// not a complete result.
+///
+/// # Errors
+///
+/// [`DiskError`] if the partition table or a volume can't be read.
+pub fn collect_with_caps(
+    source: &dyn DataSource,
+    sources: &[NtfsLoc],
+    caps: ExtractCaps,
+) -> Result<ExtractOutcome, DiskError> {
+    let mut acc = Accumulator::new(caps);
     for window in find_ntfs_partitions(source)? {
-        out.extend(extract_ntfs_sources(source, window, sources)?);
+        if acc.global_full() {
+            // The global cap is exhausted with partitions still unread — a
+            // bounded partial, recorded loudly rather than returned as a silent
+            // "complete" empty/short result.
+            acc.record(ExtractionLimit::TooManyFiles {
+                pattern: "<global>".to_string(),
+                cap: acc.caps.max_files_global,
+            });
+            break;
+        }
+        let mut fs = open_volume(source, window)?;
+        extract_sources_into(&mut fs, window, sources, &mut acc)?;
     }
-    Ok(out)
+    Ok(acc.out)
+}
+
+/// Dispatch each [`NtfsLoc`] to its capped worker over one open volume.
+fn extract_sources_into(
+    fs: &mut ntfs_core::NtfsFs<OffsetReaderT<'_>>,
+    window: PartitionWindow,
+    sources: &[NtfsLoc],
+    acc: &mut Accumulator,
+) -> Result<(), DiskError> {
+    for loc in sources {
+        if acc.global_full() {
+            break;
+        }
+        match *loc {
+            NtfsLoc::FixedPath(path) => extract_files_into(fs, window, &[path], acc)?,
+            NtfsLoc::DirSuffix { dir, suffix } => {
+                extract_dir_suffix_into(fs, window, dir, suffix, acc)?;
+            }
+            NtfsLoc::PerUserFile(child) => {
+                extract_per_subdir_into(fs, window, r"\Users", child, acc)?;
+            }
+            NtfsLoc::PerSubdirSweep { parent, rel, name } => {
+                extract_subdir_sweep_into(fs, window, parent, rel, &|n| name.matches(n), acc)?;
+            }
+            NtfsLoc::NamedStream { path, stream } => {
+                extract_named_streams_into(fs, window, &[(path, stream)], acc)?;
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Extract every artifact named by `sources` from one NTFS partition window,
@@ -224,27 +287,13 @@ pub fn extract_ntfs_sources(
     window: PartitionWindow,
     sources: &[NtfsLoc],
 ) -> Result<Vec<ExtractedFile>, DiskError> {
-    let mut out = Vec::new();
-    for loc in sources {
-        match *loc {
-            NtfsLoc::FixedPath(path) => out.extend(extract_files(source, window, &[path])?),
-            NtfsLoc::DirSuffix { dir, suffix } => {
-                out.extend(extract_dir_suffix(source, window, dir, suffix)?);
-            }
-            NtfsLoc::PerUserFile(child) => {
-                out.extend(extract_per_subdir(source, window, r"\Users", child)?);
-            }
-            NtfsLoc::PerSubdirSweep { parent, rel, name } => {
-                out.extend(extract_subdir_sweep(source, window, parent, rel, &|n| {
-                    name.matches(n)
-                })?);
-            }
-            NtfsLoc::NamedStream { path, stream } => {
-                out.extend(extract_named_streams(source, window, &[(path, stream)])?);
-            }
-        }
+    let mut fs = open_volume(source, window)?;
+    let mut acc = Accumulator::new(ExtractCaps::default());
+    extract_sources_into(&mut fs, window, sources, &mut acc)?;
+    for limit in &acc.out.limits {
+        eprintln!("Warning: extraction cap hit: {limit}");
     }
-    Ok(out)
+    Ok(acc.out.files)
 }
 
 /// Extract the Windows triage artifacts from `source` into a temp directory and
@@ -285,7 +334,14 @@ pub fn triage_manifest_from(
 ) -> Result<issen_unpack::CollectionManifest, DiskError> {
     use issen_unpack::{CollectionManifest, CollectionMetadata, ManifestEntry, OsType};
 
-    let files = collect_sources(source, sources)?;
+    let outcome = collect_sources(source, sources)?;
+    // Fail LOUD on any cap hit: a truncated collection is a forensic
+    // completeness gap, surfaced as a visible warning here (and structurally on
+    // the outcome via `collect_with_caps`), never a silent partial.
+    for limit in &outcome.limits {
+        eprintln!("Warning: triage extraction was bounded: {limit}");
+    }
+    let files = outcome.files;
     let tempdir = tempfile::tempdir()?;
 
     let mut artifacts = Vec::new();
@@ -320,16 +376,30 @@ pub fn triage_manifest_from(
 }
 
 /// Turn an NTFS path (`\Windows\System32\config\SYSTEM`) into a safe relative
-/// path under the extraction root, dropping the leading separator, any drive/ADS
-/// colon, and `.`/`..` components.
+/// path under the extraction root, dropping the leading separator and `.`/`..`
+/// components.
+///
+/// An alternate-data-stream suffix (`\$Extend\$UsnJrnl:$J`) is preserved by
+/// folding the stream name into the final component as `<file>~<stream>`, so two
+/// streams of one file (`:$J` and `:$Max`) map to DISTINCT output paths and
+/// cannot overwrite each other. The leading `:` of the colon is what makes a
+/// raw stream path unsafe on disk; `~` keeps the distinction without it.
 fn sanitize_ntfs_path(path: &str) -> std::path::PathBuf {
     let mut out = std::path::PathBuf::new();
     for part in path.split(['\\', '/']) {
-        let part = part.split(':').next().unwrap_or(part); // strip ADS suffix
-        if part.is_empty() || part == "." || part == ".." {
+        // Fold an ADS suffix into the filename rather than dropping it, so
+        // distinct streams of one file stay distinct on disk.
+        let safe = match part.split_once(':') {
+            Some((file, stream)) if !stream.is_empty() => {
+                format!("{}~{}", file, stream.replace(':', "_"))
+            }
+            Some((file, _)) => file.to_string(),
+            None => part.to_string(),
+        };
+        if safe.is_empty() || safe == "." || safe == ".." {
             continue;
         }
-        out.push(part);
+        out.push(safe);
     }
     out
 }
@@ -349,6 +419,188 @@ pub struct ExtractedFile {
     pub partition_offset: u64,
 }
 
+/// Hard limits enforced while extracting from an untrusted disk image, so a
+/// malicious or corrupt volume cannot OOM or hang the responder.
+///
+/// The defaults are deliberately well above any legitimate triage artifact — a
+/// real `$MFT` reaches ~85 MB and a real volume has far fewer than a million
+/// matching files — so a genuine collection never trips them. Hitting a cap is
+/// a forensic event: it is recorded as an [`ExtractionLimit`] on the
+/// [`ExtractOutcome`] and surfaced loudly, never a silent partial result.
+#[derive(Debug, Clone, Copy)]
+pub struct ExtractCaps {
+    /// Maximum bytes for a single extracted file/stream. A file larger than
+    /// this is rejected (not truncated) and a [`ExtractionLimit::FileTooLarge`]
+    /// is recorded. Default 4 GiB — far above the ~85 MB real-world `$MFT`.
+    pub max_file_bytes: u64,
+    /// Maximum files collected for one source pattern (one [`NtfsLoc`]).
+    pub max_files_per_pattern: usize,
+    /// Maximum files collected across the whole extraction.
+    pub max_files_global: usize,
+    /// Maximum directory entries examined in one directory.
+    pub max_dir_entries: usize,
+    /// Maximum directory-nesting depth descended by a subdirectory sweep — a
+    /// backstop paired with the per-record cycle guard.
+    pub max_depth: usize,
+}
+
+impl Default for ExtractCaps {
+    fn default() -> Self {
+        Self {
+            // 4 GiB: ~50x the ~85 MB real-world $MFT ceiling, so the legitimate
+            // large system files always read while a pathological multi-GB
+            // file is rejected loudly.
+            max_file_bytes: 4 * 1024 * 1024 * 1024,
+            max_files_per_pattern: 100_000,
+            max_files_global: 1_000_000,
+            max_dir_entries: 1_000_000,
+            max_depth: 64,
+        }
+    }
+}
+
+/// A cap that was hit during extraction — a LOUD truncation diagnostic. Carries
+/// the offending value (size/count/path) so an investigator sees exactly what
+/// was bounded, never a bare "truncated".
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ExtractionLimit {
+    /// A file exceeded [`ExtractCaps::max_file_bytes`] and was rejected.
+    FileTooLarge {
+        /// NTFS path (or `path:stream`) of the rejected file.
+        path: String,
+        /// Actual size in bytes that exceeded the cap.
+        size: u64,
+        /// The cap that was exceeded.
+        cap: u64,
+    },
+    /// The per-pattern or global file count cap stopped collection.
+    TooManyFiles {
+        /// The source pattern (`NtfsLoc`) being collected, for context.
+        pattern: String,
+        /// The cap that was reached.
+        cap: usize,
+    },
+    /// A directory held more entries than [`ExtractCaps::max_dir_entries`].
+    TooManyDirEntries {
+        /// The directory whose enumeration was bounded.
+        dir: String,
+        /// The cap that was reached.
+        cap: usize,
+    },
+    /// A subdirectory sweep exceeded [`ExtractCaps::max_depth`].
+    DepthExceeded {
+        /// The directory at which descent was stopped.
+        dir: String,
+        /// The depth cap that was reached.
+        cap: usize,
+    },
+    /// A looping/self-referential MFT reference was detected and skipped.
+    CycleDetected {
+        /// The directory whose record had already been visited on this path.
+        dir: String,
+        /// The MFT record number that repeated.
+        record: u64,
+    },
+}
+
+impl std::fmt::Display for ExtractionLimit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::FileTooLarge { path, size, cap } => write!(
+                f,
+                "file {path} is {size} bytes, exceeds the {cap}-byte extraction cap — REJECTED"
+            ),
+            Self::TooManyFiles { pattern, cap } => {
+                write!(
+                    f,
+                    "pattern {pattern} hit the {cap}-file cap — collection truncated"
+                )
+            }
+            Self::TooManyDirEntries { dir, cap } => {
+                write!(
+                    f,
+                    "directory {dir} hit the {cap}-entry cap — enumeration truncated"
+                )
+            }
+            Self::DepthExceeded { dir, cap } => {
+                write!(
+                    f,
+                    "sweep stopped at {dir}: exceeded the {cap}-level depth cap"
+                )
+            }
+            Self::CycleDetected { dir, record } => write!(
+                f,
+                "cycle detected at {dir}: MFT record {record} already visited — sweep stopped"
+            ),
+        }
+    }
+}
+
+/// The result of a capped extraction: the files plus any [`ExtractionLimit`]s
+/// that were hit. A non-empty `limits` means the collection is a bounded
+/// partial — the caller MUST surface it (it is a forensic completeness gap),
+/// never treat the files as a complete result.
+#[derive(Debug, Default)]
+pub struct ExtractOutcome {
+    /// Files successfully extracted within the caps.
+    pub files: Vec<ExtractedFile>,
+    /// Caps that were hit — empty iff the collection is complete.
+    pub limits: Vec<ExtractionLimit>,
+}
+
+/// Caps-enforcing accumulator threaded through the extraction primitives.
+///
+/// Owns the running file/byte counts and the global file cap; every primitive
+/// pushes accepted files and recorded limits here. Centralising the bookkeeping
+/// keeps the cap rules general (one place, applied to every source) rather than
+/// special-cased per pattern.
+struct Accumulator {
+    caps: ExtractCaps,
+    out: ExtractOutcome,
+}
+
+impl Accumulator {
+    fn new(caps: ExtractCaps) -> Self {
+        Self {
+            caps,
+            out: ExtractOutcome::default(),
+        }
+    }
+
+    /// `true` once the global file cap has been reached — collection must stop.
+    fn global_full(&self) -> bool {
+        self.out.files.len() >= self.caps.max_files_global
+    }
+
+    fn record(&mut self, limit: ExtractionLimit) {
+        self.out.limits.push(limit);
+    }
+
+    /// Accept `file` unless it exceeds the per-file byte cap or the global file
+    /// cap. Returns `false` once the global cap is hit so the caller can stop.
+    fn accept(&mut self, file: ExtractedFile) -> bool {
+        if self.global_full() {
+            self.record(ExtractionLimit::TooManyFiles {
+                pattern: "<global>".to_string(),
+                cap: self.caps.max_files_global,
+            });
+            return false;
+        }
+        let size = file.data.len() as u64;
+        if size > self.caps.max_file_bytes {
+            self.record(ExtractionLimit::FileTooLarge {
+                path: file.path,
+                size,
+                cap: self.caps.max_file_bytes,
+            });
+            return true; // over-size is a per-file skip, not a stop
+        }
+        self.out.files.push(file);
+        !self.global_full()
+    }
+}
+
 /// Read each of `paths` from the NTFS partition at `window`.
 ///
 /// Best-effort: a path that is absent (`NotFound` / not a directory) is skipped,
@@ -363,27 +615,90 @@ pub fn extract_files(
     window: PartitionWindow,
     paths: &[&str],
 ) -> Result<Vec<ExtractedFile>, DiskError> {
-    use ntfs_core::{NtfsError, NtfsFs, OffsetReader};
+    capped_single(source, window, ExtractCaps::default(), |acc, fs| {
+        extract_files_into(fs, window, paths, acc)
+    })
+}
 
-    let to_disk = |e: NtfsError| DiskError::Ntfs(e.to_string());
+/// Run one capped extraction over a freshly opened volume, emitting any
+/// recorded limits loudly to stderr (the granular pub helpers return only the
+/// files, so this is where a cap hit is surfaced).
+fn capped_single(
+    source: &dyn DataSource,
+    window: PartitionWindow,
+    caps: ExtractCaps,
+    body: impl FnOnce(
+        &mut Accumulator,
+        &mut ntfs_core::NtfsFs<OffsetReaderT<'_>>,
+    ) -> Result<(), DiskError>,
+) -> Result<Vec<ExtractedFile>, DiskError> {
+    let mut fs = open_volume(source, window)?;
+    let mut acc = Accumulator::new(caps);
+    body(&mut acc, &mut fs)?;
+    for limit in &acc.out.limits {
+        eprintln!("Warning: extraction cap hit: {limit}");
+    }
+    Ok(acc.out.files)
+}
+
+/// The `OffsetReader` type parameter used across the extraction primitives.
+type OffsetReaderT<'a> = ntfs_core::OffsetReader<DataSourceReader<'a>>;
+
+/// Open the NTFS volume at `window` over `source`.
+fn open_volume(
+    source: &dyn DataSource,
+    window: PartitionWindow,
+) -> Result<ntfs_core::NtfsFs<OffsetReaderT<'_>>, DiskError> {
+    use ntfs_core::{NtfsFs, OffsetReader};
+    let to_disk = |e: ntfs_core::NtfsError| DiskError::Ntfs(e.to_string());
     let reader = DataSourceReader::new(source);
     let part = OffsetReader::new(reader, window.offset, window.length).map_err(to_disk)?;
-    let mut fs = NtfsFs::open(part).map_err(to_disk)?;
+    NtfsFs::open(part).map_err(to_disk)
+}
 
-    let mut out = Vec::new();
+/// Read each of `paths` into `acc`, enforcing the per-file byte and global
+/// file caps. Stops early once the global cap is reached.
+fn extract_files_into(
+    fs: &mut ntfs_core::NtfsFs<OffsetReaderT<'_>>,
+    window: PartitionWindow,
+    paths: &[&str],
+    acc: &mut Accumulator,
+) -> Result<(), DiskError> {
+    use ntfs_core::NtfsError;
+    let to_disk = |e: NtfsError| DiskError::Ntfs(e.to_string());
+    let mut collected = 0usize;
     for &path in paths {
+        if acc.global_full() {
+            acc.record(ExtractionLimit::TooManyFiles {
+                pattern: "<global>".to_string(),
+                cap: acc.caps.max_files_global,
+            });
+            break;
+        }
+        if collected >= acc.caps.max_files_per_pattern {
+            acc.record(ExtractionLimit::TooManyFiles {
+                pattern: format!("FixedPath set ({} paths)", paths.len()),
+                cap: acc.caps.max_files_per_pattern,
+            });
+            break;
+        }
         match fs.read_file(path) {
-            Ok(data) => out.push(ExtractedFile {
-                path: path.to_string(),
-                data,
-                partition_offset: window.offset,
-            }),
+            Ok(data) => {
+                collected += 1;
+                if !acc.accept(ExtractedFile {
+                    path: path.to_string(),
+                    data,
+                    partition_offset: window.offset,
+                }) {
+                    break;
+                }
+            }
             // The artifact simply isn't on this image — expected during triage.
             Err(NtfsError::NotFound(_) | NtfsError::NotADirectory(_)) => {}
             Err(e) => return Err(to_disk(e)),
         }
     }
-    Ok(out)
+    Ok(())
 }
 
 /// Extract every file directly under NTFS directory `dir` whose name ends with
@@ -402,17 +717,26 @@ pub fn extract_dir_suffix(
     dir: &str,
     suffix: &str,
 ) -> Result<Vec<ExtractedFile>, DiskError> {
-    use ntfs_core::{NtfsError, NtfsFs, OffsetReader};
+    capped_single(source, window, ExtractCaps::default(), |acc, fs| {
+        extract_dir_suffix_into(fs, window, dir, suffix, acc)
+    })
+}
 
+/// Capped worker for [`extract_dir_suffix`].
+fn extract_dir_suffix_into(
+    fs: &mut ntfs_core::NtfsFs<OffsetReaderT<'_>>,
+    window: PartitionWindow,
+    dir: &str,
+    suffix: &str,
+    acc: &mut Accumulator,
+) -> Result<(), DiskError> {
+    use ntfs_core::NtfsError;
     let to_disk = |e: NtfsError| DiskError::Ntfs(e.to_string());
-    let reader = DataSourceReader::new(source);
-    let part = OffsetReader::new(reader, window.offset, window.length).map_err(to_disk)?;
-    let mut fs = NtfsFs::open(part).map_err(to_disk)?;
 
     // Resolve the directory; if it isn't on this image, there's nothing to do.
     let dir_record = match fs.resolve_path(dir) {
         Ok(n) => n,
-        Err(NtfsError::NotFound(_) | NtfsError::NotADirectory(_)) => return Ok(Vec::new()),
+        Err(NtfsError::NotFound(_) | NtfsError::NotADirectory(_)) => return Ok(()),
         Err(e) => return Err(to_disk(e)),
     };
     let record = fs.read_record(dir_record).map_err(to_disk)?;
@@ -420,26 +744,45 @@ pub fn extract_dir_suffix(
 
     let suffix_lc = suffix.to_ascii_lowercase();
     let base = dir.trim_end_matches('\\');
-    let mut out = Vec::new();
-    for entry in entries {
+    let mut collected = 0usize;
+    for (seen, entry) in entries.into_iter().enumerate() {
+        if seen >= acc.caps.max_dir_entries {
+            acc.record(ExtractionLimit::TooManyDirEntries {
+                dir: dir.to_string(),
+                cap: acc.caps.max_dir_entries,
+            });
+            break;
+        }
         let Some(name) = entry.file_name.map(|f| f.name) else {
             continue;
         };
         if !name.to_ascii_lowercase().ends_with(&suffix_lc) {
             continue;
         }
+        if collected >= acc.caps.max_files_per_pattern {
+            acc.record(ExtractionLimit::TooManyFiles {
+                pattern: format!("DirSuffix {dir}\\*{suffix}"),
+                cap: acc.caps.max_files_per_pattern,
+            });
+            break;
+        }
         let path = format!("{base}\\{name}");
         match fs.read_file(&path) {
-            Ok(data) => out.push(ExtractedFile {
-                path,
-                data,
-                partition_offset: window.offset,
-            }),
+            Ok(data) => {
+                collected += 1;
+                if !acc.accept(ExtractedFile {
+                    path,
+                    data,
+                    partition_offset: window.offset,
+                }) {
+                    break;
+                }
+            }
             Err(NtfsError::NotFound(_) | NtfsError::NotADirectory(_)) => {}
             Err(e) => return Err(to_disk(e)),
         }
     }
-    Ok(out)
+    Ok(())
 }
 
 /// For each immediate subdirectory of `parent`, extract the file at `child`
@@ -459,41 +802,69 @@ pub fn extract_per_subdir(
     parent: &str,
     child: &str,
 ) -> Result<Vec<ExtractedFile>, DiskError> {
-    use ntfs_core::{NtfsError, NtfsFs, OffsetReader};
+    capped_single(source, window, ExtractCaps::default(), |acc, fs| {
+        extract_per_subdir_into(fs, window, parent, child, acc)
+    })
+}
 
+/// Capped worker for [`extract_per_subdir`].
+fn extract_per_subdir_into(
+    fs: &mut ntfs_core::NtfsFs<OffsetReaderT<'_>>,
+    window: PartitionWindow,
+    parent: &str,
+    child: &str,
+    acc: &mut Accumulator,
+) -> Result<(), DiskError> {
+    use ntfs_core::NtfsError;
     let to_disk = |e: NtfsError| DiskError::Ntfs(e.to_string());
-    let reader = DataSourceReader::new(source);
-    let part = OffsetReader::new(reader, window.offset, window.length).map_err(to_disk)?;
-    let mut fs = NtfsFs::open(part).map_err(to_disk)?;
 
     let parent_record = match fs.resolve_path(parent) {
         Ok(n) => n,
-        Err(NtfsError::NotFound(_) | NtfsError::NotADirectory(_)) => return Ok(Vec::new()),
+        Err(NtfsError::NotFound(_) | NtfsError::NotADirectory(_)) => return Ok(()),
         Err(e) => return Err(to_disk(e)),
     };
     let record = fs.read_record(parent_record).map_err(to_disk)?;
     let entries = fs.directory_entries(&record).map_err(to_disk)?;
 
     let base = parent.trim_end_matches('\\');
-    let mut out = Vec::new();
-    for entry in entries {
+    let mut collected = 0usize;
+    for (seen, entry) in entries.into_iter().enumerate() {
+        if seen >= acc.caps.max_dir_entries {
+            acc.record(ExtractionLimit::TooManyDirEntries {
+                dir: parent.to_string(),
+                cap: acc.caps.max_dir_entries,
+            });
+            break;
+        }
         let Some(name) = entry.file_name.map(|f| f.name) else {
             continue;
         };
+        if collected >= acc.caps.max_files_per_pattern {
+            acc.record(ExtractionLimit::TooManyFiles {
+                pattern: format!("PerUserFile {parent}\\*\\{child}"),
+                cap: acc.caps.max_files_per_pattern,
+            });
+            break;
+        }
         // Try `<parent>\<name>\<child>`; non-directory entries resolve to
         // NotADirectory and are skipped, so we needn't pre-check the type.
         let path = format!("{base}\\{name}\\{child}");
         match fs.read_file(&path) {
-            Ok(data) => out.push(ExtractedFile {
-                path,
-                data,
-                partition_offset: window.offset,
-            }),
+            Ok(data) => {
+                collected += 1;
+                if !acc.accept(ExtractedFile {
+                    path,
+                    data,
+                    partition_offset: window.offset,
+                }) {
+                    break;
+                }
+            }
             Err(NtfsError::NotFound(_) | NtfsError::NotADirectory(_)) => {}
             Err(e) => return Err(to_disk(e)),
         }
     }
-    Ok(out)
+    Ok(())
 }
 
 /// NTFS `$FILE_NAME` attribute flag marking the entry as a directory.
@@ -539,25 +910,50 @@ pub fn extract_subdir_sweep(
     rel: &str,
     matches: &dyn Fn(&str) -> bool,
 ) -> Result<Vec<ExtractedFile>, DiskError> {
-    use ntfs_core::{NtfsError, NtfsFs, OffsetReader};
+    capped_single(source, window, ExtractCaps::default(), |acc, fs| {
+        extract_subdir_sweep_into(fs, window, parent, rel, matches, acc)
+    })
+}
 
+/// Capped worker for [`extract_subdir_sweep`], with the MFT-reference cycle
+/// guard: a subdirectory whose record number is the sweep parent (a
+/// self-referential / looping reference) is recorded and skipped rather than
+/// descended, so a crafted index that points back at an ancestor terminates.
+fn extract_subdir_sweep_into(
+    fs: &mut ntfs_core::NtfsFs<OffsetReaderT<'_>>,
+    window: PartitionWindow,
+    parent: &str,
+    rel: &str,
+    matches: &dyn Fn(&str) -> bool,
+    acc: &mut Accumulator,
+) -> Result<(), DiskError> {
+    use ntfs_core::NtfsError;
     let to_disk = |e: NtfsError| DiskError::Ntfs(e.to_string());
-    let reader = DataSourceReader::new(source);
-    let part = OffsetReader::new(reader, window.offset, window.length).map_err(to_disk)?;
-    let mut fs = NtfsFs::open(part).map_err(to_disk)?;
 
     let parent_record = match fs.resolve_path(parent) {
         Ok(n) => n,
-        Err(NtfsError::NotFound(_) | NtfsError::NotADirectory(_)) => return Ok(Vec::new()),
+        Err(NtfsError::NotFound(_) | NtfsError::NotADirectory(_)) => return Ok(()),
         Err(e) => return Err(to_disk(e)),
     };
     let record = fs.read_record(parent_record).map_err(to_disk)?;
     let subdirs = fs.directory_entries(&record).map_err(to_disk)?;
 
+    // Records seen on the descent path (the parent itself); any subdir entry
+    // pointing back to one is a loop and must not be descended.
+    let mut visited = std::collections::HashSet::new();
+    visited.insert(parent_record);
+
     let parent_base = parent.trim_end_matches('\\');
     let rel = rel.trim_matches('\\');
-    let mut out = Vec::new();
-    for sub in subdirs {
+    let mut collected = 0usize;
+    for (seen, sub) in subdirs.into_iter().enumerate() {
+        if seen >= acc.caps.max_dir_entries {
+            acc.record(ExtractionLimit::TooManyDirEntries {
+                dir: parent.to_string(),
+                cap: acc.caps.max_dir_entries,
+            });
+            break;
+        }
         let Some(fname) = sub.file_name else {
             continue; // terminal index entry — no name
         };
@@ -572,38 +968,120 @@ pub fn extract_subdir_sweep(
         } else {
             format!("{parent_base}\\{}\\{rel}", fname.name)
         };
+        // Depth backstop: never descend a sweep path deeper than the cap (the
+        // path component count of the resolved sweep dir).
+        let depth = sweep_dir.split('\\').filter(|c| !c.is_empty()).count();
+        if depth > acc.caps.max_depth {
+            acc.record(ExtractionLimit::DepthExceeded {
+                dir: sweep_dir,
+                cap: acc.caps.max_depth,
+            });
+            continue;
+        }
+        // Cycle guard: a subdirectory entry whose target record is one already
+        // on the descent path is a looping/self-referential reference.
+        let sub_record = sub.file_reference.record_number;
+        if !visited.insert(sub_record) {
+            acc.record(ExtractionLimit::CycleDetected {
+                dir: sweep_dir,
+                record: sub_record,
+            });
+            continue;
+        }
         // Resolve the (possibly nested) sweep directory; absent on this user is fine.
         let dir_record = match fs.resolve_path(&sweep_dir) {
             Ok(n) => n,
             Err(NtfsError::NotFound(_) | NtfsError::NotADirectory(_)) => continue,
             Err(e) => return Err(to_disk(e)),
         };
-        let dir_rec = fs.read_record(dir_record).map_err(to_disk)?;
-        let entries = fs.directory_entries(&dir_rec).map_err(to_disk)?;
-        for entry in entries {
-            let Some(fname) = entry.file_name else {
-                continue;
-            };
-            if fname.namespace == FN_NAMESPACE_DOS {
-                continue; // 8.3 alias of a Win32 file name — skip to avoid double-counting
-            }
-            let name = fname.name;
-            if !matches(&name) {
-                continue;
-            }
-            let path = format!("{sweep_dir}\\{name}");
-            match fs.read_file(&path) {
-                Ok(data) => out.push(ExtractedFile {
+        if sweep_one_dir(
+            fs,
+            window,
+            dir_record,
+            &sweep_dir,
+            parent,
+            rel,
+            matches,
+            &mut collected,
+            acc,
+        )? == SweepFlow::Stop
+        {
+            return Ok(());
+        }
+    }
+    Ok(())
+}
+
+/// Whether the caller should keep sweeping further subdirectories or stop
+/// (a per-pattern or global cap was reached).
+#[derive(PartialEq, Eq)]
+enum SweepFlow {
+    Continue,
+    Stop,
+}
+
+/// Sweep one resolved directory (`dir_record`) for files matching `matches`,
+/// reading each into `acc` under the caps. Bumps `collected` (the per-pattern
+/// count). Returns [`SweepFlow::Stop`] when a per-pattern/global cap is hit.
+#[allow(clippy::too_many_arguments)]
+fn sweep_one_dir(
+    fs: &mut ntfs_core::NtfsFs<OffsetReaderT<'_>>,
+    window: PartitionWindow,
+    dir_record: u64,
+    sweep_dir: &str,
+    parent: &str,
+    rel: &str,
+    matches: &dyn Fn(&str) -> bool,
+    collected: &mut usize,
+    acc: &mut Accumulator,
+) -> Result<SweepFlow, DiskError> {
+    use ntfs_core::NtfsError;
+    let to_disk = |e: NtfsError| DiskError::Ntfs(e.to_string());
+
+    let dir_rec = fs.read_record(dir_record).map_err(to_disk)?;
+    let entries = fs.directory_entries(&dir_rec).map_err(to_disk)?;
+    for (dseen, entry) in entries.into_iter().enumerate() {
+        if dseen >= acc.caps.max_dir_entries {
+            acc.record(ExtractionLimit::TooManyDirEntries {
+                dir: sweep_dir.to_string(),
+                cap: acc.caps.max_dir_entries,
+            });
+            break;
+        }
+        let Some(fname) = entry.file_name else {
+            continue;
+        };
+        if fname.namespace == FN_NAMESPACE_DOS {
+            continue; // 8.3 alias of a Win32 file name — skip to avoid double-counting
+        }
+        let name = fname.name;
+        if !matches(&name) {
+            continue;
+        }
+        if *collected >= acc.caps.max_files_per_pattern {
+            acc.record(ExtractionLimit::TooManyFiles {
+                pattern: format!("PerSubdirSweep {parent}\\*\\{rel}"),
+                cap: acc.caps.max_files_per_pattern,
+            });
+            return Ok(SweepFlow::Stop);
+        }
+        let path = format!("{sweep_dir}\\{name}");
+        match fs.read_file(&path) {
+            Ok(data) => {
+                *collected += 1;
+                if !acc.accept(ExtractedFile {
                     path,
                     data,
                     partition_offset: window.offset,
-                }),
-                Err(NtfsError::NotFound(_) | NtfsError::NotADirectory(_)) => {}
-                Err(e) => return Err(to_disk(e)),
+                }) {
+                    return Ok(SweepFlow::Stop);
+                }
             }
+            Err(NtfsError::NotFound(_) | NtfsError::NotADirectory(_)) => {}
+            Err(e) => return Err(to_disk(e)),
         }
     }
-    Ok(out)
+    Ok(SweepFlow::Continue)
 }
 
 /// Named ADS streams collected during triage: `(path, stream)`.
@@ -625,26 +1103,46 @@ pub fn extract_named_streams(
     window: PartitionWindow,
     streams: &[(&str, &str)],
 ) -> Result<Vec<ExtractedFile>, DiskError> {
-    use ntfs_core::{NtfsError, NtfsFs, OffsetReader};
+    capped_single(source, window, ExtractCaps::default(), |acc, fs| {
+        extract_named_streams_into(fs, window, streams, acc)
+    })
+}
 
+/// Capped worker for [`extract_named_streams`].
+fn extract_named_streams_into(
+    fs: &mut ntfs_core::NtfsFs<OffsetReaderT<'_>>,
+    window: PartitionWindow,
+    streams: &[(&str, &str)],
+    acc: &mut Accumulator,
+) -> Result<(), DiskError> {
+    use ntfs_core::NtfsError;
     let to_disk = |e: NtfsError| DiskError::Ntfs(e.to_string());
-    let reader = DataSourceReader::new(source);
-    let part = OffsetReader::new(reader, window.offset, window.length).map_err(to_disk)?;
-    let mut fs = NtfsFs::open(part).map_err(to_disk)?;
 
-    let mut out = Vec::new();
+    let mut collected = 0usize;
     for &(path, stream) in streams {
+        if collected >= acc.caps.max_files_per_pattern {
+            acc.record(ExtractionLimit::TooManyFiles {
+                pattern: format!("NamedStream set ({} streams)", streams.len()),
+                cap: acc.caps.max_files_per_pattern,
+            });
+            break;
+        }
         match fs.read_named_stream(path, stream) {
-            Ok(data) => out.push(ExtractedFile {
-                path: format!("{path}:{stream}"),
-                data,
-                partition_offset: window.offset,
-            }),
+            Ok(data) => {
+                collected += 1;
+                if !acc.accept(ExtractedFile {
+                    path: format!("{path}:{stream}"),
+                    data,
+                    partition_offset: window.offset,
+                }) {
+                    break;
+                }
+            }
             Err(NtfsError::NotFound(_) | NtfsError::NotADirectory(_)) => {}
             Err(e) => return Err(to_disk(e)),
         }
     }
-    Ok(out)
+    Ok(())
 }
 
 /// A `Read + Seek` view over a [`DataSource`].
@@ -993,10 +1491,14 @@ mod tests {
             a
         }
 
-        fn fname(parent: u64, name: &str) -> Vec<u8> {
+        /// `$FILE_NAME` content. `flags` are the `FILE_ATTRIBUTE_*` bits at
+        /// content offset 0x38 — set `0x1000_0000` to mark a directory so a
+        /// subdirectory sweep will descend into it.
+        fn fname_flags(parent: u64, name: &str, flags: u32) -> Vec<u8> {
             let u: Vec<u16> = name.encode_utf16().collect();
             let mut c = vec![0u8; 0x42 + u.len() * 2];
             c[0..8].copy_from_slice(&((1u64 << 48) | parent).to_le_bytes());
+            c[0x38..0x3C].copy_from_slice(&flags.to_le_bytes());
             c[0x40] = u.len() as u8;
             c[0x41] = 1; // Win32
             for (i, ch) in u.iter().enumerate() {
@@ -1005,8 +1507,18 @@ mod tests {
             c
         }
 
+        fn fname(parent: u64, name: &str) -> Vec<u8> {
+            fname_flags(parent, name, 0)
+        }
+
         fn index_entry(target: u64, name: &str) -> Vec<u8> {
-            let fnc = fname(5, name);
+            index_entry_flags(target, name, 0)
+        }
+
+        /// An index entry whose embedded `$FILE_NAME` carries `flags` (use the
+        /// directory bit `0x1000_0000` for subdirectories).
+        fn index_entry_flags(target: u64, name: &str, flags: u32) -> Vec<u8> {
+            let fnc = fname_flags(5, name, flags);
             let len = (0x10 + fnc.len() + 7) & !7;
             let mut e = vec![0u8; len];
             e[0..8].copy_from_slice(&((1u64 << 48) | target).to_le_bytes());
@@ -1096,10 +1608,15 @@ mod tests {
         }
 
         /// A directory record whose `$INDEX_ROOT` lists `children`
-        /// (`(target_record, name)`), terminated by the end marker.
-        fn dir_record(children: &[(u64, &str)]) -> Vec<u8> {
-            let mut entries: Vec<Vec<u8>> =
-                children.iter().map(|(t, n)| index_entry(*t, n)).collect();
+        /// (`(target_record, name, is_dir)`), terminated by the end marker. A
+        /// child with `is_dir = true` carries the directory attribute so a
+        /// subdirectory sweep descends into it.
+        fn dir_record(children: &[(u64, &str, bool)]) -> Vec<u8> {
+            const DIR: u32 = 0x1000_0000;
+            let mut entries: Vec<Vec<u8>> = children
+                .iter()
+                .map(|(t, n, is_dir)| index_entry_flags(*t, n, if *is_dir { DIR } else { 0 }))
+                .collect();
             entries.push(index_end());
             record(0x0003, &index_root(&entries))
         }
@@ -1139,19 +1656,20 @@ mod tests {
         }
 
         /// A volume exercising the per-SID `$Recycle.Bin` sweep with a
-        /// self-referential MFT reference: the SID subdirectory's index points
-        /// back at its own record, so a sweep without a visited-set loops.
+        /// self-referential MFT reference: the SID "subdirectory" entry points
+        /// back at the `$Recycle.Bin` record itself, so a sweep that descends by
+        /// record number without a visited-set re-enters the same record
+        /// forever.
         ///
-        /// Record map: 5=root, 6=`$Recycle.Bin`, 7=`S-1-5-21-…` SID dir whose
-        /// index entry targets record 7 (itself).
+        /// Record map: 5=root, 6=`$Recycle.Bin` whose index lists a child named
+        /// like a SID but targeting record 6 (itself).
         pub fn build_cycle() -> Vec<u8> {
-            let root = dir_record(&[(6, "$Recycle.Bin")]);
-            let recycle = dir_record(&[(7, "S-1-5-21-1001")]);
-            // The SID directory lists a child named "$IABC" whose record number
-            // is 7 — the SID directory itself. Descending into it re-enters the
-            // same record forever absent a cycle guard.
-            let sid = dir_record(&[(7, "$IABC")]);
-            assemble(&[(5, root), (6, recycle), (7, sid)])
+            let root = dir_record(&[(6, "$Recycle.Bin", true)]);
+            // The child "S-1-5-21-1001" (a directory) targets record 6 — the
+            // $Recycle.Bin directory itself. Descending into it re-enters
+            // record 6 absent a cycle guard.
+            let recycle = dir_record(&[(6, "S-1-5-21-1001", true)]);
+            assemble(&[(5, root), (6, recycle)])
         }
 
         /// A volume carrying all three Phase-2 sweep targets:
@@ -1165,21 +1683,25 @@ mod tests {
             //  Roaming(9)->Microsoft(10)->Windows(11)->Recent(12)->open.lnk(13)
             //  $Recycle.Bin(14)->SID(15)->$IABCDE(16)
             //  $Extend(17)->$UsnJrnl(18, with a $J ADS)
-            let root = dir_record(&[(6, "Users"), (14, "$Recycle.Bin"), (17, "$Extend")]);
-            let users = dir_record(&[(7, "alice")]);
-            let alice = dir_record(&[(8, "AppData")]);
-            let appdata = dir_record(&[(9, "Roaming")]);
-            let roaming = dir_record(&[(10, "Microsoft")]);
-            let microsoft = dir_record(&[(11, "Windows")]);
-            let windows = dir_record(&[(12, "Recent")]);
-            let recent = dir_record(&[(13, "open.lnk")]);
+            let root = dir_record(&[
+                (6, "Users", true),
+                (14, "$Recycle.Bin", true),
+                (17, "$Extend", true),
+            ]);
+            let users = dir_record(&[(7, "alice", true)]);
+            let alice = dir_record(&[(8, "AppData", true)]);
+            let appdata = dir_record(&[(9, "Roaming", true)]);
+            let roaming = dir_record(&[(10, "Microsoft", true)]);
+            let microsoft = dir_record(&[(11, "Windows", true)]);
+            let windows = dir_record(&[(12, "Recent", true)]);
+            let recent = dir_record(&[(13, "open.lnk", false)]);
             let lnk = file_record(12, "open.lnk", b"LNK-TARGET:C:\\loot.txt");
 
-            let recycle = dir_record(&[(15, "S-1-5-21-1001")]);
-            let sid = dir_record(&[(16, "$IABCDE")]);
+            let recycle = dir_record(&[(15, "S-1-5-21-1001", true)]);
+            let sid = dir_record(&[(16, "$IABCDE", false)]);
             let idx_i = file_record(15, "$IABCDE", b"$I-DELETED:C:\\secret.docx");
 
-            let extend = dir_record(&[(18, "$UsnJrnl")]);
+            let extend = dir_record(&[(18, "$UsnJrnl", false)]);
             // $UsnJrnl record: an unnamed $DATA (the $Max metadata stand-in) plus
             // a named "$J" $DATA stream — the change journal.
             let mut usn = Vec::new();
@@ -1466,10 +1988,11 @@ mod tests {
             sanitize_ntfs_path(r"\Windows\System32\config\SYSTEM"),
             std::path::Path::new("Windows/System32/config/SYSTEM")
         );
-        // Drops ADS suffix, leading separators, and traversal components.
+        // Folds the ADS suffix into the filename (collision-safe), drops
+        // leading separators and traversal components.
         assert_eq!(
             sanitize_ntfs_path(r"\..\x\$UsnJrnl:$J"),
-            std::path::Path::new("x/$UsnJrnl")
+            std::path::Path::new("x/$UsnJrnl~$J")
         );
     }
 
@@ -1708,7 +2231,9 @@ mod tests {
         let outcome = collect_with_caps(&src, &sources, ExtractCaps::default()).expect("collect");
         let names: Vec<&str> = outcome.files.iter().map(|f| f.path.as_str()).collect();
         assert!(
-            names.iter().any(|p| p.ends_with(".lnk")),
+            names
+                .iter()
+                .any(|p| p.to_ascii_lowercase().ends_with(".lnk")),
             "the Recent .lnk must extract; got {names:?}"
         );
         assert!(

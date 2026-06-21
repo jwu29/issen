@@ -117,3 +117,76 @@ fn recycle_bin_sweep_recovers_beths_deleted_secret() {
          (no DOS 8.3 short-name duplicate)"
     );
 }
+
+/// 2.4 oracle reconciliation: the `$I` records issen extracts from the DC
+/// recycle bin must match the independent Sleuth Kit `fls` enumeration of the
+/// same `$Recycle.Bin` subtree (an independent tool, not records we deleted
+/// ourselves). Skips loud when the E01 or `fls` is absent.
+#[test]
+fn recycle_bin_extraction_reconciles_with_tsk_fls() {
+    // The DC's main Windows volume starts at LBA 718848 (mmls slot 003).
+    const PART_LBA: &str = "718848";
+
+    let Some(img) = image("ISSEN_SZECHUAN_DC", DC_DEFAULT) else {
+        eprintln!("skipping: DC image absent (set ISSEN_SZECHUAN_DC)");
+        return;
+    };
+
+    // Oracle: `fls -o <lba> -r -p <image>` over the $Recycle.Bin subtree, the
+    // set of `$I*` allocated file records (their base names).
+    let fls = std::process::Command::new("fls")
+        .args(["-o", PART_LBA, "-r", "-p"])
+        .arg(&img)
+        .output();
+    let out = match fls {
+        Ok(o) if o.status.success() => o,
+        Ok(o) => {
+            eprintln!(
+                "skipping: fls exited {:?}: {}",
+                o.status,
+                String::from_utf8_lossy(&o.stderr)
+            );
+            return;
+        }
+        Err(e) => {
+            eprintln!("skipping: TSK `fls` not available ({e})");
+            return;
+        }
+    };
+    let listing = String::from_utf8_lossy(&out.stdout);
+    let mut oracle: Vec<String> = listing
+        .lines()
+        .filter(|l| l.to_ascii_lowercase().contains("recycle.bin"))
+        .filter_map(|l| l.rsplit('/').next())
+        .map(|n| n.split(':').next().unwrap_or(n).trim().to_string())
+        .filter(|n| n.to_ascii_lowercase().starts_with("$i"))
+        .collect();
+    oracle.sort();
+    oracle.dedup();
+
+    // issen's own extraction of the same $I records.
+    let source = EwfDataSource::open(&img).expect("open DC E01");
+    let mut ours: Vec<String> = Vec::new();
+    for window in find_ntfs_partitions(&source).expect("find NTFS partitions") {
+        for f in extract_subdir_sweep(&source, window, r"\$Recycle.Bin", "", &|n| {
+            n.to_ascii_lowercase().starts_with("$i")
+        })
+        .expect("sweep $I")
+        {
+            if let Some(name) = f.path.rsplit('\\').next() {
+                ours.push(name.to_string());
+            }
+        }
+    }
+    ours.sort();
+    ours.dedup();
+
+    assert!(
+        !oracle.is_empty(),
+        "fls must enumerate at least one $I record in the recycle bin"
+    );
+    assert_eq!(
+        ours, oracle,
+        "issen's extracted $I record set must match the TSK fls oracle\n  issen: {ours:?}\n  fls:   {oracle:?}"
+    );
+}
