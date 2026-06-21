@@ -28,6 +28,7 @@ issen-parser-logfile = { workspace = true }
 issen-parser-lsasecrets = { workspace = true }
 issen-parser-lxss = { workspace = true }
 issen-parser-macos = { workspace = true }
+issen-parser-mft = { workspace = true }
 issen-parser-pe = { workspace = true }
 issen-parser-prefetch = { workspace = true }
 issen-parser-regcatalog = { workspace = true }
@@ -43,6 +44,7 @@ issen-parser-trash = { workspace = true }
 issen-parser-typedurls = { workspace = true }
 issen-parser-uac = { workspace = true }
 issen-parser-userassist = { workspace = true }
+issen-parser-usnjrnl = { workspace = true }
 issen-parser-velociraptor = { workspace = true }
 
 [build-dependencies]
