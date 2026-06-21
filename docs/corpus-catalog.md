@@ -383,8 +383,21 @@ Real OS ISOs (**gitignored, user-downloaded**): `debian-13.5.0-amd64-netinst.iso
 Windows Server `17763.1.*.iso` (335 MB — MS license, do not redistribute). **issen mirror:**
 `crates/issen-iso/tests/data/ubuntu-20.04-mini.iso` (74 MB, Canonical).
 
-### B9 · udf-forensic · empty
-No committed test data (`tests/data` is 0 B) — tests are in-memory synthetic.
+### B9 · udf-forensic — `tests/data/udf_{vat,spar,plain}.img` (8 MB each, committed) · SYNTHETIC ✓
+Real UDF images authored by **`mkudffs` (udftools 2.3)** and cross-checked by the independent
+**`udfinfo`** decoder (the oracle). Mostly-zero, so committed (a `.gitignore` negation un-ignores them);
+excluded from the published crate via `Cargo.toml` `exclude = ["tests/data/*.img"]`. Minted on macOS via
+a rootless Linux container (`podman run ubuntu:24.04`). Verbatim generators:
+```bash
+dd if=/dev/zero of=udf_vat.img   bs=1M count=8 && mkudffs --media-type=cdr   --udfrev=0x0150 udf_vat.img
+dd if=/dev/zero of=udf_spar.img  bs=1M count=8 && mkudffs --media-type=dvdrw --udfrev=0x0201 udf_spar.img
+dd if=/dev/zero of=udf_plain.img bs=1M count=8 && mkudffs --media-type=hd    --udfrev=0x0201 udf_plain.img
+```
+`udfinfo` ground truth: vat → udfrev=1.50, writeonce, PSPACE start=257; spar → udfrev=2.01, overwritable,
+SSPACE+PSPACE start=1296; plain → udfrev=2.01, blocksize=512 (documents the crate's fixed-2048-block
+limitation). Asserted by `src/lib.rs mod real_media_tests` (kind + `partition_start` vs udfinfo PSPACE).
+Full per-file provenance + captured oracle output: `udf-forensic/tests/data/README.md`. Redistribution:
+mkudffs output is freely redistributable.
 
 ---
 
@@ -691,5 +704,8 @@ so these are recorded here. Verify a download with `md5 <file>` (macOS) / `md5su
 | `SecurityNik/TOTAL_RECALL_memory_forensics_CHALLENGE.zip` | 1317299287 | `7dceb1fcae2ed8beacc8f81f85bf935c` |
 | `Volatility/cridex_memdump.zip` | 40352364 | `ebcbb798f7fa5df87375dbc4ee329209` |
 | `gpt-partition-forensic/tests/data/gpt_real_3part.img` (committed, §C9) | 8388608 | `cbda08767efb84203c5f02b827fc2a94` |
+| `udf-forensic/tests/data/udf_vat.img` (committed, §B9) | 8388608 | `1258d2b17f095af79bdb1141059eac84` |
+| `udf-forensic/tests/data/udf_spar.img` (committed, §B9) | 8388608 | `70285bf8979a026380517bfc48ae6ee6` |
+| `udf-forensic/tests/data/udf_plain.img` (committed, §B9) | 8388608 | `31d06a9942f8bc4983617631a9ac4e30` |
 
 (The inner `…-235706.dmp` carries its own published SHA256 — see §A6.)
