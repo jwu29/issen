@@ -94,6 +94,17 @@ pub fn parse_jumplist_bytes(raw: &[u8], filename: &str, source_id: &str) -> Vec<
                     event = event.with_metadata("access_count", serde_json::json!(ac));
                 }
             }
+            // The embedded LNK's `TrackerDataBlock` birth-droid: the origin machine
+            // (NetBIOS) + the MAC from the birth-droid object UUID-v1 node — the
+            // machine where the recent file was *created*, a cross-machine origin
+            // signal distinct from the recording `hostname`.
+            if let Some(tracker) = &e.link.tracker {
+                let mut tracker_meta: Vec<(&'static str, serde_json::Value)> = Vec::new();
+                crate::parser::push_tracker_meta(&mut tracker_meta, tracker);
+                for (k, v) in tracker_meta {
+                    event = event.with_metadata(k, v);
+                }
+            }
             Some(event)
         })
         .collect()

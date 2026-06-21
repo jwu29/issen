@@ -45,9 +45,14 @@
 - **Contents**: AppID `9b9cdc69c1c24e2b` (Notepad). Five DestList entries — recent files
   opened on host `citadel-dc01` under `C:\FileShare\Secret\`: `Beth_Secret.txt`,
   `Szechuan Sauce.txt`, `SECRET_beth.txt`, `PortalGunPlans.txt`, `NoJerry.txt`.
+  Each embedded LNK carries a `TrackerDataBlock` (distributed-link-tracking droid
+  GUIDs): origin machine (NetBIOS) `citadel-dc01`; the birth-droid object GUIDs are
+  UUID-v1 with node (MAC) `00:0C:29:E1:84:E6` (VMware OUI `00:0C:29`, the virtualized
+  lab host) — cross-machine origin evidence for the *target* file's creation.
 - **License**: DFIR Madness corpus, educational / research use.
-- **Used by**: `tests/jumplist_depth.rs`, `tests/jumplist_cfb_validation.rs`, and the
-  issen-cli depth gate `tests/parser_depth_gate.rs`.
+- **Used by**: `tests/jumplist_depth.rs` (incl. the birth-droid origin case),
+  `tests/jumplist_cfb_validation.rs`, and the issen-cli depth gate
+  `tests/parser_depth_gate.rs` (incl. the `birth_droid_*` cross-machine-origin case).
 
 #### 28c8b86deab549a1.customDestinations-ms
 - **Source**: REAL captured Windows JumpList from the DFIR Madness "Stolen Szechuan Sauce"

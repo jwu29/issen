@@ -37,6 +37,47 @@ fn drive_type_label(dt: u32) -> &'static str {
     }
 }
 
+/// The MAC address embedded in a `Droid` *object* GUID, when that GUID is a
+/// version-1 (time-based) UUID. A v1 UUID's node field is its last 6 bytes —
+/// the last 12 hex characters of the canonical `8-4-4-4-12` string, already in
+/// byte order — and for a file-origin droid that node is the MAC of the machine
+/// where the target file was created. Returns `XX:XX:XX:XX:XX:XX`, or `None` if
+/// the trailing segment is not 12 hex characters (a non-v1 / malformed GUID).
+pub(crate) fn droid_object_mac(object_guid: &str) -> Option<String> {
+    let node = object_guid.rsplit('-').next()?;
+    if node.len() != 12 || !node.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    let mut mac = String::with_capacity(17);
+    for i in 0..6 {
+        if i > 0 {
+            mac.push(':');
+        }
+        mac.push_str(&node[i * 2..i * 2 + 2].to_uppercase());
+    }
+    Some(mac)
+}
+
+/// Append the `TrackerDataBlock` birth-droid origin (the cross-machine evidence
+/// the header-only parser dropped) to an event's metadata vector: the NetBIOS
+/// machine name and the MAC from the birth-droid object UUID-v1 node, plus the
+/// current (non-birth) droid MAC for completeness. Only present fields are
+/// emitted — a `.lnk` without a `TrackerDataBlock` adds nothing.
+pub(crate) fn push_tracker_meta(
+    meta: &mut Vec<(&'static str, serde_json::Value)>,
+    tracker: &lnk_core::TrackerDataBlock,
+) {
+    if !tracker.machine_id.is_empty() {
+        meta.push(("birth_droid_machine", serde_json::json!(tracker.machine_id)));
+    }
+    if let Some(mac) = droid_object_mac(&tracker.birth_droid.object) {
+        meta.push(("birth_droid_mac", serde_json::json!(mac)));
+    }
+    if let Some(mac) = droid_object_mac(&tracker.droid.object) {
+        meta.push(("droid_mac", serde_json::json!(mac)));
+    }
+}
+
 /// Parse a Windows LNK (Shell Link) file and return [`TimelineEvent`]s.
 ///
 /// Emits up to three events:
@@ -151,6 +192,12 @@ pub fn parse_lnk_bytes(raw: &[u8], artifact_path: &str, source_id: &str) -> Vec<
     }
     if let Some(name) = &sd.name {
         meta.push(("comment", serde_json::json!(name)));
+    }
+    // The `TrackerDataBlock` birth-droid: the origin machine (NetBIOS) and the MAC
+    // embedded in the birth-droid object UUID-v1 node — the cross-machine origin of
+    // the *target* file, dropped by the old header-only parser.
+    if let Some(tracker) = &link.tracker {
+        push_tracker_meta(&mut meta, tracker);
     }
 
     let timestamps = [

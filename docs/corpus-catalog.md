@@ -645,7 +645,10 @@ DFIR Madness "Stolen Szechuan Sauce" DC01 image (provenance below; per-file deta
     OLE/CFB compound file (confirmed via the published `cfb-forensic` crate: `live_entry_names`
     returns live streams `Root Entry`, `DestList`, `1`–`5`). Five DestList entries for files under
     `C:\FileShare\Secret\` (`Beth_Secret.txt`, `Szechuan Sauce.txt`, `SECRET_beth.txt`,
-    `PortalGunPlans.txt`, `NoJerry.txt`), recorded on host `citadel-dc01`.
+    `PortalGunPlans.txt`, `NoJerry.txt`), recorded on host `citadel-dc01`. Each embedded LNK's
+    `TrackerDataBlock` records origin machine `citadel-dc01` and birth-droid object UUID-v1s with
+    node (MAC) `00:0C:29:E1:84:E6` (VMware OUI `00:0C:29`) — the wrapper now surfaces these as
+    `birth_droid_machine` / `birth_droid_mac` / `droid_mac` (cross-machine origin).
   - `28c8b86deab549a1.customDestinations-ms` (inode **87092**, AppID = Internet Explorer 32-bit) —
     the flat, non-CFB custom form (`cfb-forensic::live_entry_names` returns `None`), entries
     targeting `C:\Program Files\Internet Explorer\iexplore.exe`.
