@@ -37,11 +37,11 @@ fn automatic_destinations_surfaces_recent_file_and_origin() {
     );
     let blob = searchable(&events);
     assert!(
-        blob.contains("report.docx"),
+        blob.contains("Szechuan Sauce.txt"),
         "must surface the recent-file target the Jump List records; got: {blob}"
     );
     assert!(
-        blob.to_uppercase().contains("OTHER-PC"),
+        blob.to_lowercase().contains("citadel-dc01"),
         "must surface the recording host (a cross-machine origin signal); got: {blob}"
     );
 }
@@ -65,7 +65,7 @@ fn custom_destinations_surfaces_target() {
     );
     let blob = searchable(&events);
     assert!(
-        blob.contains("report.docx"),
+        blob.contains("iexplore.exe"),
         "must surface the custom-destination target; got: {blob}"
     );
 }

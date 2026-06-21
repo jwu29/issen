@@ -81,6 +81,9 @@ fn drive_biome(p: &Path) -> Vec<TimelineEvent> {
 
 const HIVES: &str = "../../tests/data/dfirmadness-szechuan-sauce/extracted/szechuan-sauce-hives";
 
+// One declarative DepthCase per parser; the list is intentionally long (it IS
+// the manifest), so the per-function line cap does not apply.
+#[allow(clippy::too_many_lines)]
 fn manifest() -> Vec<DepthCase> {
     vec![
         // ── Committed fixtures (always run) ──
@@ -128,7 +131,7 @@ fn manifest() -> Vec<DepthCase> {
             committed: true,
             drive: drive_jumplist,
             required_keys: &["target_path", "hostname", "pinned"],
-            required_iocs: &["report.docx", "OTHER-PC"],
+            required_iocs: &["Szechuan Sauce.txt", "citadel-dc01"],
         },
         DepthCase {
             label: "biome SEGB integrity (CRC-mismatch tamper)",
@@ -149,7 +152,7 @@ fn manifest() -> Vec<DepthCase> {
             committed: true,
             drive: drive_jumplist,
             required_keys: &["target_path", "jumplist_kind", "app_id"],
-            required_iocs: &["report.docx", "Custom"],
+            required_iocs: &["iexplore.exe", "Custom"],
         },
         // ── Gitignored real corpus (skip-loud when absent) ──
         DepthCase {

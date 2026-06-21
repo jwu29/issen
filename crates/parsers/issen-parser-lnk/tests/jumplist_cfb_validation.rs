@@ -24,11 +24,11 @@ fn automatic_destinations_is_real_ole_cfb() {
     let names = cfb_forensic::live_entry_names(&bytes)
         .expect("automaticDestinations-ms must be a valid OLE/CFB compound file");
     assert!(
-        names.contains("DestList"),
+        names.iter().any(|n| n == "DestList"),
         "a real AutomaticDestinations Jump List carries a DestList stream; got {names:?}"
     );
     assert!(
-        names.contains("Root Entry"),
+        names.iter().any(|n| n == "Root Entry"),
         "every CFB compound file has a Root Entry; got {names:?}"
     );
 }

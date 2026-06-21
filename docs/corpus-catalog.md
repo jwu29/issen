@@ -607,10 +607,13 @@ generator command in
 - MD5: `real_bash_history` 2a4ead0e64d175c7414bb37f23dbed73 (epoch values differ per run; structure
   fixed).
 
-### D11 · lnk-forensic — `tests/data/` (committed) · SYNTHETIC (spec-exact) ✓
-Windows Shell Link (`.lnk`) + Jump List forensics. Four hand-authored fixtures (the build host is
-macOS and cannot author a real `.lnk`/Jump List); full per-file detail + the generators in
+### D11 · lnk-forensic — `tests/data/` (committed) · MIXED: `.lnk` SYNTHETIC (spec-exact) ✓ + Jump Lists REAL-ext ✓
+Windows Shell Link (`.lnk`) + Jump List forensics. The three `.lnk` fixtures are hand-authored
+(the build host is macOS and cannot author a real `.lnk`); full per-file detail + the generators in
 [`lnk-forensic/tests/data/README.md`](https://github.com/SecurityRonin/lnk-forensic/blob/main/tests/data/README.md).
+The two Jump List fixtures are now **real captured Windows OLE/CFB artifacts** extracted from the
+DFIR Madness "Stolen Szechuan Sauce" DC01 image (provenance below; per-file detail in
+[`issen/crates/parsers/issen-parser-lnk/tests/data/README.md`](../crates/parsers/issen-parser-lnk/tests/data/README.md)).
 - **`.lnk` fixtures** (`gen_lnk.rs`, dependency-free `rustc`): `removable_media.lnk`
   (DRIVE_REMOVABLE, serial 0xDEADBEEF, label KINGSTON USB, TrackerDataBlock ANALYST-PC) +
   `network_share.lnk` (CommonNetworkRelativeLink `\\SERVER\share`, device `Z:`). Both are also
@@ -620,19 +623,24 @@ macOS and cannot author a real `.lnk`/Jump List); full per-file detail + the gen
   a dependency-free `rustc` program modeled on `gen_lnk.rs`) carries `StringData` arguments
   `-nop -w hidden -enc <b64>` + working dir `C:\Windows\System32` + comment, for the
   command-line-arguments depth regression.
-- **Jump List fixtures** (`core/examples/gen_jumplist.rs`, needs the `cfb` crate — run
-  `cargo run --example gen_jumplist -p lnk-core`): `pinned_removable.automaticDestinations-ms` — a
-  real OLE/CFB compound file, DestList v2 (Win10) one pinned entry (hostname OTHER-PC, access count 7,
-  path `E:\report.docx`) + a hex-named LNK sub-stream (removable serial 0xDEADBEEF); and
-  `tasks.customDestinations-ms` — flat version-2 file, one user-tasks category, embedded LNK split by
-  the LNK CLSID + 0xBABFFBAB footer. All hostnames/serials/paths are synthetic placeholders; no real
-  user's `.lnk`/Jump List committed.
+- **Jump List fixtures — REAL-ext** (captured from DFIR Madness "Stolen Szechuan Sauce",
+  `20200918_0347_CDrive.E01` / DC01, NTFS partition byte-offset `718848`, extracted with TSK
+  `icat -o 718848 "$E01" <inode>`):
+  - `9b9cdc69c1c24e2b.automaticDestinations-ms` (inode **86968**, AppID = Notepad) — a genuine
+    OLE/CFB compound file (confirmed via the published `cfb-forensic` crate: `live_entry_names`
+    returns live streams `Root Entry`, `DestList`, `1`–`5`). Five DestList entries for files under
+    `C:\FileShare\Secret\` (`Beth_Secret.txt`, `Szechuan Sauce.txt`, `SECRET_beth.txt`,
+    `PortalGunPlans.txt`, `NoJerry.txt`), recorded on host `citadel-dc01`.
+  - `28c8b86deab549a1.customDestinations-ms` (inode **87092**, AppID = Internet Explorer 32-bit) —
+    the flat, non-CFB custom form (`cfb-forensic::live_entry_names` returns `None`), entries
+    targeting `C:\Program Files\Internet Explorer\iexplore.exe`.
+  - **License/redistribution:** DFIR Madness corpus, educational / research use.
 - **Spec citations:** `[MS-SHLLINK]` (Shell Link); libyal `dtformats` *Jump lists format* (DestList /
   CustomDestinations); kacos2000 `Jumplist-Browser` `AppIdlist.csv` (AppID map).
 - MD5: `removable_media.lnk` ba3dbe2429bdfa93d8a0a9be80ca0fbe · `network_share.lnk`
-  547e0d2686e6652d8d144fb1b767bf9a · `tasks.customDestinations-ms`
-  1a6d7de2e2e1be2ba8e8dd11531a5ac3 · `pinned_removable.automaticDestinations-ms`
-  b5683aa75b5425724b656681fe780906.
+  547e0d2686e6652d8d144fb1b767bf9a · `command_args.lnk` 93628f2fb784ca33ea2cd63e8ed87eff ·
+  `9b9cdc69c1c24e2b.automaticDestinations-ms` 18b8fe1fee7120db495c5a6aba947533 ·
+  `28c8b86deab549a1.customDestinations-ms` a4af29faae0cdfd56fe2295611d54488.
 
 ---
 
