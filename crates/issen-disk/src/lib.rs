@@ -699,9 +699,57 @@ fn rt_to_io(e: RtError) -> std::io::Error {
     }
 }
 
+/// Compare `$MFT` against its `$MFTMirr` (the first four system records NTFS
+/// mirrors: `$MFT`, `$MFTMirr`, `$LogFile`, `$Volume`) and surface any divergence
+/// as an Integrity event. A mismatch is consistent with metadata tampering OR
+/// ordinary corruption — an observation, never a verdict (the analyst/tribunal
+/// concludes). This is a CROSS-FILE check (both files required), so it lives over
+/// the extracted set here rather than in a single-file parser.
+#[must_use]
+pub fn mft_mirror_integrity_events(
+    _mft: &[u8],
+    _mftmirr: &[u8],
+    _source_id: &str,
+) -> Vec<issen_core::timeline::event::TimelineEvent> {
+    Vec::new() // stub — RED
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mft_mirror_mismatch_yields_integrity_event() {
+        // Four 1024-byte system records; flip record 0 ($MFT) and record 2
+        // ($LogFile) in the mirror so they diverge from $MFT.
+        let mft = vec![0xAAu8; 1024 * 4];
+        let mut mirr = mft.clone();
+        mirr[0] = 0xBB;
+        mirr[1024 * 2] = 0xCC;
+        let events = mft_mirror_integrity_events(&mft, &mirr, "ev");
+        assert_eq!(
+            events.len(),
+            1,
+            "a $MFTMirr divergence -> one integrity event"
+        );
+        let e = &events[0];
+        assert_eq!(
+            e.activity_category,
+            Some(issen_core::ActivityCategory::Integrity),
+            "a $MFTMirr mismatch is an Integrity observation"
+        );
+        assert!(
+            e.description.contains("NTFS-MFTMIRR-MISMATCH"),
+            "got: {}",
+            e.description
+        );
+    }
+
+    #[test]
+    fn mft_mirror_consistent_yields_no_events() {
+        let mft = vec![0xAAu8; 1024 * 4];
+        assert!(mft_mirror_integrity_events(&mft, &mft, "ev").is_empty());
+    }
 
     /// An in-memory [`DataSource`] over a byte vector.
     struct VecSource(Vec<u8>);

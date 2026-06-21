@@ -4544,6 +4544,7 @@ dependencies = [
  "issen-unpack",
  "ntfs-core",
  "ntfs-forensic",
+ "serde_json",
  "tempfile",
  "thiserror 2.0.18",
 ]

@@ -19,6 +19,7 @@ ntfs-core     = { workspace = true }
 issen-unpack  = { workspace = true }
 tempfile      = { workspace = true }
 thiserror     = { workspace = true }
+serde_json    = { workspace = true }
 
 [lints]
 workspace = true
