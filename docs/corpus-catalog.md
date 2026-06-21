@@ -521,7 +521,7 @@ ntfs/usnjrnl USN+MFT record constructors in unit tests. Fuzz corpora harness-see
 ### C10 · 4n6mount — `fuzz/corpus/session_deserialize/` (23 MB) · FUZZ
 Coverage-guided session-deserialization corpus; no curated seeds.
 
-### C11 · apfs-forensic — `tests/data/apfs_{nxsb_head,container_chain}.bin` · REAL-self ✓
+### C11 · apfs-forensic — `tests/data/apfs_{nxsb_head,container_chain,fstree}.bin` · REAL-self ✓
 Real APFS container partitions minted by Apple's own `hdiutil` (`hdiutil create -size {64,128}m
 -fs APFS -volname APFSORACLE -layout GPTSPUD`), carved with `dd … bs=4096` from the attached
 `/dev/diskNs1` (Apple_APFS slice), so every on-disk structure incl. the stored Fletcher-64
@@ -536,8 +536,18 @@ checksums is Apple-authored.
   committed fixture → `Number of volumes: 1`, id `fa8b74aa-…`, name `APFSORACLE`; cross-checked
   by Apple `diskutil apfs list`. The reader resolves exactly one APSB (paddr 342) carrying magic
   `0x42535041` + a valid Fletcher-64.
+- **`apfs_fstree.bin`** (1.46 MiB, 374 blocks; MD5 `976d6ab26b34c46f38bc44960e934be9`): a richer
+  self-minted image (`hdiutil create -size 128m -fs APFS -volname APFSP3 -layout GPTSPUD`) carrying
+  a **known directory tree** — `/top.txt`(inode 22, 15 B), `/Dir1`(18), `/Dir1/Beth.txt`(20, 38 B),
+  `/Dir1/Sub`(19), `/Dir1/Sub/secret.bin`(21, 26 B) — carved (blocks 0–373) to reach the full chain
+  NXSB→checkpoint→container omap→APSB(371)→volume omap(366/367)→**virtual fs-tree leaf(365)**. **P3**
+  (volume APSB parse, j_key dispatch, inode metadata, **name→inode path navigation**). **Independent
+  oracle = TSK `fls -r`/`istat`** (pool `-o 40 -B 371`) + macOS `stat`: the reader's resolved inode
+  numbers, sizes, mode, uid/gid, and ns-timestamps reconcile per file (e.g. Beth.txt create
+  `1782060082608648902`, access `…733745215`, both matching `istat`); volume count cross-checked by
+  Apple `diskutil`/TSK `pstat` (one volume `APFSP3`, APSB block 371, oid 1026, xid 6).
 Generators (verbatim) + captured oracle output in `apfs-forensic/tests/data/README.md`; consumed by
-`apfs-forensic/core/tests/{object,container,checkpoint,container_open,omap,btree,btree_descend,volume_resolve}.rs`.
+`apfs-forensic/core/tests/{object,container,checkpoint,container_open,omap,btree,btree_descend,volume_resolve,volume,fsrecord,inode,dir}.rs`.
 
 ---
 
