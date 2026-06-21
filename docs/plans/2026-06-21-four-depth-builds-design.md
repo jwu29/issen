@@ -109,11 +109,18 @@ validation gets skipped and the correctness guarantee dissolves (the LZNT1 trap)
   (LogFileParser via QEMU; Wine is flaky for AutoIt+sqlite3). That harness is a
   standalone infra task (Windows image + install + scripted run), NOT standable
   in a normal session.
-- **Real `$LogFile` data IS available** (no need to mint): extracted via issen's own
+- **Real `$LogFile` data IS available** (no need to mint): from the Szechuan
+  **DC01 `…/E01-DC01/20200918_0347_CDrive.E01`**, partition `0x15f00000` →
+  **18,317,312-byte `$LogFile`** (starts `RSTR`, 4470 RCRD pages, USA count 9 =
+  8×512 B sectors/4096 B page). MD5 `a8e8582498464b4fbc15f83db8782516`.
+  **INDEPENDENTLY CROSS-VALIDATED (NOT circular):** extracting with issen's own
   stack (`issen_ewf::EwfDataSource::open` + `issen_disk::extract_ntfs_sources`,
-  `NtfsLoc::FixedPath(\$LogFile)`) from the Szechuan **DC01 `…/E01-DC01/20200918_0347_CDrive.E01`**:
-  partition `0x15f00000` → **17.5 MB** `$LogFile` (starts `RSTR`), partition `0x100000`
-  → 3.5 MB. Reproducible; gitignored (too large to commit) — document in corpus-catalog.
+  `NtfsLoc::FixedPath(\$LogFile)`) AND with **The Sleuth Kit** (`icat -o 718848
+  <E01> 2`, a separate libewf+NTFS codebase) yields **byte-identical** output
+  (same MD5, `cmp` clean) — so issen's reader is not the sole authority for the
+  input bytes. **Use TSK `icat` as the independent extractor for `$LogFile`
+  fixtures** (the input oracle), distinct from LogFileParser (the decode oracle).
+  Reproducible; gitignored (17.5 MB) — provenance in corpus-catalog.
 
 **B2 SPLITS AT THE ORACLE LINE:**
 - **B2a — RCRD page reader + USA fixup + LFS-record enumeration (ntfs-core).**
