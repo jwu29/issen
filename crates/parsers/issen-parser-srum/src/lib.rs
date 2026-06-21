@@ -16,9 +16,9 @@
 
 use issen_core::artifacts::ArtifactType;
 use issen_core::classify;
-use issen_core::plugin::selector as sel;
 use issen_core::error::RtError;
 use issen_core::plugin::registry::ParserRegistration;
+use issen_core::plugin::selector as sel;
 use issen_core::plugin::traits::{
     DataSource, EventEmitter, ForensicParser, ParseStats, ParserCapabilities,
 };
@@ -47,16 +47,31 @@ impl SrumParser {
         let evidence_source = path.to_string_lossy().into_owned();
         let mut events = Vec::new();
 
+        // SruDbIdMapTable: app_id is an index, not a name — resolve it so an
+        // analyst sees the application path, not `app_id=285`. Best-effort: a
+        // missing/empty id passes through with no `app_name` (the raw id is always
+        // retained), so an unresolvable id is valid output, never a failure.
+        let id_map: std::collections::HashMap<i32, String> = srum_parser::parse_id_map(path)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|e| (e.id, e.name))
+            .collect();
+        let resolve = |id: i32| id_map.get(&id).filter(|n| !n.is_empty()).cloned();
+
         // Network usage records.
         let network_records = srum_parser::parse_network_usage(path)?;
         for record in network_records {
             let ts_ns = record.timestamp.timestamp_nanos_opt().unwrap_or(0);
             let ts_display = record.timestamp.to_rfc3339();
+            let app_name = resolve(record.app_id);
+            let app_label = app_name
+                .clone()
+                .unwrap_or_else(|| format!("app_id={}", record.app_id));
             let description = format!(
-                "SRUM NetworkUsage: bytes_sent={} bytes_recv={} app_id={}",
-                record.bytes_sent, record.bytes_recv, record.app_id,
+                "SRUM NetworkUsage: {app_label} bytes_sent={} bytes_recv={}",
+                record.bytes_sent, record.bytes_recv,
             );
-            let event = TimelineEvent::new(
+            let mut event = TimelineEvent::new(
                 ts_ns,
                 ts_display,
                 EventType::Other("NetworkBandwidth".into()),
@@ -70,6 +85,9 @@ impl SrumParser {
             .with_metadata("bytes_recv", serde_json::json!(record.bytes_recv))
             .with_metadata("app_id", serde_json::json!(record.app_id))
             .with_metadata("user_id", serde_json::json!(record.user_id));
+            if let Some(name) = &app_name {
+                event = event.with_metadata("app_name", serde_json::json!(name));
+            }
             events.push(event);
         }
 
@@ -78,11 +96,15 @@ impl SrumParser {
         for record in app_records {
             let ts_ns = record.timestamp.timestamp_nanos_opt().unwrap_or(0);
             let ts_display = record.timestamp.to_rfc3339();
+            let app_name = resolve(record.app_id);
+            let app_label = app_name
+                .clone()
+                .unwrap_or_else(|| format!("app_id={}", record.app_id));
             let description = format!(
-                "SRUM AppUsage: foreground_cycles={} background_cycles={} app_id={}",
-                record.foreground_cycles, record.background_cycles, record.app_id,
+                "SRUM AppUsage: {app_label} foreground_cycles={} background_cycles={}",
+                record.foreground_cycles, record.background_cycles,
             );
-            let event = TimelineEvent::new(
+            let mut event = TimelineEvent::new(
                 ts_ns,
                 ts_display,
                 EventType::ProcessExec,
@@ -102,6 +124,9 @@ impl SrumParser {
             )
             .with_metadata("app_id", serde_json::json!(record.app_id))
             .with_metadata("user_id", serde_json::json!(record.user_id));
+            if let Some(name) = &app_name {
+                event = event.with_metadata("app_name", serde_json::json!(name));
+            }
             events.push(event);
         }
 
