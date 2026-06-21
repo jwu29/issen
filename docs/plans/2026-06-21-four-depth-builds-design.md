@@ -98,6 +98,35 @@ be scheduled until a validated oracle harness exists: a Windows VM / Wine /
 container plan + a fixture-parity format + a fallback corpus. Without it, differential
 validation gets skipped and the correctness guarantee dissolves (the LZNT1 trap).
 
+**ORACLE GATE RESOLVED (2026-06-21, research-first):**
+- **`dissect.ntfs` (Fox-IT) does NOT decode `$LogFile`** — verified by install +
+  inspection: modules are `mft`/`usnjrnl`/`attr`/`secure`, the only logfile mention
+  is `FILE_NUMBER_LOGFILE = 2` (a constant). No RCRD/redo/undo parser. The native-
+  oracle hope is dead.
+- **No pip-installable `$LogFile` transaction parser exists** (ntfs-logfile-parser /
+  logfileparser / ntfs-logtracker all 404 on PyPI; `analyzemft` is `$MFT`-only).
+- ⇒ The independent oracle for the SEMANTIC decode is genuinely **Windows-only**
+  (LogFileParser via QEMU; Wine is flaky for AutoIt+sqlite3). That harness is a
+  standalone infra task (Windows image + install + scripted run), NOT standable
+  in a normal session.
+- **Real `$LogFile` data IS available** (no need to mint): extracted via issen's own
+  stack (`issen_ewf::EwfDataSource::open` + `issen_disk::extract_ntfs_sources`,
+  `NtfsLoc::FixedPath(\$LogFile)`) from the Szechuan **DC01 `…/E01-DC01/20200918_0347_CDrive.E01`**:
+  partition `0x15f00000` → **17.5 MB** `$LogFile` (starts `RSTR`), partition `0x100000`
+  → 3.5 MB. Reproducible; gitignored (too large to commit) — document in corpus-catalog.
+
+**B2 SPLITS AT THE ORACLE LINE:**
+- **B2a — RCRD page reader + USA fixup + LFS-record enumeration (ntfs-core).**
+  **Structurally self-validating, NO Windows oracle needed:** the update-sequence-array
+  check is the format's own integrity mechanism (USN at each sector tail must match
+  USA[0]); page count cross-checks a raw `RCRD` signature scan; record boundaries are
+  structural. Validate against the real 17.5 MB DC01 `$LogFile`. This is responsibly
+  buildable now.
+- **B2b — redo/undo opcode → file-op semantics (+ `$FILE_NAME` join, confidence grade).**
+  This is B2's *value* and is exactly the part that needs LogFileParser differential
+  validation — **do NOT build semantics on synthetic-only data (the LZNT1 trap).**
+  Gated on the QEMU+LogFileParser harness decision.
+
 **Layering:** RCRD reader → ntfs-core; transaction-anomaly audits (e.g. a
 UpdateFileName redo that rewinds a timestamp = timestomp evidence) → ntfs-forensic;
 `ArtifactType::LogFile` (NEW — does not exist) + `issen-parser-logfile` wrapper +
