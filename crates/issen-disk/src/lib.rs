@@ -1274,6 +1274,106 @@ mod tests {
         assert!(mft_mirror_integrity_events(&mft, &mft, "ev").is_empty());
     }
 
+    // ── $Boot vs backup-$Boot consistency ─────────────────────────────────────
+
+    /// Build a disk whose NTFS partition carries a primary boot sector at its
+    /// start AND a backup copy at the last sector (`total_sectors` into the
+    /// partition), optionally diverging one BPB field in the backup.
+    ///
+    /// `flip` is applied to the backup's `bytes_per_sector` low byte when set, so
+    /// the primary and backup geometry disagree on exactly one comparable field.
+    fn disk_with_backup_boot(flip_serial: Option<u64>) -> (VecSource, PartitionWindow) {
+        const PART_LBA: u64 = 2048;
+        // 64 partition sectors: primary at 0, backup at total_sectors = 60.
+        const TOTAL_SECTORS: u64 = 60;
+        const PART_SECTORS: u64 = 64;
+
+        let mut primary = ntfs_boot();
+        primary[0x28..0x30].copy_from_slice(&TOTAL_SECTORS.to_le_bytes());
+        primary[0x48..0x50].copy_from_slice(&0xDEAD_BEEF_CAFE_F00Du64.to_le_bytes());
+
+        let mut backup = primary;
+        if let Some(serial) = flip_serial {
+            backup[0x48..0x50].copy_from_slice(&serial.to_le_bytes());
+        }
+
+        let total_bytes = ((PART_LBA + PART_SECTORS) as usize) * SECTOR;
+        let mut disk = vec![0u8; total_bytes];
+        disk[..SECTOR].copy_from_slice(&mbr_one_ntfs(PART_LBA as u32, PART_SECTORS as u32));
+        let part_off = PART_LBA as usize * SECTOR;
+        disk[part_off..part_off + SECTOR].copy_from_slice(&primary);
+        let backup_off = part_off + (TOTAL_SECTORS as usize) * SECTOR;
+        disk[backup_off..backup_off + SECTOR].copy_from_slice(&backup);
+
+        let window = PartitionWindow {
+            offset: part_off as u64,
+            length: PART_SECTORS * SECTOR as u64,
+        };
+        (VecSource(disk), window)
+    }
+
+    #[test]
+    fn boot_backup_consistent_yields_no_events() {
+        let (src, window) = disk_with_backup_boot(None);
+        let events = boot_backup_integrity_events(&src, window, "ev").expect("read boot");
+        assert!(
+            events.is_empty(),
+            "matching primary/backup boot -> no integrity event, got {events:?}"
+        );
+    }
+
+    #[test]
+    fn boot_backup_mismatch_yields_one_integrity_event() {
+        // Backup volume serial diverges from the primary by one field.
+        let (src, window) = disk_with_backup_boot(Some(0x0102_0304_0506_0708));
+        let events = boot_backup_integrity_events(&src, window, "ev").expect("read boot");
+        assert_eq!(
+            events.len(),
+            1,
+            "a $Boot/backup divergence -> exactly one integrity event"
+        );
+        let e = &events[0];
+        assert_eq!(
+            e.activity_category,
+            Some(issen_core::ActivityCategory::Integrity),
+            "a $Boot backup mismatch is an Integrity observation"
+        );
+        assert!(
+            e.description.contains("NTFS-BOOT-BACKUP-MISMATCH"),
+            "got: {}",
+            e.description
+        );
+        assert!(
+            e.description.contains("volume serial"),
+            "the diverging field is named; got: {}",
+            e.description
+        );
+        // Consistency anomaly, never a verdict.
+        assert!(
+            e.description.contains("consistent with"),
+            "graded as an observation; got: {}",
+            e.description
+        );
+    }
+
+    #[test]
+    fn boot_backup_unreadable_is_not_a_mismatch() {
+        // Primary present, but the backup sector falls outside the data we have
+        // (sparse acquisition). That must degrade loud — NOT be reported as a
+        // tamper mismatch.
+        let (src, window) = disk_with_backup_boot(None);
+        // Truncate the source so the backup sector is unreadable.
+        let truncated = {
+            let part_off = window.offset as usize;
+            VecSource(src.0[..part_off + SECTOR].to_vec())
+        };
+        let err = boot_backup_integrity_events(&truncated, window, "ev").unwrap_err();
+        match err {
+            DiskError::Source(_) | DiskError::Io(_) | DiskError::Ntfs(_) => {}
+            other => panic!("unreadable backup must be a loud error, got {other:?}"),
+        }
+    }
+
     /// An in-memory [`DataSource`] over a byte vector.
     struct VecSource(Vec<u8>);
 
