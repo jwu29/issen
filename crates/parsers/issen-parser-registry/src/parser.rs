@@ -888,32 +888,60 @@ mod tests {
     #[test]
     fn service_signal_flags_anomalies_not_baseline() {
         // Rule 1 — user-writable staging directory.
-        assert!(service_signal(r"C:\Users\Public\evil.exe", 2, 16)
+        assert!(service_signal(r"C:\Users\Public\evil.exe", 2, 16, None)
             .unwrap()
             .contains("user-writable"));
-        assert!(service_signal(r"C:\Windows\Temp\x.exe", 2, 16).is_some());
+        assert!(service_signal(r"C:\Windows\Temp\x.exe", 2, 16, None).is_some());
         // Rule 2 — LOLBin / interpreter image.
         assert!(
-            service_signal(r"C:\Windows\System32\cmd.exe /c evil", 2, 16)
+            service_signal(r"C:\Windows\System32\cmd.exe /c evil", 2, 16, None)
                 .unwrap()
                 .contains("LOLBin")
         );
-        assert!(service_signal("powershell -enc AAAA", 2, 16).is_some());
+        assert!(service_signal("powershell -enc AAAA", 2, 16, None).is_some());
         // Rule 3 — System32 masquerade flagged; known/non-qualifying ones are not.
         assert!(
-            service_signal(r"C:\Windows\System32\coreupdater.exe", 2, 16)
+            service_signal(r"C:\Windows\System32\coreupdater.exe", 2, 16, None)
                 .unwrap()
                 .contains("masquerade")
         );
-        assert!(service_signal(r"%SystemRoot%\System32\msdtc.exe", 2, 16).is_none());
-        assert!(service_signal(r"C:\Windows\System32\spoolsv.exe", 2, 16).is_none());
+        assert!(service_signal(r"%SystemRoot%\System32\msdtc.exe", 2, 16, None).is_none());
+        assert!(service_signal(r"C:\Windows\System32\spoolsv.exe", 2, 16, None).is_none());
         // ShareProcess (type 32) svchost is not an own-process masquerade.
-        assert!(service_signal(r"C:\Windows\System32\svchost.exe -k netsvcs", 2, 32).is_none());
+        assert!(
+            service_signal(r"C:\Windows\System32\svchost.exe -k netsvcs", 2, 32, None).is_none()
+        );
         // A driver in system32\drivers (subdir, .sys) and an empty path don't qualify.
-        assert!(service_signal(r"system32\drivers\peauth.sys", 2, 16).is_none());
-        assert!(service_signal("", 2, 16).is_none());
+        assert!(service_signal(r"system32\drivers\peauth.sys", 2, 16, None).is_none());
+        assert!(service_signal("", 2, 16, None).is_none());
         // Manual-start (3) own-process System32 unknown is NOT auto-start → no lead.
-        assert!(service_signal(r"C:\Windows\System32\coreupdater.exe", 3, 16).is_none());
+        assert!(service_signal(r"C:\Windows\System32\coreupdater.exe", 3, 16, None).is_none());
+    }
+
+    #[test]
+    fn service_signal_flags_svchost_dll_masquerade() {
+        // Rule 4 — a svchost ServiceDll whose basename is NOT a known-good
+        // Windows ServiceDll is a masquerade lead (T1543.003), regardless of the
+        // (benign-looking) svchost ImagePath that carries it.
+        let svchost = r"C:\Windows\System32\svchost.exe -k netsvcs";
+        let evil = service_signal(svchost, 2, 32, Some("evil.dll"));
+        assert!(
+            evil.as_deref()
+                .unwrap_or("")
+                .to_lowercase()
+                .contains("servicedll"),
+            "unknown ServiceDll must surface a masquerade lead: {evil:?}"
+        );
+        // A known-good ServiceDll basename (case-insensitive) is baseline.
+        assert!(service_signal(svchost, 2, 32, Some("dnsrslvr.dll")).is_none());
+        assert!(service_signal(svchost, 2, 32, Some("DNSRSLVR.DLL")).is_none());
+        // The ServiceDll itself staged in a user-writable directory is at least
+        // as suspicious as an image path there (rule 1 applied to the DLL).
+        assert!(service_signal(svchost, 2, 32, Some(r"C:\Windows\Temp\x.dll")).is_some());
+        // A ServiceDll on a LOLBin path is likewise caught (rule 2 on the DLL).
+        assert!(service_signal(svchost, 2, 32, Some(r"C:\Windows\System32\mshta.dll")).is_some());
+        // No ServiceDll → rule 4 is inert; the benign svchost stays baseline.
+        assert!(service_signal(svchost, 2, 32, None).is_none());
     }
 
     /// Real DC SYSTEM hive: timezone (F3: Pacific — the clock-skew root cause)
