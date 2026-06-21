@@ -48,6 +48,14 @@ const CORPUS: &[(&str, &str)] = &[
     ),
     ("/img/Users/beth/Desktop/Loot.lnk", "Lnk"),
     (
+        "/img/Users/beth/AppData/Roaming/Microsoft/Windows/Recent/AutomaticDestinations/5d696d521de238c3.automaticDestinations-ms",
+        "JumpLists",
+    ),
+    (
+        "/img/Users/beth/AppData/Roaming/Microsoft/Windows/Recent/CustomDestinations/5d696d521de238c3.customDestinations-ms",
+        "JumpLists",
+    ),
+    (
         "/img/$Recycle.Bin/S-1-5-21-1-2-3-500/$IU2L112.txt",
         "RecycleBin",
     ),
