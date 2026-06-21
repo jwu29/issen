@@ -516,6 +516,24 @@ ntfs/usnjrnl USN+MFT record constructors in unit tests. Fuzz corpora harness-see
 ### C10 · 4n6mount — `fuzz/corpus/session_deserialize/` (23 MB) · FUZZ
 Coverage-guided session-deserialization corpus; no curated seeds.
 
+### C11 · apfs-forensic — `tests/data/apfs_{nxsb_head,container_chain}.bin` · REAL-self ✓
+Real APFS container partitions minted by Apple's own `hdiutil` (`hdiutil create -size {64,128}m
+-fs APFS -volname APFSORACLE -layout GPTSPUD`), carved with `dd … bs=4096` from the attached
+`/dev/diskNs1` (Apple_APFS slice), so every on-disk structure incl. the stored Fletcher-64
+checksums is Apple-authored.
+- **`apfs_nxsb_head.bin`** (68 KiB, 17 blocks; MD5 `81505414be7754a3927091574aaea5a4`): block 0 +
+  the checkpoint descriptor ring → live NXSB. **P1** (object/container/checkpoint). Oracle:
+  Apple `diskutil` (block size 4096, container UUID `40115033-…`).
+- **`apfs_container_chain.bin`** (1.38 MiB, 345 blocks; MD5 `b25546419bbcd153317232888701a98a`):
+  strict superset reaching the container omap (block 343) → omap B-tree (block 344) → volume
+  superblock APSB (block 342). **P2** (omap/btree/volume-superblock resolution). **Independent
+  oracle = libfsapfs `fsapfsinfo`** (built into `apfs-forensic/tools/`, oracle-only) run on the
+  committed fixture → `Number of volumes: 1`, id `fa8b74aa-…`, name `APFSORACLE`; cross-checked
+  by Apple `diskutil apfs list`. The reader resolves exactly one APSB (paddr 342) carrying magic
+  `0x42535041` + a valid Fletcher-64.
+Generators (verbatim) + captured oracle output in `apfs-forensic/tests/data/README.md`; consumed by
+`apfs-forensic/core/tests/{object,container,checkpoint,container_open,omap,btree,btree_descend,volume_resolve}.rs`.
+
 ---
 
 ## D. Log / memory / application-artifact corpora
