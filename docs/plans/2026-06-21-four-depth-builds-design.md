@@ -105,10 +105,25 @@ validation gets skipped and the correctness guarantee dissolves (the LZNT1 trap)
   oracle hope is dead.
 - **No pip-installable `$LogFile` transaction parser exists** (ntfs-logfile-parser /
   logfileparser / ntfs-logtracker all 404 on PyPI; `analyzemft` is `$MFT`-only).
-- ⇒ The independent oracle for the SEMANTIC decode is genuinely **Windows-only**
-  (LogFileParser via QEMU; Wine is flaky for AutoIt+sqlite3). That harness is a
-  standalone infra task (Windows image + install + scripted run), NOT standable
-  in a normal session.
+- ⇒ The independent oracle for the SEMANTIC decode is Windows-only (LogFileParser /
+  NTFS Log Tracker). **BUT Wine WORKS — proven, not assumed (corrects an earlier
+  unverified "Wine is flaky" dismissal):** LogFileParser has a documented headless
+  CLI mode (`/LogFileFile /OutputPath /SkipSqlite3:1 /SectorsPerCluster /MftRecordSize`,
+  exit codes, CSV output — `/SkipSqlite3:1` drops the bundled `sqlite3.exe`), and the
+  shipped binary is a PE32 **console** app. On Apple Silicon: `brew install --cask
+  wine-stable` (Wine 11, x86_64 via Rosetta) → **must `xattr -dr com.apple.quarantine
+  "/Applications/Wine Stable.app"`** (Gatekeeper kills it otherwise: SIGKILL/RC 137,
+  "Apple could not verify…" — non-notarization, not malware). Then:
+  `WINEPREFIX=~/.wine-lfp WINEDEBUG=-all wine LogFileParser64.exe /LogFileFile:Z:\path\$LogFile
+  /OutputPath:Z:\out /SkipSqlite3:1 /SectorsPerCluster:8 /MftRecordSize:1024`.
+  **Validated end-to-end on the real 17.5 MB DC01 `$LogFile`: 77,452 transactions
+  decoded** + `LogFile_OpenAttributeTable.csv` (the OAT for the name join),
+  `LogFile_FileNames.csv`, `LogFile_Mft_StandardInformation.csv`, dirty-page table.
+  ⇒ **No QEMU VM required.** Caveat (user-accepted): Wine's reimplemented Windows
+  DLLs (`win32u.dll`, `vssapi.dll`) + the AutoIt-compiled `.exe` are common AV
+  false-positives — host-level noise (an isolated VM would contain it, but Wine is
+  kept). LogFileParser binary + `SampleTinyNtfsVolume.zip` test volume in
+  `~/src/disk-forensic/tests/data` (provenance README; verify redistribution license).
 - **Real `$LogFile` data IS available** (no need to mint): from the Szechuan
   **DC01 `…/E01-DC01/20200918_0347_CDrive.E01`**, partition `0x15f00000` →
   **18,317,312-byte `$LogFile`** (starts `RSTR`, 4470 RCRD pages, USA count 9 =
