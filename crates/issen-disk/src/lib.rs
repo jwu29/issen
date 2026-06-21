@@ -1094,18 +1094,145 @@ mod tests {
             }
             v
         }
+
+        /// A directory record whose `$INDEX_ROOT` lists `children`
+        /// (`(target_record, name)`), terminated by the end marker.
+        fn dir_record(children: &[(u64, &str)]) -> Vec<u8> {
+            let mut entries: Vec<Vec<u8>> =
+                children.iter().map(|(t, n)| index_entry(*t, n)).collect();
+            entries.push(index_end());
+            record(0x0003, &index_root(&entries))
+        }
+
+        /// A resident file record holding `data` as its unnamed `$DATA`.
+        fn file_record(parent: u64, name: &str, data: &[u8]) -> Vec<u8> {
+            let mut a = Vec::new();
+            a.extend_from_slice(&attr_resident(0x10, None, &[0u8; 0x30]));
+            a.extend_from_slice(&attr_resident(0x30, None, &fname(parent, name)));
+            a.extend_from_slice(&attr_resident(0x80, None, data));
+            record(0x0001, &a)
+        }
+
+        /// Lay `records` (`(record_number, bytes)`) into a fresh volume, sizing
+        /// the MFT data run to cover the highest record number used.
+        fn assemble(records: &[(u64, Vec<u8>)]) -> Vec<u8> {
+            let max_rec = records.iter().map(|(n, _)| *n).max().unwrap_or(5);
+            let count = (max_rec + 1) as usize;
+            let mft_clusters = (count * REC).div_ceil(CLUSTER) as u64;
+            let total = MFT_LCN + mft_clusters + 2;
+            let mut v = vec![0u8; total as usize * CLUSTER];
+            v[0..512].copy_from_slice(&boot());
+
+            let runs = [0x11u8, mft_clusters as u8, MFT_LCN as u8, 0x00];
+            let rec0 = record(
+                0x0001,
+                &nonresident_data(&runs, mft_clusters * CLUSTER as u64),
+            );
+            let mft_off = MFT_LCN as usize * CLUSTER;
+            let o0 = mft_off; // record 0
+            v[o0..o0 + rec0.len()].copy_from_slice(&rec0);
+            for (idx, rec) in records {
+                let o = mft_off + *idx as usize * REC;
+                v[o..o + rec.len()].copy_from_slice(rec);
+            }
+            v
+        }
+
+        /// A volume exercising the per-SID `$Recycle.Bin` sweep with a
+        /// self-referential MFT reference: the SID subdirectory's index points
+        /// back at its own record, so a sweep without a visited-set loops.
+        ///
+        /// Record map: 5=root, 6=`$Recycle.Bin`, 7=`S-1-5-21-…` SID dir whose
+        /// index entry targets record 7 (itself).
+        pub fn build_cycle() -> Vec<u8> {
+            let root = dir_record(&[(6, "$Recycle.Bin")]);
+            let recycle = dir_record(&[(7, "S-1-5-21-1001")]);
+            // The SID directory lists a child named "$IABC" whose record number
+            // is 7 — the SID directory itself. Descending into it re-enters the
+            // same record forever absent a cycle guard.
+            let sid = dir_record(&[(7, "$IABC")]);
+            assemble(&[(5, root), (6, recycle), (7, sid)])
+        }
+
+        /// A volume carrying all three Phase-2 sweep targets:
+        /// `\Users\alice\AppData\Roaming\Microsoft\Windows\Recent\open.lnk`,
+        /// `\$Recycle.Bin\S-1-5-21-1001\$IABCDE`, and the `\$Extend\$UsnJrnl:$J`
+        /// ADS. Used by the end-to-end extraction test.
+        pub fn build_full() -> Vec<u8> {
+            // Record numbering (5 = root):
+            //  6 Users  7 alice  8 AppData  9 Local-unused? -> use linear chain
+            //  We build the Recent chain: Users(6)->alice(7)->AppData(8)->
+            //  Roaming(9)->Microsoft(10)->Windows(11)->Recent(12)->open.lnk(13)
+            //  $Recycle.Bin(14)->SID(15)->$IABCDE(16)
+            //  $Extend(17)->$UsnJrnl(18, with a $J ADS)
+            let root = dir_record(&[(6, "Users"), (14, "$Recycle.Bin"), (17, "$Extend")]);
+            let users = dir_record(&[(7, "alice")]);
+            let alice = dir_record(&[(8, "AppData")]);
+            let appdata = dir_record(&[(9, "Roaming")]);
+            let roaming = dir_record(&[(10, "Microsoft")]);
+            let microsoft = dir_record(&[(11, "Windows")]);
+            let windows = dir_record(&[(12, "Recent")]);
+            let recent = dir_record(&[(13, "open.lnk")]);
+            let lnk = file_record(12, "open.lnk", b"LNK-TARGET:C:\\loot.txt");
+
+            let recycle = dir_record(&[(15, "S-1-5-21-1001")]);
+            let sid = dir_record(&[(16, "$IABCDE")]);
+            let idx_i = file_record(15, "$IABCDE", b"$I-DELETED:C:\\secret.docx");
+
+            let extend = dir_record(&[(18, "$UsnJrnl")]);
+            // $UsnJrnl record: an unnamed $DATA (the $Max metadata stand-in) plus
+            // a named "$J" $DATA stream — the change journal.
+            let mut usn = Vec::new();
+            usn.extend_from_slice(&attr_resident(0x10, None, &[0u8; 0x30]));
+            usn.extend_from_slice(&attr_resident(0x30, None, &fname(17, "$UsnJrnl")));
+            usn.extend_from_slice(&attr_resident(0x80, None, b"$Max"));
+            usn.extend_from_slice(&attr_resident(0x80, Some("$J"), b"USN-JOURNAL-DATA"));
+            let usn_rec = record(0x0001, &usn);
+
+            assemble(&[
+                (5, root),
+                (6, users),
+                (7, alice),
+                (8, appdata),
+                (9, roaming),
+                (10, microsoft),
+                (11, windows),
+                (12, recent),
+                (13, lnk),
+                (14, recycle),
+                (15, sid),
+                (16, idx_i),
+                (17, extend),
+                (18, usn_rec),
+            ])
+        }
+
+        /// Place [`build_cycle`] at a partition offset inside an MBR disk.
+        pub fn disk_with_cycle(lba_start: u32) -> super::VecSource {
+            super::place_volume(lba_start, &build_cycle())
+        }
+
+        /// Place [`build_full`] at a partition offset inside an MBR disk.
+        pub fn disk_full(lba_start: u32) -> super::VecSource {
+            super::place_volume(lba_start, &build_full())
+        }
     }
 
-    /// Place the synthetic NTFS volume at a partition offset inside an MBR disk.
-    fn disk_with_volume(lba_start: u32) -> VecSource {
-        let v = vol::build();
+    /// Place an already-built NTFS volume `v` at a partition offset inside an
+    /// MBR disk.
+    fn place_volume(lba_start: u32, v: &[u8]) -> VecSource {
         let count = v.len().div_ceil(SECTOR) as u32 + 1;
         let total = (lba_start + count) as usize * SECTOR;
         let mut disk = vec![0u8; total];
         disk[..SECTOR].copy_from_slice(&mbr_one_ntfs(lba_start, count));
         let off = lba_start as usize * SECTOR;
-        disk[off..off + v.len()].copy_from_slice(&v);
+        disk[off..off + v.len()].copy_from_slice(v);
         VecSource(disk)
+    }
+
+    /// Place the synthetic NTFS volume at a partition offset inside an MBR disk.
+    fn disk_with_volume(lba_start: u32) -> VecSource {
+        place_volume(lba_start, &vol::build())
     }
 
     /// A 512-byte MBR with two NTFS partitions (type 0x07).
@@ -1363,5 +1490,238 @@ mod tests {
             .expect("$MFT artifact");
         let data = std::fs::read(manifest.extracted_root.join(&entry.path)).expect("read file");
         assert!(!data.is_empty());
+    }
+
+    // ── Phase-2 extraction hardening: caps, cycle guard, ADS guard ─────────────
+    //
+    // A malicious/huge image must not OOM or hang the responder. The caps below
+    // are enforced as a general rule (no per-pattern special case) and FAIL LOUD
+    // on truncation — a hit is recorded as an `ExtractionLimit` on the outcome
+    // and (in the CLI path) surfaced as a visible warning, never a silent
+    // partial result that reads as complete.
+
+    /// A per-file byte cap below the synthetic file size rejects the oversized
+    /// file and records a LOUD truncation diagnostic (not a silent drop).
+    #[test]
+    fn caps_reject_oversized_file_and_record_limit() {
+        let src = disk_with_volume(2048);
+        let caps = ExtractCaps {
+            max_file_bytes: 5, // \test.txt = "hello world" (11 bytes) exceeds this
+            ..ExtractCaps::default()
+        };
+        let outcome =
+            collect_with_caps(&src, &[NtfsLoc::FixedPath(r"\test.txt")], caps).expect("collect");
+        assert!(
+            outcome.files.is_empty(),
+            "an over-cap file must NOT be emitted as a (truncated) partial"
+        );
+        assert!(
+            outcome
+                .limits
+                .iter()
+                .any(|l| matches!(l, ExtractionLimit::FileTooLarge { .. })),
+            "hitting the byte cap must record a LOUD FileTooLarge limit, got {:?}",
+            outcome.limits
+        );
+    }
+
+    /// The default byte cap is well ABOVE the legitimate large system files
+    /// (`$MFT` reaches ~85 MB on a real volume) — so a real triage never trips
+    /// it. This guards against a too-low cap silently truncating evidence.
+    #[test]
+    fn default_byte_cap_is_well_above_system_file_sizes() {
+        // 85 MB is the documented real-world $MFT ceiling; the cap must clear it
+        // with a wide margin (we use multiple GiB).
+        assert!(
+            ExtractCaps::default().max_file_bytes >= 1 << 31,
+            "default per-file cap must be >= 2 GiB so the legit ~85 MB $MFT reads"
+        );
+    }
+
+    /// A per-pattern file cap stops collection at the limit and records it.
+    #[test]
+    fn caps_limit_files_per_pattern() {
+        let src = disk_with_volume(2048);
+        // The root `.` suffix glob would match test.txt; cap at 0 forces a hit.
+        let caps = ExtractCaps {
+            max_files_per_pattern: 0,
+            ..ExtractCaps::default()
+        };
+        let outcome = collect_with_caps(
+            &src,
+            &[NtfsLoc::DirSuffix {
+                dir: "\\",
+                suffix: ".txt",
+            }],
+            caps,
+        )
+        .expect("collect");
+        assert!(
+            outcome
+                .limits
+                .iter()
+                .any(|l| matches!(l, ExtractionLimit::TooManyFiles { .. })),
+            "a per-pattern cap hit must record TooManyFiles, got {:?}",
+            outcome.limits
+        );
+    }
+
+    /// A global file cap stops the whole collection.
+    #[test]
+    fn caps_limit_files_global() {
+        let src = disk_with_volume(2048);
+        let caps = ExtractCaps {
+            max_files_global: 0,
+            ..ExtractCaps::default()
+        };
+        let outcome =
+            collect_with_caps(&src, &[NtfsLoc::FixedPath(r"\$MFT")], caps).expect("collect");
+        assert!(outcome.files.is_empty(), "a global cap of 0 emits nothing");
+        assert!(
+            outcome
+                .limits
+                .iter()
+                .any(|l| matches!(l, ExtractionLimit::TooManyFiles { .. })),
+            "a global cap hit must record TooManyFiles, got {:?}",
+            outcome.limits
+        );
+    }
+
+    /// A directory with more entries than the cap is bounded, recording a hit.
+    #[test]
+    fn caps_limit_directory_entries() {
+        let src = disk_with_volume(2048);
+        // The root has 3 named children; cap at 1 forces the dir-entry cap.
+        let caps = ExtractCaps {
+            max_dir_entries: 1,
+            ..ExtractCaps::default()
+        };
+        let outcome = collect_with_caps(
+            &src,
+            &[NtfsLoc::DirSuffix {
+                dir: "\\",
+                suffix: ".txt",
+            }],
+            caps,
+        )
+        .expect("collect");
+        assert!(
+            outcome
+                .limits
+                .iter()
+                .any(|l| matches!(l, ExtractionLimit::TooManyDirEntries { .. })),
+            "a dir-entry cap hit must record TooManyDirEntries, got {:?}",
+            outcome.limits
+        );
+    }
+
+    /// A directory tree with a self-referential / looping MFT reference must
+    /// terminate (cycle guard), never recurse forever.
+    #[test]
+    fn cycle_guard_terminates_on_self_referential_directory() {
+        // `vol::build_with_cycle` makes a `$Recycle.Bin` whose SID subdirectory's
+        // index points back at itself — a sweep without a visited-set would loop.
+        let src = vol::disk_with_cycle(2048);
+        let caps = ExtractCaps::default();
+        // Must return (not hang); a cycle is recorded as a LOUD limit.
+        let outcome = collect_with_caps(
+            &src,
+            &[NtfsLoc::PerSubdirSweep {
+                parent: r"\$Recycle.Bin",
+                rel: "",
+                name: issen_core::plugin::selector::NameMatch::Prefix("$I"),
+            }],
+            caps,
+        )
+        .expect("collect terminates");
+        assert!(
+            outcome
+                .limits
+                .iter()
+                .any(|l| matches!(l, ExtractionLimit::CycleDetected { .. })),
+            "a looping MFT ref must record CycleDetected, got {:?}",
+            outcome.limits
+        );
+    }
+
+    /// 2.3 ADS non-regression: `$UsnJrnl:$J` (here the test.txt Zone.Identifier
+    /// ADS stands in for the journal stream) still extracts after the caps
+    /// change, and its `ExtractedFile.path` keeps the `path:stream` form.
+    #[test]
+    fn ads_stream_still_extracts_after_caps() {
+        let src = disk_with_volume(2048);
+        let outcome = collect_with_caps(
+            &src,
+            &[NtfsLoc::NamedStream {
+                path: r"\test.txt",
+                stream: "Zone.Identifier",
+            }],
+            ExtractCaps::default(),
+        )
+        .expect("collect");
+        assert_eq!(outcome.files.len(), 1, "the ADS must survive caps");
+        assert_eq!(outcome.files[0].path, r"\test.txt:Zone.Identifier");
+        assert_eq!(outcome.files[0].data, b"[ZoneTransfer]");
+        assert!(outcome.limits.is_empty(), "a small ADS trips no cap");
+    }
+
+    /// 2.3 output-name collision guard: two streams of one file (`:$J` and
+    /// `:$Max`) must not sanitize to the SAME output path and overwrite. Today
+    /// only `:$J` is collected so there is no live collision — this guards the
+    /// invariant that distinct streams map to distinct manifest paths.
+    #[test]
+    fn distinct_streams_get_distinct_manifest_paths() {
+        // Two named streams on the same file. The synthetic test.txt only has
+        // Zone.Identifier, so we assert the sanitizer mapping directly: a
+        // sanitized output path must encode the stream, so two streams of one
+        // file cannot collapse onto one file.
+        let a = sanitize_ntfs_path(r"\$Extend\$UsnJrnl:$J");
+        let b = sanitize_ntfs_path(r"\$Extend\$UsnJrnl:$Max");
+        assert_ne!(
+            a, b,
+            "distinct ADS of one file must map to distinct output paths (no overwrite)"
+        );
+    }
+
+    /// 2.4 end-to-end: a synthetic NTFS volume carrying a Recent `*.lnk`, a
+    /// `$Recycle.Bin\<SID>\$IABC` index file, and a `$UsnJrnl:$J` ADS survives
+    /// extract → manifest, with all three artifacts present and distinct.
+    #[test]
+    fn e2e_lnk_recycle_and_usn_ads_all_extract() {
+        let src = vol::disk_full(2048);
+        let sources = [
+            NtfsLoc::PerSubdirSweep {
+                parent: r"\Users",
+                rel: r"AppData\Roaming\Microsoft\Windows\Recent",
+                name: issen_core::plugin::selector::NameMatch::Suffix(".lnk"),
+            },
+            NtfsLoc::PerSubdirSweep {
+                parent: r"\$Recycle.Bin",
+                rel: "",
+                name: issen_core::plugin::selector::NameMatch::Prefix("$I"),
+            },
+            NtfsLoc::NamedStream {
+                path: r"\$Extend\$UsnJrnl",
+                stream: "$J",
+            },
+        ];
+        let outcome = collect_with_caps(&src, &sources, ExtractCaps::default()).expect("collect");
+        let names: Vec<&str> = outcome.files.iter().map(|f| f.path.as_str()).collect();
+        assert!(
+            names.iter().any(|p| p.ends_with(".lnk")),
+            "the Recent .lnk must extract; got {names:?}"
+        );
+        assert!(
+            names.iter().any(|p| p.contains("$I")),
+            "the $Recycle.Bin $I index must extract; got {names:?}"
+        );
+        assert!(
+            names.iter().any(|p| p.ends_with(":$J")),
+            "the $UsnJrnl:$J ADS must extract; got {names:?}"
+        );
+        assert!(
+            outcome.limits.is_empty(),
+            "no caps tripped on a small volume"
+        );
     }
 }
