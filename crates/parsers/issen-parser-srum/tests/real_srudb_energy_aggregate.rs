@@ -36,7 +36,7 @@ fn energy_usage_is_aggregated_per_app() {
         .expect("parse_path must succeed on a valid SRUDB.dat");
     let energy: Vec<_> = events
         .iter()
-        .filter(|e| e.description.starts_with("SRUM EnergyUsage"))
+        .filter(|e| e.description.starts_with("SRUM EnergyUsage:"))
         .collect();
     assert!(!energy.is_empty(), "energy usage must surface");
     assert_eq!(

@@ -58,79 +58,17 @@ impl SrumParser {
             .into_iter()
             .map(|e| (e.id, e.name))
             .collect();
-        let resolve = |id: i32| id_map.get(&id).filter(|n| !n.is_empty()).cloned();
-
-        // Network usage records.
-        let network_records = srum_parser::parse_network_usage(path)?;
-        for record in network_records {
-            let ts_ns = record.timestamp.timestamp_nanos_opt().unwrap_or(0);
-            let ts_display = record.timestamp.to_rfc3339();
-            let app_name = resolve(record.app_id);
-            let app_label = app_name
-                .clone()
-                .unwrap_or_else(|| format!("app_id={}", record.app_id));
-            let description = format!(
-                "SRUM NetworkUsage: {app_label} bytes_sent={} bytes_recv={}",
-                record.bytes_sent, record.bytes_recv,
-            );
-            let mut event = TimelineEvent::new(
-                ts_ns,
-                ts_display,
-                EventType::Other("NetworkBandwidth".into()),
-                ArtifactType::Srum,
-                evidence_source.clone(),
-                description,
-                evidence_source.clone(),
-            )
-            .with_activity_category(issen_core::ActivityCategory::NetworkActivity)
-            .with_metadata("bytes_sent", serde_json::json!(record.bytes_sent))
-            .with_metadata("bytes_recv", serde_json::json!(record.bytes_recv))
-            .with_metadata("app_id", serde_json::json!(record.app_id))
-            .with_metadata("user_id", serde_json::json!(record.user_id));
-            if let Some(name) = &app_name {
-                event = event.with_metadata("app_name", serde_json::json!(name));
-            }
-            events.push(event);
-        }
-
-        // App resource usage records.
-        let app_records = srum_parser::parse_app_usage(path)?;
-        for record in app_records {
-            let ts_ns = record.timestamp.timestamp_nanos_opt().unwrap_or(0);
-            let ts_display = record.timestamp.to_rfc3339();
-            let app_name = resolve(record.app_id);
-            let app_label = app_name
-                .clone()
-                .unwrap_or_else(|| format!("app_id={}", record.app_id));
-            let description = format!(
-                "SRUM AppUsage: {app_label} foreground_cycles={} background_cycles={}",
-                record.foreground_cycles, record.background_cycles,
-            );
-            let mut event = TimelineEvent::new(
-                ts_ns,
-                ts_display,
-                EventType::ProcessExec,
-                ArtifactType::Srum,
-                evidence_source.clone(),
-                description,
-                evidence_source.clone(),
-            )
-            .with_activity_category(issen_core::ActivityCategory::Execution)
-            .with_metadata(
-                "foreground_cycles",
-                serde_json::json!(record.foreground_cycles),
-            )
-            .with_metadata(
-                "background_cycles",
-                serde_json::json!(record.background_cycles),
-            )
-            .with_metadata("app_id", serde_json::json!(record.app_id))
-            .with_metadata("user_id", serde_json::json!(record.user_id));
-            if let Some(name) = &app_name {
-                event = event.with_metadata("app_name", serde_json::json!(name));
-            }
-            events.push(event);
-        }
+        // Network usage + app resource usage (per-row, enriched).
+        events.extend(network_usage_events(
+            srum_parser::parse_network_usage(path)?,
+            &id_map,
+            &evidence_source,
+        ));
+        events.extend(app_usage_events(
+            srum_parser::parse_app_usage(path)?,
+            &id_map,
+            &evidence_source,
+        ));
 
         // Network connectivity records — when the host was attached to a network
         // and for how long (placement / timeline evidence).
@@ -157,12 +95,19 @@ impl SrumParser {
             &evidence_source,
         ));
 
-        // Energy usage — an app drawing power ⇒ it ran. Same aggregate-per-app
-        // treatment (low-signal; avoids a per-row flood).
+        // Energy usage (+ long-term) — an app drawing power ⇒ it ran. Same
+        // aggregate-per-app treatment (low-signal; avoids a per-row flood).
         events.extend(energy_aggregate_events(
             srum_parser::parse_energy_usage(path)?,
             &id_map,
             &evidence_source,
+            "EnergyUsage",
+        ));
+        events.extend(energy_aggregate_events(
+            srum_parser::parse_energy_lt(path)?,
+            &id_map,
+            &evidence_source,
+            "EnergyUsageLT",
         ));
 
         Ok(events)
@@ -180,12 +125,14 @@ struct EnergyAgg {
     last: Option<DateTime<Utc>>,
 }
 
-/// Aggregate SRUM EnergyUsage per app into one `Execution` event each (an app
-/// consuming power is execution evidence), keyed on last-seen.
+/// Aggregate SRUM energy rows per app into one `Execution` event each (an app
+/// consuming power is execution evidence), keyed on last-seen. `kind` labels the
+/// table — `"EnergyUsage"` or `"EnergyUsageLT"` (same record shape).
 fn energy_aggregate_events(
     records: Vec<srum_core::EnergyUsageRecord>,
     id_map: &HashMap<i32, String>,
     evidence_source: &str,
+    kind: &str,
 ) -> Vec<TimelineEvent> {
     let mut by_app: BTreeMap<i32, EnergyAgg> = BTreeMap::new();
     for r in records {
@@ -209,11 +156,11 @@ fn energy_aggregate_events(
             let mut event = TimelineEvent::new(
                 last.timestamp_nanos_opt().unwrap_or(0),
                 last.to_rfc3339(),
-                EventType::Other("EnergyUsage".into()),
+                EventType::Other(kind.to_string()),
                 ArtifactType::Srum,
                 evidence_source.to_string(),
                 format!(
-                    "SRUM EnergyUsage: {app_label} ({} records, {} energy consumed)",
+                    "SRUM {kind}: {app_label} ({} records, {} energy consumed)",
                     agg.occurrences, agg.total_energy
                 ),
                 evidence_source.to_string(),
@@ -308,6 +255,90 @@ fn push_aggregate_events(
 /// Resolve a `SruDbIdMapTable` index to a non-empty name (best-effort).
 fn resolve_name(id_map: &HashMap<i32, String>, id: i32) -> Option<String> {
     id_map.get(&id).filter(|n| !n.is_empty()).cloned()
+}
+
+/// Map SRUM NetworkUsage rows (per-app bytes sent/received) to `NetworkActivity`
+/// events, app_id resolved to the application name.
+fn network_usage_events(
+    records: Vec<srum_core::NetworkUsageRecord>,
+    id_map: &HashMap<i32, String>,
+    evidence_source: &str,
+) -> Vec<TimelineEvent> {
+    records
+        .into_iter()
+        .map(|record| {
+            let app_name = resolve_name(id_map, record.app_id);
+            let app_label = app_name
+                .clone()
+                .unwrap_or_else(|| format!("app_id={}", record.app_id));
+            let mut event = TimelineEvent::new(
+                record.timestamp.timestamp_nanos_opt().unwrap_or(0),
+                record.timestamp.to_rfc3339(),
+                EventType::Other("NetworkBandwidth".into()),
+                ArtifactType::Srum,
+                evidence_source.to_string(),
+                format!(
+                    "SRUM NetworkUsage: {app_label} bytes_sent={} bytes_recv={}",
+                    record.bytes_sent, record.bytes_recv
+                ),
+                evidence_source.to_string(),
+            )
+            .with_activity_category(issen_core::ActivityCategory::NetworkActivity)
+            .with_metadata("bytes_sent", serde_json::json!(record.bytes_sent))
+            .with_metadata("bytes_recv", serde_json::json!(record.bytes_recv))
+            .with_metadata("app_id", serde_json::json!(record.app_id))
+            .with_metadata("user_id", serde_json::json!(record.user_id));
+            if let Some(name) = &app_name {
+                event = event.with_metadata("app_name", serde_json::json!(name));
+            }
+            event
+        })
+        .collect()
+}
+
+/// Map SRUM AppUsage rows (per-app CPU cycle time) to `Execution` events,
+/// app_id resolved to the application name.
+fn app_usage_events(
+    records: Vec<srum_core::AppUsageRecord>,
+    id_map: &HashMap<i32, String>,
+    evidence_source: &str,
+) -> Vec<TimelineEvent> {
+    records
+        .into_iter()
+        .map(|record| {
+            let app_name = resolve_name(id_map, record.app_id);
+            let app_label = app_name
+                .clone()
+                .unwrap_or_else(|| format!("app_id={}", record.app_id));
+            let mut event = TimelineEvent::new(
+                record.timestamp.timestamp_nanos_opt().unwrap_or(0),
+                record.timestamp.to_rfc3339(),
+                EventType::ProcessExec,
+                ArtifactType::Srum,
+                evidence_source.to_string(),
+                format!(
+                    "SRUM AppUsage: {app_label} foreground_cycles={} background_cycles={}",
+                    record.foreground_cycles, record.background_cycles
+                ),
+                evidence_source.to_string(),
+            )
+            .with_activity_category(issen_core::ActivityCategory::Execution)
+            .with_metadata(
+                "foreground_cycles",
+                serde_json::json!(record.foreground_cycles),
+            )
+            .with_metadata(
+                "background_cycles",
+                serde_json::json!(record.background_cycles),
+            )
+            .with_metadata("app_id", serde_json::json!(record.app_id))
+            .with_metadata("user_id", serde_json::json!(record.user_id));
+            if let Some(name) = &app_name {
+                event = event.with_metadata("app_name", serde_json::json!(name));
+            }
+            event
+        })
+        .collect()
 }
 
 /// Map SRUM AppTimeline rows (foreground app usage) to `Execution` events.
