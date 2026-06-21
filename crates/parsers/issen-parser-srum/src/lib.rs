@@ -139,6 +139,14 @@ impl SrumParser {
             &evidence_source,
         ));
 
+        // App timeline records — foreground application usage (focus + user-input
+        // time per app), the highest-value SRUM execution signal.
+        events.extend(app_timeline_events(
+            srum_parser::parse_app_timeline(path)?,
+            &id_map,
+            &evidence_source,
+        ));
+
         Ok(events)
     }
 }
@@ -146,6 +154,48 @@ impl SrumParser {
 /// Resolve a `SruDbIdMapTable` index to a non-empty name (best-effort).
 fn resolve_name(id_map: &HashMap<i32, String>, id: i32) -> Option<String> {
     id_map.get(&id).filter(|n| !n.is_empty()).cloned()
+}
+
+/// Map SRUM AppTimeline rows (foreground app usage) to `Execution` events.
+fn app_timeline_events(
+    records: Vec<srum_core::AppTimelineRecord>,
+    id_map: &HashMap<i32, String>,
+    evidence_source: &str,
+) -> Vec<TimelineEvent> {
+    records
+        .into_iter()
+        .map(|record| {
+            let ts_ns = record.timestamp.timestamp_nanos_opt().unwrap_or(0);
+            let app_name = resolve_name(id_map, record.app_id);
+            let app_label = app_name
+                .clone()
+                .unwrap_or_else(|| format!("app_id={}", record.app_id));
+            let mut event = TimelineEvent::new(
+                ts_ns,
+                record.timestamp.to_rfc3339(),
+                EventType::ProcessExec,
+                ArtifactType::Srum,
+                evidence_source.to_string(),
+                format!(
+                    "SRUM AppTimeline: {app_label} focus {}ms input {}ms",
+                    record.focus_time_ms, record.user_input_time_ms
+                ),
+                evidence_source.to_string(),
+            )
+            .with_activity_category(issen_core::ActivityCategory::Execution)
+            .with_metadata("focus_time_ms", serde_json::json!(record.focus_time_ms))
+            .with_metadata(
+                "user_input_time_ms",
+                serde_json::json!(record.user_input_time_ms),
+            )
+            .with_metadata("app_id", serde_json::json!(record.app_id))
+            .with_metadata("user_id", serde_json::json!(record.user_id));
+            if let Some(name) = &app_name {
+                event = event.with_metadata("app_name", serde_json::json!(name));
+            }
+            event
+        })
+        .collect()
 }
 
 /// Map SRUM NetworkConnectivity rows (connection intervals) to `NetworkActivity`
