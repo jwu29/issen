@@ -1237,6 +1237,171 @@ pub fn mft_mirror_integrity_events(
         .collect()
 }
 
+// ── $Boot vs backup-$Boot consistency ────────────────────────────────────────
+//
+// NTFS stores the volume boot record (VBR/BPB) at the partition's first sector
+// and a backup copy at the last sector the BPB accounts for: byte offset
+// `total_sectors * bytes_per_sector` into the partition (the backup sits at
+// sector index `total_sectors`). Both carry the same geometry; a divergence is
+// a CONSISTENCY ANOMALY — consistent with tampering OR ordinary corruption /
+// imaging artifacts (a resized or partially-acquired volume) — never a verdict.
+// This is the $Boot sibling of `mft_mirror_integrity_events`.
+//
+// The eventual canonical home for the graded `Anomaly` is `ntfs-forensic`
+// (alongside `audit_mft_mirror`); until that ships, the comparison + grading
+// live here, reusing `ntfs_core::BootSector::parse` for both copies.
+
+/// The comparable geometry of an NTFS boot sector — the subset the primary and
+/// its backup must agree on. Derived from [`ntfs_core::BootSector`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BootGeometry {
+    /// Bytes per logical sector.
+    pub bytes_per_sector: u16,
+    /// Logical sectors per cluster.
+    pub sectors_per_cluster: u8,
+    /// Total sectors the BPB accounts for (the backup boot sits at this index).
+    pub total_sectors: u64,
+    /// Cluster number (LCN) of the `$MFT`.
+    pub mft_lcn: u64,
+    /// Cluster number (LCN) of the `$MFTMirr`.
+    pub mftmirr_lcn: u64,
+    /// 64-bit volume serial number.
+    pub volume_serial: u64,
+}
+
+impl From<&ntfs_core::BootSector> for BootGeometry {
+    fn from(b: &ntfs_core::BootSector) -> Self {
+        Self {
+            bytes_per_sector: b.bytes_per_sector,
+            sectors_per_cluster: b.sectors_per_cluster,
+            total_sectors: b.total_sectors,
+            mft_lcn: b.mft_lcn,
+            mftmirr_lcn: b.mftmirr_lcn,
+            volume_serial: b.volume_serial,
+        }
+    }
+}
+
+impl BootGeometry {
+    /// Byte offset of the backup boot sector, relative to the partition start.
+    #[must_use]
+    fn backup_offset(self) -> u64 {
+        self.total_sectors
+            .saturating_mul(u64::from(self.bytes_per_sector))
+    }
+
+    /// Human-readable names of the geometry fields that differ between `self`
+    /// (primary) and `backup`. Empty when the two agree.
+    #[must_use]
+    fn diverging_fields(self, backup: BootGeometry) -> Vec<&'static str> {
+        let mut out = Vec::new();
+        if self.bytes_per_sector != backup.bytes_per_sector {
+            out.push("bytes/sector");
+        }
+        if self.sectors_per_cluster != backup.sectors_per_cluster {
+            out.push("sectors/cluster");
+        }
+        if self.total_sectors != backup.total_sectors {
+            out.push("total sectors");
+        }
+        if self.mft_lcn != backup.mft_lcn {
+            out.push("$MFT LCN");
+        }
+        if self.mftmirr_lcn != backup.mftmirr_lcn {
+            out.push("$MFTMirr LCN");
+        }
+        if self.volume_serial != backup.volume_serial {
+            out.push("volume serial");
+        }
+        out
+    }
+}
+
+/// Read and parse the primary NTFS boot sector at the start of `window`.
+///
+/// Reuses [`ntfs_core::BootSector`] — no re-implementation of BPB parsing.
+///
+/// # Errors
+///
+/// [`DiskError::Source`] if the sector cannot be read, or [`DiskError::Ntfs`]
+/// if it does not parse as an NTFS boot sector.
+pub fn read_boot_geometry(
+    source: &dyn DataSource,
+    window: PartitionWindow,
+) -> Result<BootGeometry, DiskError> {
+    let bs = parse_boot_at(source, window.offset)?;
+    Ok(BootGeometry::from(&bs))
+}
+
+/// Parse the boot sector at absolute disk byte `offset`.
+fn parse_boot_at(source: &dyn DataSource, offset: u64) -> Result<ntfs_core::BootSector, DiskError> {
+    let mut sector = [0u8; 512];
+    let n = source
+        .read_at(offset, &mut sector)
+        .map_err(|e| DiskError::Source(e.to_string()))?;
+    if n < 512 {
+        return Err(DiskError::Source(format!(
+            "short read for boot sector at offset {offset}: got {n} of 512 bytes"
+        )));
+    }
+    ntfs_core::BootSector::parse(&sector)
+        .map_err(|e| DiskError::Ntfs(format!("boot sector at offset {offset}: {e}")))
+}
+
+/// Compare the primary `$Boot` against its backup copy at the last sector of the
+/// volume and surface any geometry divergence as an Integrity event. A mismatch
+/// is consistent with boot-record tampering OR ordinary corruption / a partially
+/// acquired or resized volume — an observation, never a verdict (the analyst /
+/// tribunal concludes). This is a CROSS-COPY check, so it lives over the volume
+/// here rather than in a single-file parser.
+///
+/// # Errors
+///
+/// Returns a loud [`DiskError`] when the primary or the **backup** boot sector
+/// cannot be read or parsed — emphatically NOT an empty "consistent" result.
+/// A sparse acquisition that never stored the backup sector degrades here, so an
+/// absent backup is never misreported as a tamper mismatch.
+pub fn boot_backup_integrity_events(
+    source: &dyn DataSource,
+    window: PartitionWindow,
+    source_id: &str,
+) -> Result<Vec<issen_core::timeline::event::TimelineEvent>, DiskError> {
+    use issen_core::timeline::event::{EventType, TimelineEvent};
+
+    let primary = read_boot_geometry(source, window)?;
+
+    let backup_off = window.offset.saturating_add(primary.backup_offset());
+    let backup = BootGeometry::from(&parse_boot_at(source, backup_off)?);
+
+    let diverging = primary.diverging_fields(backup);
+    if diverging.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let fields = diverging.join(", ");
+    let note = format!(
+        "$Boot differs from its backup copy for {fields} \
+         — consistent with boot-record tampering or corruption"
+    );
+    let event = TimelineEvent::new(
+        0,
+        String::new(),
+        EventType::Other("integrity".into()),
+        issen_core::artifacts::ArtifactType::Mft,
+        r"\$Boot".to_string(),
+        format!("$Boot integrity: NTFS-BOOT-BACKUP-MISMATCH — {note}"),
+        source_id.to_string(),
+    )
+    .with_activity_category(issen_core::ActivityCategory::Integrity)
+    .with_tag("integrity")
+    .with_metadata("code", serde_json::json!("NTFS-BOOT-BACKUP-MISMATCH"))
+    .with_metadata("severity", serde_json::json!("High"))
+    .with_metadata("diverging_fields", serde_json::json!(diverging))
+    .with_metadata("backup_offset", serde_json::json!(primary.backup_offset()));
+
+    Ok(vec![event])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1370,7 +1535,7 @@ mod tests {
         let err = boot_backup_integrity_events(&truncated, window, "ev").unwrap_err();
         match err {
             DiskError::Source(_) | DiskError::Io(_) | DiskError::Ntfs(_) => {}
-            other => panic!("unreadable backup must be a loud error, got {other:?}"),
+            DiskError::Disk(_) => panic!("unreadable backup must be a read/parse error, not Disk"),
         }
     }
 
