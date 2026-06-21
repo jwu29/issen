@@ -124,7 +124,7 @@ fn manifest() -> Vec<DepthCase> {
         DepthCase {
             label: "jumplist automatic destinations",
             fixture:
-                "../parsers/issen-parser-lnk/tests/data/pinned_removable.automaticDestinations-ms",
+                "../parsers/issen-parser-lnk/tests/data/9b9cdc69c1c24e2b.automaticDestinations-ms",
             committed: true,
             drive: drive_jumplist,
             required_keys: &["target_path", "hostname", "pinned"],
@@ -145,7 +145,7 @@ fn manifest() -> Vec<DepthCase> {
         // automatic form.
         DepthCase {
             label: "jumplist custom destinations",
-            fixture: "../parsers/issen-parser-lnk/tests/data/tasks.customDestinations-ms",
+            fixture: "../parsers/issen-parser-lnk/tests/data/28c8b86deab549a1.customDestinations-ms",
             committed: true,
             drive: drive_jumplist,
             required_keys: &["target_path", "jumplist_kind", "app_id"],

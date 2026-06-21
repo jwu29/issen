@@ -1370,6 +1370,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cfb-forensic"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8ebe6d6ec5c7c9aa90365bf7f762290617ddbf04379d64f2f3f6d9548fca21d7"
+dependencies = [
+ "cfb",
+ "forensicnomicon 0.5.8",
+]
+
+[[package]]
 name = "cfg-if"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4758,6 +4768,7 @@ name = "issen-parser-lnk"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "cfb-forensic",
  "chrono",
  "forensicnomicon 0.5.8",
  "inventory",

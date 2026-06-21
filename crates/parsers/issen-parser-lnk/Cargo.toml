@@ -17,6 +17,7 @@ inventory = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+cfb-forensic = "0.1.0"
 
 [lints]
 workspace = true
