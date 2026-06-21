@@ -3055,9 +3055,9 @@ dependencies = [
 
 [[package]]
 name = "forensicnomicon"
-version = "0.6.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "14202f4c5cb92ee0bfe85f1c2958352a6fcce96086815f297502a96b97759a29"
+checksum = "bfe546feee17338650992e6ee37251e8221bb707a46bf38ce210fef3c963fb90"
 
 [[package]]
 name = "form_urlencoded"
@@ -4900,7 +4900,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
- "forensicnomicon 0.6.0",
+ "forensicnomicon 0.7.0",
  "inventory",
  "issen-core",
  "issen-plugin-sdk",

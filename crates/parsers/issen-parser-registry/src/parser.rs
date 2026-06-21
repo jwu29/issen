@@ -224,7 +224,12 @@ fn extract_services(
             // Signal-only: emit a timeline event ONLY for a genuine persistence
             // anomaly, never the hundreds of benign baseline services (the 453 on
             // DC01, 303 of them svc_diff empty-ObjectName false positives).
-            let anomaly = service_signal(&s.image_path, s.start_type, s.service_type)?;
+            let anomaly = service_signal(
+                &s.image_path,
+                s.start_type,
+                s.service_type,
+                s.service_dll.as_deref(),
+            )?;
             let (ts_ns, ts_display) = s.last_written.map_or((0, String::new()), |dt| {
                 (
                     dt.timestamp_nanos_opt().unwrap_or(0),
@@ -279,19 +284,72 @@ fn extract_services(
 ///
 /// Deliberately does NOT use `svc_diff`'s bundled `is_suspicious`, whose
 /// empty-`ObjectName` rule false-flags 303 of 453 services on the real DC01 hive
-/// (an empty `ObjectName` defaults to `LocalSystem`). The three low-FP rules:
+/// (an empty `ObjectName` defaults to `LocalSystem`). The four low-FP rules:
 /// 1. binary staged in a user-writable directory (a malware drop, T1543.003);
 /// 2. a LOLBin / script-interpreter service image (fileless persistence);
 /// 3. a `System32`-root own-process auto-start service whose binary is NOT a
 ///    known Windows service binary (`forensicnomicon::services`) — a masquerade
 ///    LEAD (T1036.005). Rule 3 surfaces the DC01 `coreupdater.exe` implant,
 ///    which hides in `System32` with a normal config and evades rules 1-2.
-fn service_signal(image_path: &str, start_type: u32, service_type: u32) -> Option<String> {
+/// 4. a svchost-hosted service whose `ServiceDll` basename is NOT a known-good
+///    Windows ServiceDll (`forensicnomicon::services::is_known_service_dll`) —
+///    a malicious DLL loaded into a shared svchost (T1543.003). The
+///    user-writable (rule 1) and LOLBin (rule 2) path checks are also applied to
+///    the `ServiceDll`, since a ServiceDll under `\Temp\` or on a LOLBin path is
+///    at least as suspicious as an image path there.
+fn service_signal(
+    image_path: &str,
+    start_type: u32,
+    service_type: u32,
+    service_dll: Option<&str>,
+) -> Option<String> {
     let lower = image_path
         .trim()
         .trim_start_matches(r"\??\")
         .to_ascii_lowercase();
 
+    if let Some(reason) = user_writable_or_lolbin(&lower, "service binary", "service image") {
+        return Some(reason);
+    }
+    // service_type 16 = SERVICE_WIN32_OWN_PROCESS; start 0/1/2 = boot/system/auto.
+    if service_type == 16 && matches!(start_type, 0..=2) {
+        if let Some(base) = system_root_exe_basename(&lower) {
+            if !forensicnomicon::services::is_known_service_binary(&base) {
+                return Some(format!(
+                    "auto-start own-process service binary '{base}' in System32 is not a known \
+                     Windows service binary (possible masquerade, MITRE T1036.005)"
+                ));
+            }
+        }
+    }
+    // Rule 4 — svchost ServiceDll masquerade. A ServiceDll staged in a
+    // user-writable directory or on a LOLBin path is caught by the same checks
+    // as the image path; an unknown ServiceDll basename is a masquerade lead.
+    if let Some(dll) = service_dll {
+        let dll_lower = dll.trim().trim_start_matches(r"\??\").to_ascii_lowercase();
+        if let Some(reason) = user_writable_or_lolbin(&dll_lower, "ServiceDll", "ServiceDll") {
+            return Some(reason);
+        }
+        let base = dll_lower
+            .rsplit(['\\', '/'])
+            .next()
+            .unwrap_or(dll_lower.as_str());
+        if !base.is_empty() && !forensicnomicon::services::is_known_service_dll(base) {
+            return Some(format!(
+                "svchost ServiceDll '{base}' is not a known Windows ServiceDll (possible \
+                 svchost-DLL masquerade, MITRE T1543.003)"
+            ));
+        }
+    }
+    None
+}
+
+/// Apply the user-writable-staging (rule 1) and LOLBin (rule 2) checks to a
+/// single lowercased path, returning a reason when it matches. Shared between
+/// the service `ImagePath` and the `ServiceDll` so both are held to the same
+/// staging/interpreter bar. `subject_stage`/`subject_lol` name the path being
+/// flagged in each reason string.
+fn user_writable_or_lolbin(lower: &str, subject_stage: &str, subject_lol: &str) -> Option<String> {
     for dir in [
         r"\temp\",
         r"\tmp\",
@@ -303,7 +361,7 @@ fn service_signal(image_path: &str, start_type: u32, service_type: u32) -> Optio
     ] {
         if lower.contains(dir) {
             return Some(format!(
-                "service binary staged in user-writable directory ({})",
+                "{subject_stage} staged in user-writable directory ({})",
                 dir.trim_matches('\\')
             ));
         }
@@ -323,19 +381,8 @@ fn service_signal(image_path: &str, start_type: u32, service_type: u32) -> Optio
     ] {
         if lower.contains(lol) {
             return Some(format!(
-                "service image is a script interpreter / LOLBin ({lol})"
+                "{subject_lol} is a script interpreter / LOLBin ({lol})"
             ));
-        }
-    }
-    // service_type 16 = SERVICE_WIN32_OWN_PROCESS; start 0/1/2 = boot/system/auto.
-    if service_type == 16 && matches!(start_type, 0..=2) {
-        if let Some(base) = system_root_exe_basename(&lower) {
-            if !forensicnomicon::services::is_known_service_binary(&base) {
-                return Some(format!(
-                    "auto-start own-process service binary '{base}' in System32 is not a known \
-                     Windows service binary (possible masquerade, MITRE T1036.005)"
-                ));
-            }
         }
     }
     None
