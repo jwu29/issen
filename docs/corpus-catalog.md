@@ -383,7 +383,7 @@ Real OS ISOs (**gitignored, user-downloaded**): `debian-13.5.0-amd64-netinst.iso
 Windows Server `17763.1.*.iso` (335 MB — MS license, do not redistribute). **issen mirror:**
 `crates/issen-iso/tests/data/ubuntu-20.04-mini.iso` (74 MB, Canonical).
 
-### B9 · udf-forensic — `tests/data/udf_{vat,spar,plain}.img` (8 MB each, committed) · SYNTHETIC ✓
+### B9 · udf-forensic — `tests/data/udf_{vat,spar,plain}.img` (8 MB each, committed) · REAL-self ✓
 Real UDF images authored by **`mkudffs` (udftools 2.3)** and cross-checked by the independent
 **`udfinfo`** decoder (the oracle). Mostly-zero, so committed (a `.gitignore` negation un-ignores them);
 excluded from the published crate via `Cargo.toml` `exclude = ["tests/data/*.img"]`. Minted on macOS via
@@ -394,8 +394,9 @@ dd if=/dev/zero of=udf_spar.img  bs=1M count=8 && mkudffs --media-type=dvdrw --u
 dd if=/dev/zero of=udf_plain.img bs=1M count=8 && mkudffs --media-type=hd    --udfrev=0x0201 udf_plain.img
 ```
 `udfinfo` ground truth: vat → udfrev=1.50, writeonce, PSPACE start=257; spar → udfrev=2.01, overwritable,
-SSPACE+PSPACE start=1296; plain → udfrev=2.01, blocksize=512 (documents the crate's fixed-2048-block
-limitation). Asserted by `src/lib.rs mod real_media_tests` (kind + `partition_start` vs udfinfo PSPACE).
+SSPACE+PSPACE start=1296; plain → udfrev=2.01, blocksize=512, PSPACE start=257 (the 512-byte-block case —
+the crate detects block size from the AVDP location rather than assuming 2048). Asserted by `src/lib.rs
+mod real_media_tests` (kind + `partition_start` + `block_size` vs udfinfo PSPACE, across 2048 + 512 media).
 Full per-file provenance + captured oracle output: `udf-forensic/tests/data/README.md`. Redistribution:
 mkudffs output is freely redistributable.
 
