@@ -8,7 +8,7 @@ use std::path::Path;
 use issen_core::artifacts::ArtifactType;
 use issen_core::timeline::event::{EventType, TimelineEvent};
 use winreg_artifacts::registry_keys::walk_keys;
-use winreg_artifacts::{lsadump, run_keys, sam, shimcache, typed_urls, userassist};
+use winreg_artifacts::{lsadump, run_keys, sam, shimcache, svc_diff, typed_urls, userassist};
 use winreg_core::hive::Hive;
 
 /// Parse a Windows registry hive file and emit [`TimelineEvent`]s.
@@ -84,6 +84,7 @@ fn events_from_hive(
     events.extend(extract_typed_urls(hive, hive_name, source_id));
     events.extend(extract_userassist(hive, hive_name, source_id));
     events.extend(extract_shimcache(hive, hive_name, source_id));
+    events.extend(extract_services(hive, hive_name, source_id));
     events.extend(extract_sam_accounts(hive, hive_name, source_id));
     events.extend(extract_lsa_secrets(hive, hive_name, source_id));
     events
@@ -196,6 +197,66 @@ fn extract_sam_accounts(
             .with_metadata("last_login", serde_json::json!(u.last_login))
             .with_metadata("password_last_set", serde_json::json!(u.password_last_set))
             .with_metadata("account_expires", serde_json::json!(u.account_expires))
+        })
+        .collect()
+}
+
+/// Decode Windows services via `winreg-artifacts::svc_diff` and emit one
+/// `ServiceInstall` event per service, carrying its `ImagePath` (the binary the
+/// service runs — the VALUE the generic key walk drops), start type, account,
+/// and anomaly classification. Keyed on the service key's `LastWrite` time
+/// (≈ the install/modify time). A service is a primary persistence mechanism, so
+/// the category is `Persistence`; anomalous services carry a `suspicious` tag.
+///
+/// `svc_diff` resolves the live `ControlSet00N` from `Select\Current` (there is
+/// no `CurrentControlSet` link in an offline SYSTEM hive), so it self-filters:
+/// a hive with no Services key yields none.
+fn extract_services(
+    hive: &Hive<Cursor<Vec<u8>>>,
+    hive_name: &str,
+    source_id: &str,
+) -> Vec<TimelineEvent> {
+    svc_diff::parse(hive)
+        .into_iter()
+        .map(|s| {
+            let (ts_ns, ts_display) = s.last_written.map_or((0, String::new()), |dt| {
+                (
+                    dt.timestamp_nanos_opt().unwrap_or(0),
+                    dt.format("%Y-%m-%dT%H:%M:%S").to_string(),
+                )
+            });
+            let label = if s.display_name.is_empty() {
+                s.name.clone()
+            } else {
+                format!("{} ({})", s.name, s.display_name)
+            };
+            let mut event = TimelineEvent::new(
+                ts_ns,
+                ts_display,
+                EventType::ServiceInstall,
+                ArtifactType::Registry,
+                format!(r"Services\{}", s.name),
+                format!("Service: {label} -> {}", s.image_path),
+                source_id.to_string(),
+            )
+            .with_activity_category(issen_core::ActivityCategory::Persistence)
+            .with_tag("service")
+            .with_metadata("hive", serde_json::json!(hive_name))
+            .with_metadata("service_name", serde_json::json!(s.name))
+            .with_metadata("display_name", serde_json::json!(s.display_name))
+            .with_metadata("image_path", serde_json::json!(s.image_path))
+            .with_metadata("start_type", serde_json::json!(s.start_type))
+            .with_metadata("service_type", serde_json::json!(s.service_type))
+            .with_metadata("object_name", serde_json::json!(s.object_name))
+            .with_metadata("description", serde_json::json!(s.description))
+            .with_metadata("suspicious", serde_json::json!(s.is_suspicious));
+            if s.is_suspicious {
+                event = event.with_tag("suspicious");
+                if let Some(reason) = &s.suspicious_reason {
+                    event = event.with_metadata("suspicious_reason", serde_json::json!(reason));
+                }
+            }
+            event
         })
         .collect()
 }
