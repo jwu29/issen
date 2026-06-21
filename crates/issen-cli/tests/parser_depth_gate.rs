@@ -139,6 +139,18 @@ fn manifest() -> Vec<DepthCase> {
             required_keys: &["code", "record_index", "stored_crc", "computed_crc", "offset"],
             required_iocs: &["SEGB-CRC-MISMATCH"],
         },
+        // The custom (`.customDestinations-ms`) form: no DestList, so no
+        // hostname/pinned — its depth is the per-application target, the AppID,
+        // and the `Custom` kind discriminator that separates it from the
+        // automatic form.
+        DepthCase {
+            label: "jumplist custom destinations",
+            fixture: "../parsers/issen-parser-lnk/tests/data/tasks.customDestinations-ms",
+            committed: true,
+            drive: drive_jumplist,
+            required_keys: &["target_path", "jumplist_kind", "app_id"],
+            required_iocs: &["report.docx", "Custom"],
+        },
         // ── Gitignored real corpus (skip-loud when absent) ──
         DepthCase {
             label: "registry SOFTWARE: run-key persistence + OS version",
