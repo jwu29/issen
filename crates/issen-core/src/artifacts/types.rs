@@ -7,6 +7,8 @@ pub enum ArtifactType {
     UsnJournal,
     /// NTFS Master File Table ($MFT)
     Mft,
+    /// NTFS transaction journal ($LogFile)
+    LogFile,
     /// Windows Event Log (.evtx)
     EventLog,
     /// Windows Prefetch (.pf)
@@ -66,6 +68,7 @@ impl std::fmt::Display for ArtifactType {
         match self {
             Self::UsnJournal => write!(f, "USN Journal"),
             Self::Mft => write!(f, "MFT"),
+            Self::LogFile => write!(f, "$LogFile"),
             Self::EventLog => write!(f, "Event Log"),
             Self::Prefetch => write!(f, "Prefetch"),
             Self::Registry => write!(f, "Registry"),
@@ -107,6 +110,7 @@ impl ArtifactType {
         Some(match s {
             "UsnJournal" => Self::UsnJournal,
             "Mft" => Self::Mft,
+            "LogFile" => Self::LogFile,
             "EventLog" => Self::EventLog,
             "Prefetch" => Self::Prefetch,
             "Registry" => Self::Registry,
@@ -176,6 +180,7 @@ mod tests {
         for at in [
             ArtifactType::UsnJournal,
             ArtifactType::Mft,
+            ArtifactType::LogFile,
             ArtifactType::EventLog,
             ArtifactType::Prefetch,
             ArtifactType::Registry,

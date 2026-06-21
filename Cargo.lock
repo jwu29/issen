@@ -4440,6 +4440,7 @@ dependencies = [
  "issen-parser-evtx",
  "issen-parser-linux",
  "issen-parser-lnk",
+ "issen-parser-logfile",
  "issen-parser-lsasecrets",
  "issen-parser-lxss",
  "issen-parser-macos",
@@ -4763,6 +4764,17 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+]
+
+[[package]]
+name = "issen-parser-logfile"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "inventory",
+ "issen-core",
+ "ntfs-forensic",
+ "serde_json",
 ]
 
 [[package]]

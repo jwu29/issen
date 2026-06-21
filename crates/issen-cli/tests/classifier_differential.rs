@@ -22,6 +22,7 @@ use issen_core::plugin::registry::{detect_from_registry, ParserRegistration};
 /// non-existent files so the `regf`/`SEGB` magic fallbacks return `false`.
 const CORPUS: &[(&str, &str)] = &[
     ("/img/$MFT", "Mft"),
+    ("/img/$LogFile", "LogFile"),
     ("/img/$Extend/$UsnJrnl", "UsnJournal"),
     ("/img/Windows/Prefetch/CMD.EXE-0AB12345.pf", "Prefetch"),
     ("/img/mft.pf", "Mft"), // overlap: mft (prio 99) beats prefetch (97)

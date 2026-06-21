@@ -61,6 +61,7 @@ extern crate issen_parser_dcc2 as _;
 extern crate issen_parser_evtx as _;
 extern crate issen_parser_linux as _;
 extern crate issen_parser_lnk as _;
+extern crate issen_parser_logfile as _;
 extern crate issen_parser_lsasecrets as _;
 extern crate issen_parser_lxss as _;
 extern crate issen_parser_macos as _;

@@ -34,6 +34,7 @@ issen-report = { workspace = true }
 issen-remote-access = { workspace = true }
 issen-parser-velociraptor = { workspace = true }
 issen-parser-uac = { workspace = true }
+issen-parser-logfile = { workspace = true }
 issen-parser-prefetch = { workspace = true }
 issen-parser-amcache = { workspace = true }
 issen-parser-shimcache = { workspace = true }

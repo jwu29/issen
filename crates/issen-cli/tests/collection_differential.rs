@@ -22,15 +22,15 @@ use issen_disk::{
 
 /// `WINDOWS_TRIAGE_PATHS` entries the registry intentionally does not reproduce
 /// as fixed paths:
-/// - `\$LogFile`: no parser consumes it, so it produces zero events whether
-///   collected or not (a `$LogFile` parser would re-add its collection via its
-///   own selector — exactly the registry model). See the LogFile research note.
 /// - the four fixed `winevt\Logs\*.evtx` paths: already collected by the
 ///   `WINDOWS_TRIAGE_GLOBS` `DirSuffix` sweep of that same directory, so the
 ///   registry's single glob source subsumes them (a redundancy the old list
 ///   carried, collecting them twice).
+///
+/// (`\$LogFile` was exempt while no parser consumed it; `issen-parser-logfile`
+/// now declares it via a `FixedPath` `disk_source`, so it is no longer exempt —
+/// exactly the registry model the research note predicted.)
 const EXEMPT_FIXED: &[&str] = &[
-    r"\$LogFile",
     r"\Windows\System32\winevt\Logs\Security.evtx",
     r"\Windows\System32\winevt\Logs\System.evtx",
     r"\Windows\System32\winevt\Logs\Application.evtx",

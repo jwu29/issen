@@ -58,6 +58,12 @@ pub fn mft(path: &Path) -> bool {
     name == "$mft" || name.contains("mft") && !name.contains("prefetch")
 }
 
+/// `$LogFile` NTFS transaction journal (MFT record 2).
+#[must_use]
+pub fn logfile(path: &Path) -> bool {
+    name_full(path).is_some_and(|(name, _)| name == "$logfile")
+}
+
 /// Windows event log (`*.evtx`).
 #[must_use]
 pub fn evtx(path: &Path) -> bool {
