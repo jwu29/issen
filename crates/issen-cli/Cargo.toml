@@ -20,6 +20,10 @@ ctrlc = { workspace = true }
 indicatif = { workspace = true }
 forensic-pivot = { workspace = true }
 issen-core = { workspace = true }
+# Aggregator umbrellas own the parser/provider link-anchor set (build.rs codegen
+# from their own manifests). The two root anchors in lib.rs reference these.
+issen-parsers = { workspace = true }
+issen-providers = { workspace = true }
 issen-fswalker = { workspace = true }
 issen-timeline = { workspace = true }
 issen-signatures = { workspace = true }

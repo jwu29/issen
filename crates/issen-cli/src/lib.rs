@@ -49,44 +49,17 @@ use std::process::ExitCode;
 use clap::{Parser, Subcommand, ValueEnum};
 use is_terminal::IsTerminal;
 
-// Force-link parser + container-provider crates so their `inventory::submit!`
-// registrations survive dead-code elimination, in BOTH the binary and the lib
-// test harness. Anchored once, here — never duplicated into main.rs.
-extern crate issen_dd as _;
-extern crate issen_ewf as _;
-extern crate issen_iso as _;
-extern crate issen_parser_amcache as _;
-extern crate issen_parser_comhijack as _;
-extern crate issen_parser_dcc2 as _;
-extern crate issen_parser_evtx as _;
-extern crate issen_parser_linux as _;
-extern crate issen_parser_lnk as _;
-extern crate issen_parser_logfile as _;
-extern crate issen_parser_lsasecrets as _;
-extern crate issen_parser_lxss as _;
-extern crate issen_parser_macos as _;
-extern crate issen_parser_mft as _;
-extern crate issen_parser_pe as _;
-extern crate issen_parser_prefetch as _;
-extern crate issen_parser_regcatalog as _;
-extern crate issen_parser_registry as _;
-extern crate issen_parser_runkeys as _;
-extern crate issen_parser_sam as _;
-extern crate issen_parser_setupapi as _;
-extern crate issen_parser_shellbags as _;
-extern crate issen_parser_shimcache as _;
-extern crate issen_parser_srum as _;
-extern crate issen_parser_svcdiff as _;
-extern crate issen_parser_trash as _;
-extern crate issen_parser_typedurls as _;
-extern crate issen_parser_uac as _;
-extern crate issen_parser_userassist as _;
-extern crate issen_parser_usnjrnl as _;
-extern crate issen_parser_velociraptor as _;
-extern crate issen_qcow2 as _;
-extern crate issen_vhd as _;
-extern crate issen_vhdx as _;
-extern crate issen_vmdk as _;
+// Force-link every parser + container-provider crate so their `inventory::submit!`
+// registrations survive dead-code elimination, in BOTH the binary and every
+// library-linked test harness. The anchor SET is now owned by two aggregator
+// umbrellas whose `build.rs` generates one `extern crate <dep> as _;` per
+// dependency from their own `Cargo.toml` — adding a parser/provider is one dep
+// edit there, never a hand-written `extern crate` line here. These two root
+// anchors are MANDATORY and must be real item references: a bare dependency or a
+// passive `pub use` does NOT guarantee the link edge that pulls the aggregators
+// (and their generated anchor sets) into the link.
+extern crate issen_parsers as _;
+extern crate issen_providers as _;
 
 pub mod commands;
 pub mod ingest_progress;

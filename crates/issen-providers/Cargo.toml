@@ -1,0 +1,34 @@
+[package]
+name = "issen-providers"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license = "Apache-2.0"
+description = "Aggregator umbrella: force-links every container/provider crate so their inventory registrations survive dead-code elimination. Not itself a provider."
+repository.workspace = true
+publish = false
+
+[lib]
+name = "issen_providers"
+path = "src/lib.rs"
+
+# Every container/provider crate whose inventory registration must survive DCE is
+# a DIRECT normal dependency here. `build.rs` reads THIS manifest and emits one
+# real `extern crate <dep> as _;` per dep into OUT_DIR/anchors.rs.
+[dependencies]
+issen-dd = { workspace = true }
+issen-ewf = { workspace = true }
+issen-iso = { workspace = true }
+issen-qcow2 = { workspace = true }
+issen-vhd = { workspace = true }
+issen-vhdx = { workspace = true }
+issen-vmdk = { workspace = true }
+
+[build-dependencies]
+toml = { workspace = true }
+
+[dev-dependencies]
+toml = { workspace = true }
+
+[lints]
+workspace = true

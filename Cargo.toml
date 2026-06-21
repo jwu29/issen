@@ -39,6 +39,8 @@ members = [
     "crates/parsers/issen-parser-lxss",
     "crates/parsers/issen-parser-regcatalog",
     "crates/issen-report",
+    "crates/issen-parsers",
+    "crates/issen-providers",
     "crates/issen-cli",
     "crates/issen-navigator",
     "crates/issen-mft-tree",
@@ -128,6 +130,9 @@ issen-correlation   = { path = "crates/issen-correlation" }
 issen-remote-io     = { path = "crates/issen-remote-io" }
 issen-evtx          = { path = "crates/issen-evtx" }
 issen-wsl           = { path = "crates/issen-wsl" }
+# Aggregator umbrellas (build.rs codegen anchors all parser/provider crates)
+issen-parsers       = { path = "crates/issen-parsers" }
+issen-providers     = { path = "crates/issen-providers" }
 
 # winevt-forensic crates (path dependencies into sibling workspace)
 winevt-core     = "0.2"
@@ -161,6 +166,7 @@ anyhow       = "1"
 tracing      = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 inventory    = "0.3"
+toml         = "0.8"
 chrono       = { version = "0.4", features = ["serde"] }
 bytes        = "1"
 memmap2      = "0.9"
