@@ -69,3 +69,30 @@ fn custom_destinations_surfaces_target() {
         "must surface the custom-destination target; got: {blob}"
     );
 }
+
+#[test]
+fn automatic_destinations_surfaces_birth_droid_origin() {
+    // The embedded LNKs carry a TrackerDataBlock whose `birth_droid` object GUID is
+    // a UUID-v1 whose node is the MAC of the machine where each target file was
+    // *created* — cross-machine origin evidence distinct from the recording host.
+    // The real DC01 Jump List records origin machine `citadel-dc01`, MAC
+    // `00:0C:29:E1:84:E6` (VMware OUI 00:0C:29).
+    let events = parse_jumplist_bytes(AUTO, AUTO_NAME, "ev");
+    let blob = searchable(&events);
+    assert!(
+        blob.contains("birth_droid_machine"),
+        "must surface the birth-droid machine key; got: {blob}"
+    );
+    assert!(
+        blob.to_lowercase().contains("citadel-dc01"),
+        "birth-droid machine value (NetBIOS origin) must reach the event; got: {blob}"
+    );
+    assert!(
+        blob.contains("birth_droid_mac"),
+        "must surface the birth-droid MAC key; got: {blob}"
+    );
+    assert!(
+        blob.contains("00:0C:29:E1:84:E6"),
+        "birth-droid MAC (UUID-v1 node = origin machine's MAC) must reach the event; got: {blob}"
+    );
+}

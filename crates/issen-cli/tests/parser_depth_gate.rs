@@ -133,6 +133,21 @@ fn manifest() -> Vec<DepthCase> {
             required_keys: &["target_path", "hostname", "pinned"],
             required_iocs: &["Szechuan Sauce.txt", "citadel-dc01"],
         },
+        // The embedded LNKs in this real DC01 Jump List carry a `TrackerDataBlock`
+        // (distributed-link-tracking droid GUIDs). Its `birth_droid` object GUID is
+        // a UUID-v1 whose node is the MAC of the machine where the target file was
+        // *created* — cross-machine origin evidence the wrapper dropped. The
+        // recorded origin is `citadel-dc01` with MAC `00:0C:29:E1:84:E6` (a VMware
+        // OUI `00:0C:29`, consistent with the virtualized DFIR Madness lab).
+        DepthCase {
+            label: "jumplist birth-droid cross-machine origin",
+            fixture:
+                "../parsers/issen-parser-lnk/tests/data/9b9cdc69c1c24e2b.automaticDestinations-ms",
+            committed: true,
+            drive: drive_jumplist,
+            required_keys: &["birth_droid_machine", "birth_droid_mac", "droid_mac"],
+            required_iocs: &["citadel-dc01", "00:0C:29:E1:84:E6"],
+        },
         DepthCase {
             label: "biome SEGB integrity (CRC-mismatch tamper)",
             fixture:
