@@ -402,6 +402,46 @@ mod tests {
         );
     }
 
+    /// Real-data validation (doer-checker): the integrity wiring is proven on a
+    /// GENUINE Apple Biome SEGB stream, not only the synthetic builder. The
+    /// fixture is a real `Device.Power.LowPowerMode.v1` SEGB (josh-hickman iOS
+    /// Biome corpus) in which one Written record's stored CRC-32 was flipped — a
+    /// real-data-derived tamper. `segb-forensic::audit` must catch exactly that
+    /// record and the wrapper must surface it as a `SEGB-CRC-MISMATCH` Integrity
+    /// event carrying the record index. See `tests/data/README.md`.
+    #[test]
+    fn real_segb_crc_tamper_surfaces_integrity_event() {
+        const REAL: &[u8] =
+            include_bytes!("../tests/data/Device.Power.LowPowerMode.v1.crc-tampered.segb");
+        let events = BiomeParser.parse_bytes(REAL, "/var/db/biome/.../Device.Power.LowPowerMode");
+        let crc: Vec<_> = events
+            .iter()
+            .filter(|e| {
+                e.activity_category == Some(issen_core::ActivityCategory::Integrity)
+                    && e.metadata
+                        .iter()
+                        .any(|(_, v)| v.to_string().contains("SEGB-CRC-MISMATCH"))
+            })
+            .collect();
+        assert_eq!(
+            crc.len(),
+            1,
+            "exactly the one tampered record fails CRC; the other real records stay valid"
+        );
+        let e = crc[0];
+        assert!(
+            e.metadata
+                .iter()
+                .any(|(k, v)| k == "record_index" && v.as_u64() == Some(12)),
+            "the integrity event must locate the tampered record (index 12)"
+        );
+        assert!(
+            e.metadata.iter().any(|(k, _)| k == "stored_crc")
+                && e.metadata.iter().any(|(k, _)| k == "computed_crc"),
+            "a CRC-mismatch integrity event must carry the stored vs computed CRC"
+        );
+    }
+
     #[test]
     fn parse_bytes_non_segb_yields_no_events() {
         let events = BiomeParser.parse_bytes(b"this is plainly not a SEGB file..", "/x");

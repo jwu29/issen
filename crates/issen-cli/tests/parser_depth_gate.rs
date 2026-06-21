@@ -75,6 +75,9 @@ fn drive_jumplist(p: &Path) -> Vec<TimelineEvent> {
     let filename = p.file_name().unwrap().to_string_lossy();
     issen_parser_lnk::jumplist::parse_jumplist_bytes(&bytes, &filename, "depth-gate")
 }
+fn drive_biome(p: &Path) -> Vec<TimelineEvent> {
+    issen_parser_biome::BiomeParser.parse_path(p).unwrap()
+}
 
 const HIVES: &str = "../../tests/data/dfirmadness-szechuan-sauce/extracted/szechuan-sauce-hives";
 
@@ -126,6 +129,15 @@ fn manifest() -> Vec<DepthCase> {
             drive: drive_jumplist,
             required_keys: &["target_path", "hostname", "pinned"],
             required_iocs: &["report.docx", "OTHER-PC"],
+        },
+        DepthCase {
+            label: "biome SEGB integrity (CRC-mismatch tamper)",
+            fixture:
+                "../parsers/issen-parser-biome/tests/data/Device.Power.LowPowerMode.v1.crc-tampered.segb",
+            committed: true,
+            drive: drive_biome,
+            required_keys: &["code", "record_index", "stored_crc", "computed_crc", "offset"],
+            required_iocs: &["SEGB-CRC-MISMATCH"],
         },
         // ── Gitignored real corpus (skip-loud when absent) ──
         DepthCase {
