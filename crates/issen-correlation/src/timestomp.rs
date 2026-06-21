@@ -51,16 +51,30 @@ pub fn detect_timestomp(event: &TimelineEvent, tolerance_ns: i64) -> Option<Find
 
     let threshold = fn_created.saturating_sub(tolerance_ns);
 
+    // ── Corroborator: $SI sub-second (100 ns) zeroing (Velociraptor `USecZeros`,
+    //    verified §7.2) — naive whole-second stomp tools zero the sub-second field.
+    //    The spec (§5.3 S3) requires the CONTRAST: a zeroed $SI value while the
+    //    corresponding $FN value retains true 100 ns precision. A $FN that is
+    //    itself whole-second carries no precision to contradict, so it does NOT
+    //    corroborate (this keeps genuine whole-second clock skew from tripping it). ──
+    let fn_has_precision = !is_whole_second(fn_created);
+    let s3 = fn_has_precision
+        && (is_whole_second(si_created) || si_modified.is_some_and(is_whole_second));
+
     // ── Ordering signals — at least one is required to emit anything ──
-    let s1 = si_created < threshold; // weak: copy/archive/tunnelling reproduce it benignly
-    let s2 = si_modified.is_some_and(|m| m < threshold); // stronger: modified before its name existed
+    // The tolerance suppresses clock-skew noise on the ORDERING-ONLY path. But when
+    // the independent sub-second-zeroing corroborator (S3) is present, a *strict*
+    // $SI < $FN ordering is enough on its own — a benign clock skew does not also
+    // zero the $SI sub-second field against a precise $FN, so the large tolerance
+    // would otherwise hide a real same-day back-date (the Szechuan Beth_Secret.txt
+    // case: ~4 h stomp, well inside one day). This mirrors the analyzeMFT panel,
+    // which fires the $SI/$FN shift on a strict ordering plus the nanosecond tell.
+    let s1 = si_created < threshold || (s3 && si_created < fn_created);
+    let s2 = si_modified.is_some_and(|m| m < threshold)
+        || (s3 && si_modified.is_some_and(|m| m < fn_created));
     if !s1 && !s2 {
         return None;
     }
-
-    // ── Corroborator: $SI sub-second (100 ns) zeroing (Velociraptor `USecZeros`,
-    //    verified §7.2) — naive whole-second stomp tools zero the sub-second field. ──
-    let s3 = is_whole_second(si_created) || si_modified.is_some_and(is_whole_second);
 
     // ── Benign-context MODIFIERS (confidence reducers, never hard gates — §6.2) ──
     let copy = si_modified.is_some_and(|m| si_created > m); // born after modified ⇒ copy/restore
@@ -289,11 +303,15 @@ mod tests {
     #[test]
     fn ordering_plus_subsecond_zero_is_medium() {
         // si_created on a whole second (S3) and before fn (S1), no modifier → Medium.
+        // $FN carries real 100 ns precision (T + SUB) — as kernel-set $FN always
+        // does — so the sub-second-zeroing contrast (§5.3 S3: zeroed $SI vs precise
+        // $FN) actually holds; a whole-second $FN would carry no precision to
+        // contradict and so would not corroborate.
         let e = fc(
             T - 10 * DAY_NS,
             T - 5 * DAY_NS + SUB,
             T - 9 * DAY_NS + SUB,
-            T,
+            T + SUB,
             "Users/a/x.txt",
         );
         assert_eq!(
@@ -422,9 +440,19 @@ mod tests {
         let f = detect_timestomp(&e, DAY_NS)
             .expect("zeroed $SI sub-second vs non-zeroed $FN must fire below tolerance");
         assert_eq!(f.code, TIMESTOMP_CODE);
-        // Info-grade lead — single-event tier, FP-prone (the project discipline:
-        // $SI<$FN is a LEAD, never graded High here).
-        assert_eq!(f.severity, Some(Severity::Info));
+        // Ordering + sub-second-zeroing corroborator ⇒ Medium, per the spec (§5.3:
+        // (S1 or S2) AND S3 → Medium) and the existing `ordering_plus_subsecond_zero_is_medium`
+        // test. Grading the sub-tolerance case differently from the identical
+        // beyond-tolerance case would be a special case — severity follows the
+        // signals, not the back-date margin. Crucially it is NEVER High here: the
+        // single-event tier has no cross-artifact (USN/$LogFile) corroborator, so a
+        // verdict-grade is structurally out of reach — it remains a graded lead.
+        assert_eq!(f.severity, Some(Severity::Medium));
+        assert_ne!(
+            f.severity,
+            Some(Severity::High),
+            "single-event $SI/$FN tier must never reach a verdict grade"
+        );
         assert!(f
             .context
             .external_refs

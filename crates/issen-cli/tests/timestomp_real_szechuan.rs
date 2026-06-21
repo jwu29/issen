@@ -49,11 +49,7 @@ fn dc_image() -> Option<PathBuf> {
 
 /// `true` when a named binary resolves on PATH.
 fn have(bin: &str) -> bool {
-    Command::new(bin)
-        .arg("-V")
-        .output()
-        .map(|_| true)
-        .unwrap_or(false)
+    Command::new(bin).arg("-V").output().is_ok()
 }
 
 /// Byte offset (in 512-byte sectors) of the largest NTFS partition, via `mmls`.
@@ -73,7 +69,7 @@ fn ntfs_lba(img: &std::path::Path) -> Option<u64> {
         let start = cols[2].parse::<u64>().ok();
         let length = cols[4].parse::<u64>().ok();
         if let (Some(start), Some(length)) = (start, length) {
-            if best.map_or(true, |(_, bl)| length > bl) {
+            if best.is_none_or(|(_, bl)| length > bl) {
                 best = Some((start, length));
             }
         }
@@ -166,11 +162,20 @@ fn detector_flags_beth_secret_timestomp_on_real_dc_mft() {
          BEFORE the non-zeroed $FN.created — the naive-stomp tell, below tolerance",
     );
     assert_eq!(finding.code, TIMESTOMP_CODE);
-    // Info-grade LEAD — single-event $SI/$FN tier is FP-prone; never graded High here.
+    // A graded LEAD, never a verdict. Beth_Secret carries the sub-second-zeroing
+    // corroborator ($SI whole-second vs precise $FN) on a strict $SI<$FN ordering,
+    // so the panel grades it Medium (§5.3: ordering + S3 → Medium). The cardinal
+    // constraint holds: the single-event tier has no cross-artifact corroborator,
+    // so it can NEVER reach High — it stays a lead the analyst corroborates.
+    assert_ne!(
+        finding.severity,
+        Some(forensicnomicon::report::Severity::High),
+        "single-event $SI<$FN timestomp must never be graded High (FP-prone lead)"
+    );
     assert_eq!(
         finding.severity,
-        Some(forensicnomicon::report::Severity::Info),
-        "single-event $SI<$FN timestomp is an Info lead, not a verdict"
+        Some(forensicnomicon::report::Severity::Medium),
+        "ordering + sub-second zeroing on Beth_Secret grades Medium per the panel"
     );
     assert!(
         finding
