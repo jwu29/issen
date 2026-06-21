@@ -79,7 +79,12 @@ DC host; now holds **both**). By James Smith (dfirmadness.com). **Downloaded in 
 hotlinks `https://dfirmadness.com/case001/<file>` (e.g.
 <https://dfirmadness.com/case001/DC01-E01.zip>, `…/DESKTOP-E01.zip`, `…/case001-pcap.zip` — every
 filename in the table above). **Used by** `usnjrnl-forensic` integration tests (`#[ignore]`, desktop
-E01). Redistribution: dfirmadness.com — educational/research.
+E01); the DC01 `SYSTEM` hive (§A3b) is consumed by `forensicnomicon`'s
+`tests/services_dc01_isolation.rs` (env-gated on `ISSEN_DC01_SYSTEM_HIVE`) to
+prove its known-good service-binary catalog isolates the `coreupdater.exe`
+service masquerade (453 services → 7-entry System32-root OwnProcess gate set →
+`coreupdater.exe` the lone uncatalogued one). Redistribution: dfirmadness.com —
+educational/research.
 
 > **Naming convention — `case001-*` clean siblings (binding).** Derived/reference assets of this
 > dataset live in **clean-named siblings** of the A3 folder, not inside it: `tests/data/case001-hives/`
