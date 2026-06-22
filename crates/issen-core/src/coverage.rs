@@ -62,12 +62,43 @@ impl CoverageManifest {
     /// union), the artifact types discovered, and the artifact types parsed.
     #[must_use]
     pub fn build(
-        _searched: &[ArtifactType],
-        _found: &[ArtifactType],
-        _parsed: &[ArtifactType],
+        searched: &[ArtifactType],
+        found: &[ArtifactType],
+        parsed: &[ArtifactType],
     ) -> Self {
-        // STUB (RED): real implementation lands in GREEN.
-        Self::default()
+        let mut found_counts: HashMap<ArtifactType, usize> = HashMap::new();
+        for &a in found {
+            *found_counts.entry(a).or_default() += 1;
+        }
+        let mut parsed_counts: HashMap<ArtifactType, usize> = HashMap::new();
+        for &a in parsed {
+            *parsed_counts.entry(a).or_default() += 1;
+        }
+
+        let searched_set: HashSet<ArtifactType> = searched.iter().copied().collect();
+
+        // Every searched class, plus any class discovered without a parser
+        // (NotSearched — a coverage gap that must still be surfaced).
+        let mut classes: Vec<ArtifactType> = searched.to_vec();
+        for &a in found_counts.keys() {
+            if !searched_set.contains(&a) {
+                classes.push(a);
+            }
+        }
+        // Deterministic order (fleet output discipline): stable by Debug token.
+        classes.sort_by(|a, b| format!("{a:?}").cmp(&format!("{b:?}")));
+        classes.dedup();
+
+        let entries = classes
+            .into_iter()
+            .map(|artifact_type| CoverageEntry {
+                artifact_type,
+                searched: searched_set.contains(&artifact_type),
+                found: found_counts.get(&artifact_type).copied().unwrap_or(0),
+                parsed: parsed_counts.get(&artifact_type).copied().unwrap_or(0),
+            })
+            .collect();
+        Self { entries }
     }
 
     #[must_use]
