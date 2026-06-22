@@ -5,7 +5,17 @@
 //! Shown via clap `before_help`, so `issen --help` / `issen help` lead with it.
 
 /// The rendered startup banner (katana + wordmark + tagline + footer).
-pub const BANNER: &str = "";
+pub const BANNER: &str = r"
+   (=|=|=|=[+]::::::::::::::::::::::::::::::::::::::::::::::::::::>
+
+       i s s e n   ·   a single flash of the blade
+
+       One command. One output. The full attack narrative.
+       Fast forensic triage for incident responders.
+
+       Security Ronin  ·  securityronin.github.io/issen
+                          albert@securityronin.com
+";
 
 #[cfg(test)]
 mod tests {
