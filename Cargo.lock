@@ -995,7 +995,6 @@ version = "2.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4388bee8683e3d04af747c73422af53102d2bd24d9eadb6cbc100baef4b43f8"
 dependencies = [
- "bytemuck",
  "serde_core",
 ]
 
@@ -2701,16 +2700,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "endian-num"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b4a54dfedecb1dc004776a597db0c858cf6c31579296734511309291b8399ce"
-dependencies = [
- "bytemuck",
- "bytemuck_derive",
-]
-
-[[package]]
 name = "enum_dispatch"
 version = "0.3.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2978,7 +2967,7 @@ checksum = "da0e4dd2a88388a1f4ccc7c9ce104604dab68d9f408dc34cd45823d5a9069095"
 dependencies = [
  "futures-core",
  "futures-sink",
- "spin 0.9.8",
+ "spin",
 ]
 
 [[package]]
@@ -3518,70 +3507,6 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
-]
-
-[[package]]
-name = "hadris-common"
-version = "1.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d61420d5162c676024b7fab4ad79100f906f0e4ed86fbffbdef94a507697d5ea"
-dependencies = [
- "bytemuck",
- "chrono",
- "crc",
- "hadris-io",
- "noalloc",
- "rand 0.9.4",
- "zerocopy",
-]
-
-[[package]]
-name = "hadris-io"
-version = "1.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "69c4b18afaa991f1d1a2b90b3ec6144f956dac5bcd00fb9c245c3996dc33254d"
-dependencies = [
- "bytemuck",
- "cfg-if",
-]
-
-[[package]]
-name = "hadris-iso"
-version = "1.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1ff7c040f72939353e60b43e523d4760f2a4a68e3c01e000fb690379f9990375"
-dependencies = [
- "bitflags 2.13.0",
- "bytemuck",
- "chrono",
- "hadris-common",
- "hadris-io",
- "hadris-macros",
- "hadris-part",
- "spin 0.10.0",
- "thiserror 2.0.18",
- "tracing",
-]
-
-[[package]]
-name = "hadris-macros"
-version = "1.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ae6aa7d2c5aab41cb4f4d825c71e08b7a61e6d9e9ea78a9b3ef5ef3eeac9efac"
-dependencies = [
- "proc-macro2",
-]
-
-[[package]]
-name = "hadris-part"
-version = "1.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83db7c5a6d4bd428c30fedaa9882b50baaf4cdc1831a948e1bd6de593e3f48ea"
-dependencies = [
- "bytemuck",
- "endian-num",
- "hadris-io",
- "hadris-macros",
 ]
 
 [[package]]
@@ -4588,8 +4513,8 @@ dependencies = [
 name = "issen-iso"
 version = "0.1.0"
 dependencies = [
- "hadris-iso",
  "inventory",
+ "iso9660-forensic",
  "issen-core",
  "issen-unpack",
  "tempfile",
@@ -5529,7 +5454,7 @@ version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 dependencies = [
- "spin 0.9.8",
+ "spin",
 ]
 
 [[package]]
@@ -6461,12 +6386,6 @@ dependencies = [
  "cfg_aliases",
  "libc",
 ]
-
-[[package]]
-name = "noalloc"
-version = "0.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5a2537501480803dd22fbd79a39ea83318caba3ba936f7554f7139f4180faa94"
 
 [[package]]
 name = "nodrop"
@@ -9368,15 +9287,6 @@ name = "spin"
 version = "0.9.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6980e8d7511241f8acf4aebddbb1ff938df5eebe98691418c4468d0b72a96a67"
-dependencies = [
- "lock_api",
-]
-
-[[package]]
-name = "spin"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d5fe4ccb98d9c292d56fec89a5e07da7fc4cf0dc11e156b41793132775d3e591"
 dependencies = [
  "lock_api",
 ]

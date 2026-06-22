@@ -1,7 +1,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 //! ISO 9660 optical disc image reader for the Issen forensic pipeline.
 //!
-//! Uses [`hadris_iso`] for format validation and exposes the raw sector
+//! Uses [`iso9660_forensic`] for format validation and exposes the raw sector
 //! stream as a [`DataSource`] for downstream forensic parsers.
 
 use std::fs::File;
@@ -48,14 +48,14 @@ impl std::fmt::Debug for IsoDataSource {
 }
 
 impl IsoDataSource {
-    /// Open an ISO 9660 image, validating the format with `hadris-iso`.
+    /// Open an ISO 9660 image, validating the format with our `iso9660-forensic` reader.
     ///
-    /// Opens the file twice: once for `hadris_iso` validation, once to keep
+    /// Opens the file twice: once for `iso9660-forensic` validation, once to keep
     /// as a raw sector stream for [`DataSource::read_at`].
     pub fn open(path: &Path) -> Result<Self, IsoError> {
-        // Validate: pass a File to hadris-iso; it consumes it.
+        // Validate the ISO 9660 structure with our own iso9660-forensic reader.
         let validate_file = File::open(path)?;
-        hadris_iso::sync::read::IsoImage::open(validate_file)
+        iso9660_forensic::IsoReader::open(validate_file)
             .map_err(|e| IsoError::InvalidIso(e.to_string()))?;
 
         // Raw read handle for DataSource I/O.
