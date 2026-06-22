@@ -120,6 +120,26 @@ Priority order. Each item is a strict-TDD unit (RED → GREEN, signed commits).
    temp file → existing ingest path, validated against a *controlled* oracle (a localhost
    HTTP/file source we mint), not a self-authored round-trip. *Effort: M.*
 
+### Szechuan-validation backlog (surfaced 2026-06-22 — issen scored 16/17 on the case)
+
+End-to-end validation against DFIR Madness "Stolen Szechuan Sauce" (both hosts, disk + memory)
+measured **16 of 17 core questions** answered and key-matched (DC 9/9, workstation 7/8; two
+answers beat the Volatility/Rekall baseline — e.g. WS-memory `ps` recovered the malware process
+structurally where both failed). Full verbatim record:
+`docs/profiling/szechuan-sauce-issen-profiling.md`. Two genuine **capability** items it surfaced
+(distinct from the PCAP-only scope boundary, which is not a gap):
+
+1. **build-19041 symbol-free memory overlay** — *M, `memory-forensic` / memf-windows.* The
+   symbol-free `TcpE`/SAM pool-scan (which recovered the DC's C2 endpoint + Administrator hash)
+   has only a **build-9600** (Server 2012 R2) overlay; on the Win10-2004 **build-19041**
+   workstation dump `netstat`/`creds`/`scan` return empty (fails loud-but-clean — "symbols
+   unavailable", no fabrication). Wiring a build-19041 overlay closes the workstation-memory
+   C2/creds leg. **Higher value of the two** (the only thing between issen and 17/17 from
+   host artifacts).
+2. **`Lnk` artifact-path / timestamp bug** — *S, `issen-parser-lnk`.* The Lnk source mislocates
+   `artifact_path` to the ingest tempdir and emits empty timestamps (the case answers survived
+   via MFT/UsnJournal, so low-severity — but a real defect).
+
 ### P3 — ~~Epic K~~ DISSOLVED → done as a contained rename
 
 8. **~~Epic K (relocate the taxonomy into forensicnomicon)~~ — resolved without a fleet
