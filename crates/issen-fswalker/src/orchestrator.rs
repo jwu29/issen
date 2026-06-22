@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use issen_core::artifacts::ArtifactType;
+use issen_core::coverage::CoverageManifest;
 use issen_core::error::RtError;
 use issen_core::plugin::registry::{all_parsers, detect_from_registry};
 use issen_core::plugin::traits::{EventEmitter, ForensicParser, ParseCompletion};
@@ -27,6 +28,9 @@ pub struct IngestResult {
     pub total_events: u64,
     pub total_bytes: u64,
     pub errors: Vec<String>,
+    /// Per-artifact-class coverage for this run (searched / found / parsed) —
+    /// makes an empty result distinguishable from a clean input.
+    pub coverage: CoverageManifest,
 }
 
 /// Collecting emitter that gathers events in a thread-safe Vec.
@@ -199,12 +203,32 @@ fn ingest_result(
     units: &[ParsedUnit],
     errors: Vec<String>,
 ) -> IngestResult {
+    // The "searched" set is every artifact class a registered parser declares.
+    let searched: Vec<ArtifactType> = all_parsers()
+        .iter()
+        .flat_map(|p| p.supported_artifacts().to_vec())
+        .collect();
+    ingest_result_with(artifacts, units, errors, &searched)
+}
+
+/// Inner builder with an explicit `searched` set, separated so coverage can be
+/// tested deterministically — `all_parsers()` is only populated in a binary
+/// that links the parser crates (issen-cli), not in this crate's own tests.
+fn ingest_result_with(
+    artifacts: &[DiscoveredArtifact],
+    units: &[ParsedUnit],
+    errors: Vec<String>,
+    searched: &[ArtifactType],
+) -> IngestResult {
+    let found: Vec<ArtifactType> = artifacts.iter().map(|a| a.artifact_type).collect();
+    let parsed: Vec<ArtifactType> = units.iter().map(|u| u.artifact_type).collect();
     IngestResult {
         artifacts_found: artifacts.len(),
         artifacts_parsed: units.len(),
         total_events: units.iter().map(|u| u.events.len() as u64).sum(),
         total_bytes: units.iter().map(|u| u.bytes).sum(),
         errors,
+        coverage: CoverageManifest::build(searched, &found, &parsed),
     }
 }
 
@@ -597,21 +621,26 @@ mod tests {
             bytes: 0,
             completion: ParseCompletion::Complete,
         }];
-        let result = ingest_result(&artifacts, &units, vec![]);
+        // Explicit searched set (deterministic): Prefetch/Srum are searched but
+        // not in this run; Mft is found + parsed.
+        let searched = [
+            ArtifactType::Mft,
+            ArtifactType::Prefetch,
+            ArtifactType::Srum,
+        ];
+        let result = ingest_result_with(&artifacts, &units, vec![], &searched);
         // Discovered + parsed → Parsed.
         assert_eq!(
             result.coverage.entry(ArtifactType::Mft).map(|e| e.status()),
             Some(CoverageStatus::Parsed)
         );
-        // The registry searches many classes; those absent from this run are
-        // clean negatives (SearchedAbsent), not coverage gaps.
-        assert!(
+        // Searched but absent from this run → a clean negative, not a gap.
+        assert_eq!(
             result
                 .coverage
-                .entries
-                .iter()
-                .any(|e| e.status() == CoverageStatus::SearchedAbsent),
-            "registry-searched classes absent from this run must be SearchedAbsent"
+                .entry(ArtifactType::Prefetch)
+                .map(|e| e.status()),
+            Some(CoverageStatus::SearchedAbsent)
         );
     }
 
