@@ -1100,6 +1100,78 @@ mod tests {
     }
 
     #[test]
+    fn pam_hook_rule_generalizes_to_world_writable_class_as_a_lead() {
+        // The PAM-hook persistence signal is structural — a file dropped in a
+        // world-writable directory as a logon side-effect — not one fixture
+        // filename. The bundled rule must match the CLASS (any of /tmp, /var/tmp,
+        // /dev/shm), stay specific to those dirs, and be graded as a LEAD: a
+        // generic temp-file-after-logon heuristic is FP-prone (benign logins write
+        // temp files), so it can never be `critical`.
+        let rule = bundled_temporal_rules()
+            .into_iter()
+            .find(|r| r.id == "temporal.pam-hook-artifact")
+            .expect("rule temporal.pam-hook-artifact must be registered");
+
+        assert_eq!(
+            rule.severity, "low",
+            "a generalized temp-file-after-logon heuristic is a lead, not critical"
+        );
+
+        // Fires for a world-writable drop that is NOT the original fixture name.
+        let logon = ev(
+            100 * NS,
+            EventType::LogonSuccess,
+            ArtifactType::EventLog,
+            "user root",
+        );
+        let drop = ev(
+            103 * NS,
+            EventType::FileCreate,
+            ArtifactType::UsnJournal,
+            "created /dev/shm/backdoor.so",
+        );
+        assert_eq!(
+            evaluate_temporal(&rule, &[logon, drop]).len(),
+            1,
+            "a world-writable drop (/dev/shm) after logon must fire — not just /tmp/silly.txt"
+        );
+
+        // Still fires for the original /tmp class (no regression).
+        let logon2 = ev(
+            200 * NS,
+            EventType::LogonSuccess,
+            ArtifactType::EventLog,
+            "user root",
+        );
+        let silly = ev(
+            203 * NS,
+            EventType::FileCreate,
+            ArtifactType::UsnJournal,
+            "created /tmp/silly.txt",
+        );
+        assert_eq!(evaluate_temporal(&rule, &[logon2, silly]).len(), 1);
+
+        // Specificity: a file OUTSIDE world-writable dirs must NOT fire.
+        let logon3 = ev(
+            300 * NS,
+            EventType::LogonSuccess,
+            ArtifactType::EventLog,
+            "user root",
+        );
+        let benign = ev(
+            303 * NS,
+            EventType::FileCreate,
+            ArtifactType::UsnJournal,
+            "created /home/alice/notes.txt",
+        );
+        assert_eq!(
+            evaluate_temporal(&rule, &[logon3, benign]).len(),
+            0,
+            "a file outside world-writable dirs must NOT fire the PAM-hook lead"
+        );
+    }
+
+    #[test]
     fn deleted_execution_recovery_usnjrnl_plus_prefetch() {
         // Binary ran (Prefetch entry exists) then was deleted (UsnJrnl CLOSE+DELETE).
         // Pattern: ProcessExec (Prefetch) followed by FileDelete (UsnJrnl) for same entity.
