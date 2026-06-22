@@ -4462,7 +4462,7 @@ dependencies = [
  "issen-timeline",
  "issen-unpack",
  "mft",
- "ntfs-core 0.8.0",
+ "ntfs-core 0.8.1",
  "predicates",
  "serde_json",
  "sha2",
@@ -4532,7 +4532,7 @@ dependencies = [
  "issen-core",
  "issen-ewf",
  "issen-unpack",
- "ntfs-core 0.8.0",
+ "ntfs-core 0.8.1",
  "ntfs-forensic",
  "serde_json",
  "tempfile",
@@ -4653,7 +4653,7 @@ dependencies = [
  "issen-parser-velociraptor",
  "issen-signatures",
  "issen-unpack",
- "ntfs-core 0.8.0",
+ "ntfs-core 0.8.1",
  "ratatui",
  "shrinkpath",
  "tempfile",
@@ -4766,7 +4766,7 @@ dependencies = [
  "anyhow",
  "inventory",
  "issen-core",
- "ntfs-core 0.8.0",
+ "ntfs-core 0.8.1",
  "ntfs-forensic",
  "serde_json",
 ]
@@ -5215,7 +5215,7 @@ dependencies = [
  "issen-correlation",
  "issen-mft-tree",
  "md-5",
- "ntfs-core 0.8.0",
+ "ntfs-core 0.8.1",
  "regex",
  "reqwest",
  "serde",
@@ -6539,7 +6539,9 @@ dependencies = [
 
 [[package]]
 name = "ntfs-core"
-version = "0.8.0"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0479eec4f720adc60b2eef244a1feada50873574aa170f7ad92bacfc7a0528de"
 dependencies = [
  "bitflags 2.13.0",
  "chrono",
