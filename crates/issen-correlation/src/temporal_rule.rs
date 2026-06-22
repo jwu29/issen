@@ -29,6 +29,11 @@ pub struct EventTypeFilter {
     /// Optional substring that must appear in `event.description`.
     #[serde(default)]
     pub description_contains: Option<String>,
+    /// Optional substring set; matches when `event.description` contains ANY of
+    /// them. Lets a rule match a path *class* (e.g. world-writable dirs) instead
+    /// of one literal — generalizing off a single fixture filename.
+    #[serde(default)]
+    pub description_contains_any: Option<Vec<String>>,
 }
 
 impl EventTypeFilter {
@@ -39,6 +44,7 @@ impl EventTypeFilter {
             event_type: event_type.into(),
             source: None,
             description_contains: None,
+            description_contains_any: None,
         }
     }
 
@@ -53,6 +59,14 @@ impl EventTypeFilter {
     #[must_use]
     pub fn with_description(mut self, contains: impl Into<String>) -> Self {
         self.description_contains = Some(contains.into());
+        self
+    }
+
+    /// Builder: require the description to contain ANY of these substrings
+    /// (matches a path class rather than one literal).
+    #[must_use]
+    pub fn with_description_any(mut self, any: Vec<String>) -> Self {
+        self.description_contains_any = Some(any);
         self
     }
 }
@@ -237,15 +251,27 @@ pub fn bundled_temporal_rules() -> Vec<TemporalRule> {
             absent: vec![],
             discrepancy: vec![],
         },
-        // PAM hook artifact: /tmp/silly.txt appears after logon.
+        // PAM-hook persistence lead: a file dropped in a world-writable dir as a
+        // logon side-effect. Generalized off the /tmp/silly.txt fixture to the
+        // path CLASS, and graded a lead (not a verdict) — benign logins also
+        // write temp files, so it corroborates rather than concludes.
         TemporalRule {
             id: "temporal.pam-hook-artifact".into(),
-            title: "/tmp/silly.txt created on logon — PAM hook indicator".into(),
-            severity: "critical".into(),
-            description: None,
+            title:
+                "World-writable file created immediately after logon — possible PAM-hook persistence lead"
+                    .into(),
+            severity: "low".into(),
+            description: Some(
+                "Persistence — a file created in a world-writable directory (/tmp, /var/tmp, /dev/shm) within seconds of a successful logon is consistent with a PAM module (or other logon hook) dropping a marker/payload as an authentication side-effect. FP-prone: benign logins also create temp files there, so this is a corroborating lead, not a verdict — the analyst concludes."
+                    .into(),
+            ),
             within_seconds: 10,
             anchor: EventTypeFilter::new("LogonSuccess"),
-            sequence: vec![EventTypeFilter::new("FileCreate").with_description("/tmp/silly.txt")],
+            sequence: vec![EventTypeFilter::new("FileCreate").with_description_any(vec![
+                "/tmp/".into(),
+                "/var/tmp/".into(),
+                "/dev/shm/".into(),
+            ])],
             absent: vec![],
             discrepancy: vec![],
         },
@@ -701,6 +727,14 @@ fn filter_matches(event: &TimelineEvent, filter: &EventTypeFilter) -> bool {
     }
     if let Some(ref needle) = filter.description_contains {
         if !event.description.contains(needle.as_str()) {
+            return false;
+        }
+    }
+    if let Some(ref needles) = filter.description_contains_any {
+        if !needles
+            .iter()
+            .any(|n| event.description.contains(n.as_str()))
+        {
             return false;
         }
     }
