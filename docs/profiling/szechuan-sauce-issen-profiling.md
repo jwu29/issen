@@ -175,6 +175,165 @@ FROM timeline WHERE event_type='LogonSuccess' AND json_extract_string(metadata,'
 
 ---
 
+# Workstation half — DESKTOP-SDN1RPT (Windows 10, E01 + memory)
+
+**Run started:** 2026-06-22 10:41:58 UTC · issen 0.1.0 (release) · Darwin 24.6.0 arm64.
+
+Clean ingest of the 4-segment workstation E01:
+
+```
+$ issen ingest extracted/20200918_0417_DESKTOP-SDN1RPT.E01 -o ws.duckdb -s desktop-sdn1rpt
+```
+```
+Artifacts found:  632
+Artifacts parsed: 860
+Events generated: 856306
+Events committed: 856306 across 860 units
+Bytes processed:  1.55 GiB
+```
+Source breakdown: `Mft 417628 · Registry 350791 · UsnJournal 43415 · EventLog 40917 · Srum 1973 · Prefetch 1274 · Shellbags 105 · Amcache 97 · Lnk 51 · JumpLists 50 · DeviceInstall 4`. **Prefetch, Amcache, Lnk and JumpLists are now wired and producing events** — these were dead code in the binary at the 2026-06-11 G1 gate, so the evidence-of-execution and LNK-staging answers that previously read *WRITE-UP-CORROBORATED* are now **measured by issen** on the workstation.
+
+---
+
+## WQ1 — OS, hostname, domain (workstation)
+
+**Timestamp:** 2026-06-22 10:46 UTC
+
+```sql
+SELECT substr(description,1,140) FROM timeline
+WHERE description ILIKE '%CurrentBuild%' OR description ILIKE '%ProductName%';
+SELECT DISTINCT hostname FROM timeline WHERE hostname<>'';
+```
+```
+ProductName     = Windows 10 Enterprise Evaluation
+CurrentBuild    = 19041
+ReleaseId       = 2004
+hostname        = DESKTOP-SDN1RPT.C137.local   (pre-image name WIN-2IH1TBB9I4Q)
+```
+**issen answer:** ✅ **Windows 10 Enterprise (build 19041 / 2004)**, host `DESKTOP-SDN1RPT`, domain **C137**. **vs. known:** matches the key (Desktop = Windows 10 Enterprise 19041) — **matched**.
+
+---
+
+## WQ2 — Lateral movement DC → workstation (RDP, account, source, time)
+
+**Timestamp:** 2026-06-22 10:45 UTC
+
+```sql
+SELECT timestamp_display, json_extract_string(metadata,'$.TargetUserName') usr,
+       json_extract_string(metadata,'$.IpAddress') ip,
+       json_extract_string(metadata,'$.logon_type') lt
+FROM timeline WHERE event_type='LogonSuccess'
+  AND json_extract_string(metadata,'$.logon_type')='10' ORDER BY timestamp_ns;
+```
+```
+2020-09-19T03:36:24.4329481Z  Administrator  10.42.85.10  type 10 (RDP)
+```
+**issen answer:** ✅ the attacker reached the workstation by **RDP from `10.42.85.10` (the DC) as `Administrator`, logon_type 10, 2020-09-19 03:36:24 UTC** — exactly one type-10 logon, sourced from the DC. **vs. known:** the key's host-derived `03:36:24Z` (network-clock 02:35:54) lateral RDP with the re-used `Administrator` credential — **matched exactly**. (Direct attacker IP `194.61.24.102` appears only 4× on the WS as incidental cache/registry remnants; the workstation was reached laterally, not brute-forced — consistent with the key.)
+
+---
+
+## WQ3 — Malware on disk + evidence of execution (workstation)
+
+**Timestamp:** 2026-06-22 10:46 UTC
+
+```sql
+SELECT timestamp_display, source, event_type, artifact_path FROM timeline
+WHERE lower(artifact_path) LIKE '%coreupdater%' AND event_type IN ('FileCreate','ProcessExec')
+ORDER BY timestamp_ns;
+```
+```
+03:39:57.907Z  Mft       FileCreate   coreupdater[1].exe                  (IE download cache)
+03:40:00.691Z  Mft       FileCreate   Windows/System32/coreupdater.exe    (installed)
+03:40:45Z      Amcache   ProcessExec  c:\windows\system32\coreupdater.exe
+03:40:49.410Z  Prefetch  ProcessExec  ...\WINDOWS\SYSTEM32\COREUPDATER.EXE (run count 1)
+03:40:49Z      Registry  ProcessExec  UserAssist: ...coreupdater.exe (run_count=1)
+```
+**issen answer:** ✅ `C:\Windows\System32\coreupdater.exe`, with a full **download → install → execute** chain: IE-cache `coreupdater[1].exe` at 03:39:57Z → System32 install at 03:40:00Z → **executed** (Amcache 03:40:45Z, Prefetch run-count 1 at 03:40:49Z, UserAssist run_count 1). **vs. known:** the key's Desktop `FileCreate 03:40:00Z` + Prefetch `03:40:59Z` (execution-consistent) — **matched, and exceeded**: the *was-it-run / when / how-many-times* answer (Q6 evidence-of-execution), previously WRITE-UP-CORROBORATED because Prefetch/Amcache were dead code, is now **measured** (run count 1, three independent execution artifacts).
+
+---
+
+## WQ4 — Persistence (workstation)
+
+**Timestamp:** 2026-06-22 10:47 UTC
+
+```sql
+SELECT timestamp_display, event_type, substr(description,1,90) FROM timeline
+WHERE lower(description) LIKE '%coreupdater%' AND event_type='ServiceInstall' ORDER BY timestamp_ns;
+```
+```
+2020-09-19T03:42:42.676Z  ServiceInstall  Suspicious service: coreupdater ->
+                                           C:\Windows\System32\coreupdater.exe [auto-start own-process]
+```
+**issen answer:** ✅ persistence = **`coreupdater` Windows service** (auto-start, own-process, LocalSystem), installed `2020-09-19 03:42:42 UTC`, ImagePath `C:\Windows\System32\coreupdater.exe`. **vs. known:** Desktop service install ~02:41 network-clock (≈03:42 host) — **matched**. The ImagePath + auto-start classification is measured directly (no longer a PRE-3 design item on the workstation).
+
+---
+
+## WQ5 — What was taken / staged (workstation)
+
+**Timestamp:** 2026-06-22 10:47 UTC
+
+```sql
+SELECT timestamp_display, source, event_type, artifact_path FROM timeline
+WHERE artifact_path LIKE '%loot%' ORDER BY timestamp_ns;
+```
+```
+03:46:18.069Z  UsnJournal  FileRename   loot.zip
+03:46:18.129Z  UsnJournal  FileAccess   loot.zip
+03:46:18.129Z  UsnJournal  FileCreate   loot.lnk
+03:46:18.129Z  Mft         FileCreate   Users/Administrator/AppData/Roaming/Microsoft/Windows/Recent/loot.lnk
+03:47:09.917Z  UsnJournal  FileDelete   loot.zip
+```
+**issen answer:** ✅ on the workstation the attacker staged **`loot.zip`** (renamed/accessed `03:46:18Z`, a `loot.lnk` written into the Administrator `Recent` folder), then **deleted it after exfil at `03:47:09Z`**. **vs. known:** `loot.zip` staged/exfiltrated/deleted ~02:46–02:48 network-clock (≈03:46–03:47 host) — **matched** (15 loot events incl. the `loot.lnk` staging corroboration). The Szechuan-sauce recipe / `secret.zip` themselves are DC-resident (`sauce`-named files = 0 on the WS, as expected); the workstation leg of the theft is `loot.zip`. Byte-level transfer of the archive is PCAP-only and out of scope.
+
+---
+
+## WQ6 — Local accounts on the workstation
+
+**Timestamp:** 2026-06-22 10:48 UTC
+
+```sql
+SELECT DISTINCT json_extract_string(metadata,'$.TargetUserName') FROM timeline
+WHERE event_type IN ('LogonSuccess','LogonFailure');
+```
+```
+Administrator · ricksanchez · mortysmith · Admin · DESKTOP-SDN1RPT$ · (+ SYSTEM/service/UMFD/DWM)
+```
+Profile folders + SAM SIDs corroborate (`...-500` Administrator, `...-1106/-1108` user RIDs; `ricksanchez`, `mortysmith` profiles on disk). **issen answer:** ✅ interactive local accounts **Administrator, ricksanchez, mortysmith**. **vs. known:** the key names Administrator + ricksanchez as the users who logged on; issen additionally surfaces the `mortysmith` profile — **matched** (a superset of the key's named users).
+
+---
+
+## WQ7 — Workstation memory: process list (where Volatility and Rekall both failed)
+
+**Timestamp:** 2026-06-22 10:43 UTC  ·  **exit:** 0
+
+```
+$ issen memory DESKTOP-SDN1RPT.mem --command ps
+```
+```
+PID   PPID  Name            State
+...   ...   spoolsv.exe     Running   (PID 2188)
+6544  5896  FTK Imager.exe  Running   (live-acquisition tool)
+7328  5896  msinfo32.exe    Running
+8324  4008  coreupdater.ex  Exited
+```
+**issen answer:** ✅ structured `ps` recovered **~93 processes**, including **`coreupdater.exe` (PID 8324, PPID 4008, Exited)** and `spoolsv.exe`, plus the live-acquisition tools (`FTK Imager.exe`, `msinfo32.exe`) that confirm the image was taken on a running box. **vs. known:** coreupdater is the case malware — **matched**, and **exceeded**: the corpus note (F33/W1) records that this Desktop dump *defeated structured parsing in both Volatility and Rekall*, forcing the published analysts onto strings/FLOSS sweeps. issen's pool-scan walker parses it structurally and yields the named malware process. (PPID 4008 is a dropper/parent lead.)
+
+---
+
+## WQ8 — Workstation memory: C2 connection / credentials (build-19041 overlay gap)
+
+**Timestamp:** 2026-06-22 10:43 UTC  ·  **exit:** 0
+
+```
+$ issen memory DESKTOP-SDN1RPT.mem --command netstat
+   n/a  TCP pool symbols unavailable
+$ issen memory DESKTOP-SDN1RPT.mem --command creds
+   n/a  no credential artifacts found (or symbols unavailable)
+```
+**issen answer:** ⚠️ **partial / gap** — `netstat`, `creds` and `scan` return cleanly but empty on this dump: the symbol-free `TcpE`/SAM pool-scan that recovered the DC's C2 row uses a **build-9600 (Server 2012 R2) overlay**; this workstation dump is **build 19041 (Win10 2004)**, for which no symbol-free overlay is wired, so the structured TCP/cred pools are not located. **vs. known:** the C2 endpoint `203.78.103.109:443` and the credentials were recovered from the *DC* memory image (Q1/Q2); on the workstation they are a **genuine capability gap** (a missing build-19041 memory overlay), **distinct from PCAP scope**. issen fails *loud-but-clean* here (it states "symbols unavailable" rather than fabricating), and still beats the published baseline by recovering the process list structurally (WQ7).
+
+---
+
 # Summary
 
 ## Coverage matrix — CITADEL-DC01 (E01 + memory)
@@ -196,20 +355,43 @@ FROM timeline WHERE event_type='LogonSuccess' AND json_extract_string(metadata,'
 
 **Score (DC, core questions): 9 of 9 answered & key-matched.**
 
+## Coverage matrix — DESKTOP-SDN1RPT (E01 + memory)
+
+| # | Question | issen result | vs. answer key | Evidence / command |
+|---|---|---|---|---|
+| WQ1 | OS / hostname / domain | ✅ Windows 10 Enterprise build **19041 (2004)**, `DESKTOP-SDN1RPT.C137.local`, domain C137 | ✅ matched | `ingest` → registry |
+| WQ2 | Lateral movement DC → WS | ✅ RDP (type 10) `Administrator` ← **10.42.85.10** (DC), **2020-09-19 03:36:24Z** | ✅ matched | EVTX 4624 |
+| WQ3 | Malware on disk + execution | ✅ `System32\coreupdater.exe`; download 03:39:57 → install 03:40:00 → **executed** (Amcache/Prefetch/UserAssist, run count 1) | ✅ matched + exceeded | MFT + Amcache + Prefetch |
+| WQ4 | Persistence | ✅ `coreupdater` auto-start **service**, ImagePath System32, **03:42:42Z** | ✅ matched | EVTX 7045 / ServiceInstall |
+| WQ5 | What was staged / taken | ✅ **`loot.zip`** staged 03:46:18 (+`loot.lnk` in Recent), exfil-deleted **03:47:09Z** | ✅ matched | UsnJournal + MFT |
+| WQ6 | Local accounts | ✅ Administrator, ricksanchez, mortysmith | ✅ matched (superset) | registry profiles + logon meta |
+| WQ7 | Memory — malware process | ✅ `coreupdater.exe` PID 8324 (Exited) among ~93 procs; structured parse **succeeds where Volatility + Rekall failed** | ✅ matched + exceeded | `memory --command ps` |
+| WQ8 | Memory — C2 / credentials | ⚠️ gap: `netstat`/`creds` empty — no build-19041 symbol-free overlay (C2 already recovered DC-side) | partial / gap | `memory --command netstat/creds` |
+
+**Score (workstation): 7 of 8 matched** (2 exceed the published baseline); WQ8's C2/creds is a build-19041 memory-overlay gap, already answered from the DC memory image.
+
 ## Gap assessment vs. the union answer set
 
 | Gap | Severity | Nature | Note |
 |---|---|---|---|
 | ~~**Live C2 endpoint** 203.78.103.109:443~~ **CLOSED** | — | Resolved | `netstat` now recovers `coreupdater.exe → 203.78.103.109:443` via a symbol-free `TcpE` pool-scan (build-9600 overlay), removing the prior dependency on `tcpip.sys` PDB symbols absent from this build. C2 process + connection + persistence + drop are all recovered. |
-| **Workstation half** (DESKTOP-SDN1RPT) | **Medium** | Scope (not run) | Lateral-movement *specifics* (DC→WS event) and the **stolen recipe file** ("what was taken") live on the workstation E01, not ingested this run. Subnet `10.42.85.x` is referenced 1140× on the DC; issen ingests the workstation E01 identically — coverage, not capability. |
-| **PCAP / network capture** | **Medium** | Capability | No PCAP parser. Packet-only facts (exact exfil bytes/timing) are out of scope; the case ships `case001-pcap.zip`. |
+| ~~**Workstation half** (DESKTOP-SDN1RPT)~~ **CLOSED** | — | Resolved | Ingested 2026-06-22 (632 artifacts / 860 units / 856,306 events). Lateral RDP (DC→WS, Administrator, 03:36:24Z), the staged-and-deleted `loot.zip` (03:46→03:47), the `coreupdater` install+execute+persist chain, OS/accounts — all **measured & key-matched** (WQ1–WQ7). |
+| **Memory C2/creds on Win10 build 19041** | **Medium** | Capability | `netstat`/`creds`/`scan` on the workstation dump return empty: the symbol-free `TcpE`/SAM pool-scan has a **build-9600** overlay only, none for **build 19041**. issen fails loud-but-clean ("symbols unavailable", no fabrication). The C2 endpoint + Administrator hash were already recovered from the DC memory image; this is the genuine backlog item for the workstation memory leg. (`ps` still parses structurally — see WQ7.) |
+| **LNK `artifact_path` records the ingest tempdir, timestamps empty** | **Low** | Bug | All 51 `Lnk` rows put the extraction temp path (`/var/folders/.../T/.tmp…/part-…/Users/…/Recent/x.lnk`) in `artifact_path` and emit an empty `timestamp_display`. The parsed **LNK content is correct and rich** (`target_path`, `drive_type`, `volume_label`, MAC, droid GUIDs all in `description`/`metadata`), and the staging answers survive via the MFT/UsnJournal `loot.lnk` rows — but the `Lnk` source itself is mislocated and un-timestamped. Backlog: map the in-image path + LNK target/created timestamps onto the event. |
+| **PCAP / network capture** | **Medium** | Scope | No PCAP parser. Packet-only facts (exact exfil byte counts/timing of `secret.zip`/`loot.zip`) are a true scope boundary; the case ships `case001-pcap.zip`. |
 | ~~EVTX unparseable chunks~~ **CLOSED** | — | Resolved | Diagnosed as benign NTFS filesystem-slack past the last committed `ElfChnk` (the `evtx` crate derives chunk count from file size, so it probes whole-cluster slack). **Zero records lost** — verified on all 107 DC EVTX files. Slack chunks now route to `debug!` (with offending chunk-id + magic bytes) instead of WARN; genuine record loss stays loud. |
 | Timezone (`TimeZoneKeyName`) | Low | Query depth | Not surfaced in the quick query; likely present in registry, not isolated here. |
 | 4625 brute-force source IP | Low | Field mapping | Failed-logon `IpAddress` logged as `-`; the *successful* RDP login already establishes the vector + IP. |
 
 ## Verdict
 
-**Can issen find *all* the union answers from the two hosts' E01 + memory? Most — and all nine DC core questions.**
-On the **disk + memory of one host (the DC)** issen authoritatively answered **9 of 9** core investigative questions — including the **live C2 endpoint** (`203.78.103.109:443`, now recovered via the symbol-free `netstat` pool-scan) — and reconstructed the entire intrusion timeline with precise timestamps, from registry/EVTX/MFT/UsnJournal + live memory (credentials, malware process, C2 connection). The remaining boundaries are scope, not capability: **(1)** the workstation-resident answers (the second host's E01 — now ingestable in the same run via multi-source `issen ingest <DC.E01> <WS.E01>`), and **(2)** anything answerable only from the PCAP (unsupported). Running the workstation half pushes coverage to the high-90s%; the PCAP-only facts remain a true scope boundary.
+**Can issen find the union answers from the two hosts' E01 + memory? Yes — 9 of 9 on the DC and 7 of 8 on the workstation (16 of 17 core questions), with two answers exceeding the published baseline.**
 
-_Run completed: 
+Across **both hosts' disk + memory**, issen reconstructed the entire two-host intrusion with precise timestamps from registry/EVTX/MFT/UsnJournal/Prefetch/Amcache/LNK + live memory:
+
+- **DC (9/9):** brute-force RDP (`Administrator` ← `194.61.24.102`, 03:21:48) → `coreupdater.exe` download/install → service persistence → **live C2 `203.78.103.109:443`** and the Administrator NTLM hash from memory.
+- **Workstation (7/8):** **lateral RDP** from the DC (`10.42.85.10`, `Administrator`, 03:36:24) → `coreupdater.exe` download→install→**execute** (Amcache/Prefetch/UserAssist, run count 1) → **service persistence** (03:42:42) → **`loot.zip` staged and deleted** (03:46→03:47) → OS/accounts. The workstation memory `ps` recovered the malware process **structurally where Volatility and Rekall both failed**.
+
+The newly-wired Prefetch/Amcache/LNK/JumpList parsers turn the former evidence-of-execution gap (PRE-5) into measured answers. Three honest boundaries remain: **(1)** workstation-memory C2/credentials need a **build-19041** symbol-free overlay (capability backlog — the same facts are already recovered from the DC dump); **(2)** the `Lnk` source mislocates `artifact_path` to the ingest tempdir and emits empty timestamps (low-severity bug; the answers survive via MFT/UsnJournal); and **(3)** packet-level exfil byte counts are **PCAP-only** — a true scope boundary, not a capability gap.
+
+_Run completed: 2026-06-22 (workstation half) · DC half 2026-06-19._
