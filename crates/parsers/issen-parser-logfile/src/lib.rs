@@ -47,7 +47,9 @@ use issen_core::timeline::event::{EventType, TimelineEvent};
 use issen_core::ActivityCategory;
 use ntfs_core::logfile::{
     parse_log_records, read_record_pages, reconstruct_transactions, FileOperation, LogRecord,
+    Transaction, TransactionState,
 };
+use std::collections::HashMap;
 
 /// Audit raw `$LogFile` bytes into Integrity [`TimelineEvent`]s — one per
 /// journal-clearing finding `ntfs-forensic` reports. Bytes that parse cleanly
@@ -131,59 +133,173 @@ fn op_to_event(op: FileOperation) -> Option<(EventType, String)> {
     Some(mapped)
 }
 
-/// Replay reconstructed `$LogFile` transactions into [`TimelineEvent`]s — one per
-/// file-mutating [`FileOperation`].
+/// Per-operation-type roll-up of a `$LogFile`'s committed file operations.
+#[derive(Default)]
+struct CommittedAgg {
+    count: u64,
+    lsn_min: Option<u64>,
+    lsn_max: Option<u64>,
+}
+
+/// Replay reconstructed `$LogFile` transactions into [`TimelineEvent`]s with
+/// flood-safe volume tiering.
 ///
-/// Each event carries the operation's `transaction_id`, `lsn` (the ordering key
-/// in the absence of wall-clock time), `transaction_state` (Committed / Aborted /
-/// Incomplete — rolled-back operations are surfaced, never dropped), and the raw
-/// target-locating values. The target file name is the explicit `"unknown"`
-/// sentinel: `$LogFile` records carry no `$FILE_NAME` (see the module docs).
+/// A DC01-scale `$LogFile` holds tens of thousands of transactions, so one event
+/// per committed operation would flood the timeline with low-resolution
+/// `target=unknown` noise. The tiering:
+///
+/// - **Committed** transactions are **aggregated** by operation-type — one event
+///   per [`EventType`] carrying `operation_count`, the `lsn_min`/`lsn_max` range,
+///   and the `committed_transaction_count`. (No per-parser flag exists in the
+///   `ForensicParser` architecture, so aggregate is the default and only path for
+///   committed operations.)
+/// - **Aborted / Incomplete** transactions keep their **individual**
+///   per-operation events: rolled-back and crash-residue operations are the
+///   high-signal anomalies and are never aggregated away.
+///
+/// Every event keeps the honest target/timestamp handling: the target is the
+/// explicit `"unknown"` sentinel (`$LogFile` records carry no `$FILE_NAME`) and
+/// `timestamp_ns` is the sentinel `0` with the LSN carried as the ordering key.
 fn replay_events(records: &[LogRecord], source_id: &str) -> Vec<TimelineEvent> {
     let mut events = Vec::new();
+    let mut committed: HashMap<EventType, CommittedAgg> = HashMap::new();
+    let mut committed_txn_count: u64 = 0;
+
     for txn in reconstruct_transactions(records) {
-        let state = format!("{:?}", txn.state);
+        let is_committed = txn.state == TransactionState::Committed;
+        if is_committed {
+            committed_txn_count += 1;
+        }
         for (i, &op) in txn.operations.iter().enumerate() {
             let Some((event_type, op_label)) = op_to_event(op) else {
                 continue;
             };
             let lsn = txn.lsns.get(i).copied().unwrap_or_default();
-            let (attr, mft_idx, vcn) = txn
-                .records
-                .get(i)
-                .and_then(|&idx| records.get(idx))
-                .map_or((0u16, 0u16, 0u64), |r| {
-                    (r.target_attribute, r.mft_cluster_index, r.target_vcn)
-                });
-            let tid = txn.transaction_id;
-            let event = TimelineEvent::new(
-                0, // sentinel: $LogFile records carry no wall-clock time
-                format!("LSN {lsn} (no wall-clock time in $LogFile)"),
-                event_type,
-                ArtifactType::LogFile,
-                "$LogFile".to_string(),
-                format!(
-                    "$LogFile transaction replay: {op_label} (target file unknown — \
-                     record carries no $FILE_NAME; MFT cluster index {mft_idx}, \
-                     open-attribute index {attr}) — NTFS transaction {tid} {state}, \
-                     LSN {lsn}; consistent with a {op_label} file operation"
-                ),
-                source_id.to_string(),
-            )
-            .with_activity_category(ActivityCategory::FileSystemActivity)
-            .with_tag("logfile-replay")
-            .with_metadata("transaction_id", serde_json::json!(tid))
-            .with_metadata("lsn", serde_json::json!(lsn))
-            .with_metadata("transaction_state", serde_json::json!(state))
-            .with_metadata("operation", serde_json::json!(format!("{op:?}")))
-            .with_metadata("target", serde_json::json!("unknown"))
-            .with_metadata("target_attribute", serde_json::json!(attr))
-            .with_metadata("mft_cluster_index", serde_json::json!(mft_idx))
-            .with_metadata("target_vcn", serde_json::json!(vcn));
-            events.push(event);
+            if is_committed {
+                let agg = committed.entry(event_type).or_default();
+                agg.count += 1;
+                agg.lsn_min = Some(agg.lsn_min.map_or(lsn, |m| m.min(lsn)));
+                agg.lsn_max = Some(agg.lsn_max.map_or(lsn, |m| m.max(lsn)));
+            } else {
+                events.push(individual_event(
+                    &txn, i, event_type, &op_label, op, records, source_id,
+                ));
+            }
         }
     }
+
+    // Emit aggregates in a deterministic order (by LSN range), so the timeline
+    // reads in log order regardless of HashMap iteration order.
+    let mut aggregates: Vec<(EventType, CommittedAgg)> = committed.into_iter().collect();
+    aggregates.sort_by_key(|(_, a)| (a.lsn_min.unwrap_or(0), a.lsn_max.unwrap_or(0)));
+    for (event_type, agg) in aggregates {
+        events.push(aggregate_event(
+            event_type,
+            &agg,
+            committed_txn_count,
+            source_id,
+        ));
+    }
     events
+}
+
+/// Build one **individual** replay event for an aborted / incomplete operation.
+fn individual_event(
+    txn: &Transaction,
+    i: usize,
+    event_type: EventType,
+    op_label: &str,
+    op: FileOperation,
+    records: &[LogRecord],
+    source_id: &str,
+) -> TimelineEvent {
+    let state = format!("{:?}", txn.state);
+    let lsn = txn.lsns.get(i).copied().unwrap_or_default();
+    let (attr, mft_idx, vcn) = txn
+        .records
+        .get(i)
+        .and_then(|&idx| records.get(idx))
+        .map_or((0u16, 0u16, 0u64), |r| {
+            (r.target_attribute, r.mft_cluster_index, r.target_vcn)
+        });
+    let tid = txn.transaction_id;
+    TimelineEvent::new(
+        0, // sentinel: $LogFile records carry no wall-clock time
+        format!("LSN {lsn} (no wall-clock time in $LogFile)"),
+        event_type,
+        ArtifactType::LogFile,
+        "$LogFile".to_string(),
+        format!(
+            "$LogFile transaction replay: {op_label} (target file unknown — \
+             record carries no $FILE_NAME; MFT cluster index {mft_idx}, \
+             open-attribute index {attr}) — NTFS transaction {tid} {state}, \
+             LSN {lsn}; consistent with a {op_label} file operation"
+        ),
+        source_id.to_string(),
+    )
+    .with_activity_category(ActivityCategory::FileSystemActivity)
+    .with_tag("logfile-replay")
+    .with_metadata("aggregated", serde_json::json!(false))
+    .with_metadata("transaction_id", serde_json::json!(tid))
+    .with_metadata("lsn", serde_json::json!(lsn))
+    .with_metadata("transaction_state", serde_json::json!(state))
+    .with_metadata("operation", serde_json::json!(format!("{op:?}")))
+    .with_metadata("target", serde_json::json!("unknown"))
+    .with_metadata("target_attribute", serde_json::json!(attr))
+    .with_metadata("mft_cluster_index", serde_json::json!(mft_idx))
+    .with_metadata("target_vcn", serde_json::json!(vcn))
+}
+
+/// Build one **aggregate** replay event summarizing all committed operations of a
+/// single [`EventType`].
+fn aggregate_event(
+    event_type: EventType,
+    agg: &CommittedAgg,
+    committed_txn_count: u64,
+    source_id: &str,
+) -> TimelineEvent {
+    let label = type_label(&event_type);
+    let lsn_min = agg.lsn_min.unwrap_or_default();
+    let lsn_max = agg.lsn_max.unwrap_or_default();
+    let count = agg.count;
+    TimelineEvent::new(
+        0, // sentinel: $LogFile records carry no wall-clock time
+        format!("LSN {lsn_min}..{lsn_max} ({count} committed op(s), no wall-clock time)"),
+        event_type,
+        ArtifactType::LogFile,
+        "$LogFile".to_string(),
+        format!(
+            "$LogFile transaction replay (aggregated): {count} committed {label} \
+             operation(s) across {committed_txn_count} committed transaction(s), \
+             LSN {lsn_min}..{lsn_max}; targets unknown (records carry no $FILE_NAME)"
+        ),
+        source_id.to_string(),
+    )
+    .with_activity_category(ActivityCategory::FileSystemActivity)
+    .with_tag("logfile-replay")
+    .with_tag("aggregate")
+    .with_metadata("aggregated", serde_json::json!(true))
+    .with_metadata("operation_count", serde_json::json!(count))
+    .with_metadata("lsn_min", serde_json::json!(lsn_min))
+    .with_metadata("lsn_max", serde_json::json!(lsn_max))
+    .with_metadata(
+        "committed_transaction_count",
+        serde_json::json!(committed_txn_count),
+    )
+    .with_metadata("transaction_state", serde_json::json!("Committed"))
+    .with_metadata("target", serde_json::json!("unknown"))
+}
+
+/// A stable display label for an aggregated operation-[`EventType`].
+fn type_label(event_type: &EventType) -> String {
+    match event_type {
+        EventType::FileCreate => "FILE-CREATE".to_string(),
+        EventType::FileDelete => "FILE-DELETE".to_string(),
+        EventType::FileRename => "FILE-RENAME".to_string(),
+        EventType::FileModify => "FILE-MODIFY".to_string(),
+        EventType::Other(kind) => kind.to_uppercase(),
+        other => format!("{other:?}"),
+    }
 }
 
 /// `$LogFile` integrity parser.
@@ -336,8 +452,9 @@ mod tests {
             rec(101, 0x10, LogOp::CommitTransaction, LogOp::Noop),
         ];
         let events = replay_events(&records, "ev");
-        // The Create is a file op; the Commit is transaction control => no event.
-        assert_eq!(events.len(), 1, "one file op, control record skipped");
+        // A committed Create is aggregated: one FileCreate roll-up (the Commit is
+        // transaction control => no event).
+        assert_eq!(events.len(), 1, "one aggregated file op, control skipped");
         let e = &events[0];
         assert_eq!(e.event_type, EventType::FileCreate);
         assert_eq!(
@@ -345,26 +462,41 @@ mod tests {
             Some(issen_core::ActivityCategory::FileSystemActivity),
             "a replayed file operation is FileSystemActivity"
         );
-        // No fabricated filename: target is explicitly unknown.
+        // No fabricated filename: target is explicitly unknown even aggregated.
         assert!(
             e.metadata
                 .iter()
                 .any(|(k, v)| k == "target" && v == &serde_json::json!("unknown")),
             "target must be the explicit 'unknown' sentinel, never a fabricated name"
         );
-        // LSN carried as the ordering key; no wall-clock fabricated.
+        // No wall-clock fabricated; the LSN range is the ordering key.
         assert_eq!(e.timestamp_ns, 0, "no wall-clock time => sentinel 0");
         assert!(
             e.metadata
                 .iter()
-                .any(|(k, v)| k == "lsn" && v == &serde_json::json!(100u64)),
-            "lsn metadata preserves ordering in the absence of absolute time"
+                .any(|(k, v)| k == "aggregated" && v == &serde_json::json!(true)),
+            "a committed operation is aggregated"
         );
         assert!(
             e.metadata
                 .iter()
-                .any(|(k, v)| k == "transaction_id" && v == &serde_json::json!(0x10u32)),
-            "transaction_id must be carried"
+                .any(|(k, v)| k == "operation_count" && v == &serde_json::json!(1u64)),
+            "one committed create"
+        );
+        assert!(
+            e.metadata
+                .iter()
+                .any(|(k, v)| k == "lsn_min" && v == &serde_json::json!(100u64))
+                && e.metadata
+                    .iter()
+                    .any(|(k, v)| k == "lsn_max" && v == &serde_json::json!(100u64)),
+            "the LSN range preserves ordering in the absence of absolute time"
+        );
+        assert!(
+            e.metadata
+                .iter()
+                .any(|(k, v)| k == "committed_transaction_count" && v == &serde_json::json!(1u64)),
+            "the committed-transaction count is carried"
         );
         assert!(
             e.metadata
