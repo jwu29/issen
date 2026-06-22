@@ -114,11 +114,11 @@ Priority order. Each item is a strict-TDD unit (RED → GREEN, signed commits).
    Build the *general* `ParseOptions` seam (one structural change, all parsers benefit), not a
    SRUM-local hack. The aggregate-by-default path is already the safe default. *Effort: M.*
 
-7. **#110 P3 — remote-URI ingest.** `issen-cli/src/commands/ingest.rs:52-79` remote-fetch
-   paths (gdrive + generic operator) are stubs that early-return; the URI/operator scaffolding
-   exists. Implement byte-streaming → temp file → existing ingest path. Validate against a
-   *controlled* oracle (a localhost HTTP/file source we mint), not a self-authored round-trip.
-   *Effort: M.*
+7. **#110 P3 — remote-URI ingest — PARKED (deferred by user, 2026-06-22).**
+   `issen-cli/src/commands/ingest.rs:52-79` remote-fetch paths (gdrive + generic operator) are
+   stubs that early-return; the URI/operator scaffolding exists. When resumed: byte-streaming →
+   temp file → existing ingest path, validated against a *controlled* oracle (a localhost
+   HTTP/file source we mint), not a self-authored round-trip. *Effort: M.*
 
 ### P3 — ~~Epic K~~ DISSOLVED → done as a contained rename
 
@@ -142,6 +142,17 @@ Priority order. Each item is a strict-TDD unit (RED → GREEN, signed commits).
   validation write-up remains. *Minor.*
 - **#114 nested archive/VHD/VSS expansion** — large; coordinates with the `[H]` history layer.
   Keep as its own roadmap, not folded here.
+- **#70 fleet hierarchy reorg — DEFERRED, gated on fleet remediation ("after backup").** The
+  physical regrouping of the fleet into a layered tree. **Gate:** it must come *after* fleet
+  remediation (commit/push everything, create missing remotes) — that is the "back up first"
+  step, because the move touches ~68 cross-repo path deps + CI flat-sibling checkouts.
+  **Lower-risk path preferred** (per the sub-plan): Option A — a generated `FLEET.md` index
+  (zero change), and/or Option B — a `~/src/fleet/<layer>/<repo>` *symlink view* over unmoved
+  flat repos (browsable tree, zero dep/ref breakage), rather than a physical move. Coupled with
+  the fleet `forensicnomicon` version unification. Full detail + blast-radius in
+  `archive/2026-06-09-fleet-hierarchy-reorg.md` (and `archive/2026-06-09-issen-grand-plan.md`
+  §P4). *Effort: L (physical move) / S (index+symlink view).* This was dropped in the
+  2026-06-22 consolidation and is restored here.
 
 ## Epic K — SUPERSEDED by the `ArtifactLocation` rename (kept for reference)
 
