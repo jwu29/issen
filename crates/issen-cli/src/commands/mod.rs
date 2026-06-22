@@ -2,6 +2,7 @@ pub mod analyse;
 pub mod biome;
 pub mod correlate;
 pub mod correlate_mem;
+pub mod coverage_summary;
 pub mod feed;
 pub mod frequency;
 pub mod info;
