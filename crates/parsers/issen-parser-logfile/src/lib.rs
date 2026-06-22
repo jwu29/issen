@@ -1,10 +1,33 @@
-//! NTFS `$LogFile` transaction-journal integrity parser for Issen.
+//! NTFS `$LogFile` transaction-journal parser for Issen.
 //!
-//! Wraps `ntfs-forensic::audit_logfile`, which flags journal-clearing indicators
-//! (missing restart areas / page gaps — consistent with `$LogFile` having been
-//! wiped to destroy NTFS transaction history). Each finding becomes an Integrity
-//! event. Findings are observations ("consistent with clearing"), never a tamper
-//! verdict — the analyst/tribunal concludes.
+//! Two complementary passes over the raw `$LogFile` bytes:
+//!
+//! 1. **Clearing integrity** — `ntfs-forensic::audit_logfile` flags
+//!    journal-clearing indicators (missing restart areas / page gaps —
+//!    consistent with `$LogFile` having been wiped to destroy NTFS transaction
+//!    history). Each finding becomes an `Integrity` event.
+//! 2. **Transaction replay** (§B2) — `ntfs-core`'s LFS record decoder and
+//!    transaction reconstruction (`read_record_pages` → `parse_log_records` →
+//!    `reconstruct_transactions`) recover the per-file operations the journal
+//!    logged. Each reconstructed [`FileOperation`] becomes one
+//!    `FileSystemActivity` [`TimelineEvent`].
+//!
+//! Findings are observations ("consistent with …"), never a tamper verdict — the
+//! analyst/tribunal concludes.
+//!
+//! ## Two forensic crux decisions (documented honestly)
+//!
+//! - **Target file is genuinely unrecoverable at this layer.** An LFS
+//!   [`LogRecord`] names its target only by Open-Attribute-Table index
+//!   (`target_attribute`), MFT cluster index, and VCN — it carries **no
+//!   `$FILE_NAME`**, and `ntfs-core` does not resolve the open-attribute table to
+//!   names. Rather than fabricate a filename, each event sets `target` to the
+//!   explicit `"unknown"` sentinel and surfaces the raw locating values
+//!   (`target_attribute` / `mft_cluster_index` / `target_vcn`) in metadata.
+//! - **No wall-clock time exists in `$LogFile` records.** Records are ordered by
+//!   LSN, not timestamped. We do **not** fabricate a time: `timestamp_ns` is the
+//!   sentinel `0` and the record's `this_lsn` is carried in metadata (`lsn`) as
+//!   the ordering key, with `timestamp_display` stating the absence explicitly.
 
 #![allow(
     clippy::missing_errors_doc,
@@ -21,12 +44,17 @@ use issen_core::plugin::traits::{
     DataSource, EventEmitter, ForensicParser, ParseCompletion, ParseStats, ParserCapabilities,
 };
 use issen_core::timeline::event::{EventType, TimelineEvent};
+use issen_core::ActivityCategory;
+use ntfs_core::logfile::{
+    parse_log_records, read_record_pages, reconstruct_transactions, FileOperation, LogRecord,
+};
 
 /// Audit raw `$LogFile` bytes into Integrity [`TimelineEvent`]s — one per
 /// journal-clearing finding `ntfs-forensic` reports. Bytes that parse cleanly
 /// (no clearing indicators) yield no events.
 pub fn parse_logfile_bytes(bytes: &[u8], source_id: &str) -> Vec<TimelineEvent> {
-    ntfs_forensic::audit_logfile(bytes)
+    // Pass 1 — journal-clearing integrity findings.
+    let mut events: Vec<TimelineEvent> = ntfs_forensic::audit_logfile(bytes)
         .into_iter()
         .map(|anomaly| {
             TimelineEvent::new(
@@ -42,7 +70,7 @@ pub fn parse_logfile_bytes(bytes: &[u8], source_id: &str) -> Vec<TimelineEvent> 
                 ),
                 source_id.to_string(),
             )
-            .with_activity_category(issen_core::ActivityCategory::Integrity)
+            .with_activity_category(ActivityCategory::Integrity)
             .with_tag("integrity")
             .with_metadata("code", serde_json::json!(anomaly.code()))
             .with_metadata(
@@ -50,7 +78,112 @@ pub fn parse_logfile_bytes(bytes: &[u8], source_id: &str) -> Vec<TimelineEvent> 
                 serde_json::json!(format!("{:?}", anomaly.severity())),
             )
         })
-        .collect()
+        .collect();
+
+    // Pass 2 — per-file-operation transaction replay (§B2). Decode every RCRD
+    // page's LFS records, then reconstruct and replay the transactions.
+    let mut records: Vec<LogRecord> = Vec::new();
+    for page in read_record_pages(bytes) {
+        records.extend(parse_log_records(&page));
+    }
+    events.extend(replay_events(&records, source_id));
+    events
+}
+
+/// Map a reconstructed `$LogFile` [`FileOperation`] to its timeline
+/// [`EventType`] plus a stable, scheme-prefixed operation label.
+///
+/// Journal-bookkeeping classes — transaction control (commit / forget /
+/// compensation / prepare / end-top-level), restart/table dumps, and no-ops —
+/// record no on-disk file mutation and yield `None`; they are not surfaced as
+/// file-activity events (their disposition is instead carried on every file
+/// event of the same transaction via `transaction_state`). An unrecognised
+/// `(redo, undo)` pair is surfaced verbatim (raw codes) rather than dropped.
+fn op_to_event(op: FileOperation) -> Option<(EventType, String)> {
+    use FileOperation as F;
+    let mapped = match op {
+        F::Create => (EventType::FileCreate, "FILE-CREATE".to_string()),
+        F::Delete => (EventType::FileDelete, "FILE-DELETE".to_string()),
+        F::Rename => (EventType::FileRename, "FILE-RENAME".to_string()),
+        F::AttributeCreate => (EventType::FileModify, "ATTR-CREATE".to_string()),
+        F::AttributeDelete => (EventType::FileModify, "ATTR-DELETE".to_string()),
+        F::Resize => (EventType::FileModify, "FILE-RESIZE".to_string()),
+        F::DataWrite => (EventType::FileModify, "DATA-WRITE".to_string()),
+        F::IndexInsert => (
+            EventType::Other("index-insert".into()),
+            "INDEX-INSERT".to_string(),
+        ),
+        F::IndexDelete => (
+            EventType::Other("index-delete".into()),
+            "INDEX-DELETE".to_string(),
+        ),
+        F::BitmapAllocation => (
+            EventType::Other("bitmap-allocation".into()),
+            "BITMAP-ALLOC".to_string(),
+        ),
+        // Show-the-unrecognized-value: keep the raw redo/undo codes verbatim.
+        F::Unknown(redo, undo) => (
+            EventType::Other("logfile-op-unknown".into()),
+            format!("LOGFILE-OP-UNKNOWN-{redo:#06x}-{undo:#06x}"),
+        ),
+        F::TransactionControl | F::TableDump | F::Noop => return None,
+    };
+    Some(mapped)
+}
+
+/// Replay reconstructed `$LogFile` transactions into [`TimelineEvent`]s — one per
+/// file-mutating [`FileOperation`].
+///
+/// Each event carries the operation's `transaction_id`, `lsn` (the ordering key
+/// in the absence of wall-clock time), `transaction_state` (Committed / Aborted /
+/// Incomplete — rolled-back operations are surfaced, never dropped), and the raw
+/// target-locating values. The target file name is the explicit `"unknown"`
+/// sentinel: `$LogFile` records carry no `$FILE_NAME` (see the module docs).
+fn replay_events(records: &[LogRecord], source_id: &str) -> Vec<TimelineEvent> {
+    let mut events = Vec::new();
+    for txn in reconstruct_transactions(records) {
+        let state = format!("{:?}", txn.state);
+        for (i, &op) in txn.operations.iter().enumerate() {
+            let Some((event_type, op_label)) = op_to_event(op) else {
+                continue;
+            };
+            let lsn = txn.lsns.get(i).copied().unwrap_or_default();
+            let (attr, mft_idx, vcn) = txn
+                .records
+                .get(i)
+                .and_then(|&idx| records.get(idx))
+                .map_or((0u16, 0u16, 0u64), |r| {
+                    (r.target_attribute, r.mft_cluster_index, r.target_vcn)
+                });
+            let tid = txn.transaction_id;
+            let event = TimelineEvent::new(
+                0, // sentinel: $LogFile records carry no wall-clock time
+                format!("LSN {lsn} (no wall-clock time in $LogFile)"),
+                event_type,
+                ArtifactType::LogFile,
+                "$LogFile".to_string(),
+                format!(
+                    "$LogFile transaction replay: {op_label} (target file unknown — \
+                     record carries no $FILE_NAME; MFT cluster index {mft_idx}, \
+                     open-attribute index {attr}) — NTFS transaction {tid} {state}, \
+                     LSN {lsn}; consistent with a {op_label} file operation"
+                ),
+                source_id.to_string(),
+            )
+            .with_activity_category(ActivityCategory::FileSystemActivity)
+            .with_tag("logfile-replay")
+            .with_metadata("transaction_id", serde_json::json!(tid))
+            .with_metadata("lsn", serde_json::json!(lsn))
+            .with_metadata("transaction_state", serde_json::json!(state))
+            .with_metadata("operation", serde_json::json!(format!("{op:?}")))
+            .with_metadata("target", serde_json::json!("unknown"))
+            .with_metadata("target_attribute", serde_json::json!(attr))
+            .with_metadata("mft_cluster_index", serde_json::json!(mft_idx))
+            .with_metadata("target_vcn", serde_json::json!(vcn));
+            events.push(event);
+        }
+    }
+    events
 }
 
 /// `$LogFile` integrity parser.
