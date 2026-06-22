@@ -483,4 +483,117 @@ mod tests {
             bytes.len()
         );
     }
+
+    // ── §B2 volume tiering: flood-safe aggregation ───────────────────────────
+    //
+    // A DC01-scale $LogFile holds tens of thousands of transactions; one event
+    // per committed operation would flood the timeline with low-resolution
+    // target=unknown noise. Committed transactions are therefore aggregated by
+    // operation-type; aborted / incomplete transactions (the high-signal
+    // rolled-back / crash-residue anomalies) keep their per-operation events.
+
+    #[test]
+    fn committed_same_type_ops_aggregate_to_single_event() {
+        let records = vec![
+            rec(1, 0x50, LogOp::InitializeFileRecordSegment, LogOp::Noop),
+            rec(2, 0x50, LogOp::InitializeFileRecordSegment, LogOp::Noop),
+            rec(3, 0x50, LogOp::InitializeFileRecordSegment, LogOp::Noop),
+            rec(4, 0x50, LogOp::CommitTransaction, LogOp::Noop),
+        ];
+        let events = replay_events(&records, "ev");
+        let creates: Vec<_> = events
+            .iter()
+            .filter(|e| e.event_type == EventType::FileCreate)
+            .collect();
+        assert_eq!(
+            creates.len(),
+            1,
+            "committed same-type ops aggregate to ONE event, not N"
+        );
+        let e = creates[0];
+        assert!(
+            e.metadata
+                .iter()
+                .any(|(k, v)| k == "aggregated" && v == &serde_json::json!(true)),
+            "the committed roll-up is marked aggregated"
+        );
+        assert!(
+            e.metadata
+                .iter()
+                .any(|(k, v)| k == "operation_count" && v == &serde_json::json!(3u64)),
+            "carries the operation count"
+        );
+        assert!(
+            e.metadata
+                .iter()
+                .any(|(k, v)| k == "lsn_min" && v == &serde_json::json!(1u64)),
+            "carries the min LSN of the range"
+        );
+        assert!(
+            e.metadata
+                .iter()
+                .any(|(k, v)| k == "lsn_max" && v == &serde_json::json!(3u64)),
+            "carries the max LSN of the range"
+        );
+        assert!(
+            e.metadata
+                .iter()
+                .any(|(k, v)| k == "committed_transaction_count" && v == &serde_json::json!(1u64)),
+            "carries the committed-transaction count"
+        );
+        // Target is still honestly unknown even when aggregated.
+        assert!(
+            e.metadata
+                .iter()
+                .any(|(k, v)| k == "target" && v == &serde_json::json!("unknown")),
+            "aggregation does not fabricate a target"
+        );
+        assert_eq!(e.timestamp_ns, 0, "no fabricated wall-clock time");
+    }
+
+    #[test]
+    fn aborted_transaction_ops_emitted_individually() {
+        let records = vec![
+            rec(10, 0x60, LogOp::InitializeFileRecordSegment, LogOp::Noop),
+            rec(11, 0x60, LogOp::InitializeFileRecordSegment, LogOp::Noop),
+            rec(12, 0x60, LogOp::CompensationLogRecord, LogOp::Noop),
+        ];
+        let events = replay_events(&records, "ev");
+        let creates: Vec<_> = events
+            .iter()
+            .filter(|e| e.event_type == EventType::FileCreate)
+            .collect();
+        assert_eq!(
+            creates.len(),
+            2,
+            "aborted ops stay individual — never aggregated away"
+        );
+        for e in &creates {
+            assert!(
+                e.metadata
+                    .iter()
+                    .any(|(k, v)| k == "aggregated" && v == &serde_json::json!(false)),
+                "individual events are explicitly not aggregated"
+            );
+            assert!(
+                e.metadata
+                    .iter()
+                    .any(|(k, v)| k == "transaction_state" && v == &serde_json::json!("Aborted")),
+                "aborted disposition surfaced on each op"
+            );
+        }
+        let lsns: Vec<_> = creates
+            .iter()
+            .filter_map(|e| {
+                e.metadata
+                    .iter()
+                    .find(|(k, _)| *k == "lsn")
+                    .map(|(_, v)| v.clone())
+            })
+            .collect();
+        assert!(
+            lsns.contains(&serde_json::json!(10u64)) && lsns.contains(&serde_json::json!(11u64)),
+            "each aborted op keeps its own LSN"
+        );
+    }
 }
