@@ -204,6 +204,8 @@ mod tests {
             ArtifactType::RootkitScan,
             ArtifactType::SystemConfig,
             ArtifactType::DeviceInstall,
+            ArtifactType::Pe,
+            ArtifactType::RecycleBin,
         ] {
             let debug = format!("{at:?}");
             assert_eq!(
