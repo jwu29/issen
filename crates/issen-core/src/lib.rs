@@ -3,6 +3,7 @@
 pub mod artifacts;
 pub mod classify;
 pub mod config;
+pub mod coverage;
 pub mod error;
 pub mod plugin;
 pub mod timeline;
