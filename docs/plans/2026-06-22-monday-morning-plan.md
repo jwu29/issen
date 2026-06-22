@@ -120,13 +120,19 @@ Priority order. Each item is a strict-TDD unit (RED → GREEN, signed commits).
    *controlled* oracle (a localhost HTTP/file source we mint), not a self-authored round-trip.
    *Effort: M.*
 
-### P3 — parked on your go/no-go
+### P3 — ~~Epic K~~ DISSOLVED → done as a contained rename
 
-8. **Epic K — relocate the semantic `ArtifactType` taxonomy into forensicnomicon.** See
-   [Epic K migration](#epic-k--regression-safe-rollback-able-migration). Parked because it is
-   the largest blast radius (12 issen crate-groups + 27 parsers + forensicnomicon), forces a
-   public ~10-crate crates.io republish (hard to reverse), and adds no analyst-facing
-   capability — and nothing depends on it, so deferring costs nothing.
+8. **~~Epic K (relocate the taxonomy into forensicnomicon)~~ — resolved without a fleet
+   republish.** A three-way review (user intuition + first-hand verification + Codex) found the
+   two `ArtifactType` enums are *orthogonal axes that only collided by name*: issen's is the
+   genuine artifact-**family** taxonomy (correctly named), forensicnomicon's catalog one is the
+   **location** axis (the misnomer). Fixed by renaming the misnamed one —
+   `forensicnomicon::catalog::ArtifactType → ArtifactLocation` (commit **`f08f35c`**, fn
+   `0.8.0 → 0.9.0`; 6914 mechanical word-boundary renames across 27 files, `artifact_type` field
+   and serde wire format unchanged, **2680 tests green**). No fleet crate imports
+   `catalog::ArtifactType`, so the relocation/version-unify/~10-crate-republish wave is **moot**,
+   and the Debug-token/skew risks are gone. **One step remains and is held for your explicit
+   go:** publish forensicnomicon `0.9.0` to crates.io (the only irreversible action).
 
 ### Blocked / minor
 
@@ -137,7 +143,15 @@ Priority order. Each item is a strict-TDD unit (RED → GREEN, signed commits).
 - **#114 nested archive/VHD/VSS expansion** — large; coordinates with the `[H]` history layer.
   Keep as its own roadmap, not folded here.
 
-## Epic K — regression-safe, rollback-able migration
+## Epic K — SUPERSEDED by the `ArtifactLocation` rename (kept for reference)
+
+> The relocation migration below is **no longer the plan** — the name collision that motivated
+> it was resolved by renaming forensicnomicon's location enum (P3 #8, commit `f08f35c`). This
+> section is retained only as the design that *would* apply if a genuine cross-repo taxonomy
+> move is ever needed (e.g. a second orchestrator wants the family taxonomy). It is not active
+> work.
+
+### (archived) regression-safe, rollback-able migration
 
 `ArtifactType` lives in two places on **genuinely different axes** (a self-critique finding,
 verified against source): forensicnomicon's catalog `ArtifactType` is documented as *"the kind
