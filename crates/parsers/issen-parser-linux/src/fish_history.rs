@@ -189,9 +189,9 @@ mod tests {
             .metadata
             .get("accessed_paths")
             .expect("accessed_paths");
-        assert!(paths.as_array().is_some_and(|a| {
-            a.iter().any(|v| v.as_str() == Some("/etc/shadow"))
-        }));
+        assert!(paths
+            .as_array()
+            .is_some_and(|a| { a.iter().any(|v| v.as_str() == Some("/etc/shadow")) }));
     }
 
     #[test]

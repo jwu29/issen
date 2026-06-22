@@ -28,14 +28,20 @@ impl ClockCalibration {
         wsl_ns + self.drift_ms * 1_000_000
     }
 
-    pub fn adjust_with_source(&self, wsl_ns: i64, source: TimestampSource) -> (i64, TimestampSource) {
+    pub fn adjust_with_source(
+        &self,
+        wsl_ns: i64,
+        source: TimestampSource,
+    ) -> (i64, TimestampSource) {
         (self.wsl_to_windows_ns(wsl_ns), source)
     }
 
     /// Derive calibration from a pair of timestamps for the same event.
     pub fn from_event_pair(windows_ns: i64, wsl_ns: i64) -> Self {
         let diff_ns = windows_ns - wsl_ns;
-        Self { drift_ms: diff_ns / 1_000_000 }
+        Self {
+            drift_ms: diff_ns / 1_000_000,
+        }
     }
 
     /// Returns `true` if `ts_ns` has no sub-second component (likely DrvFs clamped).

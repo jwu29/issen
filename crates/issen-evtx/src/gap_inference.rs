@@ -195,6 +195,9 @@ mod tests {
     fn mean_interval_secs_correct_for_uniform_stream() {
         let events: Vec<_> = (0..11).map(|i| make_event(i * NS)).collect();
         let mean = mean_interval_secs(&events).unwrap();
-        assert!((mean - 1.0).abs() < 0.01, "mean should be ~1.0 s, got {mean}");
+        assert!(
+            (mean - 1.0).abs() < 0.01,
+            "mean should be ~1.0 s, got {mean}"
+        );
     }
 }

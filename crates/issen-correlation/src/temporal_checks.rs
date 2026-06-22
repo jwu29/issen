@@ -55,7 +55,11 @@ mod tests {
         let install_ns = 1_000_000_000_000i64; // arbitrary
         let file_born_ns = install_ns - 2 * 86_400_000_000_000i64; // 2 days before
         let threshold_ns = 86_400_000_000_000i64; // 1 day
-        assert!(is_born_before_install(file_born_ns, install_ns, threshold_ns));
+        assert!(is_born_before_install(
+            file_born_ns,
+            install_ns,
+            threshold_ns
+        ));
     }
 
     #[test]
@@ -75,7 +79,11 @@ mod tests {
         let install_ns = 1_000_000_000_000_000i64;
         let file_born_ns = install_ns - 12 * 3_600_000_000_000i64;
         let threshold_ns = 24 * 3_600_000_000_000i64;
-        assert!(!is_born_before_install(file_born_ns, install_ns, threshold_ns));
+        assert!(!is_born_before_install(
+            file_born_ns,
+            install_ns,
+            threshold_ns
+        ));
     }
 
     #[test]

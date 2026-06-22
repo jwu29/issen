@@ -44,8 +44,15 @@ fn read_file_matches_icat() {
     }
     let got = got.unwrap_or_else(|| panic!("{path} not found on any NTFS partition"));
 
-    println!("ntfs-forensic read {} bytes; icat {} bytes", got.len(), expected.len());
+    println!(
+        "ntfs-forensic read {} bytes; icat {} bytes",
+        got.len(),
+        expected.len()
+    );
     assert_eq!(got.len(), expected.len(), "length mismatch vs icat");
-    assert_eq!(got, expected, "content mismatch vs icat — read path is wrong");
+    assert_eq!(
+        got, expected,
+        "content mismatch vs icat — read path is wrong"
+    );
     println!("byte-for-byte match vs TSK icat ✓");
 }

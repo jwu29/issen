@@ -134,10 +134,7 @@ pub fn findings_to_afb(findings: &[Finding], title: &str) -> AfbDocument {
 
     for finding in findings {
         let instance = Uuid::new_v4().to_string();
-        let description = finding
-            .explanation
-            .as_deref()
-            .unwrap_or("");
+        let description = finding.explanation.as_deref().unwrap_or("");
         afb_objects.push(AfbObject {
             id: "action".to_string(),
             instance: instance.clone(),
@@ -152,10 +149,7 @@ pub fn findings_to_afb(findings: &[Finding], title: &str) -> AfbDocument {
 
     // Auto-layout: linear chain A[0] → A[1] → A[2] …
     let node_refs: Vec<&str> = action_instances.iter().map(String::as_str).collect();
-    let edge_pairs: Vec<(&str, &str)> = node_refs
-        .windows(2)
-        .map(|w| (w[0], w[1]))
-        .collect();
+    let edge_pairs: Vec<(&str, &str)> = node_refs.windows(2).map(|w| (w[0], w[1])).collect();
     let layout = auto_layout_dag(&node_refs, &edge_pairs, 300.0, 200.0);
 
     // Flow object (container).
@@ -255,8 +249,7 @@ mod tests {
     #[test]
     fn auto_layout_parallel_nodes_different_y() {
         // A -> B and A -> C: B and C are in the same layer but different rows
-        let coords =
-            auto_layout_dag(&["A", "B", "C"], &[("A", "B"), ("A", "C")], 300.0, 200.0);
+        let coords = auto_layout_dag(&["A", "B", "C"], &[("A", "B"), ("A", "C")], 300.0, 200.0);
         let yb = coords.get("B").expect("node B")[1];
         let yc = coords.get("C").expect("node C")[1];
         let xb = coords.get("B").expect("node B")[0];

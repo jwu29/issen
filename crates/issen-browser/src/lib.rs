@@ -1,9 +1,9 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+pub use browser_chrome::parse_history as parse_chrome_history;
 /// Browser forensic integration layer for Issen.
 ///
 /// Wraps browser-core, browser-chrome, and browser-firefox.
-pub use browser_core::{ArtifactKind, BrowserEvent, BrowserFamily, detect_browser};
-pub use browser_chrome::parse_history as parse_chrome_history;
+pub use browser_core::{detect_browser, ArtifactKind, BrowserEvent, BrowserFamily};
 pub use browser_firefox::parse_history as parse_firefox_history;
 pub use browser_safari::parse_history as parse_safari_history;
 
@@ -23,10 +23,7 @@ pub fn parse_browser_history(path: &Path) -> Result<Vec<BrowserEvent>> {
         Some(BrowserFamily::Chromium) => parse_chrome_history(path),
         Some(BrowserFamily::Firefox) => parse_firefox_history(path),
         Some(BrowserFamily::Safari) => parse_safari_history(path),
-        None => anyhow::bail!(
-            "cannot detect browser family from path: {}",
-            path.display()
-        ),
+        None => anyhow::bail!("cannot detect browser family from path: {}", path.display()),
     }
 }
 

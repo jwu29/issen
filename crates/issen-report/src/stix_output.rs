@@ -185,7 +185,10 @@ mod tests {
             .objects
             .iter()
             .any(|o| o.get("type").and_then(|t| t.as_str()) == Some("extension-definition"));
-        assert!(has_ext_def, "bundle must contain an extension-definition object");
+        assert!(
+            has_ext_def,
+            "bundle must contain an extension-definition object"
+        );
     }
 
     #[test]
@@ -196,7 +199,10 @@ mod tests {
             .objects
             .iter()
             .any(|o| o.get("type").and_then(|t| t.as_str()) == Some("attack-action"));
-        assert!(has_action, "one finding must produce one attack-action object");
+        assert!(
+            has_action,
+            "one finding must produce one attack-action object"
+        );
     }
 
     #[test]

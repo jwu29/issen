@@ -88,9 +88,7 @@ impl DataSource for Qcow2DataSource {
 
 // ── CollectionProvider ────────────────────────────────────────────────
 
-use issen_unpack::{
-    CollectionManifest, CollectionProvider, Confidence,
-};
+use issen_unpack::{CollectionManifest, CollectionProvider, Confidence};
 
 /// Format-recognition and manifest provider for QCOW2 disk images.
 #[derive(Debug, Default)]

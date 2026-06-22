@@ -1,9 +1,9 @@
 //! Anti-forensics detection: log clearing, service tampering, time skew, Sysmon tampering.
 
 use forensicnomicon::heuristics::evtx::{
-    EID_LOG_CLEARED, EID_LOG_CLEARED_SYSTEM, EID_CHANNEL_LOG_CLEARED,
-    EID_SYSMON_DRIVER_UNLOAD, EID_SYSMON_CONFIG_CHANGE, EID_SYSMON_FILE_DELETE,
-    PS_HISTORY_PATH_FRAGMENT, SYSMON_CHANNEL, EID_W32TIME_NTP_FAILED,
+    EID_CHANNEL_LOG_CLEARED, EID_LOG_CLEARED, EID_LOG_CLEARED_SYSTEM, EID_SYSMON_CONFIG_CHANGE,
+    EID_SYSMON_DRIVER_UNLOAD, EID_SYSMON_FILE_DELETE, EID_W32TIME_NTP_FAILED,
+    PS_HISTORY_PATH_FRAGMENT, SYSMON_CHANNEL,
 };
 use winevt_core::EvtxEvent;
 
@@ -59,11 +59,12 @@ pub fn detect_service_stop_around_gaps(events: &[EvtxEvent]) -> Vec<AntiForensic
         return vec![];
     }
 
-
     let mut alerts = Vec::new();
     for gap in &gaps {
         for ev in events {
-            if !SHUTDOWN_EIDS.contains(&ev.event_id) { continue; }
+            if !SHUTDOWN_EIDS.contains(&ev.event_id) {
+                continue;
+            }
             let near_start = (ev.timestamp_ns - gap.start_ns).abs() < PROXIMITY_NS;
             let near_end = (ev.timestamp_ns - gap.end_ns).abs() < PROXIMITY_NS;
             if near_start || near_end {
@@ -101,7 +102,8 @@ pub fn detect_time_skew(events: &[EvtxEvent]) -> Vec<AntiForensicsAlert> {
     }
 
     // Non-monotonic timestamp sequence
-    let mut sorted_ts: Vec<(i64, usize)> = events.iter()
+    let mut sorted_ts: Vec<(i64, usize)> = events
+        .iter()
         .enumerate()
         .map(|(i, e)| (e.timestamp_ns, i))
         .collect();
@@ -131,13 +133,19 @@ pub fn detect_sysmon_tampering(events: &[EvtxEvent]) -> Vec<AntiForensicsAlert> 
     events
         .iter()
         .filter(|e| e.channel == SYSMON_CHANNEL)
-        .filter(|e| e.event_id == EID_SYSMON_DRIVER_UNLOAD || e.event_id == EID_SYSMON_CONFIG_CHANGE)
+        .filter(|e| {
+            e.event_id == EID_SYSMON_DRIVER_UNLOAD || e.event_id == EID_SYSMON_CONFIG_CHANGE
+        })
         .map(|e| AntiForensicsAlert {
             kind: AlertKind::SysmonTampering,
             description: format!(
                 "Sysmon tampered: EID {} ({})",
                 e.event_id,
-                if e.event_id == EID_SYSMON_DRIVER_UNLOAD { "driver unload" } else { "config change" }
+                if e.event_id == EID_SYSMON_DRIVER_UNLOAD {
+                    "driver unload"
+                } else {
+                    "config change"
+                }
             ),
             evidence: vec![e.clone()],
         })
@@ -168,7 +176,8 @@ pub fn detect_ps_history_wipe(events: &[EvtxEvent]) -> Vec<AntiForensicsAlert> {
         .iter()
         .filter(|e| e.event_id == EID_SYSMON_FILE_DELETE && e.channel == SYSMON_CHANNEL)
         .filter(|e| {
-            e.data.get("TargetFilename")
+            e.data
+                .get("TargetFilename")
                 .is_some_and(|f| f.contains(PS_HISTORY_PATH_FRAGMENT))
         })
         .map(|e| AntiForensicsAlert {
@@ -201,15 +210,29 @@ mod tests {
 
     fn make_event(event_id: u32, channel: &str, data: Vec<(&str, &str)>, ts: i64) -> EvtxEvent {
         EvtxEvent {
-            event_id, channel: channel.into(), timestamp_ns: ts, computer: "WS01".into(),
-            user_sid: None, logon_id: None, process_id: None, thread_id: None,
-            data: data.into_iter().map(|(k, v)| (k.into(), v.into())).collect(),
+            event_id,
+            channel: channel.into(),
+            timestamp_ns: ts,
+            computer: "WS01".into(),
+            user_sid: None,
+            logon_id: None,
+            process_id: None,
+            thread_id: None,
+            data: data
+                .into_iter()
+                .map(|(k, v)| (k.into(), v.into()))
+                .collect(),
         }
     }
 
     #[test]
     fn log_clearing_detected_on_eid_1102() {
-        let events = vec![make_event(1102, "Security", vec![("SubjectUserName", "attacker")], 1_000_000_000)];
+        let events = vec![make_event(
+            1102,
+            "Security",
+            vec![("SubjectUserName", "attacker")],
+            1_000_000_000,
+        )];
         let alerts = detect_log_clearing(&events);
         assert!(!alerts.is_empty());
         assert_eq!(alerts[0].kind, AlertKind::LogClearing);
@@ -236,7 +259,9 @@ mod tests {
     #[test]
     fn service_stop_around_gaps_uniform_stream_no_alert() {
         let ns = 1_000_000_000_i64;
-        let events: Vec<_> = (0..50).map(|i| make_event(4624, "Security", vec![], i * ns)).collect();
+        let events: Vec<_> = (0..50)
+            .map(|i| make_event(4624, "Security", vec![], i * ns))
+            .collect();
         assert!(detect_service_stop_around_gaps(&events).is_empty());
     }
 
@@ -254,7 +279,12 @@ mod tests {
 
     #[test]
     fn time_skew_w32time_sync_failure_detected() {
-        let events = vec![make_event(37, "System", vec![("ErrorCode", "0x800705B4")], 1_000_000_000)];
+        let events = vec![make_event(
+            37,
+            "System",
+            vec![("ErrorCode", "0x800705B4")],
+            1_000_000_000,
+        )];
         let alerts = detect_time_skew(&events);
         assert!(!alerts.is_empty());
     }
@@ -266,7 +296,12 @@ mod tests {
 
     #[test]
     fn sysmon_tampering_detected_on_eid_255() {
-        let events = vec![make_event(255, "Microsoft-Windows-Sysmon/Operational", vec![], 1_000_000_000)];
+        let events = vec![make_event(
+            255,
+            "Microsoft-Windows-Sysmon/Operational",
+            vec![],
+            1_000_000_000,
+        )];
         let alerts = detect_sysmon_tampering(&events);
         assert!(!alerts.is_empty());
         assert_eq!(alerts[0].kind, AlertKind::SysmonTampering);
@@ -274,7 +309,12 @@ mod tests {
 
     #[test]
     fn sysmon_tampering_detected_on_eid_16() {
-        let events = vec![make_event(16, "Microsoft-Windows-Sysmon/Operational", vec![("Configuration","C:\\Temp\\custom.xml")], 1_000_000_000)];
+        let events = vec![make_event(
+            16,
+            "Microsoft-Windows-Sysmon/Operational",
+            vec![("Configuration", "C:\\Temp\\custom.xml")],
+            1_000_000_000,
+        )];
         let alerts = detect_sysmon_tampering(&events);
         assert!(!alerts.is_empty());
         assert_eq!(alerts[0].kind, AlertKind::SysmonTampering);
@@ -282,7 +322,12 @@ mod tests {
 
     #[test]
     fn channel_disable_detected_on_eid_105() {
-        let events = vec![make_event(105, "System", vec![("Channel","Microsoft-Windows-Sysmon/Operational")], 1_000_000_000)];
+        let events = vec![make_event(
+            105,
+            "System",
+            vec![("Channel", "Microsoft-Windows-Sysmon/Operational")],
+            1_000_000_000,
+        )];
         let alerts = detect_channel_disable(&events);
         assert!(!alerts.is_empty());
         assert_eq!(alerts[0].kind, AlertKind::ChannelDisabled);
@@ -296,7 +341,12 @@ mod tests {
     #[test]
     fn run_all_antiforensics_aggregates_multiple() {
         let events = vec![
-            make_event(1102, "Security", vec![("SubjectUserName", "attacker")], 1_000),
+            make_event(
+                1102,
+                "Security",
+                vec![("SubjectUserName", "attacker")],
+                1_000,
+            ),
             make_event(255, "Microsoft-Windows-Sysmon/Operational", vec![], 2_000),
         ];
         let alerts = run_all_antiforensics(&events);
@@ -313,16 +363,24 @@ mod tests {
                  ("Image","C:\\Windows\\System32\\cmd.exe")],
             1_000_000_000)];
         let alerts = detect_ps_history_wipe(&events);
-        assert!(!alerts.is_empty(), "Sysmon EID 23 on ConsoleHost_history.txt must be detected");
+        assert!(
+            !alerts.is_empty(),
+            "Sysmon EID 23 on ConsoleHost_history.txt must be detected"
+        );
         assert_eq!(alerts[0].kind, AlertKind::PsHistoryWipe);
     }
 
     #[test]
     fn ps_history_wipe_other_file_not_detected() {
-        let events = vec![make_event(23, "Microsoft-Windows-Sysmon/Operational",
-            vec![("TargetFilename","C:\\Users\\victim\\Desktop\\legit.txt"),
-                 ("Image","C:\\Windows\\System32\\cmd.exe")],
-            1_000)];
+        let events = vec![make_event(
+            23,
+            "Microsoft-Windows-Sysmon/Operational",
+            vec![
+                ("TargetFilename", "C:\\Users\\victim\\Desktop\\legit.txt"),
+                ("Image", "C:\\Windows\\System32\\cmd.exe"),
+            ],
+            1_000,
+        )];
         assert!(detect_ps_history_wipe(&events).is_empty());
     }
 
@@ -335,5 +393,7 @@ mod tests {
     }
 
     #[test]
-    fn ps_history_wipe_empty() { assert!(detect_ps_history_wipe(&[]).is_empty()); }
+    fn ps_history_wipe_empty() {
+        assert!(detect_ps_history_wipe(&[]).is_empty());
+    }
 }

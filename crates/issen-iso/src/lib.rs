@@ -89,9 +89,7 @@ impl DataSource for IsoDataSource {
 
 // ── CollectionProvider ────────────────────────────────────────────────
 
-use issen_unpack::{
-    CollectionManifest, CollectionProvider, Confidence,
-};
+use issen_unpack::{CollectionManifest, CollectionProvider, Confidence};
 
 /// Format-recognition and manifest provider for ISO 9660 disc images.
 #[derive(Debug, Default)]

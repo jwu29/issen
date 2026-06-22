@@ -70,12 +70,7 @@ mod tests {
     }
 
     fn make_evidence_with_attrs(id: &str, attrs: &[(&str, &str)]) -> Evidence {
-        let mut ev = Evidence::new(
-            id,
-            EvidenceSource::Artifact,
-            EvidenceKind::Artifact,
-            None,
-        );
+        let mut ev = Evidence::new(id, EvidenceSource::Artifact, EvidenceKind::Artifact, None);
         for (k, v) in attrs {
             ev = ev.with_attr(*k, *v);
         }
@@ -170,7 +165,9 @@ mod tests {
 
         let clusters = cluster_events(&events, &ClusterKey::ByPath);
 
-        let passwd = clusters.get("/etc/passwd").expect("cluster for /etc/passwd");
+        let passwd = clusters
+            .get("/etc/passwd")
+            .expect("cluster for /etc/passwd");
         assert_eq!(passwd.len(), 2);
 
         let xmrig = clusters.get("/tmp/xmrig").expect("cluster for /tmp/xmrig");

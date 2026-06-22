@@ -41,9 +41,7 @@ type DispatchOutput = (Vec<&'static str>, Vec<Vec<String>>);
 
 /// Find the column index of `header` (case-insensitive) in a header row.
 fn col_index(headers: &[&str], header: &str) -> Option<usize> {
-    headers
-        .iter()
-        .position(|h| h.eq_ignore_ascii_case(header))
+    headers.iter().position(|h| h.eq_ignore_ascii_case(header))
 }
 
 /// Fetch a cell by header name, returning `""` when the column or cell is absent.
@@ -228,7 +226,9 @@ mod tests {
     /// (Local/Remote pre-joined as `addr:port`).
     fn netstat_output() -> DispatchOutput {
         (
-            vec!["Proto", "Local", "Remote", "State", "PID", "Process", "Note"],
+            vec![
+                "Proto", "Local", "Remote", "State", "PID", "Process", "Note",
+            ],
             vec![vec![
                 "TCP".into(),
                 "10.0.0.5:49001".into(),
@@ -334,7 +334,9 @@ mod tests {
         // dispatch_windows_netstat emits a Proto == "n/a" placeholder when the
         // tcpip symbols are missing — it has no real endpoint, so it is dropped.
         let out: DispatchOutput = (
-            vec!["Proto", "Local", "Remote", "State", "PID", "Process", "Note"],
+            vec![
+                "Proto", "Local", "Remote", "State", "PID", "Process", "Note",
+            ],
             vec![vec![
                 "n/a".into(),
                 String::new(),
@@ -352,7 +354,9 @@ mod tests {
     #[test]
     fn netstat_endpoint_with_no_colon_keeps_addr_and_zero_port() {
         let out: DispatchOutput = (
-            vec!["Proto", "Local", "Remote", "State", "PID", "Process", "Note"],
+            vec![
+                "Proto", "Local", "Remote", "State", "PID", "Process", "Note",
+            ],
             vec![vec![
                 "TCP".into(),
                 "0.0.0.0".into(),

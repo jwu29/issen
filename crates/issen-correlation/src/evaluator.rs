@@ -236,9 +236,7 @@ where
         // Pick the consequent nearest the anchor in time (earliest in strict
         // mode, smallest |Δ| in either-order mode).
         let nearer = match best {
-            Some(current) => {
-                (ts - anchor_ts).abs() < (current.timestamp_ns() - anchor_ts).abs()
-            }
+            Some(current) => (ts - anchor_ts).abs() < (current.timestamp_ns() - anchor_ts).abs(),
             None => true,
         };
         if nearer {
@@ -334,7 +332,8 @@ mod tests {
             consequent_event_type: "LogonSuccess",
             window_ns: 60_000_000_000, // 60s
             scope: ScopeRule::SameHost,
-            note: "Failed-logon burst then success from the same IP is consistent with brute force.",
+            note:
+                "Failed-logon burst then success from the same IP is consistent with brute force.",
             ordered: true,
             guard: None,
         }
@@ -342,7 +341,14 @@ mod tests {
 
     #[test]
     fn matches_an_ordered_same_entity_pair() {
-        let anchor = ev(1, 1_000, "LogonFailure", "203.0.113.5", "DC01", EventSource::Evtx);
+        let anchor = ev(
+            1,
+            1_000,
+            "LogonFailure",
+            "203.0.113.5",
+            "DC01",
+            EventSource::Evtx,
+        );
         let consequents = vec![ev(
             2,
             2_000,
@@ -369,9 +375,21 @@ mod tests {
     #[test]
     fn rejects_a_reversed_pair() {
         // Consequent BEFORE the anchor — ordering must reject it.
-        let anchor = ev(1, 5_000, "LogonFailure", "203.0.113.5", "DC01", EventSource::Evtx);
+        let anchor = ev(
+            1,
+            5_000,
+            "LogonFailure",
+            "203.0.113.5",
+            "DC01",
+            EventSource::Evtx,
+        );
         let consequents = vec![ev(
-            2, 1_000, "LogonSuccess", "203.0.113.5", "DC01", EventSource::Evtx,
+            2,
+            1_000,
+            "LogonSuccess",
+            "203.0.113.5",
+            "DC01",
+            EventSource::Evtx,
         )];
         assert!(evaluate(&brute_force_rule(), &anchor, &consequents).is_none());
     }
@@ -379,16 +397,35 @@ mod tests {
     #[test]
     fn rejects_a_simultaneous_pair() {
         // Same instant — strictly-after means no match.
-        let anchor = ev(1, 1_000, "LogonFailure", "203.0.113.5", "DC01", EventSource::Evtx);
+        let anchor = ev(
+            1,
+            1_000,
+            "LogonFailure",
+            "203.0.113.5",
+            "DC01",
+            EventSource::Evtx,
+        );
         let consequents = vec![ev(
-            2, 1_000, "LogonSuccess", "203.0.113.5", "DC01", EventSource::Evtx,
+            2,
+            1_000,
+            "LogonSuccess",
+            "203.0.113.5",
+            "DC01",
+            EventSource::Evtx,
         )];
         assert!(evaluate(&brute_force_rule(), &anchor, &consequents).is_none());
     }
 
     #[test]
     fn rejects_out_of_window_consequent() {
-        let anchor = ev(1, 1_000, "LogonFailure", "203.0.113.5", "DC01", EventSource::Evtx);
+        let anchor = ev(
+            1,
+            1_000,
+            "LogonFailure",
+            "203.0.113.5",
+            "DC01",
+            EventSource::Evtx,
+        );
         let consequents = vec![ev(
             2,
             999_000_000_000, // way past the 60s window
@@ -402,36 +439,84 @@ mod tests {
 
     #[test]
     fn rejects_different_entity() {
-        let anchor = ev(1, 1_000, "LogonFailure", "203.0.113.5", "DC01", EventSource::Evtx);
+        let anchor = ev(
+            1,
+            1_000,
+            "LogonFailure",
+            "203.0.113.5",
+            "DC01",
+            EventSource::Evtx,
+        );
         let consequents = vec![ev(
-            2, 2_000, "LogonSuccess", "10.0.0.9", "DC01", EventSource::Evtx,
+            2,
+            2_000,
+            "LogonSuccess",
+            "10.0.0.9",
+            "DC01",
+            EventSource::Evtx,
         )];
         assert!(evaluate(&brute_force_rule(), &anchor, &consequents).is_none());
     }
 
     #[test]
     fn rejects_wrong_anchor_type() {
-        let anchor = ev(1, 1_000, "LogonSuccess", "203.0.113.5", "DC01", EventSource::Evtx);
+        let anchor = ev(
+            1,
+            1_000,
+            "LogonSuccess",
+            "203.0.113.5",
+            "DC01",
+            EventSource::Evtx,
+        );
         let consequents = vec![ev(
-            2, 2_000, "LogonSuccess", "203.0.113.5", "DC01", EventSource::Evtx,
+            2,
+            2_000,
+            "LogonSuccess",
+            "203.0.113.5",
+            "DC01",
+            EventSource::Evtx,
         )];
         assert!(evaluate(&brute_force_rule(), &anchor, &consequents).is_none());
     }
 
     #[test]
     fn same_host_scope_rejects_cross_host_pair() {
-        let anchor = ev(1, 1_000, "LogonFailure", "203.0.113.5", "DC01", EventSource::Evtx);
+        let anchor = ev(
+            1,
+            1_000,
+            "LogonFailure",
+            "203.0.113.5",
+            "DC01",
+            EventSource::Evtx,
+        );
         let consequents = vec![ev(
-            2, 2_000, "LogonSuccess", "203.0.113.5", "WS01", EventSource::Evtx,
+            2,
+            2_000,
+            "LogonSuccess",
+            "203.0.113.5",
+            "WS01",
+            EventSource::Evtx,
         )];
         assert!(evaluate(&brute_force_rule(), &anchor, &consequents).is_none());
     }
 
     #[test]
     fn non_positive_anchor_timestamp_never_matches() {
-        let anchor = ev(1, 0, "LogonFailure", "203.0.113.5", "DC01", EventSource::Evtx);
+        let anchor = ev(
+            1,
+            0,
+            "LogonFailure",
+            "203.0.113.5",
+            "DC01",
+            EventSource::Evtx,
+        );
         let consequents = vec![ev(
-            2, 2_000, "LogonSuccess", "203.0.113.5", "DC01", EventSource::Evtx,
+            2,
+            2_000,
+            "LogonSuccess",
+            "203.0.113.5",
+            "DC01",
+            EventSource::Evtx,
         )];
         assert!(evaluate(&brute_force_rule(), &anchor, &consequents).is_none());
     }
@@ -445,25 +530,63 @@ mod tests {
             scope: ScopeRule::SameDump,
             ..brute_force_rule()
         };
-        let anchor = ev(1, 1_000, "LogonFailure", "203.0.113.5", "DUMP-A", EventSource::Memory);
+        let anchor = ev(
+            1,
+            1_000,
+            "LogonFailure",
+            "203.0.113.5",
+            "DUMP-A",
+            EventSource::Memory,
+        );
         // Different host label stands in for a different dump identity.
         let consequents = vec![ev(
-            2, 2_000, "LogonSuccess", "203.0.113.5", "DUMP-B", EventSource::Memory,
+            2,
+            2_000,
+            "LogonSuccess",
+            "203.0.113.5",
+            "DUMP-B",
+            EventSource::Memory,
         )];
         assert!(evaluate(&rule, &anchor, &consequents).is_none());
 
         let same_dump = vec![ev(
-            2, 2_000, "LogonSuccess", "203.0.113.5", "DUMP-A", EventSource::Memory,
+            2,
+            2_000,
+            "LogonSuccess",
+            "203.0.113.5",
+            "DUMP-A",
+            EventSource::Memory,
         )];
         assert!(evaluate(&rule, &anchor, &same_dump).is_some());
     }
 
     #[test]
     fn first_matching_consequent_wins() {
-        let anchor = ev(1, 1_000, "LogonFailure", "203.0.113.5", "DC01", EventSource::Evtx);
+        let anchor = ev(
+            1,
+            1_000,
+            "LogonFailure",
+            "203.0.113.5",
+            "DC01",
+            EventSource::Evtx,
+        );
         let consequents = vec![
-            ev(2, 2_000, "LogonSuccess", "203.0.113.5", "DC01", EventSource::Evtx),
-            ev(3, 3_000, "LogonSuccess", "203.0.113.5", "DC01", EventSource::Evtx),
+            ev(
+                2,
+                2_000,
+                "LogonSuccess",
+                "203.0.113.5",
+                "DC01",
+                EventSource::Evtx,
+            ),
+            ev(
+                3,
+                3_000,
+                "LogonSuccess",
+                "203.0.113.5",
+                "DC01",
+                EventSource::Evtx,
+            ),
         ];
         let corr = evaluate(&brute_force_rule(), &anchor, &consequents).expect("match");
         assert_eq!(corr.members[1].timeline_id, 2, "earliest consequent");
@@ -506,21 +629,44 @@ mod tests {
             guard: Some(host_must_be_wanted),
             ..brute_force_rule()
         };
-        let anchor = ev(1, 1_000, "LogonFailure", "203.0.113.5", "DC01", EventSource::Evtx);
+        let anchor = ev(
+            1,
+            1_000,
+            "LogonFailure",
+            "203.0.113.5",
+            "DC01",
+            EventSource::Evtx,
+        );
         // SameHost scope means both sides must share a host; use "DC01" which the
         // guard rejects, then "WANTED" which it accepts.
         let rejected = vec![ev(
-            2, 2_000, "LogonSuccess", "203.0.113.5", "DC01", EventSource::Evtx,
+            2,
+            2_000,
+            "LogonSuccess",
+            "203.0.113.5",
+            "DC01",
+            EventSource::Evtx,
         )];
         assert!(
             evaluate(&rule, &anchor, &rejected).is_none(),
             "guard must reject a candidate it fails"
         );
 
-        let wanted_anchor =
-            ev(1, 1_000, "LogonFailure", "203.0.113.5", "WANTED", EventSource::Evtx);
+        let wanted_anchor = ev(
+            1,
+            1_000,
+            "LogonFailure",
+            "203.0.113.5",
+            "WANTED",
+            EventSource::Evtx,
+        );
         let accepted = vec![ev(
-            2, 2_000, "LogonSuccess", "203.0.113.5", "WANTED", EventSource::Evtx,
+            2,
+            2_000,
+            "LogonSuccess",
+            "203.0.113.5",
+            "WANTED",
+            EventSource::Evtx,
         )];
         assert!(
             evaluate(&rule, &wanted_anchor, &accepted).is_some(),
@@ -537,9 +683,21 @@ mod tests {
             ordered: false,
             ..brute_force_rule()
         };
-        let anchor = ev(1, 5_000, "LogonFailure", "203.0.113.5", "DC01", EventSource::Evtx);
+        let anchor = ev(
+            1,
+            5_000,
+            "LogonFailure",
+            "203.0.113.5",
+            "DC01",
+            EventSource::Evtx,
+        );
         let consequents = vec![ev(
-            2, 1_000, "LogonSuccess", "203.0.113.5", "DC01", EventSource::Evtx,
+            2,
+            1_000,
+            "LogonSuccess",
+            "203.0.113.5",
+            "DC01",
+            EventSource::Evtx,
         )];
         assert!(
             evaluate(&strict, &anchor, &consequents).is_none(),
@@ -558,9 +716,21 @@ mod tests {
             ordered: false,
             ..brute_force_rule()
         };
-        let anchor = ev(1, 999_000_000_000, "LogonFailure", "203.0.113.5", "DC01", EventSource::Evtx);
+        let anchor = ev(
+            1,
+            999_000_000_000,
+            "LogonFailure",
+            "203.0.113.5",
+            "DC01",
+            EventSource::Evtx,
+        );
         let consequents = vec![ev(
-            2, 1_000, "LogonSuccess", "203.0.113.5", "DC01", EventSource::Evtx,
+            2,
+            1_000,
+            "LogonSuccess",
+            "203.0.113.5",
+            "DC01",
+            EventSource::Evtx,
         )];
         assert!(evaluate(&either, &anchor, &consequents).is_none());
     }
@@ -577,7 +747,14 @@ mod tests {
     #[test]
     fn event_view_artifact_path_defaults_to_empty() {
         // The new accessor has a default so existing impls need no change.
-        let anchor = ev(1, 1_000, "LogonFailure", "203.0.113.5", "DC01", EventSource::Evtx);
+        let anchor = ev(
+            1,
+            1_000,
+            "LogonFailure",
+            "203.0.113.5",
+            "DC01",
+            EventSource::Evtx,
+        );
         assert_eq!(anchor.artifact_path(), "");
     }
 }

@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use opendal::{Operator, services};
+use opendal::{services, Operator};
 
 /// Build an OpenDAL [`Operator`] for the given URI, and return the relative path
 /// within that backend.
@@ -52,8 +52,7 @@ pub fn operator_for_uri(uri: &str) -> Result<(Operator, String)> {
         "s3" => {
             // s3://bucket/key
             let (bucket, key) = split_authority_path(rest);
-            let region = std::env::var("AWS_DEFAULT_REGION")
-                .unwrap_or_else(|_| "us-east-1".into());
+            let region = std::env::var("AWS_DEFAULT_REGION").unwrap_or_else(|_| "us-east-1".into());
             let builder = services::S3::default().bucket(bucket).region(&region);
             let op = Operator::new(builder)?.finish();
             Ok((op, key.to_string()))
@@ -84,9 +83,8 @@ pub fn operator_for_uri(uri: &str) -> Result<(Operator, String)> {
             let (filesystem, path) = split_authority_path(rest);
             let account = std::env::var("AZURE_STORAGE_ACCOUNT")
                 .unwrap_or_else(|_| "devstoreaccount1".into());
-            let endpoint = std::env::var("AZDLS_ENDPOINT").unwrap_or_else(|_| {
-                format!("https://{account}.dfs.core.windows.net")
-            });
+            let endpoint = std::env::var("AZDLS_ENDPOINT")
+                .unwrap_or_else(|_| format!("https://{account}.dfs.core.windows.net"));
             let builder = services::Azdls::default()
                 .filesystem(filesystem)
                 .endpoint(&endpoint)
@@ -100,9 +98,8 @@ pub fn operator_for_uri(uri: &str) -> Result<(Operator, String)> {
             let (share, path) = split_authority_path(rest);
             let account = std::env::var("AZURE_STORAGE_ACCOUNT")
                 .unwrap_or_else(|_| "devstoreaccount1".into());
-            let endpoint = std::env::var("AZFILE_ENDPOINT").unwrap_or_else(|_| {
-                format!("https://{account}.file.core.windows.net")
-            });
+            let endpoint = std::env::var("AZFILE_ENDPOINT")
+                .unwrap_or_else(|_| format!("https://{account}.file.core.windows.net"));
             let builder = services::Azfile::default()
                 .share_name(share)
                 .endpoint(&endpoint)
@@ -127,11 +124,10 @@ pub fn operator_for_uri(uri: &str) -> Result<(Operator, String)> {
         "cos" => {
             // cos://bucket/key — creds from TENCENTCLOUD_SECRET_ID / TENCENTCLOUD_SECRET_KEY
             let (bucket, key) = split_authority_path(rest);
-            let region = std::env::var("TENCENTCLOUD_REGION")
-                .unwrap_or_else(|_| "ap-guangzhou".into());
-            let endpoint = std::env::var("COS_ENDPOINT").unwrap_or_else(|_| {
-                format!("https://{bucket}.cos.{region}.myqcloud.com")
-            });
+            let region =
+                std::env::var("TENCENTCLOUD_REGION").unwrap_or_else(|_| "ap-guangzhou".into());
+            let endpoint = std::env::var("COS_ENDPOINT")
+                .unwrap_or_else(|_| format!("https://{bucket}.cos.{region}.myqcloud.com"));
             let secret_id = std::env::var("TENCENTCLOUD_SECRET_ID").unwrap_or_default();
             let secret_key = std::env::var("TENCENTCLOUD_SECRET_KEY").unwrap_or_default();
             let builder = services::Cos::default()
@@ -146,11 +142,9 @@ pub fn operator_for_uri(uri: &str) -> Result<(Operator, String)> {
         "obs" => {
             // obs://bucket/key — creds from HUAWEI_ACCESS_KEY_ID / HUAWEI_SECRET_ACCESS_KEY
             let (bucket, key) = split_authority_path(rest);
-            let region = std::env::var("HUAWEI_REGION")
-                .unwrap_or_else(|_| "cn-north-4".into());
-            let endpoint = std::env::var("OBS_ENDPOINT").unwrap_or_else(|_| {
-                format!("https://obs.{region}.myhuaweicloud.com")
-            });
+            let region = std::env::var("HUAWEI_REGION").unwrap_or_else(|_| "cn-north-4".into());
+            let endpoint = std::env::var("OBS_ENDPOINT")
+                .unwrap_or_else(|_| format!("https://obs.{region}.myhuaweicloud.com"));
             let access_key = std::env::var("HUAWEI_ACCESS_KEY_ID").unwrap_or_default();
             let secret_key = std::env::var("HUAWEI_SECRET_ACCESS_KEY").unwrap_or_default();
             let builder = services::Obs::default()
@@ -165,13 +159,13 @@ pub fn operator_for_uri(uri: &str) -> Result<(Operator, String)> {
         "oss" => {
             // oss://bucket/key — creds from ALIBABA_CLOUD_ACCESS_KEY_ID / ALIBABA_CLOUD_ACCESS_KEY_SECRET
             let (bucket, key) = split_authority_path(rest);
-            let region = std::env::var("ALIBABA_CLOUD_REGION")
-                .unwrap_or_else(|_| "cn-hangzhou".into());
-            let endpoint = std::env::var("OSS_ENDPOINT").unwrap_or_else(|_| {
-                format!("https://oss-{region}.aliyuncs.com")
-            });
+            let region =
+                std::env::var("ALIBABA_CLOUD_REGION").unwrap_or_else(|_| "cn-hangzhou".into());
+            let endpoint = std::env::var("OSS_ENDPOINT")
+                .unwrap_or_else(|_| format!("https://oss-{region}.aliyuncs.com"));
             let access_key = std::env::var("ALIBABA_CLOUD_ACCESS_KEY_ID").unwrap_or_default();
-            let access_secret = std::env::var("ALIBABA_CLOUD_ACCESS_KEY_SECRET").unwrap_or_default();
+            let access_secret =
+                std::env::var("ALIBABA_CLOUD_ACCESS_KEY_SECRET").unwrap_or_default();
             let builder = services::Oss::default()
                 .bucket(bucket)
                 .endpoint(&endpoint)
@@ -212,9 +206,7 @@ pub fn operator_for_uri(uri: &str) -> Result<(Operator, String)> {
         "onedrive" => {
             // onedrive://path — token from ONEDRIVE_ACCESS_TOKEN
             let token = std::env::var("ONEDRIVE_ACCESS_TOKEN").unwrap_or_default();
-            let builder = services::Onedrive::default()
-                .root("/")
-                .access_token(&token);
+            let builder = services::Onedrive::default().root("/").access_token(&token);
             let op = Operator::new(builder)?.finish();
             Ok((op, rest.to_string()))
         }
@@ -222,9 +214,7 @@ pub fn operator_for_uri(uri: &str) -> Result<(Operator, String)> {
         "dropbox" => {
             // dropbox://path — token from DROPBOX_ACCESS_TOKEN
             let token = std::env::var("DROPBOX_ACCESS_TOKEN").unwrap_or_default();
-            let builder = services::Dropbox::default()
-                .root("/")
-                .access_token(&token);
+            let builder = services::Dropbox::default().root("/").access_token(&token);
             let op = Operator::new(builder)?.finish();
             Ok((op, rest.to_string()))
         }
@@ -266,8 +256,8 @@ pub fn operator_for_uri(uri: &str) -> Result<(Operator, String)> {
 
         "koofr" => {
             // koofr://path — creds from KOOFR_EMAIL / KOOFR_PASSWORD
-            let endpoint = std::env::var("KOOFR_ENDPOINT")
-                .unwrap_or_else(|_| "https://app.koofr.net".into());
+            let endpoint =
+                std::env::var("KOOFR_ENDPOINT").unwrap_or_else(|_| "https://app.koofr.net".into());
             let email = std::env::var("KOOFR_EMAIL").unwrap_or_default();
             let password = std::env::var("KOOFR_PASSWORD").unwrap_or_default();
             let builder = services::Koofr::default()
@@ -320,20 +310,26 @@ pub fn operator_for_uri(uri: &str) -> Result<(Operator, String)> {
             // huggingface://owner/repo/path — token from HUGGINGFACE_TOKEN
             // URI: huggingface://owner/model-name/file.bin
             // repo_id = "owner/model-name", path = "file.bin"
-            let (repo_id, path) = rest.split_once('/').map(|(a, b)| {
-                let full = format!("{a}/{b}");
-                if let Some(idx) = full.find('/') {
-                    let second = full[idx + 1..].find('/');
-                    if let Some(second_idx) = second {
-                        let split_at = idx + 1 + second_idx;
-                        (full[..split_at].to_string(), full[split_at + 1..].to_string())
+            let (repo_id, path) = rest
+                .split_once('/')
+                .map(|(a, b)| {
+                    let full = format!("{a}/{b}");
+                    if let Some(idx) = full.find('/') {
+                        let second = full[idx + 1..].find('/');
+                        if let Some(second_idx) = second {
+                            let split_at = idx + 1 + second_idx;
+                            (
+                                full[..split_at].to_string(),
+                                full[split_at + 1..].to_string(),
+                            )
+                        } else {
+                            (full, String::new())
+                        }
                     } else {
                         (full, String::new())
                     }
-                } else {
-                    (full, String::new())
-                }
-            }).unwrap_or((rest.to_string(), String::new()));
+                })
+                .unwrap_or((rest.to_string(), String::new()));
             let token = std::env::var("HUGGINGFACE_TOKEN").unwrap_or_default();
             let builder = services::Huggingface::default()
                 .repo_id(&repo_id)
@@ -384,9 +380,7 @@ pub fn operator_for_uri(uri: &str) -> Result<(Operator, String)> {
             // alluxio://host:port/path
             let (hostport, path) = rest.split_once('/').unwrap_or((rest, ""));
             let endpoint = format!("http://{hostport}");
-            let builder = services::Alluxio::default()
-                .root("/")
-                .endpoint(&endpoint);
+            let builder = services::Alluxio::default().root("/").endpoint(&endpoint);
             let op = Operator::new(builder)?.finish();
             Ok((op, path.to_string()))
         }
@@ -395,7 +389,9 @@ pub fn operator_for_uri(uri: &str) -> Result<(Operator, String)> {
             // hdfs://namenode:port/path — pure-Rust HDFS native client (no Java required)
             let (hostport, path) = rest.split_once('/').unwrap_or((rest, ""));
             let name_node = format!("hdfs://{hostport}");
-            let builder = services::HdfsNative::default().name_node(&name_node).root("/");
+            let builder = services::HdfsNative::default()
+                .name_node(&name_node)
+                .root("/");
             let op = Operator::new(builder)?.finish();
             Ok((op, path.to_string()))
         }
@@ -405,9 +401,7 @@ pub fn operator_for_uri(uri: &str) -> Result<(Operator, String)> {
             let (hostport, path) = rest.split_once('/').unwrap_or((rest, ""));
             let endpoint = format!("http://{hostport}");
             let user = std::env::var("WEBHDFS_USER").unwrap_or_default();
-            let mut builder = services::Webhdfs::default()
-                .root("/")
-                .endpoint(&endpoint);
+            let mut builder = services::Webhdfs::default().root("/").endpoint(&endpoint);
             if !user.is_empty() {
                 builder = builder.user_name(&user);
             }
@@ -421,8 +415,8 @@ pub fn operator_for_uri(uri: &str) -> Result<(Operator, String)> {
             let repo = parts.next().unwrap_or("").to_string();
             let branch = parts.next().unwrap_or("main").to_string();
             let path = parts.next().unwrap_or("").to_string();
-            let endpoint = std::env::var("LAKEFS_ENDPOINT")
-                .unwrap_or_else(|_| "http://localhost:8000".into());
+            let endpoint =
+                std::env::var("LAKEFS_ENDPOINT").unwrap_or_else(|_| "http://localhost:8000".into());
             let username = std::env::var("LAKEFS_ACCESS_KEY_ID").unwrap_or_default();
             let password = std::env::var("LAKEFS_SECRET_ACCESS_KEY").unwrap_or_default();
             let builder = services::Lakefs::default()
@@ -438,19 +432,17 @@ pub fn operator_for_uri(uri: &str) -> Result<(Operator, String)> {
         // ── Decentralized ────────────────────────────────────────────────────
         "ipfs" => {
             // ipfs://CID/path — gateway from IPFS_GATEWAY (default: local node)
-            let gateway = std::env::var("IPFS_GATEWAY")
-                .unwrap_or_else(|_| "http://127.0.0.1:8080".into());
-            let builder = services::Ipfs::default()
-                .root("/")
-                .endpoint(&gateway);
+            let gateway =
+                std::env::var("IPFS_GATEWAY").unwrap_or_else(|_| "http://127.0.0.1:8080".into());
+            let builder = services::Ipfs::default().root("/").endpoint(&gateway);
             let op = Operator::new(builder)?.finish();
             Ok((op, rest.to_string()))
         }
 
         "ipmfs" => {
             // ipmfs:///path — IPFS MFS via local node
-            let endpoint = std::env::var("IPFS_ENDPOINT")
-                .unwrap_or_else(|_| "http://127.0.0.1:5001".into());
+            let endpoint =
+                std::env::var("IPFS_ENDPOINT").unwrap_or_else(|_| "http://127.0.0.1:5001".into());
             let builder = services::Ipmfs::default().endpoint(&endpoint);
             let op = Operator::new(builder)?.finish();
             Ok((op, rest.to_string()))
@@ -553,8 +545,7 @@ pub fn operator_for_uri(uri: &str) -> Result<(Operator, String)> {
             let _host = parts.next().unwrap_or("");
             let _db = parts.next().unwrap_or("");
             let path = parts.next().unwrap_or("").to_string();
-            let builder = services::Postgresql::default()
-                .connection_string(&conn_str);
+            let builder = services::Postgresql::default().connection_string(&conn_str);
             let op = Operator::new(builder)?.finish();
             Ok((op, path))
         }
@@ -599,7 +590,11 @@ pub fn operator_for_uri(uri: &str) -> Result<(Operator, String)> {
         "webdav" => {
             let host = rest.split('/').next().unwrap_or("");
             let endpoint = format!("https://{host}");
-            let path = if let Some((_, p)) = rest.split_once('/') { p } else { "" };
+            let path = if let Some((_, p)) = rest.split_once('/') {
+                p
+            } else {
+                ""
+            };
             let builder = services::Webdav::default().endpoint(&endpoint);
             let op = Operator::new(builder)?.finish();
             Ok((op, path.to_string()))
@@ -668,15 +663,19 @@ fn sftp_operator(rest: &str) -> Result<(Operator, String)> {
         ("", rest)
     };
     let (host, path) = hostpath.split_once('/').unwrap_or((hostpath, ""));
-    let user = if let Some((u, _)) = userinfo.split_once(':') { u } else { userinfo };
+    let user = if let Some((u, _)) = userinfo.split_once(':') {
+        u
+    } else {
+        userinfo
+    };
     let mut builder = services::Sftp::default()
         .endpoint(&format!("ssh://{host}"))
         .user(user);
     if let Ok(key) = std::env::var("RT_SFTP_KEY_PATH") {
         builder = builder.key(&key);
     }
-    let known_hosts = std::env::var("RT_SFTP_KNOWN_HOSTS_STRATEGY")
-        .unwrap_or_else(|_| "add".into());
+    let known_hosts =
+        std::env::var("RT_SFTP_KNOWN_HOSTS_STRATEGY").unwrap_or_else(|_| "add".into());
     builder = builder.known_hosts_strategy(&known_hosts);
     let op = Operator::new(builder)?.finish();
     Ok((op, path.to_string()))
@@ -684,7 +683,9 @@ fn sftp_operator(rest: &str) -> Result<(Operator, String)> {
 
 #[cfg(not(feature = "sftp"))]
 fn sftp_operator(_rest: &str) -> Result<(Operator, String)> {
-    Err(anyhow!("SFTP support requires the 'sftp' feature (Unix only)"))
+    Err(anyhow!(
+        "SFTP support requires the 'sftp' feature (Unix only)"
+    ))
 }
 
 /// Split `"authority/path"` into `("authority", "path")`.
@@ -718,11 +719,11 @@ mod tests {
         let result = operator_for_uri("sftp://user@host:22/data");
         // Must NOT be an unsupported-scheme error — scheme is recognised
         if let Err(e) = &result {
-                let msg = e.to_string();
-                assert!(
-                    !msg.contains("Unsupported URI scheme"),
-                    "expected sftp to be a supported scheme, got: {msg}"
-                );
+            let msg = e.to_string();
+            assert!(
+                !msg.contains("Unsupported URI scheme"),
+                "expected sftp to be a supported scheme, got: {msg}"
+            );
         }
     }
 
@@ -745,11 +746,11 @@ mod tests {
     fn hdfs_uri_returns_ok() {
         let result = operator_for_uri("hdfs://namenode:9000/user/data");
         if let Err(e) = &result {
-                let msg = e.to_string();
-                assert!(
-                    !msg.contains("Unsupported URI scheme"),
-                    "expected hdfs to be a supported scheme, got: {msg}"
-                );
+            let msg = e.to_string();
+            assert!(
+                !msg.contains("Unsupported URI scheme"),
+                "expected hdfs to be a supported scheme, got: {msg}"
+            );
         }
     }
 
@@ -772,11 +773,11 @@ mod tests {
     fn webhdfs_uri_returns_ok() {
         let result = operator_for_uri("webhdfs://namenode:50070/user/data");
         if let Err(e) = &result {
-                let msg = e.to_string();
-                assert!(
-                    !msg.contains("Unsupported URI scheme"),
-                    "expected webhdfs to be a supported scheme, got: {msg}"
-                );
+            let msg = e.to_string();
+            assert!(
+                !msg.contains("Unsupported URI scheme"),
+                "expected webhdfs to be a supported scheme, got: {msg}"
+            );
         }
     }
 
@@ -858,9 +859,15 @@ mod tests {
     scheme_recognised!(mongodb_uri_returns_ok, "mongodb://localhost/db/col/key");
     scheme_recognised!(gridfs_uri_returns_ok, "gridfs://localhost/db/bucket/key");
     scheme_recognised!(mysql_uri_returns_ok, "mysql://user:pass@localhost/db/key");
-    scheme_recognised!(postgresql_uri_returns_ok, "postgresql://user:pass@localhost/db/key");
+    scheme_recognised!(
+        postgresql_uri_returns_ok,
+        "postgresql://user:pass@localhost/db/key"
+    );
     scheme_recognised!(sqlite_uri_returns_ok, "sqlite:///tmp/test.db/key");
-    scheme_recognised!(cloudflare_kv_uri_returns_ok, "cloudflare-kv://namespace/key");
+    scheme_recognised!(
+        cloudflare_kv_uri_returns_ok,
+        "cloudflare-kv://namespace/key"
+    );
     scheme_recognised!(d1_uri_returns_ok, "d1://database-id/key");
 
     // Filesystem

@@ -132,27 +132,13 @@ fn emit_subgraph(
 pub fn render_attack_chain(input: &AttackChainInput) -> String {
     let mut out = String::new();
     out.push_str("flowchart LR\n");
-    out.push_str(
-        "    classDef initial  fill:#1a5276,stroke:#154360,color:#fff,font-weight:bold\n",
-    );
-    out.push_str(
-        "    classDef exec     fill:#d35400,stroke:#a04000,color:#fff,font-weight:bold\n",
-    );
-    out.push_str(
-        "    classDef persist  fill:#7d3c98,stroke:#6c3483,color:#fff,font-weight:bold\n",
-    );
-    out.push_str(
-        "    classDef evasion  fill:#1e8449,stroke:#196f3d,color:#fff,font-weight:bold\n",
-    );
-    out.push_str(
-        "    classDef c2       fill:#0e6655,stroke:#0b5345,color:#fff,font-weight:bold\n",
-    );
-    out.push_str(
-        "    classDef impact   fill:#922b21,stroke:#7b241c,color:#fff,font-weight:bold\n",
-    );
-    out.push_str(
-        "    classDef unknown  fill:#5d6d7e,stroke:#4d5d6e,color:#fff,font-weight:bold\n",
-    );
+    out.push_str("    classDef initial  fill:#1a5276,stroke:#154360,color:#fff,font-weight:bold\n");
+    out.push_str("    classDef exec     fill:#d35400,stroke:#a04000,color:#fff,font-weight:bold\n");
+    out.push_str("    classDef persist  fill:#7d3c98,stroke:#6c3483,color:#fff,font-weight:bold\n");
+    out.push_str("    classDef evasion  fill:#1e8449,stroke:#196f3d,color:#fff,font-weight:bold\n");
+    out.push_str("    classDef c2       fill:#0e6655,stroke:#0b5345,color:#fff,font-weight:bold\n");
+    out.push_str("    classDef impact   fill:#922b21,stroke:#7b241c,color:#fff,font-weight:bold\n");
+    out.push_str("    classDef unknown  fill:#5d6d7e,stroke:#4d5d6e,color:#fff,font-weight:bold\n");
 
     for node in &input.nodes {
         let label = mermaid_escape(&node.label);
@@ -185,9 +171,7 @@ pub fn render_defenses(input: &DefenseInput) -> String {
     out.push_str("    classDef detect  fill:#1a5276,stroke:#154360,color:#fff\n");
     out.push_str("    classDef prevent fill:#1e8449,stroke:#196f3d,color:#fff\n");
     out.push_str("    classDef hunt    fill:#7d3c98,stroke:#6c3483,color:#fff\n");
-    out.push_str(
-        "    classDef gap     fill:#922b21,stroke:#7b241c,color:#fff,font-style:italic\n",
-    );
+    out.push_str("    classDef gap     fill:#922b21,stroke:#7b241c,color:#fff,font-style:italic\n");
 
     let prevents: Vec<_> = input
         .items
@@ -233,14 +217,29 @@ mod tests {
         let input = AttackChainInput::default();
         let out = render_attack_chain(&input);
 
-        assert!(out.starts_with("flowchart LR\n"), "must start with flowchart LR");
-        assert!(out.contains("classDef initial"), "must have initial classDef");
+        assert!(
+            out.starts_with("flowchart LR\n"),
+            "must start with flowchart LR"
+        );
+        assert!(
+            out.contains("classDef initial"),
+            "must have initial classDef"
+        );
         assert!(out.contains("classDef exec"), "must have exec classDef");
-        assert!(out.contains("classDef persist"), "must have persist classDef");
-        assert!(out.contains("classDef evasion"), "must have evasion classDef");
+        assert!(
+            out.contains("classDef persist"),
+            "must have persist classDef"
+        );
+        assert!(
+            out.contains("classDef evasion"),
+            "must have evasion classDef"
+        );
         assert!(out.contains("classDef c2"), "must have c2 classDef");
         assert!(out.contains("classDef impact"), "must have impact classDef");
-        assert!(out.contains("classDef unknown"), "must have unknown classDef");
+        assert!(
+            out.contains("classDef unknown"),
+            "must have unknown classDef"
+        );
         assert!(!out.contains("-->"), "empty input must produce no edges");
     }
 
@@ -256,7 +255,10 @@ mod tests {
         };
         let out = render_attack_chain(&input);
 
-        assert!(out.contains("A[\"Phishing email\"]:::initial"), "node must have :::initial class");
+        assert!(
+            out.contains("A[\"Phishing email\"]:::initial"),
+            "node must have :::initial class"
+        );
         assert!(!out.contains(":::exec"));
         assert!(!out.contains(":::persist"));
     }
@@ -282,7 +284,10 @@ mod tests {
             .find(|l| l.contains("X["))
             .expect("node line must exist");
         let raw_quote_count = node_line.chars().filter(|&c| c == '"').count();
-        assert_eq!(raw_quote_count, 2, "only the two wrapping quotes should remain in the node line");
+        assert_eq!(
+            raw_quote_count, 2,
+            "only the two wrapping quotes should remain in the node line"
+        );
     }
 
     #[test]
@@ -317,7 +322,11 @@ mod tests {
     #[test]
     fn empty_defense_input_returns_empty_string() {
         let input = DefenseInput::default();
-        assert_eq!(render_defenses(&input), "", "empty input must return empty string");
+        assert_eq!(
+            render_defenses(&input),
+            "",
+            "empty input must return empty string"
+        );
     }
 
     #[test]
@@ -336,8 +345,14 @@ mod tests {
         };
         let out = render_defenses(&input);
 
-        assert!(out.starts_with("flowchart TD\n"), "must start with flowchart TD");
-        assert!(out.contains("subgraph PREVENT"), "must have PREVENT subgraph");
+        assert!(
+            out.starts_with("flowchart TD\n"),
+            "must start with flowchart TD"
+        );
+        assert!(
+            out.contains("subgraph PREVENT"),
+            "must have PREVENT subgraph"
+        );
         assert!(out.contains("P0[\"Disable SSH password auth\"]:::prevent"));
         assert!(out.contains("P1[\"Immutable ld.so.preload\"]:::prevent"));
         assert!(!out.contains("subgraph DETECT"));
@@ -390,9 +405,21 @@ mod tests {
         };
         let out = render_defenses(&input);
 
-        assert!(out.contains("subgraph HUNT"), "HUNT subgraph must be present");
-        assert!(!out.contains("subgraph PREVENT"), "PREVENT must be absent when empty");
-        assert!(!out.contains("subgraph DETECT"), "DETECT must be absent when empty");
-        assert!(!out.contains("subgraph GAP"), "GAP must be absent when empty");
+        assert!(
+            out.contains("subgraph HUNT"),
+            "HUNT subgraph must be present"
+        );
+        assert!(
+            !out.contains("subgraph PREVENT"),
+            "PREVENT must be absent when empty"
+        );
+        assert!(
+            !out.contains("subgraph DETECT"),
+            "DETECT must be absent when empty"
+        );
+        assert!(
+            !out.contains("subgraph GAP"),
+            "GAP must be absent when empty"
+        );
     }
 }

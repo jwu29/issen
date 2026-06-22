@@ -4,14 +4,14 @@ pub mod attack_flow;
 pub mod cluster;
 pub mod correlation;
 pub mod engine;
-pub mod evaluator;
-pub mod skew;
 pub mod enrich;
+pub mod evaluator;
 pub mod feeds;
 pub mod model;
 pub mod render;
 pub mod rules;
 pub mod runner;
+pub mod skew;
 pub mod sync;
 pub mod temporal_checks;
 pub mod temporal_rule;
@@ -26,9 +26,9 @@ pub mod warninglist;
 pub mod zeek_intel;
 
 pub use attack_flow::{
-    AttackAction, AttackAsset, AttackFlowBundle, AttackFlowRoot, AttackOperator, FlowEdge,
-    FlowGraph, FlowNode, bundle_to_correlation_rules, bundle_to_flow_graph,
-    extract_bundles_from_zip, parse_attack_flow_bundle,
+    bundle_to_correlation_rules, bundle_to_flow_graph, extract_bundles_from_zip,
+    parse_attack_flow_bundle, AttackAction, AttackAsset, AttackFlowBundle, AttackFlowRoot,
+    AttackOperator, FlowEdge, FlowGraph, FlowNode,
 };
 
 #[cfg(test)]
@@ -699,10 +699,19 @@ clauses:
     required_tag: test_tag
 "#;
         let rule: CorrelationRule = serde_yaml::from_str(yaml).expect("parse");
-        assert_eq!(rule.summary_template.as_deref(), Some("Summary from template"));
-        assert_eq!(rule.explanation_template.as_deref(), Some("Explanation from template"));
+        assert_eq!(
+            rule.summary_template.as_deref(),
+            Some("Summary from template")
+        );
+        assert_eq!(
+            rule.explanation_template.as_deref(),
+            Some("Explanation from template")
+        );
         assert_eq!(rule.default_confidence, 75);
-        assert!(matches!(rule.assertion_level, crate::model::AssertionLevel::Inferred));
+        assert!(matches!(
+            rule.assertion_level,
+            crate::model::AssertionLevel::Inferred
+        ));
     }
 
     #[test]
@@ -718,7 +727,10 @@ clauses:
         let rule: CorrelationRule = serde_yaml::from_str(yaml).expect("parse");
         assert!(rule.summary_template.is_none());
         assert_eq!(rule.default_confidence, 0);
-        assert!(matches!(rule.assertion_level, crate::model::AssertionLevel::Correlated));
+        assert!(matches!(
+            rule.assertion_level,
+            crate::model::AssertionLevel::Correlated
+        ));
     }
 
     #[test]
@@ -751,7 +763,10 @@ clauses:
         let findings = engine.evaluate(&[rule], &evidence);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].summary.as_deref(), Some("Templated summary"));
-        assert_eq!(findings[0].explanation.as_deref(), Some("Templated explanation"));
+        assert_eq!(
+            findings[0].explanation.as_deref(),
+            Some("Templated explanation")
+        );
         assert_eq!(findings[0].confidence, 82);
     }
 
@@ -759,13 +774,18 @@ clauses:
     fn bundled_miner_rule_has_summary_template() {
         let dir = bundled_rule_dir();
         let rules = load_rule_pack(&dir).expect("load bundled rules");
-        let miner_rule = rules.iter()
+        let miner_rule = rules
+            .iter()
             .find(|r| r.id == "correlation.miner.rootkit-concealment")
             .expect("miner rule must exist");
-        assert!(miner_rule.summary_template.is_some(),
-            "miner rootkit rule must have a summary_template");
-        assert!(miner_rule.default_confidence > 0,
-            "miner rootkit rule must have default_confidence > 0");
+        assert!(
+            miner_rule.summary_template.is_some(),
+            "miner rootkit rule must have a summary_template"
+        );
+        assert!(
+            miner_rule.default_confidence > 0,
+            "miner rootkit rule must have default_confidence > 0"
+        );
     }
 
     // WS-7: rootkit explanation must NOT assert exact hook function names
@@ -774,7 +794,8 @@ clauses:
     fn rootkit_rule_explanation_does_not_claim_exact_hooks() {
         let dir = bundled_rule_dir();
         let rules = load_rule_pack(&dir).expect("load bundled rules");
-        let rule = rules.iter()
+        let rule = rules
+            .iter()
             .find(|r| r.id == "correlation.miner.rootkit-concealment")
             .expect("miner rootkit rule must exist");
         let explanation = rule.explanation_template.as_deref().unwrap_or("");
@@ -789,7 +810,8 @@ clauses:
     fn miner_rule_explanation_uses_calibrated_language() {
         let dir = bundled_rule_dir();
         let rules = load_rule_pack(&dir).expect("load bundled rules");
-        let rule = rules.iter()
+        let rule = rules
+            .iter()
             .find(|r| r.id == "correlation.miner.rootkit-concealment")
             .expect("miner rootkit rule must exist");
         let explanation = rule.explanation_template.as_deref().unwrap_or("");
@@ -798,8 +820,10 @@ clauses:
             || explanation.contains("compatible");
         assert!(has_hedge,
             "miner rule explanation must use calibrated language (consistent with / likely / compatible)");
-        assert!(!explanation.contains("Mining traffic is tunnelled"),
-            "explanation must not assert definitive tunnelling — use calibrated framing");
+        assert!(
+            !explanation.contains("Mining traffic is tunnelled"),
+            "explanation must not assert definitive tunnelling — use calibrated framing"
+        );
     }
 
     // WS-6: SSH tunnel rule must use "consistent with" framing.
@@ -807,12 +831,15 @@ clauses:
     fn ssh_stratum_rule_explanation_is_calibrated() {
         let dir = bundled_rule_dir();
         let rules = load_rule_pack(&dir).expect("load bundled rules");
-        let rule = rules.iter()
+        let rule = rules
+            .iter()
             .find(|r| r.id == "correlation.network.ssh-tunnel-stratum")
             .expect("ssh-tunnel-stratum rule must exist");
         let explanation = rule.explanation_template.as_deref().unwrap_or("");
-        assert!(explanation.contains("consistent with"),
-            "SSH tunnel rule explanation must use 'consistent with' framing, got: {explanation}");
+        assert!(
+            explanation.contains("consistent with"),
+            "SSH tunnel rule explanation must use 'consistent with' framing, got: {explanation}"
+        );
     }
 
     // WS-7: LD_PRELOAD rule must not assert definitively that the library IS a rootkit.
@@ -820,7 +847,8 @@ clauses:
     fn ldpreload_rule_explanation_is_calibrated() {
         let dir = bundled_rule_dir();
         let rules = load_rule_pack(&dir).expect("load bundled rules");
-        let rule = rules.iter()
+        let rule = rules
+            .iter()
             .find(|r| r.id == "correlation.persistence.ld-preload")
             .expect("ld-preload rule must exist");
         let explanation = rule.explanation_template.as_deref().unwrap_or("");
@@ -828,8 +856,10 @@ clauses:
             || explanation.contains("indicative of")
             || explanation.contains("may enable")
             || explanation.contains("commonly used");
-        assert!(has_hedge,
-            "LD_PRELOAD rule explanation must use calibrated language, got: {explanation}");
+        assert!(
+            has_hedge,
+            "LD_PRELOAD rule explanation must use calibrated language, got: {explanation}"
+        );
     }
 
     // WS-9: likely tier fires on libuv-worker evidence; confirmed tier does NOT
@@ -839,38 +869,52 @@ clauses:
         let dir = bundled_rule_dir();
         let rules = load_rule_pack(&dir).expect("load bundled rules");
         // Only the likely-tier rule should be present in bundled rules
-        assert!(rules.iter().any(|r| r.id == "correlation.miner.rootkit-concealment"),
-            "likely-tier miner rule must be bundled");
+        assert!(
+            rules
+                .iter()
+                .any(|r| r.id == "correlation.miner.rootkit-concealment"),
+            "likely-tier miner rule must be bundled"
+        );
     }
 
     #[test]
     fn confirmed_xmrig_rule_is_bundled() {
         let dir = bundled_rule_dir();
         let rules = load_rule_pack(&dir).expect("load bundled rules");
-        assert!(rules.iter().any(|r| r.id == "correlation.miner.confirmed-xmrig"),
-            "confirmed-xmrig rule must be bundled");
+        assert!(
+            rules
+                .iter()
+                .any(|r| r.id == "correlation.miner.confirmed-xmrig"),
+            "confirmed-xmrig rule must be bundled"
+        );
     }
 
     #[test]
     fn confirmed_xmrig_rule_has_higher_confidence_than_likely() {
         let dir = bundled_rule_dir();
         let rules = load_rule_pack(&dir).expect("load bundled rules");
-        let likely = rules.iter()
+        let likely = rules
+            .iter()
             .find(|r| r.id == "correlation.miner.rootkit-concealment")
             .expect("likely rule");
-        let confirmed = rules.iter()
+        let confirmed = rules
+            .iter()
             .find(|r| r.id == "correlation.miner.confirmed-xmrig")
             .expect("confirmed rule");
-        assert!(confirmed.default_confidence > likely.default_confidence,
+        assert!(
+            confirmed.default_confidence > likely.default_confidence,
             "confirmed rule ({}) must have higher confidence than likely ({})",
-            confirmed.default_confidence, likely.default_confidence);
+            confirmed.default_confidence,
+            likely.default_confidence
+        );
     }
 
     #[test]
     fn confirmed_xmrig_rule_fires_on_direct_process_name_evidence() {
         let dir = bundled_rule_dir();
         let rules = load_rule_pack(&dir).expect("load bundled rules");
-        let confirmed_rule = rules.iter()
+        let confirmed_rule = rules
+            .iter()
             .find(|r| r.id == "correlation.miner.confirmed-xmrig")
             .expect("confirmed rule")
             .clone();
@@ -885,21 +929,29 @@ clauses:
         }];
         let engine = CorrelationEngine;
         let findings = engine.evaluate(&[confirmed_rule], &evidence);
-        assert_eq!(findings.len(), 1,
-            "confirmed-xmrig rule must fire on confirmed_xmrig tag");
-        assert!(matches!(findings[0].assertion_level, AssertionLevel::Observed),
-            "confirmed finding must be Observed assertion level");
+        assert_eq!(
+            findings.len(),
+            1,
+            "confirmed-xmrig rule must fire on confirmed_xmrig tag"
+        );
+        assert!(
+            matches!(findings[0].assertion_level, AssertionLevel::Observed),
+            "confirmed finding must be Observed assertion level"
+        );
     }
 
     #[test]
     fn confirmed_xmrig_rule_uses_observed_assertion_level() {
         let dir = bundled_rule_dir();
         let rules = load_rule_pack(&dir).expect("load bundled rules");
-        let rule = rules.iter()
+        let rule = rules
+            .iter()
             .find(|r| r.id == "correlation.miner.confirmed-xmrig")
             .expect("confirmed rule");
-        assert!(matches!(rule.assertion_level, AssertionLevel::Observed),
-            "confirmed-xmrig rule must use Observed assertion level");
+        assert!(
+            matches!(rule.assertion_level, AssertionLevel::Observed),
+            "confirmed-xmrig rule must use Observed assertion level"
+        );
     }
 
     // ── Phase 2: SRUM correlation rules ──────────────────────────────────────
@@ -918,10 +970,14 @@ clauses:
     fn srum_exfil_candidate_rule_has_high_severity() {
         let dir = bundled_rule_dir();
         let rules = load_rule_pack(&dir).expect("load bundled rules");
-        let rule = rules.iter()
+        let rule = rules
+            .iter()
             .find(|r| r.id == "srum.exfil-candidate")
             .expect("srum.exfil-candidate rule must exist");
-        assert_eq!(rule.severity, "high", "srum.exfil-candidate must have high severity");
+        assert_eq!(
+            rule.severity, "high",
+            "srum.exfil-candidate must have high severity"
+        );
         assert!(
             matches!(rule.assertion_level, AssertionLevel::Inferred),
             "srum.exfil-candidate must use Inferred assertion level"
@@ -942,10 +998,14 @@ clauses:
     fn srum_c2_beacon_rule_has_high_severity_and_correlated_level() {
         let dir = bundled_rule_dir();
         let rules = load_rule_pack(&dir).expect("load bundled rules");
-        let rule = rules.iter()
+        let rule = rules
+            .iter()
             .find(|r| r.id == "srum.c2-beacon")
             .expect("srum.c2-beacon rule must exist");
-        assert_eq!(rule.severity, "high", "srum.c2-beacon must have high severity");
+        assert_eq!(
+            rule.severity, "high",
+            "srum.c2-beacon must have high severity"
+        );
         assert!(
             matches!(rule.assertion_level, AssertionLevel::Correlated),
             "srum.c2-beacon must use Correlated assertion level"
@@ -966,10 +1026,14 @@ clauses:
     fn srum_background_miner_rule_has_high_severity_and_correlated_level() {
         let dir = bundled_rule_dir();
         let rules = load_rule_pack(&dir).expect("load bundled rules");
-        let rule = rules.iter()
+        let rule = rules
+            .iter()
             .find(|r| r.id == "srum.background-miner")
             .expect("srum.background-miner rule must exist");
-        assert_eq!(rule.severity, "high", "srum.background-miner must have high severity");
+        assert_eq!(
+            rule.severity, "high",
+            "srum.background-miner must have high severity"
+        );
         assert!(
             matches!(rule.assertion_level, AssertionLevel::Correlated),
             "srum.background-miner must use Correlated assertion level"
@@ -990,10 +1054,14 @@ clauses:
     fn srum_stealth_process_rule_has_critical_severity_and_correlated_level() {
         let dir = bundled_rule_dir();
         let rules = load_rule_pack(&dir).expect("load bundled rules");
-        let rule = rules.iter()
+        let rule = rules
+            .iter()
             .find(|r| r.id == "srum.stealth-process")
             .expect("srum.stealth-process rule must exist");
-        assert_eq!(rule.severity, "critical", "srum.stealth-process must have critical severity");
+        assert_eq!(
+            rule.severity, "critical",
+            "srum.stealth-process must have critical severity"
+        );
         assert!(
             matches!(rule.assertion_level, AssertionLevel::Correlated),
             "srum.stealth-process must use Correlated assertion level"
@@ -1007,7 +1075,9 @@ clauses:
         let dir = bundled_rule_dir();
         let rules = load_rule_pack(&dir).expect("load bundled rules");
         assert!(
-            rules.iter().any(|r| r.id == "temporal.sshd-restart-after-preload"),
+            rules
+                .iter()
+                .any(|r| r.id == "temporal.sshd-restart-after-preload"),
             "temporal.sshd-restart-after-preload must be bundled"
         );
     }
@@ -1016,14 +1086,19 @@ clauses:
     fn sshd_restart_after_preload_rule_has_critical_severity_and_high_confidence() {
         let dir = bundled_rule_dir();
         let rules = load_rule_pack(&dir).expect("load bundled rules");
-        let rule = rules.iter()
+        let rule = rules
+            .iter()
             .find(|r| r.id == "temporal.sshd-restart-after-preload")
             .expect("temporal.sshd-restart-after-preload must exist");
-        assert_eq!(rule.severity, "critical",
-            "sshd-restart-after-preload must have critical severity");
-        assert!(rule.default_confidence >= 80,
+        assert_eq!(
+            rule.severity, "critical",
+            "sshd-restart-after-preload must have critical severity"
+        );
+        assert!(
+            rule.default_confidence >= 80,
             "sshd-restart-after-preload must have confidence >= 80, got {}",
-            rule.default_confidence);
+            rule.default_confidence
+        );
     }
 
     #[test]
@@ -1031,7 +1106,9 @@ clauses:
         let dir = bundled_rule_dir();
         let rules = load_rule_pack(&dir).expect("load bundled rules");
         assert!(
-            rules.iter().any(|r| r.id == "temporal.kit-deleted-after-deployment"),
+            rules
+                .iter()
+                .any(|r| r.id == "temporal.kit-deleted-after-deployment"),
             "temporal.kit-deleted-after-deployment must be bundled"
         );
     }
@@ -1040,11 +1117,14 @@ clauses:
     fn kit_deleted_after_deployment_rule_has_high_severity() {
         let dir = bundled_rule_dir();
         let rules = load_rule_pack(&dir).expect("load bundled rules");
-        let rule = rules.iter()
+        let rule = rules
+            .iter()
             .find(|r| r.id == "temporal.kit-deleted-after-deployment")
             .expect("temporal.kit-deleted-after-deployment must exist");
-        assert_eq!(rule.severity, "high",
-            "kit-deleted-after-deployment must have high severity");
+        assert_eq!(
+            rule.severity, "high",
+            "kit-deleted-after-deployment must have high severity"
+        );
     }
 
     #[test]
@@ -1052,7 +1132,9 @@ clauses:
         let dir = bundled_rule_dir();
         let rules = load_rule_pack(&dir).expect("load bundled rules");
         assert!(
-            rules.iter().any(|r| r.id == "temporal.failed-preload-then-success"),
+            rules
+                .iter()
+                .any(|r| r.id == "temporal.failed-preload-then-success"),
             "temporal.failed-preload-then-success must be bundled"
         );
     }
@@ -1061,12 +1143,15 @@ clauses:
     fn failed_preload_then_success_rule_has_sufficient_confidence() {
         let dir = bundled_rule_dir();
         let rules = load_rule_pack(&dir).expect("load bundled rules");
-        let rule = rules.iter()
+        let rule = rules
+            .iter()
             .find(|r| r.id == "temporal.failed-preload-then-success")
             .expect("temporal.failed-preload-then-success must exist");
-        assert!(rule.default_confidence >= 65,
+        assert!(
+            rule.default_confidence >= 65,
             "failed-preload-then-success must have confidence >= 65, got {}",
-            rule.default_confidence);
+            rule.default_confidence
+        );
     }
 
     // ── Batch 1: time_of_day classifier ──────────────────────────────────────
@@ -1118,13 +1203,16 @@ clauses:
 
     #[test]
     fn classify_weekend_returns_weekend_variant() {
-        use crate::time_of_day::{TimeAnomaly, classify_time_anomaly};
-        assert!(matches!(classify_time_anomaly(SATURDAY_2AM_NS), TimeAnomaly::Weekend { .. }));
+        use crate::time_of_day::{classify_time_anomaly, TimeAnomaly};
+        assert!(matches!(
+            classify_time_anomaly(SATURDAY_2AM_NS),
+            TimeAnomaly::Weekend { .. }
+        ));
     }
 
     #[test]
     fn classify_after_hours_returns_outside_variant() {
-        use crate::time_of_day::{TimeAnomaly, classify_time_anomaly};
+        use crate::time_of_day::{classify_time_anomaly, TimeAnomaly};
         assert!(matches!(
             classify_time_anomaly(MONDAY_6PM_NS),
             TimeAnomaly::OutsideWorkingHours { .. }
@@ -1133,7 +1221,7 @@ clauses:
 
     #[test]
     fn classify_working_hours_returns_none() {
-        use crate::time_of_day::{TimeAnomaly, classify_time_anomaly};
+        use crate::time_of_day::{classify_time_anomaly, TimeAnomaly};
         assert_eq!(classify_time_anomaly(FRIDAY_2PM_NS), TimeAnomaly::None);
     }
 

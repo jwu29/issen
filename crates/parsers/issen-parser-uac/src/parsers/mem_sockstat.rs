@@ -247,7 +247,8 @@ mod tests {
         let entries = vec![
             SockstatEntry {
                 process_name: "top".into(),
-                pid: 977, tid: 977,
+                pid: 977,
+                tid: 977,
                 family: "AF_UNIX".into(),
                 proto: "-".into(),
                 src_addr: "/run/systemd/journal/socket".into(),
@@ -258,7 +259,8 @@ mod tests {
             },
             SockstatEntry {
                 process_name: "top".into(),
-                pid: 977, tid: 977,
+                pid: 977,
+                tid: 977,
                 family: "AF_UNIX".into(),
                 proto: "-".into(),
                 src_addr: "/run/dbus/system_bus_socket".into(),
@@ -270,7 +272,8 @@ mod tests {
             // AF_INET row must not appear in unix paths
             SockstatEntry {
                 process_name: "top".into(),
-                pid: 977, tid: 977,
+                pid: 977,
+                tid: 977,
                 family: "AF_INET".into(),
                 proto: "TCP".into(),
                 src_addr: "127.0.0.1".into(),
@@ -282,10 +285,13 @@ mod tests {
         ];
         let mut paths = unix_paths_for_pid(&entries, 977);
         paths.sort();
-        assert_eq!(paths, vec![
-            "/run/dbus/system_bus_socket".to_string(),
-            "/run/systemd/journal/socket".to_string(),
-        ]);
+        assert_eq!(
+            paths,
+            vec![
+                "/run/dbus/system_bus_socket".to_string(),
+                "/run/systemd/journal/socket".to_string(),
+            ]
+        );
     }
 
     #[test]

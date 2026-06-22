@@ -2,7 +2,9 @@
 
 use std::collections::HashMap;
 
-use forensicnomicon::heuristics::evtx::{EID_SYSMON_NETWORK_CONNECT, EID_SYSMON_DNS_QUERY, SYSMON_CHANNEL};
+use forensicnomicon::heuristics::evtx::{
+    EID_SYSMON_DNS_QUERY, EID_SYSMON_NETWORK_CONNECT, SYSMON_CHANNEL,
+};
 use issen_core::timeline::event::{EntityRef, EventType, TimelineEvent};
 use winevt_core::{EvtxEvent, LogonSession};
 
@@ -47,7 +49,9 @@ pub struct DnsTunnelingHit {
 pub fn pcap_filter_from_sysmon(events: &[EvtxEvent], window_secs: u64) -> Vec<PcapFilter> {
     use std::collections::HashMap;
 
-    if window_secs == 0 { return vec![]; }
+    if window_secs == 0 {
+        return vec![];
+    }
     let window_ns = (window_secs as i64) * 1_000_000_000;
 
     // Filter EID 3 (Sysmon network connect)
@@ -56,7 +60,9 @@ pub fn pcap_filter_from_sysmon(events: &[EvtxEvent], window_secs: u64) -> Vec<Pc
         .filter(|e| e.event_id == EID_SYSMON_NETWORK_CONNECT && e.channel == SYSMON_CHANNEL)
         .collect();
 
-    if net_events.is_empty() { return vec![]; }
+    if net_events.is_empty() {
+        return vec![];
+    }
 
     let min_ts = net_events.iter().map(|e| e.timestamp_ns).min().unwrap_or(0);
 
@@ -64,13 +70,15 @@ pub fn pcap_filter_from_sysmon(events: &[EvtxEvent], window_secs: u64) -> Vec<Pc
     let mut buckets: HashMap<i64, (i64, i64, Vec<String>)> = HashMap::new();
     for ev in &net_events {
         let bucket_key = ((ev.timestamp_ns - min_ts) / window_ns) * window_ns + min_ts;
-        let entry = buckets.entry(bucket_key).or_insert((ev.timestamp_ns, ev.timestamp_ns, Vec::new()));
+        let entry =
+            buckets
+                .entry(bucket_key)
+                .or_insert((ev.timestamp_ns, ev.timestamp_ns, Vec::new()));
         entry.0 = entry.0.min(ev.timestamp_ns);
         entry.1 = entry.1.max(ev.timestamp_ns);
-        if let (Some(ip), Some(port)) = (
-            ev.data.get("DestinationIp"),
-            ev.data.get("DestinationPort"),
-        ) {
+        if let (Some(ip), Some(port)) =
+            (ev.data.get("DestinationIp"), ev.data.get("DestinationPort"))
+        {
             let expr = format!("host {ip} and port {port}");
             if !entry.2.contains(&expr) {
                 entry.2.push(expr);
@@ -94,10 +102,14 @@ pub fn pcap_filter_from_sysmon(events: &[EvtxEvent], window_secs: u64) -> Vec<Pc
 
 /// Compute Shannon entropy of a string (bits per symbol).
 pub fn shannon_entropy(s: &str) -> f64 {
-    if s.is_empty() { return 0.0; }
+    if s.is_empty() {
+        return 0.0;
+    }
     let len = s.len() as f64;
     let mut freq = [0usize; 256];
-    for b in s.bytes() { freq[b as usize] += 1; }
+    for b in s.bytes() {
+        freq[b as usize] += 1;
+    }
     freq.iter()
         .filter(|&&c| c > 0)
         .map(|&c| {
@@ -140,11 +152,14 @@ pub fn correlate_with_zeek(
         .filter(|e| e.event_id == EID_SYSMON_NETWORK_CONNECT && e.channel == SYSMON_CHANNEL)
         .map(|ev| {
             let dst_ip = ev.data.get("DestinationIp").map_or("", String::as_str);
-            let dst_port: u16 = ev.data.get("DestinationPort")
+            let dst_port: u16 = ev
+                .data
+                .get("DestinationPort")
                 .and_then(|p| p.parse().ok())
                 .unwrap_or(0);
 
-            let best = zeek.iter()
+            let best = zeek
+                .iter()
                 .filter(|z| z.dst_ip == dst_ip && z.dst_port == dst_port)
                 .filter(|z| (z.ts_ns - ev.timestamp_ns).abs() <= time_window_ns)
                 .min_by_key(|z| (z.ts_ns - ev.timestamp_ns).unsigned_abs());
@@ -185,7 +200,10 @@ pub fn enrich_network_events_with_sessions(
         if event.event_type != EventType::NetworkConnect {
             continue;
         }
-        let Some(logon_id) = event.metadata.get("logon_id").and_then(serde_json::Value::as_u64)
+        let Some(logon_id) = event
+            .metadata
+            .get("logon_id")
+            .and_then(serde_json::Value::as_u64)
         else {
             continue;
         };
@@ -216,13 +234,33 @@ mod tests {
         data.insert("DestinationIp".into(), dst_ip.into());
         data.insert("DestinationPort".into(), dst_port.into());
         data.insert("SourceIp".into(), "10.0.0.5".into());
-        EvtxEvent { event_id: 3, channel: "Microsoft-Windows-Sysmon/Operational".into(), timestamp_ns: ts, computer: "WS01".into(), user_sid: None, logon_id: None, process_id: None, thread_id: None, data }
+        EvtxEvent {
+            event_id: 3,
+            channel: "Microsoft-Windows-Sysmon/Operational".into(),
+            timestamp_ns: ts,
+            computer: "WS01".into(),
+            user_sid: None,
+            logon_id: None,
+            process_id: None,
+            thread_id: None,
+            data,
+        }
     }
 
     fn sysmon_22(query: &str, ts: i64) -> EvtxEvent {
         let mut data = HashMap::new();
         data.insert("QueryName".into(), query.into());
-        EvtxEvent { event_id: 22, channel: "Microsoft-Windows-Sysmon/Operational".into(), timestamp_ns: ts, computer: "WS01".into(), user_sid: None, logon_id: None, process_id: None, thread_id: None, data }
+        EvtxEvent {
+            event_id: 22,
+            channel: "Microsoft-Windows-Sysmon/Operational".into(),
+            timestamp_ns: ts,
+            computer: "WS01".into(),
+            user_sid: None,
+            logon_id: None,
+            process_id: None,
+            thread_id: None,
+            data,
+        }
     }
 
     #[test]
@@ -280,7 +318,10 @@ mod tests {
 
     #[test]
     fn dns_tunneling_high_entropy_subdomain_flagged() {
-        let events = vec![sysmon_22("aGVsbG93b3JsZHRlc3RkYXRh.evil-tunnel.com", 1_000_000_000)];
+        let events = vec![sysmon_22(
+            "aGVsbG93b3JsZHRlc3RkYXRh.evil-tunnel.com",
+            1_000_000_000,
+        )];
         let hits = detect_dns_tunneling(&events, 3.5);
         assert!(!hits.is_empty());
         assert!(hits[0].entropy > 3.5);
@@ -301,7 +342,14 @@ mod tests {
     fn zeek_correlation_matched_when_ip_port_and_time_align() {
         let ns = 1_000_000_000_i64;
         let events = vec![sysmon_3("10.0.0.100", "443", 100 * ns)];
-        let zeek = vec![ZeekConnEntry { ts_ns: 100 * ns + 500_000_000, src_ip: "10.0.0.5".into(), dst_ip: "10.0.0.100".into(), dst_port: 443, proto: "tcp".into(), bytes: 1024 }];
+        let zeek = vec![ZeekConnEntry {
+            ts_ns: 100 * ns + 500_000_000,
+            src_ip: "10.0.0.5".into(),
+            dst_ip: "10.0.0.100".into(),
+            dst_port: 443,
+            proto: "tcp".into(),
+            bytes: 1024,
+        }];
         let result = correlate_with_zeek(&events, &zeek, 5 * ns);
         assert_eq!(result.len(), 1);
         assert!(result[0].matched);
@@ -431,6 +479,9 @@ mod tests {
 
         enrich_network_events_with_sessions(&mut events, &sessions);
 
-        assert_eq!(events[0].entity_refs, original_refs, "non-network events must not be modified");
+        assert_eq!(
+            events[0].entity_refs, original_refs,
+            "non-network events must not be modified"
+        );
     }
 }

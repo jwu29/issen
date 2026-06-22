@@ -20,9 +20,9 @@
 
 use issen_core::artifacts::ArtifactType;
 use issen_core::classify;
-use issen_core::plugin::selector as sel;
 use issen_core::error::RtError;
 use issen_core::plugin::registry::ParserRegistration;
+use issen_core::plugin::selector as sel;
 use issen_core::plugin::traits::{
     DataSource, EventEmitter, ForensicParser, ParseCompletion, ParseStats, ParserCapabilities,
 };
@@ -103,10 +103,7 @@ impl ForensicParser for RecycleBinParser {
 /// Returns `None` when the recorded deletion `FILETIME` is zero/out of range
 /// (`deleted_at == None`): without a deletion timestamp there is no timeline
 /// anchor for the event, so it is dropped rather than emitted at epoch 0.
-fn delete_event(
-    index: &trash_core::RecycleBinIndex,
-    artifact_path: &str,
-) -> Option<TimelineEvent> {
+fn delete_event(index: &trash_core::RecycleBinIndex, artifact_path: &str) -> Option<TimelineEvent> {
     let ts_ns = index.deleted_at?.timestamp_nanos_opt()?;
 
     let description = format!(

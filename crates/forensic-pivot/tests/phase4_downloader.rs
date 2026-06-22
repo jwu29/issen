@@ -1,6 +1,5 @@
 use forensic_pivot::{
-    save_manifest, load_manifest, stale_feeds, prepare_feed_cache,
-    FeedSpec, FeedKind, SyncManifest,
+    load_manifest, prepare_feed_cache, save_manifest, stale_feeds, FeedKind, FeedSpec, SyncManifest,
 };
 use std::time::{SystemTime, UNIX_EPOCH};
 use tempfile::TempDir;
@@ -49,8 +48,8 @@ fn stale_feeds_identified_from_manifest() {
     let now = now_secs();
     let manifest = SyncManifest {
         feeds: vec![
-            make_feed("old-feed", Some(0)),        // epoch — always stale
-            make_feed("fresh-feed", Some(now)),    // just synced — not stale
+            make_feed("old-feed", Some(0)),     // epoch — always stale
+            make_feed("fresh-feed", Some(now)), // just synced — not stale
         ],
         updated_at: now,
     };
@@ -93,7 +92,10 @@ fn manifest_updated_at_advances_on_save() {
 
     // Load it back — the loader must preserve what was saved
     let loaded = load_manifest(dir.path()).expect("load");
-    assert_eq!(loaded.updated_at, 1, "loaded updated_at should match saved value");
+    assert_eq!(
+        loaded.updated_at, 1,
+        "loaded updated_at should match saved value"
+    );
 
     // Now save with a newer timestamp and verify it advances
     let now = now_secs();

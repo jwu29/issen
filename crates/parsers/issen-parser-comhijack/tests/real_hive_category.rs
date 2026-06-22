@@ -6,7 +6,11 @@
 //!
 //! Fixture (gitignored): `tests/data/dfirmadness-szechuan-sauce/extracted/szechuan-sauce-hives/UsrClass.dat` (carve from
 //! `DESKTOP-E01.zip`, see `docs/corpus-catalog.md` §A3b). Skips if absent.
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::redundant_closure_for_method_calls)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::redundant_closure_for_method_calls
+)]
 
 use std::path::PathBuf;
 
@@ -26,8 +30,9 @@ fn comhijack_real_usrclass_tagged_persistence() {
         );
         return;
     }
-    let events = issen_parser_comhijack::parse_com_hijacking(&path, "szechuan-sauce-ricksanchez-UsrClass")
-        .expect("parse_com_hijacking must decode a real UsrClass.dat");
+    let events =
+        issen_parser_comhijack::parse_com_hijacking(&path, "szechuan-sauce-ricksanchez-UsrClass")
+            .expect("parse_com_hijacking must decode a real UsrClass.dat");
     assert!(
         !events.is_empty(),
         "Win10 UsrClass.dat has CLSID InprocServer32 registrations (needs winreg-artifacts 0.1.2)"

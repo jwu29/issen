@@ -1,7 +1,7 @@
 // RED: stub — types declared but no real logic
-use std::collections::HashMap;
-use serde::{Deserialize, Serialize};
 use crate::evidence::{EvidenceKind, EvidenceSource};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Severity {

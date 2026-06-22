@@ -510,11 +510,7 @@ impl MockArtifactProvider {
     }
 
     /// Register a raw EVTX file path for a named log (e.g. `"Security"`).
-    pub fn add_evtx_path(
-        &mut self,
-        log_name: &str,
-        path: std::path::PathBuf,
-    ) -> &mut Self {
+    pub fn add_evtx_path(&mut self, log_name: &str, path: std::path::PathBuf) -> &mut Self {
         self.evtx_paths.insert(log_name.to_owned(), path);
         self
     }

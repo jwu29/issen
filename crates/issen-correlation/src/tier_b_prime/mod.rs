@@ -121,7 +121,14 @@ mod tests {
     /// a verdict. It must say "consistent with" and never assert proof.
     #[test]
     fn no_tier_b_prime_note_asserts_a_verdict() {
-        let forbidden = ["confirm", "prove", "proof", "exceed", "undoubtedly", "certainly"];
+        let forbidden = [
+            "confirm",
+            "prove",
+            "proof",
+            "exceed",
+            "undoubtedly",
+            "certainly",
+        ];
         let notes: Vec<&str> = tier_b_prime_rules().iter().map(|r| r.note).collect();
         for note in notes {
             let lower = note.to_ascii_lowercase();

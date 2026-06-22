@@ -13,7 +13,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 fn case001_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../tests/data/dfirmadness-szechuan-sauce/extracted/szechuan-sauce-hives")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../tests/data/dfirmadness-szechuan-sauce/extracted/szechuan-sauce-hives")
 }
 
 /// Map every emitted event's `catalog_id` → its CADET category code.
@@ -24,11 +25,13 @@ fn category_by_catalog_id() -> HashMap<String, String> {
         if !p.exists() {
             continue;
         }
-        let events = issen_parser_regcatalog::parse_regcatalog(&p, "szechuan-sauce").expect("parse");
+        let events =
+            issen_parser_regcatalog::parse_regcatalog(&p, "szechuan-sauce").expect("parse");
         for e in events {
             if let Some(cid) = e.metadata.get("catalog_id").and_then(|v| v.as_str()) {
                 let cat = e
-                    .activity_category.map_or_else(|| "<none>".to_string(), |c| c.code().to_string());
+                    .activity_category
+                    .map_or_else(|| "<none>".to_string(), |c| c.code().to_string());
                 out.entry(cid.to_string()).or_insert(cat);
             }
         }
@@ -87,7 +90,8 @@ fn regcatalog_events_carry_real_last_write_time() {
         if !p.exists() {
             continue;
         }
-        let events = issen_parser_regcatalog::parse_regcatalog(&p, "szechuan-sauce").expect("parse");
+        let events =
+            issen_parser_regcatalog::parse_regcatalog(&p, "szechuan-sauce").expect("parse");
         if events.iter().any(|e| e.timestamp_ns > 0) {
             any_ts = true;
             break;

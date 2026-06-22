@@ -31,7 +31,10 @@ pub fn is_outside_working_hours(timestamp_ns: i64) -> bool {
 /// Returns `true` if the timestamp falls on a weekend (Saturday or Sunday, UTC).
 #[must_use]
 pub fn is_weekend(timestamp_ns: i64) -> bool {
-    matches!(classify_time_anomaly(timestamp_ns), TimeAnomaly::Weekend { .. })
+    matches!(
+        classify_time_anomaly(timestamp_ns),
+        TimeAnomaly::Weekend { .. }
+    )
 }
 
 /// Returns the hour of day (0–23) for a Unix nanosecond timestamp (UTC).
@@ -89,7 +92,10 @@ pub fn classify_time_anomaly(timestamp_ns: i64) -> TimeAnomaly {
     // Outside working hours on a weekday (constants from forensicnomicon::heuristics)
     #[allow(clippy::cast_possible_truncation)]
     if !(WORKING_HOURS_START..WORKING_HOURS_END).contains(&u32::from(hr)) {
-        return TimeAnomaly::OutsideWorkingHours { hour: hr, weekday: wd };
+        return TimeAnomaly::OutsideWorkingHours {
+            hour: hr,
+            weekday: wd,
+        };
     }
 
     TimeAnomaly::None

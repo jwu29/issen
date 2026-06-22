@@ -47,10 +47,7 @@ pub fn frequency_analysis(
     for ev in events {
         if let Some(val) = ev.data.get(data_key) {
             if !val.is_empty() {
-                groups
-                    .entry(val.clone())
-                    .or_default()
-                    .push(ev.timestamp_ns);
+                groups.entry(val.clone()).or_default().push(ev.timestamp_ns);
             }
         }
     }
@@ -72,11 +69,7 @@ pub fn pivot_sessions_by_src_ip<'a>(
 ) -> HashMap<String, Vec<&'a LogonSession>> {
     let mut result: HashMap<String, Vec<&'a LogonSession>> = HashMap::new();
     for s in sessions {
-        let ip = s
-            .src_ip
-            .as_deref()
-            .unwrap_or("(unknown)")
-            .to_string();
+        let ip = s.src_ip.as_deref().unwrap_or("(unknown)").to_string();
         result.entry(ip).or_default().push(s);
     }
     result

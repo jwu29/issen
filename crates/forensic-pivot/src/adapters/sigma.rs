@@ -3,10 +3,10 @@
 //! Converts Sigma tool output (JSON format from sigmac/pySigma/hayabusa)
 //! into `Evidence` objects for the `PivotEngine`.
 
-use std::collections::HashMap;
 use anyhow::Result;
 use serde::Deserialize;
 use serde_json::Value;
+use std::collections::HashMap;
 
 use crate::evidence::{Evidence, EvidenceKind, EvidenceSource};
 
@@ -110,7 +110,10 @@ mod tests {
         assert_eq!(alert.title, "XMRig Miner");
         assert_eq!(alert.level, "critical");
         assert_eq!(alert.process_name.as_deref(), Some("xmrig.exe"));
-        assert_eq!(alert.command_line.as_deref(), Some("xmrig --pool stratum+tcp://pool.example.com:3333"));
+        assert_eq!(
+            alert.command_line.as_deref(),
+            Some("xmrig --pool stratum+tcp://pool.example.com:3333")
+        );
         assert_eq!(alert.timestamp.as_deref(), Some("2026-01-01T00:00:00Z"));
     }
 

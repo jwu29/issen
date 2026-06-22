@@ -135,7 +135,11 @@ mod tests {
 
     #[test]
     fn utmp_present_in_mixed_list() {
-        assert!(check_utmp_present(&["passwd", "live_response/run/utmp", "shadow"]));
+        assert!(check_utmp_present(&[
+            "passwd",
+            "live_response/run/utmp",
+            "shadow"
+        ]));
     }
 
     #[test]

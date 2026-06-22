@@ -311,12 +311,22 @@ fn run_copy_delete<E: EventView>(events: &[E]) -> Vec<Correlation> {
     let deletes: Vec<(RunEvent, FileFacts)> = events
         .iter()
         .filter(|e| e.event_type() == "FileDelete")
-        .map(|e| (RunEvent::from_view(e), FileFacts::without_size(e.artifact_path())))
+        .map(|e| {
+            (
+                RunEvent::from_view(e),
+                FileFacts::without_size(e.artifact_path()),
+            )
+        })
         .collect();
     let creates: Vec<(RunEvent, FileFacts)> = events
         .iter()
         .filter(|e| e.event_type() == "FileCreate")
-        .map(|e| (RunEvent::from_view(e), FileFacts::without_size(e.artifact_path())))
+        .map(|e| {
+            (
+                RunEvent::from_view(e),
+                FileFacts::without_size(e.artifact_path()),
+            )
+        })
         .collect();
     copy_delete_pairs(&deletes, &creates)
 }
@@ -507,7 +517,10 @@ mod tests {
             Ev::new(2, 2_000, "FileRename", "DC01", EventSource::Disk)
                 .at("C:\\Windows\\System32\\coreupdater.exe"),
         ];
-        assert!(has_code(&run_correlations(&events), "CORR-MALWARE-RELOCATE"));
+        assert!(has_code(
+            &run_correlations(&events),
+            "CORR-MALWARE-RELOCATE"
+        ));
     }
 
     #[test]
@@ -531,8 +544,14 @@ mod tests {
             Ev::new(1, 1_000, "FileCreate", "", EventSource::Disk)
                 .at("coreupdater.exe")
                 .host_none(),
-            Ev::new(2, 200_000_000_000, "ServiceInstall", "CITADEL-DC01", EventSource::Evtx)
-                .at("C:\\Windows\\System32\\coreupdater.exe"),
+            Ev::new(
+                2,
+                200_000_000_000,
+                "ServiceInstall",
+                "CITADEL-DC01",
+                EventSource::Evtx,
+            )
+            .at("C:\\Windows\\System32\\coreupdater.exe"),
         ];
         assert!(
             has_code(&run_correlations(&events), "CORR-MALWARE-PERSIST"),
@@ -568,7 +587,10 @@ mod tests {
             Ev::new(2, 2_000, "LogonSuccess", "DC01", EventSource::Evtx)
                 .ent(EntityRef::Ip("194.61.24.102".to_string())),
         ];
-        assert!(has_code(&run_correlations(&events), "CORR-BRUTEFORCE-LOGON"));
+        assert!(has_code(
+            &run_correlations(&events),
+            "CORR-BRUTEFORCE-LOGON"
+        ));
     }
 
     #[test]
@@ -587,11 +609,19 @@ mod tests {
         ];
         let corrs = run_correlations(&events);
         let fired = codes(&corrs);
-        assert!(fired.iter().any(|c| c == "CORR-MALWARE-PERSIST"), "persist: {fired:?}");
-        assert!(fired.iter().any(|c| c == "CORR-BRUTEFORCE-LOGON"), "bruteforce: {fired:?}");
-        let distinct: std::collections::BTreeSet<&str> =
-            fired.iter().map(String::as_str).collect();
-        assert!(distinct.len() >= 2, "at least two distinct rule codes: {fired:?}");
+        assert!(
+            fired.iter().any(|c| c == "CORR-MALWARE-PERSIST"),
+            "persist: {fired:?}"
+        );
+        assert!(
+            fired.iter().any(|c| c == "CORR-BRUTEFORCE-LOGON"),
+            "bruteforce: {fired:?}"
+        );
+        let distinct: std::collections::BTreeSet<&str> = fired.iter().map(String::as_str).collect();
+        assert!(
+            distinct.len() >= 2,
+            "at least two distinct rule codes: {fired:?}"
+        );
     }
 
     #[test]
@@ -602,7 +632,10 @@ mod tests {
             Ev::new(2, 2_000, "RegistryModify", "DC01", EventSource::Registry)
                 .at("C:\\Windows\\System32\\coreupdater.exe"),
         ];
-        assert!(has_code(&run_correlations(&events), "CORR-PERSIST-REGCONFIRM"));
+        assert!(has_code(
+            &run_correlations(&events),
+            "CORR-PERSIST-REGCONFIRM"
+        ));
     }
 
     #[test]
@@ -610,10 +643,20 @@ mod tests {
         // Two FileCreates that share no basename/stem and no staging context.
         let events = vec![
             Ev::new(1, 1_000, "FileCreate", "DC01", EventSource::Disk).at("C:\\a\\report.docx"),
-            Ev::new(2, 9_999_999_999_999, "FileCreate", "DC01", EventSource::Disk)
-                .at("D:\\b\\photo.jpg"),
+            Ev::new(
+                2,
+                9_999_999_999_999,
+                "FileCreate",
+                "DC01",
+                EventSource::Disk,
+            )
+            .at("D:\\b\\photo.jpg"),
         ];
-        assert!(run_correlations(&events).is_empty(), "{:?}", run_correlations(&events));
+        assert!(
+            run_correlations(&events).is_empty(),
+            "{:?}",
+            run_correlations(&events)
+        );
     }
 
     #[test]
@@ -640,7 +683,11 @@ mod tests {
         ];
         let corrs = run_correlations_with_memory(&events, &memory);
         // Both a disk-leg and a memory-leg rule fire, in one vector.
-        assert!(has_code(&corrs, "CORR-MALWARE-PERSIST"), "{:?}", codes(&corrs));
+        assert!(
+            has_code(&corrs, "CORR-MALWARE-PERSIST"),
+            "{:?}",
+            codes(&corrs)
+        );
         assert!(has_code(&corrs, "CORR-INJECTED-C2"), "{:?}", codes(&corrs));
     }
 
@@ -708,6 +755,10 @@ mod tests {
             .with_entity(EntityRef::Process("coreupdater.exe".to_string()))
             .with_pid(3644)];
         let corrs = run_correlations_with_memory(&events, &memory);
-        assert!(has_code(&corrs, "CORR-PROC-DISK-MATCH"), "{:?}", codes(&corrs));
+        assert!(
+            has_code(&corrs, "CORR-PROC-DISK-MATCH"),
+            "{:?}",
+            codes(&corrs)
+        );
     }
 }

@@ -1,7 +1,9 @@
 //! Rare-event analysis and EVTX diff.
 
+use forensicnomicon::heuristics::evtx::{
+    EID_PROCESS_CREATE, EID_SYSMON_PROCESS_CREATE, SYSMON_CHANNEL,
+};
 use winevt_core::EvtxEvent;
-use forensicnomicon::heuristics::evtx::{EID_PROCESS_CREATE, EID_SYSMON_PROCESS_CREATE, SYSMON_CHANNEL};
 
 #[derive(Debug, Clone)]
 pub struct RareEvent {
@@ -59,7 +61,9 @@ pub fn detect_rare_processes(events: &[EvtxEvent], threshold: usize) -> Vec<Rare
 
     // Only flag rare processes when a common baseline exists (some process meets threshold).
     let has_baseline = counts.values().any(|evs| evs.len() >= threshold);
-    if !has_baseline { return vec![]; }
+    if !has_baseline {
+        return vec![];
+    }
 
     counts
         .into_iter()
@@ -99,7 +103,9 @@ pub fn frequency_anomaly_score(
 ) -> Vec<FrequencyAnomaly> {
     use std::collections::HashMap;
 
-    if events.is_empty() || window_ns <= 0 { return vec![]; }
+    if events.is_empty() || window_ns <= 0 {
+        return vec![];
+    }
 
     let min_ts = events.iter().map(|e| e.timestamp_ns).min().unwrap_or(0);
 
@@ -118,12 +124,16 @@ pub fn frequency_anomaly_score(
 
     let mut anomalies = Vec::new();
     for (eid, windows) in &by_eid {
-        if windows.len() < 2 { continue; }
+        if windows.len() < 2 {
+            continue;
+        }
         let counts: Vec<f64> = windows.iter().map(|(_, c)| *c as f64).collect();
         let mean = counts.iter().sum::<f64>() / counts.len() as f64;
         let variance = counts.iter().map(|c| (c - mean).powi(2)).sum::<f64>() / counts.len() as f64;
         let stddev = variance.sqrt();
-        if stddev < 1e-9 { continue; }
+        if stddev < 1e-9 {
+            continue;
+        }
 
         for (bucket, count) in windows {
             let z = (*count as f64 - mean) / stddev;
@@ -172,7 +182,10 @@ pub fn evtx_diff(left: &[EvtxEvent], right: &[EvtxEvent]) -> Vec<DiffEntry> {
     for ev in left {
         let h = event_canonical_hash(ev);
         if !right_hashes.contains(&h) {
-            result.push(DiffEntry { event: ev.clone(), side: DiffSide::Left });
+            result.push(DiffEntry {
+                event: ev.clone(),
+                side: DiffSide::Left,
+            });
         }
     }
 
@@ -180,7 +193,10 @@ pub fn evtx_diff(left: &[EvtxEvent], right: &[EvtxEvent]) -> Vec<DiffEntry> {
     for ev in right {
         let h = event_canonical_hash(ev);
         if !left_hashes.contains(&h) {
-            result.push(DiffEntry { event: ev.clone(), side: DiffSide::Right });
+            result.push(DiffEntry {
+                event: ev.clone(),
+                side: DiffSide::Right,
+            });
         }
     }
 
@@ -195,11 +211,31 @@ mod tests {
     fn make_proc_event(image: &str, ts: i64) -> EvtxEvent {
         let mut data = HashMap::new();
         data.insert("NewProcessName".into(), format!("C:\\Windows\\{image}"));
-        EvtxEvent { event_id: 4688, channel: "Security".into(), timestamp_ns: ts, computer: "WS01".into(), user_sid: None, logon_id: None, process_id: None, thread_id: None, data }
+        EvtxEvent {
+            event_id: 4688,
+            channel: "Security".into(),
+            timestamp_ns: ts,
+            computer: "WS01".into(),
+            user_sid: None,
+            logon_id: None,
+            process_id: None,
+            thread_id: None,
+            data,
+        }
     }
 
     fn make_event(event_id: u32, ts: i64) -> EvtxEvent {
-        EvtxEvent { event_id, channel: "Security".into(), timestamp_ns: ts, computer: "WS01".into(), user_sid: None, logon_id: None, process_id: None, thread_id: None, data: HashMap::new() }
+        EvtxEvent {
+            event_id,
+            channel: "Security".into(),
+            timestamp_ns: ts,
+            computer: "WS01".into(),
+            user_sid: None,
+            logon_id: None,
+            process_id: None,
+            thread_id: None,
+            data: HashMap::new(),
+        }
     }
 
     #[test]

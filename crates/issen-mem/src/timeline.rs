@@ -120,8 +120,7 @@ pub fn memory_events(
     malfind: &[MemMalfindRow],
 ) -> Vec<TimelineEvent> {
     let display = fmt_ns(acquired_at_ns);
-    let mut events =
-        Vec::with_capacity(processes.len() + tcp.len() + malfind.len());
+    let mut events = Vec::with_capacity(processes.len() + tcp.len() + malfind.len());
 
     for p in processes {
         let subject = process_subject(&p.image_name, p.pid);
@@ -262,7 +261,9 @@ mod tests {
         assert_eq!(e.source, ArtifactType::ProcessList);
         assert_eq!(e.timestamp_ns, ACQ_NS);
         assert_eq!(e.hostname.as_deref(), Some(STEM));
-        assert!(e.entity_refs.contains(&EntityRef::Process("coreupdater.exe".to_string())));
+        assert!(e
+            .entity_refs
+            .contains(&EntityRef::Process("coreupdater.exe".to_string())));
         assert_eq!(e.metadata.get("pid"), Some(&serde_json::json!(3644)));
         assert_eq!(e.metadata.get("ppid"), Some(&serde_json::json!(4)));
         assert_eq!(e.metadata.get("thread_count"), Some(&serde_json::json!(0)));
@@ -279,11 +280,21 @@ mod tests {
         let e = &events[0];
         assert_eq!(e.event_type, EventType::NetworkConnect);
         assert_eq!(e.source, ArtifactType::NetworkState);
-        assert!(e.entity_refs.contains(&EntityRef::Process("coreupdater.exe".to_string())));
-        assert!(e.entity_refs.contains(&EntityRef::Ip("203.78.103.109".to_string())));
+        assert!(e
+            .entity_refs
+            .contains(&EntityRef::Process("coreupdater.exe".to_string())));
+        assert!(e
+            .entity_refs
+            .contains(&EntityRef::Ip("203.78.103.109".to_string())));
         assert_eq!(e.metadata.get("remote_port"), Some(&serde_json::json!(443)));
-        assert_eq!(e.metadata.get("local_port"), Some(&serde_json::json!(49001)));
-        assert_eq!(e.metadata.get("state"), Some(&serde_json::json!("ESTABLISHED")));
+        assert_eq!(
+            e.metadata.get("local_port"),
+            Some(&serde_json::json!(49001))
+        );
+        assert_eq!(
+            e.metadata.get("state"),
+            Some(&serde_json::json!("ESTABLISHED"))
+        );
     }
 
     // ── Malfind row → MemoryInjection event ──────────────────────────────────
@@ -293,9 +304,14 @@ mod tests {
         let events = memory_events(STEM, ACQ_NS, &[], &[], &[malfind_row()]);
         assert_eq!(events.len(), 1);
         let e = &events[0];
-        assert_eq!(e.event_type, EventType::Other("MemoryInjection".to_string()));
+        assert_eq!(
+            e.event_type,
+            EventType::Other("MemoryInjection".to_string())
+        );
         assert_eq!(e.source, ArtifactType::RootkitScan);
-        assert!(e.entity_refs.contains(&EntityRef::Process("spoolsv.exe".to_string())));
+        assert!(e
+            .entity_refs
+            .contains(&EntityRef::Process("spoolsv.exe".to_string())));
         assert_eq!(
             e.metadata.get("injection"),
             Some(&serde_json::json!("injected-PE"))
@@ -320,13 +336,7 @@ mod tests {
 
     #[test]
     fn memory_events_round_trip_to_event_source_memory() {
-        let events = memory_events(
-            STEM,
-            ACQ_NS,
-            &[proc_row()],
-            &[tcp_row()],
-            &[malfind_row()],
-        );
+        let events = memory_events(STEM, ACQ_NS, &[proc_row()], &[tcp_row()], &[malfind_row()]);
         let store = TimelineStore::in_memory().expect("store");
         store.inseissen_batch(&events).expect("ingest");
 

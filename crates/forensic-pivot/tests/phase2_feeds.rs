@@ -1,5 +1,5 @@
+use forensic_pivot::{cache_path_for_feed, is_stale, FeedKind, FeedSpec, SyncManifest};
 use std::path::Path;
-use forensic_pivot::{FeedKind, FeedSpec, SyncManifest, cache_path_for_feed, is_stale};
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Phase 2 tests
@@ -67,7 +67,10 @@ fn stale_feed_detected_when_last_synced_older_than_threshold() {
         last_synced: Some(now_secs - 7200), // 2 hours ago
     };
     // threshold = 1 hour → stale
-    assert!(is_stale(&old_spec, 3600), "feed synced 2h ago should be stale with 1h threshold");
+    assert!(
+        is_stale(&old_spec, 3600),
+        "feed synced 2h ago should be stale with 1h threshold"
+    );
 
     let fresh_spec = FeedSpec {
         name: "yara".to_string(),
@@ -76,7 +79,10 @@ fn stale_feed_detected_when_last_synced_older_than_threshold() {
         last_synced: Some(now_secs - 1800), // 30 min ago
     };
     // threshold = 1 hour → not stale
-    assert!(!is_stale(&fresh_spec, 3600), "feed synced 30 min ago should NOT be stale with 1h threshold");
+    assert!(
+        !is_stale(&fresh_spec, 3600),
+        "feed synced 30 min ago should NOT be stale with 1h threshold"
+    );
 
     let never_synced = FeedSpec {
         name: "zeek".to_string(),
@@ -85,5 +91,8 @@ fn stale_feed_detected_when_last_synced_older_than_threshold() {
         last_synced: None,
     };
     // Never synced → always stale
-    assert!(is_stale(&never_synced, 3600), "feed never synced should be stale");
+    assert!(
+        is_stale(&never_synced, 3600),
+        "feed never synced should be stale"
+    );
 }

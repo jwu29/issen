@@ -57,7 +57,9 @@ fn classify_event(ev: &EvtxEvent) -> Option<WslEvtxEvent> {
     if ev.event_id == 4688 {
         let proc_name = ev.data.get("NewProcessName")?;
         let is_wsl = WSL_EXE_SUFFIXES.iter().any(|suffix| {
-            proc_name.to_ascii_lowercase().ends_with(&suffix.to_ascii_lowercase())
+            proc_name
+                .to_ascii_lowercase()
+                .ends_with(&suffix.to_ascii_lowercase())
         });
         if !is_wsl {
             return None;
@@ -66,7 +68,9 @@ fn classify_event(ev: &EvtxEvent) -> Option<WslEvtxEvent> {
             kind: WslEventKind::WslProcessStart,
             timestamp_ns: ev.timestamp_ns,
             distro: None, // not available from 4688 alone
-            windows_pid: ev.data.get("NewProcessId")
+            windows_pid: ev
+                .data
+                .get("NewProcessId")
                 .and_then(|s| u32::from_str_radix(s.trim_start_matches("0x"), 16).ok()),
             user: ev.data.get("SubjectUserName").cloned(),
         });
@@ -75,7 +79,9 @@ fn classify_event(ev: &EvtxEvent) -> Option<WslEvtxEvent> {
     if ev.event_id == 4689 {
         let proc_name = ev.data.get("ProcessName")?;
         let is_wsl = WSL_EXE_SUFFIXES.iter().any(|suffix| {
-            proc_name.to_ascii_lowercase().ends_with(&suffix.to_ascii_lowercase())
+            proc_name
+                .to_ascii_lowercase()
+                .ends_with(&suffix.to_ascii_lowercase())
         });
         if !is_wsl {
             return None;
@@ -84,7 +90,9 @@ fn classify_event(ev: &EvtxEvent) -> Option<WslEvtxEvent> {
             kind: WslEventKind::WslProcessStop,
             timestamp_ns: ev.timestamp_ns,
             distro: None,
-            windows_pid: ev.data.get("ProcessId")
+            windows_pid: ev
+                .data
+                .get("ProcessId")
                 .and_then(|s| u32::from_str_radix(s.trim_start_matches("0x"), 16).ok()),
             user: ev.data.get("SubjectUserName").cloned(),
         });
@@ -97,7 +105,12 @@ fn classify_event(ev: &EvtxEvent) -> Option<WslEvtxEvent> {
 mod tests {
     use super::*;
 
-    fn make_event(event_id: u32, channel: &str, data: Vec<(&str, &str)>, pid: Option<u32>) -> EvtxEvent {
+    fn make_event(
+        event_id: u32,
+        channel: &str,
+        data: Vec<(&str, &str)>,
+        pid: Option<u32>,
+    ) -> EvtxEvent {
         EvtxEvent {
             event_id,
             channel: channel.to_string(),
@@ -107,7 +120,10 @@ mod tests {
             logon_id: None,
             process_id: pid,
             thread_id: None,
-            data: data.into_iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
+            data: data
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
         }
     }
 
@@ -115,9 +131,12 @@ mod tests {
 
     #[test]
     fn non_wsl_events_filtered() {
-        let ev = make_event(4688, "Security", vec![
-            ("NewProcessName", r"C:\Windows\System32\notepad.exe"),
-        ], None);
+        let ev = make_event(
+            4688,
+            "Security",
+            vec![("NewProcessName", r"C:\Windows\System32\notepad.exe")],
+            None,
+        );
         let result = extract_wsl_events(&[ev]);
         assert!(result.is_empty(), "notepad.exe should be filtered");
     }
@@ -126,11 +145,16 @@ mod tests {
 
     #[test]
     fn event_4688_wsl_exe_extracted() {
-        let ev = make_event(4688, "Security", vec![
-            ("NewProcessName", r"C:\Windows\System32\wsl.exe"),
-            ("SubjectUserName", "alice"),
-            ("NewProcessId", "0x1A4"),
-        ], None);
+        let ev = make_event(
+            4688,
+            "Security",
+            vec![
+                ("NewProcessName", r"C:\Windows\System32\wsl.exe"),
+                ("SubjectUserName", "alice"),
+                ("NewProcessId", "0x1A4"),
+            ],
+            None,
+        );
         let result = extract_wsl_events(&[ev]);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].kind, WslEventKind::WslProcessStart);
@@ -142,9 +166,12 @@ mod tests {
 
     #[test]
     fn event_4688_wslhost_exe_captured() {
-        let ev = make_event(4688, "Security", vec![
-            ("NewProcessName", r"C:\Windows\System32\wslhost.exe"),
-        ], None);
+        let ev = make_event(
+            4688,
+            "Security",
+            vec![("NewProcessName", r"C:\Windows\System32\wslhost.exe")],
+            None,
+        );
         let result = extract_wsl_events(&[ev]);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].kind, WslEventKind::WslProcessStart);
@@ -154,10 +181,12 @@ mod tests {
 
     #[test]
     fn wsl_operational_event_1_is_instance_start() {
-        let ev = make_event(1, WSL_OPERATIONAL_CHANNEL, vec![
-            ("DistributionName", "Ubuntu-22.04"),
-            ("UserName", "alice"),
-        ], Some(1234));
+        let ev = make_event(
+            1,
+            WSL_OPERATIONAL_CHANNEL,
+            vec![("DistributionName", "Ubuntu-22.04"), ("UserName", "alice")],
+            Some(1234),
+        );
         let result = extract_wsl_events(&[ev]);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].kind, WslEventKind::WslInstanceStart);
@@ -169,9 +198,12 @@ mod tests {
 
     #[test]
     fn wsl_operational_event_2_is_instance_stop() {
-        let ev = make_event(2, WSL_OPERATIONAL_CHANNEL, vec![
-            ("DistributionName", "Debian"),
-        ], Some(5678));
+        let ev = make_event(
+            2,
+            WSL_OPERATIONAL_CHANNEL,
+            vec![("DistributionName", "Debian")],
+            Some(5678),
+        );
         let result = extract_wsl_events(&[ev]);
         assert_eq!(result[0].kind, WslEventKind::WslInstanceStop);
         assert_eq!(result[0].distro.as_deref(), Some("Debian"));
@@ -190,10 +222,15 @@ mod tests {
 
     #[test]
     fn event_4689_wsl_exe_is_stop() {
-        let ev = make_event(4689, "Security", vec![
-            ("ProcessName", r"C:\Windows\System32\wsl.exe"),
-            ("ProcessId", "0x1A4"),
-        ], None);
+        let ev = make_event(
+            4689,
+            "Security",
+            vec![
+                ("ProcessName", r"C:\Windows\System32\wsl.exe"),
+                ("ProcessId", "0x1A4"),
+            ],
+            None,
+        );
         let result = extract_wsl_events(&[ev]);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].kind, WslEventKind::WslProcessStop);
@@ -211,12 +248,18 @@ mod tests {
 
     #[test]
     fn mixed_events_only_wsl_returned() {
-        let non_wsl = make_event(4688, "Security", vec![
-            ("NewProcessName", r"C:\Windows\notepad.exe"),
-        ], None);
-        let wsl = make_event(1, WSL_OPERATIONAL_CHANNEL, vec![
-            ("DistributionName", "Ubuntu"),
-        ], Some(42));
+        let non_wsl = make_event(
+            4688,
+            "Security",
+            vec![("NewProcessName", r"C:\Windows\notepad.exe")],
+            None,
+        );
+        let wsl = make_event(
+            1,
+            WSL_OPERATIONAL_CHANNEL,
+            vec![("DistributionName", "Ubuntu")],
+            Some(42),
+        );
         let result = extract_wsl_events(&[non_wsl, wsl]);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].kind, WslEventKind::WslInstanceStart);

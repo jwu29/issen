@@ -55,9 +55,7 @@ where
         .filter(|e| e.event_type == PROCESS_EXEC_EVENT_TYPE);
     let creates: Vec<&E> = disk
         .iter()
-        .filter(|e| {
-            e.event_type() == FILE_CREATE_EVENT_TYPE && e.source() != EventSource::Memory
-        })
+        .filter(|e| e.event_type() == FILE_CREATE_EVENT_TYPE && e.source() != EventSource::Memory)
         .collect();
 
     let mut out = Vec::new();
@@ -81,7 +79,10 @@ where
                     .with_window(first, last)
                     .with_note(PROC_DISK_MATCH_NOTE)
                     .with_member(CorrelationMember::new(proc.id, CorrelationRole::Anchor))
-                    .with_member(CorrelationMember::new(create.id(), CorrelationRole::Consequent)),
+                    .with_member(CorrelationMember::new(
+                        create.id(),
+                        CorrelationRole::Consequent,
+                    )),
             );
         }
     }
@@ -140,9 +141,14 @@ mod tests {
         // the source!=Memory guard keeps the rule silent (no double-counting the
         // memory leg as its own disk corroboration).
         let memory = vec![resident(1, "coreupdater.exe")];
-        let mem_create =
-            DiskEvent::new(2, 500, FILE_CREATE_EVENT_TYPE, "DUMP-A", EventSource::Memory)
-                .at("C:\\Windows\\System32\\coreupdater.exe");
+        let mem_create = DiskEvent::new(
+            2,
+            500,
+            FILE_CREATE_EVENT_TYPE,
+            "DUMP-A",
+            EventSource::Memory,
+        )
+        .at("C:\\Windows\\System32\\coreupdater.exe");
         assert!(proc_disk_matches(&memory, &[mem_create]).is_empty());
     }
 }

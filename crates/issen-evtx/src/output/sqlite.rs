@@ -3,7 +3,8 @@
 use winevt_core::EvtxEvent;
 
 fn init_schema(conn: &rusqlite::Connection) -> rusqlite::Result<()> {
-    conn.execute_batch("
+    conn.execute_batch(
+        "
         CREATE TABLE IF NOT EXISTS evtx_events (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             event_id    INTEGER NOT NULL,
@@ -14,13 +15,14 @@ fn init_schema(conn: &rusqlite::Connection) -> rusqlite::Result<()> {
         );
         CREATE VIRTUAL TABLE IF NOT EXISTS evtx_fts
             USING fts5(channel, computer, data_json, content=evtx_events, content_rowid=id);
-    ")
+    ",
+    )
 }
 
 fn insert_events(conn: &rusqlite::Connection, events: &[EvtxEvent]) -> rusqlite::Result<usize> {
     let mut stmt = conn.prepare(
         "INSERT INTO evtx_events (event_id, channel, timestamp_ns, computer, data_json)
-         VALUES (?1, ?2, ?3, ?4, ?5)"
+         VALUES (?1, ?2, ?3, ?4, ?5)",
     )?;
 
     let mut count = 0;
@@ -66,7 +68,17 @@ mod tests {
     fn make_event(event_id: u32, ts_ns: i64) -> EvtxEvent {
         let mut data = HashMap::new();
         data.insert("SubjectUserName".into(), "testuser".into());
-        EvtxEvent { event_id, channel: "Security".into(), timestamp_ns: ts_ns, computer: "WS01".into(), user_sid: None, logon_id: None, process_id: None, thread_id: None, data }
+        EvtxEvent {
+            event_id,
+            channel: "Security".into(),
+            timestamp_ns: ts_ns,
+            computer: "WS01".into(),
+            user_sid: None,
+            logon_id: None,
+            process_id: None,
+            thread_id: None,
+            data,
+        }
     }
 
     #[test]
@@ -91,7 +103,9 @@ mod tests {
         let events = vec![make_event(4624, 1_000)];
         write_to_sqlite(&events, tmp.path()).expect("write");
         let conn = rusqlite::Connection::open(tmp.path()).expect("open");
-        let count: i64 = conn.query_row("SELECT COUNT(*) FROM evtx_events", [], |r| r.get(0)).expect("query");
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM evtx_events", [], |r| r.get(0))
+            .expect("query");
         assert_eq!(count, 1);
     }
 
@@ -104,7 +118,9 @@ mod tests {
     fn write_to_memory_events_queryable() {
         let events = vec![make_event(4624, 1_000), make_event(4688, 2_000)];
         let conn = write_to_memory(&events).expect("write");
-        let count: i64 = conn.query_row("SELECT COUNT(*) FROM evtx_events", [], |r| r.get(0)).expect("query");
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM evtx_events", [], |r| r.get(0))
+            .expect("query");
         assert_eq!(count, 2);
     }
 
@@ -112,7 +128,8 @@ mod tests {
     fn write_to_memory_fts5_table_exists() {
         let events = vec![make_event(4624, 1_000)];
         let conn = write_to_memory(&events).expect("write");
-        let result: rusqlite::Result<i64> = conn.query_row("SELECT COUNT(*) FROM evtx_fts", [], |r| r.get(0));
+        let result: rusqlite::Result<i64> =
+            conn.query_row("SELECT COUNT(*) FROM evtx_fts", [], |r| r.get(0));
         assert!(result.is_ok(), "evtx_fts must exist: {:?}", result.err());
     }
 }

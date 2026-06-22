@@ -244,52 +244,139 @@ mod tests {
             UriScheme::detect("https://example.com/file"),
             Some(UriScheme::Https)
         );
-        assert_eq!(
-            UriScheme::detect("mem://bucket/key"),
-            Some(UriScheme::Mem)
-        );
+        assert_eq!(UriScheme::detect("mem://bucket/key"), Some(UriScheme::Mem));
         assert_eq!(UriScheme::detect("file:///tmp/foo"), Some(UriScheme::File));
         // new schemes
         assert_eq!(UriScheme::detect("azdls://fs/path"), Some(UriScheme::AzDls));
-        assert_eq!(UriScheme::detect("azfile://share/path"), Some(UriScheme::AzFile));
+        assert_eq!(
+            UriScheme::detect("azfile://share/path"),
+            Some(UriScheme::AzFile)
+        );
         assert_eq!(UriScheme::detect("b2://bucket/key"), Some(UriScheme::B2));
         assert_eq!(UriScheme::detect("cos://bucket/key"), Some(UriScheme::Cos));
         assert_eq!(UriScheme::detect("obs://bucket/key"), Some(UriScheme::Obs));
         assert_eq!(UriScheme::detect("oss://bucket/key"), Some(UriScheme::Oss));
-        assert_eq!(UriScheme::detect("swift://container/path"), Some(UriScheme::Swift));
-        assert_eq!(UriScheme::detect("upyun://bucket/key"), Some(UriScheme::Upyun));
-        assert_eq!(UriScheme::detect("onedrive://path"), Some(UriScheme::OneDrive));
-        assert_eq!(UriScheme::detect("dropbox://path"), Some(UriScheme::Dropbox));
-        assert_eq!(UriScheme::detect("aliyun-drive://path"), Some(UriScheme::AliyunDrive));
-        assert_eq!(UriScheme::detect("yandex-disk://path"), Some(UriScheme::YandexDisk));
+        assert_eq!(
+            UriScheme::detect("swift://container/path"),
+            Some(UriScheme::Swift)
+        );
+        assert_eq!(
+            UriScheme::detect("upyun://bucket/key"),
+            Some(UriScheme::Upyun)
+        );
+        assert_eq!(
+            UriScheme::detect("onedrive://path"),
+            Some(UriScheme::OneDrive)
+        );
+        assert_eq!(
+            UriScheme::detect("dropbox://path"),
+            Some(UriScheme::Dropbox)
+        );
+        assert_eq!(
+            UriScheme::detect("aliyun-drive://path"),
+            Some(UriScheme::AliyunDrive)
+        );
+        assert_eq!(
+            UriScheme::detect("yandex-disk://path"),
+            Some(UriScheme::YandexDisk)
+        );
         assert_eq!(UriScheme::detect("pcloud://path"), Some(UriScheme::Pcloud));
         assert_eq!(UriScheme::detect("koofr://path"), Some(UriScheme::Koofr));
-        assert_eq!(UriScheme::detect("seafile://server/repo/path"), Some(UriScheme::Seafile));
-        assert_eq!(UriScheme::detect("github://owner/repo/path"), Some(UriScheme::Github));
-        assert_eq!(UriScheme::detect("huggingface://owner/model/file"), Some(UriScheme::Huggingface));
-        assert_eq!(UriScheme::detect("vercel-blob://key"), Some(UriScheme::VercelBlob));
-        assert_eq!(UriScheme::detect("vercel-artifacts://key"), Some(UriScheme::VercelArtifacts));
+        assert_eq!(
+            UriScheme::detect("seafile://server/repo/path"),
+            Some(UriScheme::Seafile)
+        );
+        assert_eq!(
+            UriScheme::detect("github://owner/repo/path"),
+            Some(UriScheme::Github)
+        );
+        assert_eq!(
+            UriScheme::detect("huggingface://owner/model/file"),
+            Some(UriScheme::Huggingface)
+        );
+        assert_eq!(
+            UriScheme::detect("vercel-blob://key"),
+            Some(UriScheme::VercelBlob)
+        );
+        assert_eq!(
+            UriScheme::detect("vercel-artifacts://key"),
+            Some(UriScheme::VercelArtifacts)
+        );
         assert_eq!(UriScheme::detect("ghac://key"), Some(UriScheme::Ghac));
         assert_eq!(UriScheme::detect("dbfs://path"), Some(UriScheme::Dbfs));
-        assert_eq!(UriScheme::detect("alluxio://host:19999/path"), Some(UriScheme::Alluxio));
-        assert_eq!(UriScheme::detect("lakefs://repo/main/path"), Some(UriScheme::Lakefs));
-        assert_eq!(UriScheme::detect("ipfs://QmHash/path"), Some(UriScheme::Ipfs));
+        assert_eq!(
+            UriScheme::detect("alluxio://host:19999/path"),
+            Some(UriScheme::Alluxio)
+        );
+        assert_eq!(
+            UriScheme::detect("lakefs://repo/main/path"),
+            Some(UriScheme::Lakefs)
+        );
+        assert_eq!(
+            UriScheme::detect("ipfs://QmHash/path"),
+            Some(UriScheme::Ipfs)
+        );
         assert_eq!(UriScheme::detect("ipmfs:///path"), Some(UriScheme::Ipmfs));
-        assert_eq!(UriScheme::detect("redis://localhost/key"), Some(UriScheme::Redis));
-        assert_eq!(UriScheme::detect("rediss://localhost/key"), Some(UriScheme::Rediss));
-        assert_eq!(UriScheme::detect("memcached://localhost/key"), Some(UriScheme::Memcached));
-        assert_eq!(UriScheme::detect("etcd://localhost/key"), Some(UriScheme::Etcd));
-        assert_eq!(UriScheme::detect("tikv://localhost/key"), Some(UriScheme::Tikv));
-        assert_eq!(UriScheme::detect("mongodb://localhost/db/col/key"), Some(UriScheme::Mongodb));
-        assert_eq!(UriScheme::detect("gridfs://localhost/db/bucket/key"), Some(UriScheme::Gridfs));
-        assert_eq!(UriScheme::detect("mysql://user@localhost/db/key"), Some(UriScheme::Mysql));
-        assert_eq!(UriScheme::detect("postgresql://user@localhost/db/key"), Some(UriScheme::Postgresql));
-        assert_eq!(UriScheme::detect("sqlite:///tmp/test.db/key"), Some(UriScheme::Sqlite));
-        assert_eq!(UriScheme::detect("cloudflare-kv://namespace/key"), Some(UriScheme::CloudflareKv));
-        assert_eq!(UriScheme::detect("d1://database-id/key"), Some(UriScheme::D1));
-        assert_eq!(UriScheme::detect("ftp://user@host/path"), Some(UriScheme::Ftp));
-        assert_eq!(UriScheme::detect("ftps://user@host/path"), Some(UriScheme::Ftps));
-        assert_eq!(UriScheme::detect("compfs:///abs/path"), Some(UriScheme::Compfs));
+        assert_eq!(
+            UriScheme::detect("redis://localhost/key"),
+            Some(UriScheme::Redis)
+        );
+        assert_eq!(
+            UriScheme::detect("rediss://localhost/key"),
+            Some(UriScheme::Rediss)
+        );
+        assert_eq!(
+            UriScheme::detect("memcached://localhost/key"),
+            Some(UriScheme::Memcached)
+        );
+        assert_eq!(
+            UriScheme::detect("etcd://localhost/key"),
+            Some(UriScheme::Etcd)
+        );
+        assert_eq!(
+            UriScheme::detect("tikv://localhost/key"),
+            Some(UriScheme::Tikv)
+        );
+        assert_eq!(
+            UriScheme::detect("mongodb://localhost/db/col/key"),
+            Some(UriScheme::Mongodb)
+        );
+        assert_eq!(
+            UriScheme::detect("gridfs://localhost/db/bucket/key"),
+            Some(UriScheme::Gridfs)
+        );
+        assert_eq!(
+            UriScheme::detect("mysql://user@localhost/db/key"),
+            Some(UriScheme::Mysql)
+        );
+        assert_eq!(
+            UriScheme::detect("postgresql://user@localhost/db/key"),
+            Some(UriScheme::Postgresql)
+        );
+        assert_eq!(
+            UriScheme::detect("sqlite:///tmp/test.db/key"),
+            Some(UriScheme::Sqlite)
+        );
+        assert_eq!(
+            UriScheme::detect("cloudflare-kv://namespace/key"),
+            Some(UriScheme::CloudflareKv)
+        );
+        assert_eq!(
+            UriScheme::detect("d1://database-id/key"),
+            Some(UriScheme::D1)
+        );
+        assert_eq!(
+            UriScheme::detect("ftp://user@host/path"),
+            Some(UriScheme::Ftp)
+        );
+        assert_eq!(
+            UriScheme::detect("ftps://user@host/path"),
+            Some(UriScheme::Ftps)
+        );
+        assert_eq!(
+            UriScheme::detect("compfs:///abs/path"),
+            Some(UriScheme::Compfs)
+        );
     }
 
     #[test]

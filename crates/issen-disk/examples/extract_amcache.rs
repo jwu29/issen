@@ -8,8 +8,7 @@ fn main() {
     let a: Vec<String> = std::env::args().collect();
     let src = EwfDataSource::open(std::path::Path::new(&a[1])).expect("open");
     for w in find_ntfs_partitions(&src).expect("parts") {
-        let Ok(files) =
-            extract_dir_suffix(&src, w, r"\Windows\AppCompat\Programs", "Amcache.hve")
+        let Ok(files) = extract_dir_suffix(&src, w, r"\Windows\AppCompat\Programs", "Amcache.hve")
         else {
             continue;
         };

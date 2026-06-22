@@ -1,6 +1,6 @@
 use forensic_pivot::{
-    load_rules_from_yaml_str, load_rules_from_dir, bundled_rules,
-    Severity, AssertionLevel, PivotRule,
+    bundled_rules, load_rules_from_dir, load_rules_from_yaml_str, AssertionLevel, PivotRule,
+    Severity,
 };
 use std::io::Write as IoWrite;
 use tempfile::TempDir;
@@ -89,7 +89,10 @@ fn load_rules_from_dir_finds_yml_files() {
 #[test]
 fn bundled_rules_are_nonempty() {
     let rules = bundled_rules();
-    assert!(!rules.is_empty(), "bundled_rules() must return at least one rule");
+    assert!(
+        !rules.is_empty(),
+        "bundled_rules() must return at least one rule"
+    );
 }
 
 // ---------------------------------------------------------------------------

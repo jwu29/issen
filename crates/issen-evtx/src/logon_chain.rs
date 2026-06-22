@@ -80,9 +80,7 @@ pub fn build_logon_chains(events: &[EvtxEvent]) -> HashMap<u64, LogonChain> {
                         ..Default::default()
                     });
                     if let Some(pid_str) = ev.data.get("NewProcessId") {
-                        if let Ok(pid) =
-                            u32::from_str_radix(pid_str.trim_start_matches("0x"), 16)
-                        {
+                        if let Ok(pid) = u32::from_str_radix(pid_str.trim_start_matches("0x"), 16) {
                             chain.process_pids.push(pid);
                         }
                     }
@@ -166,10 +164,7 @@ mod tests {
 
     #[test]
     fn build_logon_chains_logon_and_logoff_not_orphaned() {
-        let events = vec![
-            ev(4624, "0x5678", 1_000_000),
-            ev(4634, "0x5678", 2_000_000),
-        ];
+        let events = vec![ev(4624, "0x5678", 1_000_000), ev(4634, "0x5678", 2_000_000)];
         let chains = build_logon_chains(&events);
         let chain = &chains[&0x5678];
         assert_eq!(chain.logoff_time_ns, Some(2_000_000));
@@ -178,10 +173,7 @@ mod tests {
 
     #[test]
     fn build_logon_chains_records_4688_pids() {
-        let events = vec![
-            ev(4624, "0xABCD", 1_000),
-            ev(4688, "0xABCD", 2_000),
-        ];
+        let events = vec![ev(4624, "0xABCD", 1_000), ev(4688, "0xABCD", 2_000)];
         let chains = build_logon_chains(&events);
         let chain = &chains[&0xABCD];
         assert!(!chain.process_pids.is_empty());
@@ -189,10 +181,7 @@ mod tests {
 
     #[test]
     fn build_logon_chains_records_4672_privilege() {
-        let events = vec![
-            ev(4624, "0xFEED", 1_000),
-            ev(4672, "0xFEED", 1_500),
-        ];
+        let events = vec![ev(4624, "0xFEED", 1_000), ev(4672, "0xFEED", 1_500)];
         let chains = build_logon_chains(&events);
         let chain = &chains[&0xFEED];
         assert_eq!(chain.privilege_time_ns, Some(1_500));

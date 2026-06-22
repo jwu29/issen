@@ -9,7 +9,9 @@ use issen_ewf::EwfDataSource;
 use ntfs_core::{NtfsFs, OffsetReader};
 
 fn main() {
-    let path = std::env::args().nth(1).expect("usage: probe_mft <image.E01>");
+    let path = std::env::args()
+        .nth(1)
+        .expect("usage: probe_mft <image.E01>");
     let source = EwfDataSource::open(std::path::Path::new(&path)).expect("open EWF");
     println!("image: {path}");
     println!("logical size: {} bytes", source.total_size());

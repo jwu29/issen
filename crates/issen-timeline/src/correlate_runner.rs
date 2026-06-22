@@ -13,11 +13,11 @@
 
 use std::time::Duration;
 
+use issen_core::timeline::event::EntityRef;
 use issen_correlation::correlation::Correlation;
 use issen_correlation::evaluator::{EventSource, EventView};
 use issen_correlation::runner::run_correlations_with_memory;
 use issen_correlation::tier_c::MemEvent;
-use issen_core::timeline::event::EntityRef;
 
 use crate::events::{burst_windows, EventQuery, StoredEvent};
 use crate::store::{TimelineStore, TimelineStoreError};
@@ -148,19 +148,30 @@ fn mem_event_from_stored(e: &StoredEvent) -> Option<MemEvent> {
         .as_deref()
         .and_then(|m| serde_json::from_str::<serde_json::Value>(m).ok())
     {
-        me.pid = meta.get("pid").and_then(serde_json::Value::as_u64).and_then(|v| u32::try_from(v).ok());
-        me.ppid = meta.get("ppid").and_then(serde_json::Value::as_u64).and_then(|v| u32::try_from(v).ok());
+        me.pid = meta
+            .get("pid")
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|v| u32::try_from(v).ok());
+        me.ppid = meta
+            .get("ppid")
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|v| u32::try_from(v).ok());
         me.thread_count = meta
             .get("thread_count")
             .and_then(serde_json::Value::as_u64)
             .and_then(|v| u32::try_from(v).ok());
-        me.injection = meta.get("injection").and_then(serde_json::Value::as_str).map(ToString::to_string);
-        me.state = meta.get("state").and_then(serde_json::Value::as_str).map(ToString::to_string);
+        me.injection = meta
+            .get("injection")
+            .and_then(serde_json::Value::as_str)
+            .map(ToString::to_string);
+        me.state = meta
+            .get("state")
+            .and_then(serde_json::Value::as_str)
+            .map(ToString::to_string);
     }
 
     Some(me)
 }
-
 
 /// The event query the correlation pass scans: the whole timeline, unbounded.
 ///
@@ -251,7 +262,10 @@ impl TimelineStore {
             .filter(|e| EventView::source(*e) != EventSource::Memory)
             .collect();
 
-        let mut inputs: Vec<RunInput> = disk.iter().map(|e| RunInput::Stored((*e).clone())).collect();
+        let mut inputs: Vec<RunInput> = disk
+            .iter()
+            .map(|e| RunInput::Stored((*e).clone()))
+            .collect();
         for anchor in burst_anchors(&events) {
             inputs.push(RunInput::Burst(anchor));
         }
@@ -399,7 +413,10 @@ mod tests {
             fired.iter().map(|c| c.code.as_str()).collect();
         assert!(codes.contains("CORR-MALWARE-PERSIST"), "codes: {codes:?}");
         assert!(codes.contains("CORR-BRUTEFORCE-LOGON"), "codes: {codes:?}");
-        assert!(codes.len() >= 2, "at least two distinct rule codes: {codes:?}");
+        assert!(
+            codes.len() >= 2,
+            "at least two distinct rule codes: {codes:?}"
+        );
 
         // Persisted firings read back with their members.
         for corr in &fired {
@@ -427,8 +444,12 @@ mod tests {
         let injected = fired
             .iter()
             .find(|c| c.code == "CORR-INJECTED-C2")
-            .unwrap_or_else(|| panic!("CORR-INJECTED-C2 must fire; fired: {:?}",
-                fired.iter().map(|c| c.code.as_str()).collect::<Vec<_>>()));
+            .unwrap_or_else(|| {
+                panic!(
+                    "CORR-INJECTED-C2 must fire; fired: {:?}",
+                    fired.iter().map(|c| c.code.as_str()).collect::<Vec<_>>()
+                )
+            });
         assert_eq!(injected.members.len(), 2, "anchor + consequent members");
 
         // It persisted and reads back with its members. Scan the persisted ids
@@ -500,7 +521,11 @@ mod tests {
         let mut events: Vec<TimelineEvent> = (1..=5)
             .map(|i| logon_failure_acct(i * 1_000_000_000, "Administrator"))
             .collect();
-        events.push(logon_success_acct(6_000_000_000, "Administrator", "194.61.24.102"));
+        events.push(logon_success_acct(
+            6_000_000_000,
+            "Administrator",
+            "194.61.24.102",
+        ));
         store.inseissen_batch(&events).expect("ingest");
 
         let fired = store.run_and_persist().expect("run");

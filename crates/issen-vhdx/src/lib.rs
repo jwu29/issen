@@ -117,9 +117,7 @@ impl CollectionProvider for VhdxProvider {
         let mut magic = [0u8; 8];
         match f.read_exact(&mut magic) {
             Ok(()) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
-                return Ok(Confidence::None)
-            }
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(Confidence::None),
             Err(e) => return Err(RtError::Io(e)),
         }
         if &magic == b"vhdxfile" {
@@ -199,9 +197,7 @@ mod tests {
     fn from_vhdx_error_parse_converts_to_rt_parse_error() {
         let vhdx_err = VhdxError::Vhdx("corrupt region table".to_string());
         let rt_err: RtError = vhdx_err.into();
-        assert!(
-            matches!(rt_err, RtError::Parse { ref message, .. } if message.contains("vhdx"))
-        );
+        assert!(matches!(rt_err, RtError::Parse { ref message, .. } if message.contains("vhdx")));
     }
 
     // ── VhdxProvider tests ────────────────────────────────────────────

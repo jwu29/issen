@@ -10,21 +10,21 @@ pub mod session;
 pub mod wsl_events;
 
 // Timeline Reconstruction & Correlation
-pub mod timeline;
-pub mod export;
-pub mod process_tree;
-pub mod logon_chain;
 pub mod boot_cycle;
-pub mod gap_inference;
-pub mod mft_correlation;
-pub mod usn_correlation;
 pub mod exec_join;
+pub mod export;
+pub mod gap_inference;
+pub mod logon_chain;
+pub mod mft_correlation;
+pub mod process_tree;
+pub mod timeline;
+pub mod usn_correlation;
 
 // Detection & Anti-Forensics
-pub mod detections;
 pub mod anti_forensics;
-pub mod net_correlation;
+pub mod detections;
 pub mod diff;
+pub mod net_correlation;
 
 // Output formats
 pub mod output;
@@ -101,8 +101,11 @@ pub fn parse_evtx_to_events(evtx_files: &[PathBuf]) -> Vec<winevt_core::EvtxEven
 ///
 /// Files that cannot be parsed are silently skipped (best-effort).
 pub fn analyse_evtx_sessions(evtx_files: &[PathBuf]) -> anyhow::Result<EvtxSessionSummary> {
-    use crate::session::{correlate_sessions, extract_process_events, find_lateral_movement, link_processes_to_sessions};
     use crate::analyze::{frequency_analysis, FrequencyKey};
+    use crate::session::{
+        correlate_sessions, extract_process_events, find_lateral_movement,
+        link_processes_to_sessions,
+    };
 
     let all_events = parse_evtx_to_events(evtx_files);
 
@@ -154,7 +157,10 @@ fn evtx_record_to_event(
         .get("EventID")
         .and_then(|v| match v {
             Value::Number(n) => n.as_u64(),
-            Value::Object(o) => o.get("#text").and_then(Value::as_str).and_then(|s| s.parse().ok()),
+            Value::Object(o) => o
+                .get("#text")
+                .and_then(Value::as_str)
+                .and_then(|s| s.parse().ok()),
             Value::String(s) => s.parse().ok(),
             _ => None,
         })
@@ -302,7 +308,12 @@ mod tests {
         let dir = TempDir::new().expect("tmpdir");
         std::fs::write(dir.path().join("Security.evtx"), b"").expect("write file");
         let result = find_evtx_files(dir.path());
-        assert_eq!(result.len(), 1, "expected 1 evtx file, got {}", result.len());
+        assert_eq!(
+            result.len(),
+            1,
+            "expected 1 evtx file, got {}",
+            result.len()
+        );
     }
 
     #[test]
@@ -360,9 +371,11 @@ mod tests {
 
     // ── analyze module tests (Phase 3 RED) ───────────────────────────────
     mod analyze_tests {
-        use crate::analyze::{frequency_analysis, pivot_sessions_by_src_ip, FrequencyAnomaly, FrequencyKey};
-        use winevt_core::{EvtxEvent, LogonSession};
+        use crate::analyze::{
+            frequency_analysis, pivot_sessions_by_src_ip, FrequencyAnomaly, FrequencyKey,
+        };
         use std::collections::HashMap;
+        use winevt_core::{EvtxEvent, LogonSession};
 
         fn make_event(event_id: u32, data: Vec<(&str, &str)>, ts: i64) -> EvtxEvent {
             let data: HashMap<String, String> = data
@@ -461,8 +474,8 @@ mod tests {
             correlate_sessions, extract_process_events, find_lateral_movement,
             find_orphaned_sessions, link_processes_to_sessions, LateralMovementFinding,
         };
-        use winevt_core::EvtxEvent;
         use std::collections::HashMap;
+        use winevt_core::EvtxEvent;
 
         fn make_logon(logon_id: u64) -> EvtxEvent {
             let mut data = HashMap::new();
@@ -508,7 +521,10 @@ mod tests {
             let sessions_map = correlate_sessions(&events);
             let sessions_vec: Vec<_> = sessions_map.into_values().collect();
             let findings = find_lateral_movement(&sessions_vec);
-            assert!(!findings.is_empty(), "type-3 logon from remote IP should be detected");
+            assert!(
+                !findings.is_empty(),
+                "type-3 logon from remote IP should be detected"
+            );
         }
 
         #[test]
@@ -545,9 +561,7 @@ mod tests {
         #[test]
         fn handler_for_4624_exists() {
             let handlers = all_handlers();
-            let found = handlers
-                .iter()
-                .any(|h| h.handles(4624, "Security"));
+            let found = handlers.iter().any(|h| h.handles(4624, "Security"));
             assert!(found, "expected a handler that handles event 4624");
         }
 
@@ -557,7 +571,10 @@ mod tests {
             let found = handlers
                 .iter()
                 .any(|h| h.handles(1116, "Microsoft-Windows-Windows Defender/Operational"));
-            assert!(found, "expected a handler that handles event 1116 (Defender)");
+            assert!(
+                found,
+                "expected a handler that handles event 1116 (Defender)"
+            );
         }
     }
 

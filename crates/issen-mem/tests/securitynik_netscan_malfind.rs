@@ -81,9 +81,7 @@ fn extract_dmp(zip_path: &Path) -> PathBuf {
     let out_path = out_dir.join(DMP_ENTRY);
 
     // Reuse a previously-extracted dump to avoid re-inflating multiple GB.
-    if out_path.exists()
-        && std::fs::metadata(&out_path).map_or(0, |m| m.len()) == entry.size()
-    {
+    if out_path.exists() && std::fs::metadata(&out_path).map_or(0, |m| m.len()) == entry.size() {
         return out_path;
     }
 
@@ -168,10 +166,7 @@ fn securitynik_malfind_flags_injected_processes() {
         .expect("scan has Type column");
     let malfind_rows: Vec<&Vec<String>> = rows
         .iter()
-        .filter(|r| {
-            r.get(type_col)
-                .is_some_and(|t| t.starts_with("malfind"))
-        })
+        .filter(|r| r.get(type_col).is_some_and(|t| t.starts_with("malfind")))
         .collect();
     eprintln!("malfind flagged {} regions", malfind_rows.len());
 

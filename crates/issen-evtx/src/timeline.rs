@@ -24,7 +24,10 @@ impl SuperTimeline {
 
     /// Events from a specific channel in chronological order.
     pub fn filter_channel<'a>(&'a self, channel: &str) -> Vec<&'a EvtxEvent> {
-        self.events.iter().filter(|e| e.channel == channel).collect()
+        self.events
+            .iter()
+            .filter(|e| e.channel == channel)
+            .collect()
     }
 
     /// Events whose `event_id` is in `ids`.

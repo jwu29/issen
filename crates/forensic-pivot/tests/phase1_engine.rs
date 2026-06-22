@@ -1,8 +1,8 @@
-use std::collections::HashMap;
 use forensic_pivot::{
     AssertionLevel, Evidence, EvidenceKind, EvidenceSource, Finding, MatchClause, PivotEngine,
     PivotRule, Severity, SubjectRef,
 };
+use std::collections::HashMap;
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -27,11 +27,7 @@ fn make_evidence(
     }
 }
 
-fn simple_rule(
-    id: &str,
-    clauses: Vec<MatchClause>,
-    time_window_secs: Option<u64>,
-) -> PivotRule {
+fn simple_rule(id: &str, clauses: Vec<MatchClause>, time_window_secs: Option<u64>) -> PivotRule {
     PivotRule {
         id: id.to_string(),
         name: format!("Rule {id}"),
@@ -93,7 +89,13 @@ fn evidence_constructed_with_source_and_kind() {
 /// 2. Evidence from Sigma has Sigma source variant.
 #[test]
 fn evidence_from_sigma_has_sigma_source() {
-    let ev = make_evidence("ev-002", EvidenceSource::Sigma, EvidenceKind::Tag, "lsass", None);
+    let ev = make_evidence(
+        "ev-002",
+        EvidenceSource::Sigma,
+        EvidenceKind::Tag,
+        "lsass",
+        None,
+    );
     assert_eq!(ev.source, EvidenceSource::Sigma);
 }
 
@@ -103,7 +105,10 @@ fn pivot_rule_no_match_when_evidence_empty() {
     let rule = simple_rule("R1", vec![clause_kind(EvidenceKind::ProcessName)], None);
     let engine = PivotEngine::new(vec![rule]);
     let findings = engine.evaluate(&[]);
-    assert!(findings.is_empty(), "expected no findings for empty evidence");
+    assert!(
+        findings.is_empty(),
+        "expected no findings for empty evidence"
+    );
 }
 
 /// 4. Single-clause rule fires when matching evidence is present.
@@ -113,7 +118,13 @@ fn pivot_rule_matches_when_single_clause_satisfied() {
     let rule = simple_rule("R2", vec![clause], None);
     let engine = PivotEngine::new(vec![rule]);
 
-    let ev = make_evidence("ev-003", EvidenceSource::Sigma, EvidenceKind::ProcessName, "evil.exe", None);
+    let ev = make_evidence(
+        "ev-003",
+        EvidenceSource::Sigma,
+        EvidenceKind::ProcessName,
+        "evil.exe",
+        None,
+    );
     let findings = engine.evaluate(&[ev]);
 
     assert_eq!(findings.len(), 1, "expected exactly one finding");
@@ -126,7 +137,13 @@ fn pivot_rule_no_match_when_clause_not_satisfied() {
     let rule = simple_rule("R3", vec![clause], None);
     let engine = PivotEngine::new(vec![rule]);
 
-    let ev = make_evidence("ev-004", EvidenceSource::Sigma, EvidenceKind::ProcessName, "evil.exe", None);
+    let ev = make_evidence(
+        "ev-004",
+        EvidenceSource::Sigma,
+        EvidenceKind::ProcessName,
+        "evil.exe",
+        None,
+    );
     let findings = engine.evaluate(&[ev]);
 
     assert!(findings.is_empty(), "rule should not fire on wrong kind");
@@ -140,7 +157,13 @@ fn finding_carries_correct_rule_id_and_severity() {
     rule.severity = Severity::Critical;
 
     let engine = PivotEngine::new(vec![rule]);
-    let ev = make_evidence("ev-005", EvidenceSource::Yara, EvidenceKind::Hash, "deadbeef", None);
+    let ev = make_evidence(
+        "ev-005",
+        EvidenceSource::Yara,
+        EvidenceKind::Hash,
+        "deadbeef",
+        None,
+    );
     let findings = engine.evaluate(&[ev]);
 
     assert_eq!(findings.len(), 1);
@@ -160,14 +183,33 @@ fn cross_source_finding_requires_evidence_from_multiple_sources() {
     let engine = PivotEngine::new(vec![rule]);
 
     // Only Sigma evidence — rule must NOT fire
-    let sigma_ev = make_evidence("ev-006", EvidenceSource::Sigma, EvidenceKind::ProcessName, "evil.exe", None);
+    let sigma_ev = make_evidence(
+        "ev-006",
+        EvidenceSource::Sigma,
+        EvidenceKind::ProcessName,
+        "evil.exe",
+        None,
+    );
     let findings = engine.evaluate(std::slice::from_ref(&sigma_ev));
-    assert!(findings.is_empty(), "rule should not fire with only Sigma evidence");
+    assert!(
+        findings.is_empty(),
+        "rule should not fire with only Sigma evidence"
+    );
 
     // Both sources — rule MUST fire
-    let zeek_ev = make_evidence("ev-007", EvidenceSource::Zeek, EvidenceKind::IpAddress, "10.0.0.1", None);
+    let zeek_ev = make_evidence(
+        "ev-007",
+        EvidenceSource::Zeek,
+        EvidenceKind::IpAddress,
+        "10.0.0.1",
+        None,
+    );
     let findings2 = engine.evaluate(&[sigma_ev, zeek_ev]);
-    assert_eq!(findings2.len(), 1, "rule should fire when both sources present");
+    assert_eq!(
+        findings2.len(),
+        1,
+        "rule should fire when both sources present"
+    );
 }
 
 /// 8. Time window excludes evidence outside the window; rule must NOT fire.
@@ -185,9 +227,24 @@ fn time_window_excludes_old_evidence() {
     let base_ns: i64 = 1_700_000_000_000_000_000;
     let old_ns: i64 = base_ns - 120_000_000_000; // 120 s before base — outside 60 s window
 
-    let recent = make_evidence("ev-008", EvidenceSource::Sigma, EvidenceKind::ProcessName, "evil.exe", Some(base_ns));
-    let old = make_evidence("ev-009", EvidenceSource::Zeek, EvidenceKind::IpAddress, "10.0.0.1", Some(old_ns));
+    let recent = make_evidence(
+        "ev-008",
+        EvidenceSource::Sigma,
+        EvidenceKind::ProcessName,
+        "evil.exe",
+        Some(base_ns),
+    );
+    let old = make_evidence(
+        "ev-009",
+        EvidenceSource::Zeek,
+        EvidenceKind::IpAddress,
+        "10.0.0.1",
+        Some(old_ns),
+    );
 
     let findings = engine.evaluate(&[recent, old]);
-    assert!(findings.is_empty(), "rule should not fire when one evidence is outside the time window");
+    assert!(
+        findings.is_empty(),
+        "rule should not fire when one evidence is outside the time window"
+    );
 }

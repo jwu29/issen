@@ -2,7 +2,6 @@
 //!
 //! Downloads a file by ID, streaming bytes to a [`std::io::Write`] sink.
 
-
 #[cfg(feature = "remote")]
 use crate::gdrive::auth::GDriveAuthMode;
 
@@ -28,22 +27,24 @@ pub fn download_gdrive_file(
     let request = match auth {
         GDriveAuthMode::Public => {
             let base = base_url_override.unwrap_or("https://drive.usercontent.google.com");
-            let url = format!(
-                "{base}/download?id={file_id}&export=download&confirm=t"
-            );
+            let url = format!("{base}/download?id={file_id}&export=download&confirm=t");
             client.get(&url)
         }
         GDriveAuthMode::UserOAuth { access_token } => {
             let base = base_url_override.unwrap_or("https://www.googleapis.com");
             let url = format!("{base}/drive/v3/files/{file_id}?alt=media");
-            client.get(&url).header("Authorization", format!("Bearer {access_token}"))
+            client
+                .get(&url)
+                .header("Authorization", format!("Bearer {access_token}"))
         }
         GDriveAuthMode::ServiceAccount { .. } => {
             anyhow::bail!("service account not yet implemented");
         }
     };
 
-    let mut response = request.send().map_err(|e| anyhow::anyhow!("request failed: {e}"))?;
+    let mut response = request
+        .send()
+        .map_err(|e| anyhow::anyhow!("request failed: {e}"))?;
 
     if !response.status().is_success() {
         anyhow::bail!(
@@ -106,10 +107,7 @@ mod tests {
     /// Same as `make_mock_server` but also captures the raw request lines for inspection.
     fn make_mock_server_capture(
         response_body: &'static [u8],
-    ) -> (
-        std::net::SocketAddr,
-        std::thread::JoinHandle<Vec<String>>,
-    ) {
+    ) -> (std::net::SocketAddr, std::thread::JoinHandle<Vec<String>>) {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock server");
         let addr = listener.local_addr().expect("local_addr");
 
@@ -175,9 +173,11 @@ mod tests {
             .expect("oauth download should succeed");
 
         let request_lines = server.join().expect("mock server panicked");
-        let has_bearer = request_lines
-            .iter()
-            .any(|l| l.to_lowercase().starts_with("authorization:") && l.contains("Bearer") && l.contains("my-secret-token-xyz"));
+        let has_bearer = request_lines.iter().any(|l| {
+            l.to_lowercase().starts_with("authorization:")
+                && l.contains("Bearer")
+                && l.contains("my-secret-token-xyz")
+        });
         assert!(
             has_bearer,
             "request should contain Authorization: Bearer header; got: {request_lines:?}"
@@ -195,7 +195,9 @@ mod tests {
         assert!(result.is_err(), "ServiceAccount should return Err");
         let msg = format!("{}", result.unwrap_err());
         assert!(
-            msg.contains("service account") || msg.contains("not yet implemented") || msg.contains("not implemented"),
+            msg.contains("service account")
+                || msg.contains("not yet implemented")
+                || msg.contains("not implemented"),
             "error message should mention service account or not implemented; got: {msg}"
         );
     }

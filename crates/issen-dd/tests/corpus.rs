@@ -29,7 +29,11 @@ fn corpus_ext4_raw_len_matches_file_size() {
     }
     let src = DdDataSource::open(&path).expect("open");
     let file_len = std::fs::metadata(&path).expect("metadata").len();
-    assert_eq!(src.len(), file_len, "DdDataSource::len() must equal file size");
+    assert_eq!(
+        src.len(),
+        file_len,
+        "DdDataSource::len() must equal file size"
+    );
 }
 
 /// Verify read_at returns byte-identical data to reading the file directly.
@@ -70,9 +74,14 @@ fn corpus_ext4_raw_read_at_matches_direct_file_reads() {
         let end = file_len - 512;
         let mut src_buf = vec![0u8; 512];
         let mut ref_buf = vec![0u8; 512];
-        src.read_at(end as u64, &mut src_buf).expect("read_at near-end");
-        ref_file.seek(SeekFrom::Start(end as u64)).expect("seek near-end");
-        ref_file.read_exact(&mut ref_buf).expect("read near-end reference");
+        src.read_at(end as u64, &mut src_buf)
+            .expect("read_at near-end");
+        ref_file
+            .seek(SeekFrom::Start(end as u64))
+            .expect("seek near-end");
+        ref_file
+            .read_exact(&mut ref_buf)
+            .expect("read near-end reference");
         assert_eq!(src_buf, ref_buf, "byte mismatch near end of ext4.raw");
     }
 }

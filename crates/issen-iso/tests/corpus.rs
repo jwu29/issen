@@ -30,7 +30,8 @@ fn corpus_ubuntu_mini_iso_open_and_len() {
     if !path.exists() {
         return;
     }
-    let src = IsoDataSource::open(&path).expect("IsoDataSource::open must succeed on Ubuntu mini ISO");
+    let src =
+        IsoDataSource::open(&path).expect("IsoDataSource::open must succeed on Ubuntu mini ISO");
     let file_len = std::fs::metadata(&path).expect("metadata").len();
     assert_eq!(
         src.len(),

@@ -55,7 +55,9 @@ pub fn correlate_with_usn(
     let mut results = Vec::new();
 
     for ev in events {
-        if ev.event_id != EID_SYSMON_FILE_CREATE && ev.event_id != EID_SYSMON_FILE_CREATE_STREAM_HASH {
+        if ev.event_id != EID_SYSMON_FILE_CREATE
+            && ev.event_id != EID_SYSMON_FILE_CREATE_STREAM_HASH
+        {
             continue;
         }
         let Some(target) = ev.data.get(SYSMON_FIELD_TARGET_FILENAME) else {
@@ -93,9 +95,7 @@ pub fn correlate_with_usn(
 ///
 /// Returns the original string if no separator is found.
 pub fn basename(path: &str) -> &str {
-    path.rsplit(['\\', '/'])
-        .next()
-        .unwrap_or(path)
+    path.rsplit(['\\', '/']).next().unwrap_or(path)
 }
 
 #[cfg(test)]

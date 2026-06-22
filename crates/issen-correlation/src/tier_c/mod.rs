@@ -275,7 +275,14 @@ mod tests {
 
     #[test]
     fn no_tier_c_note_asserts_a_verdict() {
-        let forbidden = ["confirm", "prove", "proof", "exceed", "undoubtedly", "certainly"];
+        let forbidden = [
+            "confirm",
+            "prove",
+            "proof",
+            "exceed",
+            "undoubtedly",
+            "certainly",
+        ];
         let notes = [
             injected_c2::INJECTED_C2_NOTE,
             proc_disk_match::PROC_DISK_MATCH_NOTE,
@@ -309,8 +316,6 @@ mod tests {
         assert_eq!(e.pid, Some(3644));
         assert_eq!(e.ppid, Some(4));
         assert_eq!(e.thread_count, Some(0));
-        assert!(e
-            .process_subjects()
-            .any(|p| p == "coreupdater.exe"));
+        assert!(e.process_subjects().any(|p| p == "coreupdater.exe"));
     }
 }

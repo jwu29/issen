@@ -97,9 +97,7 @@ pub fn same_subtree(a: &str, b: &str) -> bool {
     if pa.is_empty() || pb.is_empty() {
         return false;
     }
-    pa == pb
-        || pa.starts_with(&format!("{pb}/"))
-        || pb.starts_with(&format!("{pa}/"))
+    pa == pb || pa.starts_with(&format!("{pb}/")) || pb.starts_with(&format!("{pa}/"))
 }
 
 /// `true` when all four precision guards hold for a delete↔create pair: token-
@@ -170,16 +168,19 @@ where
                 (cre_ts, del_ts)
             };
             out.push(
-                Correlation::new("CORR-COPY-DELETE", forensicnomicon::report::Severity::Medium)
-                    .with_attack_technique("T1070")
-                    .with_scope(CorrelationScope::SameHost)
-                    .with_window(first, last)
-                    .with_note(COPY_DELETE_NOTE)
-                    .with_member(CorrelationMember::new(del_ev.id(), CorrelationRole::Anchor))
-                    .with_member(CorrelationMember::new(
-                        cre_ev.id(),
-                        CorrelationRole::Consequent,
-                    )),
+                Correlation::new(
+                    "CORR-COPY-DELETE",
+                    forensicnomicon::report::Severity::Medium,
+                )
+                .with_attack_technique("T1070")
+                .with_scope(CorrelationScope::SameHost)
+                .with_window(first, last)
+                .with_note(COPY_DELETE_NOTE)
+                .with_member(CorrelationMember::new(del_ev.id(), CorrelationRole::Anchor))
+                .with_member(CorrelationMember::new(
+                    cre_ev.id(),
+                    CorrelationRole::Consequent,
+                )),
             );
         }
     }
@@ -272,8 +273,14 @@ mod tests {
 
     #[test]
     fn does_not_pair_two_files_sharing_only_a_common_prefix() {
-        let deletes = vec![(del(1, 1_000), FileFacts::sized("C:/Share/report_2024.docx", 10))];
-        let creates = vec![(cre(2, 1_500), FileFacts::sized("C:/Share/report_2025.docx", 10))];
+        let deletes = vec![(
+            del(1, 1_000),
+            FileFacts::sized("C:/Share/report_2024.docx", 10),
+        )];
+        let creates = vec![(
+            cre(2, 1_500),
+            FileFacts::sized("C:/Share/report_2025.docx", 10),
+        )];
         assert!(copy_delete_pairs(&deletes, &creates).is_empty());
     }
 

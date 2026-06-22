@@ -1,8 +1,4 @@
-use forensic_pivot::{
-    FeedKind, FeedSpec,
-    downloader::download_feed,
-    loader::default_feeds,
-};
+use forensic_pivot::{downloader::download_feed, loader::default_feeds, FeedKind, FeedSpec};
 use tempfile::TempDir;
 
 // ---------------------------------------------------------------------------
@@ -25,7 +21,10 @@ fn default_feeds_returns_nonempty() {
 fn default_feeds_includes_sigma() {
     let feeds = default_feeds();
     let has_sigma = feeds.iter().any(|f| f.kind == FeedKind::Sigma);
-    assert!(has_sigma, "default_feeds must include at least one Sigma feed");
+    assert!(
+        has_sigma,
+        "default_feeds must include at least one Sigma feed"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -35,7 +34,10 @@ fn default_feeds_includes_sigma() {
 fn default_feeds_includes_yara() {
     let feeds = default_feeds();
     let has_yara = feeds.iter().any(|f| f.kind == FeedKind::Yara);
-    assert!(has_yara, "default_feeds must include at least one Yara feed");
+    assert!(
+        has_yara,
+        "default_feeds must include at least one Yara feed"
+    );
 }
 
 // ---------------------------------------------------------------------------

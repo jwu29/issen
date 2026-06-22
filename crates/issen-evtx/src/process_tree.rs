@@ -95,20 +95,11 @@ fn parse_hex_pid(s: &str) -> Option<u32> {
 }
 
 fn extract_node(ev: &EvtxEvent) -> Option<ProcessNode> {
-    if ev.event_id == EID_SYSMON_PROCESS_CREATE
-        && ev.channel == SYSMON_CHANNEL
-    {
+    if ev.event_id == EID_SYSMON_PROCESS_CREATE && ev.channel == SYSMON_CHANNEL {
         let guid = ev.data.get(SYSMON_FIELD_PROCESS_GUID)?.clone();
         let parent_guid = ev.data.get(SYSMON_FIELD_PARENT_PROCESS_GUID).cloned();
-        let image = ev
-            .data
-            .get(SYSMON_FIELD_IMAGE)
-            .cloned()
-            .unwrap_or_default();
-        let pid = ev
-            .data
-            .get("ProcessId")
-            .and_then(|s| s.parse::<u32>().ok());
+        let image = ev.data.get(SYSMON_FIELD_IMAGE).cloned().unwrap_or_default();
+        let pid = ev.data.get("ProcessId").and_then(|s| s.parse::<u32>().ok());
         let command_line = ev.data.get(SYSMON_FIELD_COMMAND_LINE).cloned();
         return Some(ProcessNode {
             key: guid,
@@ -124,15 +115,8 @@ fn extract_node(ev: &EvtxEvent) -> Option<ProcessNode> {
 
     if ev.event_id == EID_PROCESS_CREATE && ev.channel == "Security" {
         let new_pid = ev.data.get("NewProcessId").and_then(|s| parse_hex_pid(s))?;
-        let parent_pid = ev
-            .data
-            .get("ProcessId")
-            .and_then(|s| parse_hex_pid(s));
-        let image = ev
-            .data
-            .get("NewProcessName")
-            .cloned()
-            .unwrap_or_default();
+        let parent_pid = ev.data.get("ProcessId").and_then(|s| parse_hex_pid(s));
+        let image = ev.data.get("NewProcessName").cloned().unwrap_or_default();
         let key = format!("pid:{new_pid}");
         let parent_key = parent_pid.map(|p| format!("pid:{p}"));
         return Some(ProcessNode {
@@ -155,12 +139,7 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
-    fn sysmon_create(
-        guid: &str,
-        parent_guid: &str,
-        image: &str,
-        ts: i64,
-    ) -> EvtxEvent {
+    fn sysmon_create(guid: &str, parent_guid: &str, image: &str, ts: i64) -> EvtxEvent {
         let mut data = HashMap::new();
         data.insert("ProcessGuid".into(), guid.into());
         data.insert("ParentProcessGuid".into(), parent_guid.into());

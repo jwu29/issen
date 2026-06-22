@@ -241,14 +241,15 @@ pub(super) fn check_config_baseline(configs: &[ConfigFile], alerts: &mut Vec<Ale
         // --- SSH private keys ---
         if (path.contains("id_rsa") || path.contains("id_ed25519") || path.contains("id_ecdsa"))
             && !path.ends_with(".pub")
-            && content.starts_with("-----BEGIN") {
-                alerts.push(Alert {
-                    severity: AlertSeverity::Warning,
-                    category: "config".into(),
-                    message: format!("SSH private key found: {path}"),
-                    detail: format!("source: {path}"),
-                });
-            }
+            && content.starts_with("-----BEGIN")
+        {
+            alerts.push(Alert {
+                severity: AlertSeverity::Warning,
+                category: "config".into(),
+                message: format!("SSH private key found: {path}"),
+                detail: format!("source: {path}"),
+            });
+        }
 
         // --- macOS LaunchDaemons / LaunchAgents ---
         if path.contains("LaunchDaemons") || path.contains("LaunchAgents") {

@@ -85,8 +85,7 @@ pub fn evaluate_artifacts(
     rules: &[ArtifactCorrelationRule],
     present: &[impl AsRef<str>],
 ) -> Vec<ArtifactCorrelationFinding> {
-    let present_set: std::collections::HashSet<&str> =
-        present.iter().map(AsRef::as_ref).collect();
+    let present_set: std::collections::HashSet<&str> = present.iter().map(AsRef::as_ref).collect();
 
     let mut findings = Vec::new();
 
@@ -208,7 +207,10 @@ mod tests {
             title: "All rule".into(),
             severity: "high".into(),
             description: None,
-            artifact_ids: artifact_ids.iter().map(std::string::ToString::to_string).collect(),
+            artifact_ids: artifact_ids
+                .iter()
+                .map(std::string::ToString::to_string)
+                .collect(),
             requirement: ArtifactRequirement::All,
             mitre_techniques: vec![],
             absence_note: None,
@@ -222,7 +224,10 @@ mod tests {
             title: "At least N rule".into(),
             severity: "medium".into(),
             description: None,
-            artifact_ids: artifact_ids.iter().map(std::string::ToString::to_string).collect(),
+            artifact_ids: artifact_ids
+                .iter()
+                .map(std::string::ToString::to_string)
+                .collect(),
             requirement: ArtifactRequirement::AtLeastN { n },
             mitre_techniques: vec![],
             absence_note: None,
@@ -377,11 +382,7 @@ mod tests {
     fn all_bundled_rules_have_nonempty_id_and_title() {
         let rules = load_bundled_artifact_rules().expect("bundled rules load");
         for rule in &rules {
-            assert!(
-                !rule.id.is_empty(),
-                "rule has empty id: {:?}",
-                rule.title
-            );
+            assert!(!rule.id.is_empty(), "rule has empty id: {:?}", rule.title);
             assert!(
                 !rule.title.is_empty(),
                 "rule has empty title: {:?}",

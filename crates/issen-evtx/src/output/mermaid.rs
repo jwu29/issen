@@ -1,7 +1,7 @@
 //! Mermaid diagram serializers for ProcessTree and LogonChain maps.
 
-use crate::process_tree::ProcessTree;
 use crate::logon_chain::LogonChain;
+use crate::process_tree::ProcessTree;
 use std::collections::HashMap;
 
 /// Serialize a `ProcessTree` to a Mermaid `graph TD` diagram string.
@@ -10,7 +10,11 @@ pub fn process_tree_to_mermaid(tree: &ProcessTree) -> String {
     for (key, node) in tree.nodes() {
         let label = format!("{}: {}", key, node.image);
         let safe_key = key.replace(['{', '}', '-'], "_");
-        lines.push(format!("    {}[\"{}\"]\n", safe_key, label.replace('"', "'")));
+        lines.push(format!(
+            "    {}[\"{}\"]\n",
+            safe_key,
+            label.replace('"', "'")
+        ));
         if let Some(parent) = &node.parent_key {
             let safe_parent = parent.replace(['{', '}', '-'], "_");
             lines.push(format!("    {safe_parent} --> {safe_key}"));
@@ -37,8 +41,8 @@ pub fn logon_chains_to_mermaid(chains: &HashMap<u64, LogonChain>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::process_tree::ProcessTree;
     use crate::logon_chain::LogonChain;
+    use crate::process_tree::ProcessTree;
 
     #[test]
     fn process_tree_empty_produces_mermaid_header() {
@@ -54,7 +58,17 @@ mod tests {
         data.insert("ProcessGuid".into(), "{AAAA}".into());
         data.insert("ParentProcessGuid".into(), String::new());
         data.insert("CommandLine".into(), "cmd.exe".into());
-        let ev = EvtxEvent { event_id: 1, channel: "Microsoft-Windows-Sysmon/Operational".into(), timestamp_ns: 1_000_000_000, computer: "WS01".into(), user_sid: None, logon_id: None, process_id: Some(1234), thread_id: None, data };
+        let ev = EvtxEvent {
+            event_id: 1,
+            channel: "Microsoft-Windows-Sysmon/Operational".into(),
+            timestamp_ns: 1_000_000_000,
+            computer: "WS01".into(),
+            user_sid: None,
+            logon_id: None,
+            process_id: Some(1234),
+            thread_id: None,
+            data,
+        };
         let tree = ProcessTree::from_events(&[ev]);
         let output = process_tree_to_mermaid(&tree);
         assert!(output.contains("cmd.exe") || output.contains("AAAA"));
@@ -70,7 +84,17 @@ mod tests {
     #[test]
     fn logon_chains_single_chain_appears_in_output() {
         let mut chains = HashMap::new();
-        chains.insert(0xABCD_u64, LogonChain { logon_id: 0xABCD, logon_time_ns: Some(1_000_000_000), privilege_time_ns: Some(2_000_000_000), process_pids: vec![1234], logoff_time_ns: None, is_orphaned: true });
+        chains.insert(
+            0xABCD_u64,
+            LogonChain {
+                logon_id: 0xABCD,
+                logon_time_ns: Some(1_000_000_000),
+                privilege_time_ns: Some(2_000_000_000),
+                process_pids: vec![1234],
+                logoff_time_ns: None,
+                is_orphaned: true,
+            },
+        );
         let output = logon_chains_to_mermaid(&chains);
         assert!(output.contains("ABCD") || output.contains("43981"));
     }

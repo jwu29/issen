@@ -171,8 +171,14 @@ pub fn proc_migration_chains(events: &[MemEvent]) -> Vec<Correlation> {
 /// `true` when the dead process and the injection name the same image stem
 /// (lowercased, extension dropped) — the degraded form's name link.
 fn same_image_stem(dead: &MemEvent, inj: &MemEvent) -> bool {
-    let dead_stem = dead.process_subjects().next().map(|s| stem(s).to_ascii_lowercase());
-    let inj_stem = inj.process_subjects().next().map(|s| stem(s).to_ascii_lowercase());
+    let dead_stem = dead
+        .process_subjects()
+        .next()
+        .map(|s| stem(s).to_ascii_lowercase());
+    let inj_stem = inj
+        .process_subjects()
+        .next()
+        .map(|s| stem(s).to_ascii_lowercase());
     matches!((dead_stem, inj_stem), (Some(a), Some(b)) if a == b)
 }
 
@@ -199,8 +205,14 @@ fn strong_chain(
         .with_note(PROC_MIGRATION_NOTE)
         .with_member(CorrelationMember::new(dead.id, CorrelationRole::Anchor))
         .with_member(CorrelationMember::new(inj.id, CorrelationRole::Consequent))
-        .with_member(CorrelationMember::new(dead_conn.id, CorrelationRole::Supporting))
-        .with_member(CorrelationMember::new(live_conn.id, CorrelationRole::Supporting))
+        .with_member(CorrelationMember::new(
+            dead_conn.id,
+            CorrelationRole::Supporting,
+        ))
+        .with_member(CorrelationMember::new(
+            live_conn.id,
+            CorrelationRole::Supporting,
+        ))
 }
 
 /// Build the degraded-form correlation (dead anchor, injection consequent, the
@@ -216,7 +228,10 @@ fn degraded_chain(dead: &MemEvent, inj: &MemEvent, live_conn: &MemEvent) -> Corr
         .with_note(PROC_MIGRATION_DEGRADED_NOTE)
         .with_member(CorrelationMember::new(dead.id, CorrelationRole::Anchor))
         .with_member(CorrelationMember::new(inj.id, CorrelationRole::Consequent))
-        .with_member(CorrelationMember::new(live_conn.id, CorrelationRole::Supporting))
+        .with_member(CorrelationMember::new(
+            live_conn.id,
+            CorrelationRole::Supporting,
+        ))
 }
 
 #[cfg(test)]
@@ -262,8 +277,8 @@ mod tests {
             proc(2, "spoolsv.exe", 880, 760, 8),    // live host (ppid 760 also absent — fine)
             proc(3, "services.exe", 760, 4, 6),     // makes 760 present so spoolsv is not orphan
             injection(4, "spoolsv.exe", 880),
-            conn(5, "spoolsv.exe", 880, C2),         // live PID → C2
-            conn(6, "coreupdater.exe", 3644, C2),    // dead PID → same C2 (freed socket)
+            conn(5, "spoolsv.exe", 880, C2),      // live PID → C2
+            conn(6, "coreupdater.exe", 3644, C2), // dead PID → same C2 (freed socket)
         ]
     }
 
@@ -336,8 +351,8 @@ mod tests {
         // holds the endpoint — the degraded form fires under a distinct code.
         let mut events = strong_fixture();
         events.remove(5); // drop the dead-PID connection (freed socket absent)
-        // Rename the dead orphan to share the injected stem (coreupdater vs spoolsv
-        // -> make the dead one also spoolsv-stemmed for the name link).
+                          // Rename the dead orphan to share the injected stem (coreupdater vs spoolsv
+                          // -> make the dead one also spoolsv-stemmed for the name link).
         events[0] = proc(1, "spoolsv.exe", 3644, 4, 0);
         let corrs = proc_migration_chains(&events);
         assert_eq!(corrs.len(), 1);

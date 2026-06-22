@@ -130,9 +130,7 @@ impl LateralMovementScanner {
                     explicit_hits.push(RawArtifactHit {
                         artifact_type: HitArtifactType::EventLog,
                         source_path: "Security".into(),
-                        value: format!(
-                            "Explicit credential logon: {user} → {target} @ {host}"
-                        ),
+                        value: format!("Explicit credential logon: {user} → {target} @ {host}"),
                         timestamp: ts_nanos,
                         context: HashMap::from([
                             ("event_id".into(), "4648".into()),
@@ -151,9 +149,7 @@ impl LateralMovementScanner {
                         kerb_hits.push(RawArtifactHit {
                             artifact_type: HitArtifactType::EventLog,
                             source_path: "Security".into(),
-                            value: format!(
-                                "Kerberoasting: RC4 ticket for {user} (SPN: {spn})"
-                            ),
+                            value: format!("Kerberoasting: RC4 ticket for {user} (SPN: {spn})"),
                             timestamp: ts_nanos,
                             context: HashMap::from([
                                 ("event_id".into(), "4769".into()),
@@ -455,9 +451,8 @@ mod tests {
     fn lateral_movement_4648_detected_via_winevt_extract() {
         use std::path::PathBuf;
         // Corpus from sibling workspace; skip gracefully if absent.
-        let corpus = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
-            "../../../winevt-forensic/tests/data/fox-it-danderspritz/post-Security.evtx",
-        );
+        let corpus = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../winevt-forensic/tests/data/fox-it-danderspritz/post-Security.evtx");
         if !corpus.exists() {
             return;
         }
@@ -503,10 +498,7 @@ mod tests {
             data: HashMap::from([
                 ("TicketEncryptionType".into(), "0x17".into()),
                 ("TargetUserName".into(), "svc_backup".into()),
-                (
-                    "ServiceName".into(),
-                    "backupSvc/server01.corp.local".into(),
-                ),
+                ("ServiceName".into(), "backupSvc/server01.corp.local".into()),
             ]),
         });
 

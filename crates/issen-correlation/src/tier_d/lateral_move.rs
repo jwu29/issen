@@ -200,7 +200,13 @@ mod tests {
         // Guards #1/#4 (host-B source IP ∈ host-A inventory): the host-B logon
         // came from a third address, not from host A — the guard rejects it.
         let anchor = host_a_logon(1, 1_000, "Administrator", &["10.0.0.10"]);
-        let cands = vec![host_b_logon(2, 2_000, "Administrator", "192.0.2.99", "WS01")];
+        let cands = vec![host_b_logon(
+            2,
+            2_000,
+            "Administrator",
+            "192.0.2.99",
+            "WS01",
+        )];
         assert!(evaluate_lateral_move(&anchor, &cands).is_none());
     }
 

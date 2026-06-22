@@ -32,7 +32,10 @@ impl From<Aff4Error> for RtError {
     fn from(e: Aff4Error) -> Self {
         match e {
             Aff4Error::Io(io) => Self::Io(io),
-            Aff4Error::Aff4(msg) => Self::Parse { offset: 0, message: format!("aff4: {msg}") },
+            Aff4Error::Aff4(msg) => Self::Parse {
+                offset: 0,
+                message: format!("aff4: {msg}"),
+            },
         }
     }
 }
@@ -45,7 +48,9 @@ pub struct Aff4DataSource {
 
 impl std::fmt::Debug for Aff4DataSource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Aff4DataSource").field("size", &self.size).finish_non_exhaustive()
+        f.debug_struct("Aff4DataSource")
+            .field("size", &self.size)
+            .finish_non_exhaustive()
     }
 }
 
@@ -54,12 +59,17 @@ impl Aff4DataSource {
     pub fn open(path: &Path) -> Result<Self, Aff4Error> {
         let reader = aff4::Aff4Reader::open(path)?;
         let size = reader.virtual_disk_size();
-        Ok(Self { reader: Mutex::new(reader), size })
+        Ok(Self {
+            reader: Mutex::new(reader),
+            size,
+        })
     }
 }
 
 impl DataSource for Aff4DataSource {
-    fn len(&self) -> u64 { self.size }
+    fn len(&self) -> u64 {
+        self.size
+    }
 
     fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<usize, RtError> {
         let mut guard = self.reader.lock().expect("mutex poisoned");

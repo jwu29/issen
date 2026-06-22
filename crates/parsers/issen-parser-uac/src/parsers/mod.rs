@@ -38,8 +38,8 @@ pub struct ShellUpgradeChain {
 }
 
 const SHELL_OR_INTERPRETER_NAMES: &[&str] = &[
-    "sh", "bash", "dash", "zsh", "ksh", "fish",
-    "python", "python2", "python3", "perl", "ruby", "node", "nodejs", "php",
+    "sh", "bash", "dash", "zsh", "ksh", "fish", "python", "python2", "python3", "perl", "ruby",
+    "node", "nodejs", "php",
 ];
 
 /// Detect interpreter-upgraded shell chains among hidden processes.
@@ -78,7 +78,9 @@ pub fn detect_shell_upgrade_chain(analysis: &HiddenProcessAnalysis) -> Vec<Shell
             .collect();
         let has_shell_or_interp = names.iter().any(|n| {
             let lc = n.to_lowercase();
-            SHELL_OR_INTERPRETER_NAMES.iter().any(|s| lc == *s || lc.starts_with(s))
+            SHELL_OR_INTERPRETER_NAMES
+                .iter()
+                .any(|s| lc == *s || lc.starts_with(s))
         });
         if has_shell_or_interp {
             let mut pids: Vec<u32> = group.iter().map(|f| f.pid).collect();
@@ -510,7 +512,10 @@ mod tests {
         );
         std::fs::write(mem_dir.join("output-sockstat"), sockstat).expect("write");
         let analysis = analyze_hidden_processes(dir.path());
-        assert!(detect_shell_upgrade_chain(&analysis).is_empty(), "single process is not a chain");
+        assert!(
+            detect_shell_upgrade_chain(&analysis).is_empty(),
+            "single process is not a chain"
+        );
     }
 
     #[test]
@@ -521,7 +526,8 @@ mod tests {
         std::fs::write(
             proc_dir.join("hidden_pids_for_ps_command.txt"),
             "939\n940\n941\n",
-        ).expect("write");
+        )
+        .expect("write");
 
         let mem_dir = dir.path().join("memory_dump");
         std::fs::create_dir_all(&mem_dir).expect("mkdir");
@@ -536,7 +542,11 @@ mod tests {
         let analysis = analyze_hidden_processes(dir.path());
 
         let chains = detect_shell_upgrade_chain(&analysis);
-        assert_eq!(chains.len(), 1, "sh→python3→bash on same endpoint is one chain");
+        assert_eq!(
+            chains.len(),
+            1,
+            "sh→python3→bash on same endpoint is one chain"
+        );
         let chain = &chains[0];
         assert!(chain.pids.contains(&939));
         assert!(chain.pids.contains(&940));
@@ -566,7 +576,10 @@ mod tests {
         std::fs::write(mem_dir.join("output-sockstat"), sockstat).expect("write");
         let analysis = analyze_hidden_processes(dir.path());
         // libuv-worker is not a shell/interpreter
-        assert!(detect_shell_upgrade_chain(&analysis).is_empty(), "miner threads are not a shell upgrade chain");
+        assert!(
+            detect_shell_upgrade_chain(&analysis).is_empty(),
+            "miner threads are not a shell upgrade chain"
+        );
     }
 
     #[test]
@@ -578,7 +591,8 @@ mod tests {
         std::fs::write(
             proc_dir.join("hidden_pids_for_ps_command.txt"),
             "100\n101\n200\n201\n",
-        ).expect("write");
+        )
+        .expect("write");
         let mem_dir = dir.path().join("memory_dump");
         std::fs::create_dir_all(&mem_dir).expect("mkdir");
         let sockstat = format!(
@@ -660,11 +674,13 @@ mod tests {
         paths.sort();
         assert!(
             paths.contains(&"/run/systemd/journal/socket".to_string()),
-            "journald socket must be in unix_socket_paths; got {:?}", paths
+            "journald socket must be in unix_socket_paths; got {:?}",
+            paths
         );
         assert!(
             paths.contains(&"/run/dbus/system_bus_socket".to_string()),
-            "dbus socket must be in unix_socket_paths; got {:?}", paths
+            "dbus socket must be in unix_socket_paths; got {:?}",
+            paths
         );
     }
 
@@ -677,8 +693,7 @@ mod tests {
         std::fs::create_dir_all(&proc_dir).expect("mkdir");
         std::fs::write(proc_dir.join("hidden_pids_for_ps_command.txt"), "977\n").expect("write");
 
-        let unix_dir = dir.path()
-            .join("live_response/process/proc/977/net");
+        let unix_dir = dir.path().join("live_response/process/proc/977/net");
         std::fs::create_dir_all(&unix_dir).expect("mkdir");
         std::fs::write(
             unix_dir.join("unix.txt"),
@@ -692,12 +707,18 @@ mod tests {
         let finding = analysis.findings.iter().find(|f| f.pid == 977).unwrap();
 
         assert!(
-            finding.unix_socket_paths.contains(&"/run/systemd/journal/socket".to_string()),
-            "journald from proc file must appear; got {:?}", finding.unix_socket_paths
+            finding
+                .unix_socket_paths
+                .contains(&"/run/systemd/journal/socket".to_string()),
+            "journald from proc file must appear; got {:?}",
+            finding.unix_socket_paths
         );
         assert!(
-            finding.unix_socket_paths.contains(&"/run/user/1000/pipewire-0".to_string()),
-            "pipewire from proc file must appear; got {:?}", finding.unix_socket_paths
+            finding
+                .unix_socket_paths
+                .contains(&"/run/user/1000/pipewire-0".to_string()),
+            "pipewire from proc file must appear; got {:?}",
+            finding.unix_socket_paths
         );
     }
 
@@ -710,8 +731,7 @@ mod tests {
         std::fs::create_dir_all(&proc_dir).expect("mkdir");
         std::fs::write(proc_dir.join("hidden_pids_for_ps_command.txt"), "977\n").expect("write");
 
-        let unix_dir = dir.path()
-            .join("live_response/process/proc/977/net");
+        let unix_dir = dir.path().join("live_response/process/proc/977/net");
         std::fs::create_dir_all(&unix_dir).expect("mkdir");
         std::fs::write(
             unix_dir.join("unix.txt"),
@@ -750,8 +770,7 @@ mod tests {
         std::fs::create_dir_all(&proc_dir).expect("mkdir");
         std::fs::write(proc_dir.join("hidden_pids_for_ps_command.txt"), "977\n").expect("write");
 
-        let unix_dir = dir.path()
-            .join("live_response/process/proc/977/net");
+        let unix_dir = dir.path().join("live_response/process/proc/977/net");
         std::fs::create_dir_all(&unix_dir).expect("mkdir");
         std::fs::write(
             unix_dir.join("unix.txt"),

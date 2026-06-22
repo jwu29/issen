@@ -40,7 +40,8 @@ pub fn parse_proc_unix(content: &str) -> Vec<ProcUnixEntry> {
         return vec![];
     };
     // Detect header by presence of "Num" and "RefCount" or "Protocol".
-    let is_header = first.contains("Num") && (first.contains("RefCount") || first.contains("Protocol"));
+    let is_header =
+        first.contains("Num") && (first.contains("RefCount") || first.contains("Protocol"));
     let data_lines: Box<dyn Iterator<Item = &str>> = if is_header {
         Box::new(lines)
     } else {
@@ -65,7 +66,8 @@ fn parse_unix_line(line: &str) -> Option<ProcUnixEntry> {
         return None;
     }
     // Split on whitespace; minimum 7 fields (no Path), 8+ with Path.
-    let fields: Vec<&str> = trimmed.splitn(8, char::is_whitespace)
+    let fields: Vec<&str> = trimmed
+        .splitn(8, char::is_whitespace)
         .filter(|f| !f.is_empty())
         .collect();
     if fields.len() < 7 {
@@ -93,7 +95,8 @@ pub fn read_all_proc_unix(root: &std::path::Path) -> Vec<PidUnixSockets> {
     for entry in entries.flatten() {
         let pid_dir = entry.path();
         // Directory name must parse as a u32 PID.
-        let Some(pid) = pid_dir.file_name()
+        let Some(pid) = pid_dir
+            .file_name()
             .and_then(|n| n.to_str())
             .and_then(|s| s.parse::<u32>().ok())
         else {
@@ -117,7 +120,8 @@ pub fn named_paths_for_pid(all: &[PidUnixSockets], pid: u32) -> Vec<String> {
     all.iter()
         .find(|s| s.pid == pid)
         .map(|s| {
-            s.entries.iter()
+            s.entries
+                .iter()
                 .filter(|e| !e.path.is_empty() && !e.path.starts_with('@'))
                 .map(|e| e.path.clone())
                 .collect()
@@ -210,7 +214,8 @@ short line\n";
     #[test]
     fn read_all_reads_pid_directory() {
         let dir = tempfile::tempdir().expect("tmpdir");
-        let unix_path = dir.path()
+        let unix_path = dir
+            .path()
             .join("live_response/process/proc/977/net/unix.txt");
         std::fs::create_dir_all(unix_path.parent().unwrap()).expect("mkdir");
         std::fs::write(
@@ -230,7 +235,8 @@ short line\n";
     fn read_all_handles_multiple_pids() {
         let dir = tempfile::tempdir().expect("tmpdir");
         for pid in [975u32, 977] {
-            let path = dir.path()
+            let path = dir
+                .path()
                 .join(format!("live_response/process/proc/{pid}/net/unix.txt"));
             std::fs::create_dir_all(path.parent().unwrap()).expect("mkdir");
             std::fs::write(
@@ -255,9 +261,15 @@ short line\n";
         let all = vec![PidUnixSockets {
             pid: 977,
             entries: vec![
-                ProcUnixEntry { path: "/run/systemd/journal/socket".into() },
-                ProcUnixEntry { path: "@abstract".into() },
-                ProcUnixEntry { path: String::new() },
+                ProcUnixEntry {
+                    path: "/run/systemd/journal/socket".into(),
+                },
+                ProcUnixEntry {
+                    path: "@abstract".into(),
+                },
+                ProcUnixEntry {
+                    path: String::new(),
+                },
             ],
         }];
         let paths = named_paths_for_pid(&all, 977);

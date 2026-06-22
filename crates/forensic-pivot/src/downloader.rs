@@ -110,8 +110,8 @@ pub fn download_feed(spec: &FeedSpec, cache_dir: &Path) -> anyhow::Result<()> {
 
 fn extract_zip(bytes: &[u8], dest: &Path) -> anyhow::Result<()> {
     let cursor = std::io::Cursor::new(bytes);
-    let mut archive = zip::ZipArchive::new(cursor)
-        .map_err(|e| anyhow::anyhow!("zip parse error: {e}"))?;
+    let mut archive =
+        zip::ZipArchive::new(cursor).map_err(|e| anyhow::anyhow!("zip parse error: {e}"))?;
 
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i)?;

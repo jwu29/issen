@@ -2,9 +2,9 @@
 //!
 //! Converts Zeek conn.log lines (TSV or JSON) into `Evidence` objects.
 
-use std::collections::HashMap;
 use anyhow::{Context, Result};
 use serde::Deserialize;
+use std::collections::HashMap;
 
 use crate::evidence::{Evidence, EvidenceKind, EvidenceSource};
 
@@ -98,7 +98,10 @@ impl ZeekConn {
 impl From<ZeekConn> for Evidence {
     fn from(conn: ZeekConn) -> Self {
         let id = format!("zeek-{}", conn.uid);
-        let value = format!("{}:{} -> {}:{}", conn.src_ip, conn.src_port, conn.dest_ip, conn.dest_port);
+        let value = format!(
+            "{}:{} -> {}:{}",
+            conn.src_ip, conn.src_port, conn.dest_ip, conn.dest_port
+        );
 
         let mut attrs: HashMap<String, String> = HashMap::new();
         attrs.insert("uid".to_string(), conn.uid.clone());
@@ -132,7 +135,8 @@ impl From<ZeekConn> for Evidence {
 mod tests {
     use super::*;
 
-    const TSV_LINE: &str = "1000000000.0\tCz1234\t192.168.1.100\t54321\t10.0.0.1\t3333\ttcp\t-\t1.234\t1024\t512\tSF";
+    const TSV_LINE: &str =
+        "1000000000.0\tCz1234\t192.168.1.100\t54321\t10.0.0.1\t3333\ttcp\t-\t1.234\t1024\t512\tSF";
     const JSON_LINE: &str = r#"{"ts": 1000000000.0, "uid": "Cz1234", "id.orig_h": "192.168.1.100", "id.orig_p": 54321, "id.resp_h": "10.0.0.1", "id.resp_p": 3333, "proto": "tcp", "orig_bytes": 1024, "resp_bytes": 512}"#;
 
     #[test]
@@ -174,7 +178,10 @@ mod tests {
     fn test_zeek_conn_skips_header_lines() {
         let header = "#fields\tts\tuid\tid.orig_h\tid.orig_p\tid.resp_h\tid.resp_p\tproto";
         let result = ZeekConn::from_tsv_line(header).expect("should not error");
-        assert!(result.is_none(), "header lines starting with # should return None");
+        assert!(
+            result.is_none(),
+            "header lines starting with # should return None"
+        );
     }
 
     #[test]

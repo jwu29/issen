@@ -15,9 +15,9 @@
 
 #[cfg(feature = "remote")]
 use std::io::{BufRead, BufReader, Write as IoWrite};
+use std::net::TcpListener;
 #[cfg(feature = "remote")]
 use std::net::TcpStream;
-use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -97,9 +97,15 @@ pub fn token_cache_path() -> PathBuf {
         .unwrap_or_else(|_| PathBuf::from("."));
 
     #[cfg(not(target_os = "windows"))]
-    let base = std::env::var("XDG_CONFIG_HOME").map_or_else(|_| {
-            std::env::var("HOME").map_or_else(|_| PathBuf::from(".config"), |h| PathBuf::from(h).join(".config"))
-        }, PathBuf::from);
+    let base = std::env::var("XDG_CONFIG_HOME").map_or_else(
+        |_| {
+            std::env::var("HOME").map_or_else(
+                |_| PathBuf::from(".config"),
+                |h| PathBuf::from(h).join(".config"),
+            )
+        },
+        PathBuf::from,
+    );
 
     base.join("issen").join("gdrive_token.json")
 }
@@ -196,8 +202,8 @@ pub fn exchange_code_for_token(
 /// Returns the access token string on success.
 #[cfg(feature = "remote")]
 pub fn initiate_browser_auth() -> anyhow::Result<String> {
-    let client_id = std::env::var("RT_GDRIVE_CLIENT_ID")
-        .unwrap_or_else(|_| DEFAULT_CLIENT_ID.to_string());
+    let client_id =
+        std::env::var("RT_GDRIVE_CLIENT_ID").unwrap_or_else(|_| DEFAULT_CLIENT_ID.to_string());
     let client_secret = std::env::var("RT_GDRIVE_CLIENT_SECRET")
         .unwrap_or_else(|_| DEFAULT_CLIENT_SECRET.to_string());
 
@@ -219,7 +225,11 @@ pub fn initiate_browser_auth() -> anyhow::Result<String> {
     let _ = std::process::Command::new("open")
         .arg(&auth_url)
         .status()
-        .or_else(|_| std::process::Command::new("xdg-open").arg(&auth_url).status());
+        .or_else(|_| {
+            std::process::Command::new("xdg-open")
+                .arg(&auth_url)
+                .status()
+        });
     eprintln!("Waiting for browser redirect on port {port}…");
 
     let (stream, _) = listener.accept()?;
@@ -334,7 +344,10 @@ mod tests {
     #[test]
     fn token_cache_path_ends_with_gdrive_token_json() {
         let path = token_cache_path();
-        assert_eq!(path.file_name().and_then(|n| n.to_str()), Some("gdrive_token.json"));
+        assert_eq!(
+            path.file_name().and_then(|n| n.to_str()),
+            Some("gdrive_token.json")
+        );
     }
 
     #[test]
@@ -371,7 +384,10 @@ mod tests {
         std::env::remove_var("GOOGLE_APPLICATION_CREDENTIALS");
         let mode = resolve_auth_mode();
         assert!(
-            matches!(mode, GDriveAuthMode::Public | GDriveAuthMode::UserOAuth { .. }),
+            matches!(
+                mode,
+                GDriveAuthMode::Public | GDriveAuthMode::UserOAuth { .. }
+            ),
             "expected Public or UserOAuth (token may exist in dev env)"
         );
     }

@@ -178,10 +178,7 @@ mod tests {
 
     #[test]
     fn misp_event_serialises_to_json() {
-        let event = build_misp_event(
-            "Serialisation test",
-            &["Finding one".to_string()],
-        );
+        let event = build_misp_event("Serialisation test", &["Finding one".to_string()]);
         let json = serde_json::to_string(&event).expect("serialise MispEvent");
         assert!(
             json.contains("\"Attribute\""),
@@ -234,7 +231,9 @@ mod tests {
                 body.len(),
                 body,
             );
-            stream.write_all(response.as_bytes()).expect("write response");
+            stream
+                .write_all(response.as_bytes())
+                .expect("write response");
 
             (auth_found, path_ok)
         });

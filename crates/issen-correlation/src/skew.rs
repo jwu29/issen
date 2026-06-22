@@ -127,21 +127,14 @@ mod tests {
     use super::*;
     use crate::model::{EvidenceKind, EvidenceSource};
 
-    fn make(
-        id: &str,
-        source: EvidenceSource,
-        path: &str,
-        ts: DateTime<Utc>,
-    ) -> Evidence {
+    fn make(id: &str, source: EvidenceSource, path: &str, ts: DateTime<Utc>) -> Evidence {
         Evidence::new(id, source, EvidenceKind::Artifact, None)
             .with_attr("path", path)
             .with_timestamp(ts)
     }
 
     fn ts(h: u32, m: u32, s: u32) -> DateTime<Utc> {
-        chrono::Utc
-            .with_ymd_and_hms(2026, 4, 19, h, m, s)
-            .unwrap()
+        chrono::Utc.with_ymd_and_hms(2026, 4, 19, h, m, s).unwrap()
     }
 
     // ── RED tests (all expected to FAIL while detect_time_skew is a stub) ─────
@@ -149,9 +142,17 @@ mod tests {
     #[test]
     fn test_no_skew_when_single_source() {
         // One event per path — nothing to compare.
-        let events = vec![make("e1", EvidenceSource::Artifact, "/bin/bash", ts(0, 0, 0))];
+        let events = vec![make(
+            "e1",
+            EvidenceSource::Artifact,
+            "/bin/bash",
+            ts(0, 0, 0),
+        )];
         let findings = detect_time_skew(&events, &SkewOpts::default());
-        assert!(findings.is_empty(), "expected no findings, got {findings:?}");
+        assert!(
+            findings.is_empty(),
+            "expected no findings, got {findings:?}"
+        );
     }
 
     #[test]
@@ -229,7 +230,11 @@ mod tests {
             make("b2", EvidenceSource::Memory, "/path/B", ts(9, 2, 0)),
         ];
         let findings = detect_time_skew(&events, &SkewOpts::default());
-        assert_eq!(findings.len(), 1, "expected exactly one finding (for /path/A)");
+        assert_eq!(
+            findings.len(),
+            1,
+            "expected exactly one finding (for /path/A)"
+        );
         assert_eq!(findings[0].path, "/path/A");
     }
 }

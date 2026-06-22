@@ -1,6 +1,6 @@
 // RED: stub — types declared but no real logic
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum EvidenceSource {
@@ -27,10 +27,21 @@ pub enum EvidenceKind {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum SubjectRef {
-    Process { pid: Option<u32>, name: String },
-    File { path: String },
-    Network { src_ip: Option<String>, dst_ip: Option<String>, dst_port: Option<u16> },
-    User { name: String },
+    Process {
+        pid: Option<u32>,
+        name: String,
+    },
+    File {
+        path: String,
+    },
+    Network {
+        src_ip: Option<String>,
+        dst_ip: Option<String>,
+        dst_port: Option<u16>,
+    },
+    User {
+        name: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

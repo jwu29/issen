@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
 use crate::evidence::Evidence;
 use crate::rule::{AssertionLevel, MatchClause, PivotRule, Severity};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Finding {
@@ -76,7 +76,8 @@ impl PivotEngine {
                 let min_ts = timestamps.iter().copied().min().unwrap_or(0);
                 let max_ts = timestamps.iter().copied().max().unwrap_or(0);
                 let span_ns = max_ts - min_ts;
-                let window_ns = i64::try_from(window_secs).unwrap_or(i64::MAX)
+                let window_ns = i64::try_from(window_secs)
+                    .unwrap_or(i64::MAX)
                     .saturating_mul(1_000_000_000);
                 if span_ns > window_ns {
                     return None;

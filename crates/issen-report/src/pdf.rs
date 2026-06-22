@@ -6,7 +6,9 @@
 
 use std::path::Path;
 
-use printpdf::{BuiltinFont, Mm, Op, PdfDocument, PdfFontHandle, PdfPage, PdfSaveOptions, Pt, TextItem};
+use printpdf::{
+    BuiltinFont, Mm, Op, PdfDocument, PdfFontHandle, PdfPage, PdfSaveOptions, Pt, TextItem,
+};
 
 /// Export an HTML string as a PDF file at `output_path`.
 ///
@@ -64,7 +66,9 @@ pub fn export_pdf(html: &str, output_path: &Path) -> anyhow::Result<()> {
 
     let save_options = PdfSaveOptions::default();
     let mut warnings = Vec::new();
-    let pdf_bytes = doc.with_pages(vec![page]).save(&save_options, &mut warnings);
+    let pdf_bytes = doc
+        .with_pages(vec![page])
+        .save(&save_options, &mut warnings);
 
     std::fs::write(output_path, pdf_bytes)?;
     Ok(())
@@ -164,6 +168,9 @@ mod tests {
 
         export_pdf("", &out).expect("export_pdf with empty html should succeed");
 
-        assert!(out.exists(), "output file should exist for empty html input");
+        assert!(
+            out.exists(),
+            "output file should exist for empty html input"
+        );
     }
 }

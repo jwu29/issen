@@ -12,10 +12,10 @@
 //! The DDL is created additively (`ADD COLUMN IF NOT EXISTS`-style safety like
 //! PRE-4) so opening an older case DB is non-destructive.
 
+use forensicnomicon::report::Severity;
 use issen_correlation::correlation::{
     Correlation, CorrelationMember, CorrelationRole, CorrelationScope,
 };
-use forensicnomicon::report::Severity;
 
 use crate::store::{TimelineStore, TimelineStoreError};
 
@@ -24,7 +24,10 @@ impl TimelineStore {
     ///
     /// Correlation members key on `timeline.id`; this resolves an in-memory
     /// event (which carries only its `record_hash`) to its persisted row id.
-    pub fn timeline_id_for_hash(&self, record_hash: &str) -> Result<Option<u64>, TimelineStoreError> {
+    pub fn timeline_id_for_hash(
+        &self,
+        record_hash: &str,
+    ) -> Result<Option<u64>, TimelineStoreError> {
         let mut stmt = self
             .connection()
             .prepare("SELECT id FROM timeline WHERE record_hash = ? LIMIT 1")?;
@@ -64,11 +67,7 @@ impl TimelineStore {
                 correlation.note,
             ],
         )?;
-        let id: u64 = conn.query_row(
-            "SELECT currval('correlation_seq')",
-            [],
-            |row| row.get(0),
-        )?;
+        let id: u64 = conn.query_row("SELECT currval('correlation_seq')", [], |row| row.get(0))?;
 
         if !members.is_empty() {
             let mut stmt = conn.prepare(

@@ -88,9 +88,7 @@ impl DataSource for VhdDataSource {
 
 // ── CollectionProvider ────────────────────────────────────────────────
 
-use issen_unpack::{
-    CollectionManifest, CollectionProvider, Confidence,
-};
+use issen_unpack::{CollectionManifest, CollectionProvider, Confidence};
 
 /// Format-recognition and manifest provider for legacy VHD disk images.
 #[derive(Debug, Default)]

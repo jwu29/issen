@@ -19,7 +19,9 @@ fn drvfs_wsl_path_recognized() {
 #[test]
 fn drvfs_wsl_to_windows() {
     let p = HybridPath::from_wsl_str("/mnt/c/Users/alice/Downloads/payload.exe");
-    let win = p.windows_path().expect("DrvFs should have Windows equivalent");
+    let win = p
+        .windows_path()
+        .expect("DrvFs should have Windows equivalent");
     assert_eq!(
         win.to_string_lossy(),
         r"C:\Users\alice\Downloads\payload.exe"
@@ -41,7 +43,10 @@ fn drvfs_d_drive() {
 fn native_wsl_path_has_no_windows() {
     let p = HybridPath::from_wsl_str("/home/alice/.bash_history");
     assert!(!p.is_drvfs(), "should not be DrvFs");
-    assert!(p.windows_path().is_none(), "native WSL path has no Windows equivalent");
+    assert!(
+        p.windows_path().is_none(),
+        "native WSL path has no Windows equivalent"
+    );
 }
 
 // ── Test 5: Windows C:\... path from Windows side ────────────────────────────
@@ -110,6 +115,8 @@ fn mnt_root_is_not_drvfs() {
 fn display_drvfs_shows_both() {
     let p = HybridPath::from_wsl_str("/mnt/c/temp/x.exe");
     let s = p.to_string();
-    assert!(s.contains("/mnt/c/temp/x.exe") || s.contains(r"C:\temp\x.exe"),
-        "display should include at least one form, got: {s}");
+    assert!(
+        s.contains("/mnt/c/temp/x.exe") || s.contains(r"C:\temp\x.exe"),
+        "display should include at least one form, got: {s}"
+    );
 }

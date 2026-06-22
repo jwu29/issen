@@ -39,10 +39,7 @@ fn get(event: &EvtxEvent, key: &str) -> String {
 }
 
 fn field(event: &EvtxEvent, key: &str) -> Option<(String, String)> {
-    event
-        .data
-        .get(key)
-        .map(|v| (key.to_string(), v.clone()))
+    event.data.get(key).map(|v| (key.to_string(), v.clone()))
 }
 
 // --- Logon: 4624, 4625, 4634, 4647, 4648 ---
@@ -65,16 +62,20 @@ impl EventHandler for LogonHandler {
             4648 => "Explicit credential logon",
             _ => return None,
         };
-        Some(format!(
-            "{label}: {domain}\\{user} type={ltype} src={ip}"
-        ))
+        Some(format!("{label}: {domain}\\{user} type={ltype} src={ip}"))
     }
 
     fn extract_fields(&self, event: &EvtxEvent) -> Vec<(String, String)> {
-        ["TargetUserName", "TargetDomainName", "LogonType", "IpAddress", "SubStatus"]
-            .iter()
-            .filter_map(|k| field(event, k))
-            .collect()
+        [
+            "TargetUserName",
+            "TargetDomainName",
+            "LogonType",
+            "IpAddress",
+            "SubStatus",
+        ]
+        .iter()
+        .filter_map(|k| field(event, k))
+        .collect()
     }
 }
 
@@ -97,10 +98,15 @@ impl EventHandler for ProcessHandler {
     }
 
     fn extract_fields(&self, event: &EvtxEvent) -> Vec<(String, String)> {
-        ["NewProcessName", "CommandLine", "ParentProcessName", "SubjectLogonId"]
-            .iter()
-            .filter_map(|k| field(event, k))
-            .collect()
+        [
+            "NewProcessName",
+            "CommandLine",
+            "ParentProcessName",
+            "SubjectLogonId",
+        ]
+        .iter()
+        .filter_map(|k| field(event, k))
+        .collect()
     }
 }
 
@@ -123,10 +129,16 @@ impl EventHandler for ServiceHandler {
     }
 
     fn extract_fields(&self, event: &EvtxEvent) -> Vec<(String, String)> {
-        ["ServiceName", "ImagePath", "ServiceType", "StartType", "AccountName"]
-            .iter()
-            .filter_map(|k| field(event, k))
-            .collect()
+        [
+            "ServiceName",
+            "ImagePath",
+            "ServiceType",
+            "StartType",
+            "AccountName",
+        ]
+        .iter()
+        .filter_map(|k| field(event, k))
+        .collect()
     }
 }
 
@@ -188,8 +200,7 @@ impl EventHandler for PowershellHandler {
 
 impl EventHandler for RdpClientHandler {
     fn handles(&self, event_id: u32, channel: &str) -> bool {
-        matches!(event_id, 1024 | 1102)
-            && channel.contains("TerminalServices-RDPClient")
+        matches!(event_id, 1024 | 1102) && channel.contains("TerminalServices-RDPClient")
     }
 
     fn summarize(&self, event: &EvtxEvent) -> Option<String> {
@@ -203,10 +214,7 @@ impl EventHandler for RdpClientHandler {
     }
 
     fn extract_fields(&self, event: &EvtxEvent) -> Vec<(String, String)> {
-        ["Value"]
-            .iter()
-            .filter_map(|k| field(event, k))
-            .collect()
+        ["Value"].iter().filter_map(|k| field(event, k)).collect()
     }
 }
 
@@ -240,8 +248,7 @@ impl EventHandler for RdpServerHandler {
 
 impl EventHandler for WlanHandler {
     fn handles(&self, event_id: u32, channel: &str) -> bool {
-        matches!(event_id, 11000 | 11001 | 11010)
-            && channel.contains("WLAN-AutoConfig")
+        matches!(event_id, 11000 | 11001 | 11010) && channel.contains("WLAN-AutoConfig")
     }
 
     fn summarize(&self, event: &EvtxEvent) -> Option<String> {
@@ -267,16 +274,12 @@ impl EventHandler for WlanHandler {
 
 impl EventHandler for LogClearedHandler {
     fn handles(&self, event_id: u32, channel: &str) -> bool {
-        (event_id == 1102 && channel == "Security")
-            || (event_id == 104 && channel == "System")
+        (event_id == 1102 && channel == "Security") || (event_id == 104 && channel == "System")
     }
 
     fn summarize(&self, event: &EvtxEvent) -> Option<String> {
         let user = get(event, "SubjectUserName");
-        Some(format!(
-            "Log cleared ({}): by {user}",
-            event.channel
-        ))
+        Some(format!("Log cleared ({}): by {user}", event.channel))
     }
 
     fn extract_fields(&self, event: &EvtxEvent) -> Vec<(String, String)> {
@@ -330,10 +333,15 @@ impl EventHandler for AuditChangeHandler {
     }
 
     fn extract_fields(&self, event: &EvtxEvent) -> Vec<(String, String)> {
-        ["CategoryId", "SubcategoryGuid", "AuditPolicyChanges", "SubjectUserName"]
-            .iter()
-            .filter_map(|k| field(event, k))
-            .collect()
+        [
+            "CategoryId",
+            "SubcategoryGuid",
+            "AuditPolicyChanges",
+            "SubjectUserName",
+        ]
+        .iter()
+        .filter_map(|k| field(event, k))
+        .collect()
     }
 }
 

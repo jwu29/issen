@@ -213,8 +213,14 @@ mod tests {
     /// a verdict. It must say "consistent with" and must never assert proof.
     #[test]
     fn no_rule_note_asserts_a_verdict() {
-        let forbidden =
-            regex_like(&["confirm", "prove", "proof", "exceed", "undoubtedly", "certainly"]);
+        let forbidden = regex_like(&[
+            "confirm",
+            "prove",
+            "proof",
+            "exceed",
+            "undoubtedly",
+            "certainly",
+        ]);
 
         let mut notes: Vec<&str> = tier_a_rules().iter().map(|r| r.note).collect();
         notes.push(copy_delete::COPY_DELETE_NOTE);

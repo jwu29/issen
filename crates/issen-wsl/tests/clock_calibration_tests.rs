@@ -5,7 +5,6 @@
 //! 2. DrvFs timestamp clamping: NTFS 100ns timestamps truncated to 1-second
 //!    precision when accessed from WSL (stat() returns whole seconds).
 
-
 use issen_wsl::clock::{ClockCalibration, TimestampSource};
 
 // ── Test 1: zero drift means timestamps unchanged ────────────────────────────

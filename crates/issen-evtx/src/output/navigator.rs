@@ -8,18 +8,23 @@ pub fn to_navigator_layer(detections: &[Detection], layer_name: &str) -> String 
     // Group by technique ID, pick highest confidence
     let mut by_technique: HashMap<&str, (u32, Confidence, &str)> = HashMap::new();
     for det in detections {
-        let entry = by_technique.entry(det.mitre_technique_id).or_insert((0, det.confidence, det.tactic));
+        let entry =
+            by_technique
+                .entry(det.mitre_technique_id)
+                .or_insert((0, det.confidence, det.tactic));
         entry.0 += 1;
-        if det.confidence > entry.1 { entry.1 = det.confidence; }
+        if det.confidence > entry.1 {
+            entry.1 = det.confidence;
+        }
     }
 
     let techniques: Vec<serde_json::Value> = by_technique
         .iter()
         .map(|(&id, &(count, confidence, tactic))| {
             let color = match confidence {
-                Confidence::High   => "#ff6666",
+                Confidence::High => "#ff6666",
                 Confidence::Medium => "#ffaa00",
-                Confidence::Low    => "#ffff66",
+                Confidence::Low => "#ffff66",
             };
             serde_json::json!({
                 "techniqueID": id,
@@ -97,8 +102,14 @@ mod tests {
         ];
         let output = to_navigator_layer(&detections, "test");
         let parsed: serde_json::Value = serde_json::from_str(&output).expect("valid JSON");
-        let arr = parsed.get("techniques").and_then(|t| t.as_array()).expect("techniques array");
-        let count = arr.iter().filter(|t| t.get("techniqueID").and_then(|v| v.as_str()) == Some("T1558.003")).count();
+        let arr = parsed
+            .get("techniques")
+            .and_then(|t| t.as_array())
+            .expect("techniques array");
+        let count = arr
+            .iter()
+            .filter(|t| t.get("techniqueID").and_then(|v| v.as_str()) == Some("T1558.003"))
+            .count();
         assert_eq!(count, 1);
     }
 }

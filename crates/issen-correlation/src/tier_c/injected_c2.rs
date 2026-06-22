@@ -14,9 +14,7 @@ use forensicnomicon::report::Severity;
 
 use crate::correlation::{Correlation, CorrelationMember, CorrelationRole, CorrelationScope};
 
-use super::{
-    MemEvent, ESTABLISHED_STATE, MEMORY_INJECTION_EVENT_TYPE, NETWORK_CONNECT_EVENT_TYPE,
-};
+use super::{MemEvent, ESTABLISHED_STATE, MEMORY_INJECTION_EVENT_TYPE, NETWORK_CONNECT_EVENT_TYPE};
 
 /// Examiner-facing note — an observation, never a verdict.
 pub const INJECTED_C2_NOTE: &str =
@@ -42,7 +40,10 @@ pub fn injected_c2_pairs(events: &[MemEvent]) -> Vec<Correlation> {
     let injections = events
         .iter()
         .filter(|e| e.event_type == MEMORY_INJECTION_EVENT_TYPE);
-    let connections: Vec<&MemEvent> = events.iter().filter(|e| is_established_external(e)).collect();
+    let connections: Vec<&MemEvent> = events
+        .iter()
+        .filter(|e| is_established_external(e))
+        .collect();
 
     let mut out = Vec::new();
     for inj in injections {

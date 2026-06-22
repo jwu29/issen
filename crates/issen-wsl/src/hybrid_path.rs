@@ -36,7 +36,10 @@ impl HybridPath {
                     } else {
                         PathBuf::from(format!("{}:\\{}", drive.to_ascii_uppercase(), win_rest))
                     };
-                    Self::DrvFs { windows: win_path, wsl: PathBuf::from(s) }
+                    Self::DrvFs {
+                        windows: win_path,
+                        wsl: PathBuf::from(s),
+                    }
                 }
                 _ => Self::Wsl(PathBuf::from(s)),
             }
@@ -63,7 +66,10 @@ impl HybridPath {
             } else {
                 PathBuf::from(format!("/mnt/{drive}/{wsl_rest}"))
             };
-            Self::DrvFs { windows: PathBuf::from(s), wsl: wsl_path }
+            Self::DrvFs {
+                windows: PathBuf::from(s),
+                wsl: wsl_path,
+            }
         } else {
             Self::Windows(PathBuf::from(s))
         }

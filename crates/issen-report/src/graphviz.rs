@@ -27,7 +27,8 @@ pub fn render_attack_chain_dot(input: &AttackChainInput) -> String {
     let mut lines: Vec<String> = vec![
         "digraph attack_chain {".to_string(),
         r"  rankdir=LR;".to_string(),
-        "  node [fontname=\"Helvetica\" fontcolor=\"white\" shape=\"box\" style=\"filled\"];".to_string(),
+        "  node [fontname=\"Helvetica\" fontcolor=\"white\" shape=\"box\" style=\"filled\"];"
+            .to_string(),
     ];
 
     for node in &input.nodes {
@@ -96,7 +97,9 @@ pub fn render_mermaid_png(mermaid_src: &str, output: &Path) -> anyhow::Result<()
     if status.success() {
         Ok(())
     } else {
-        Err(anyhow::anyhow!("mmdc exited with non-zero status: {status}"))
+        Err(anyhow::anyhow!(
+            "mmdc exited with non-zero status: {status}"
+        ))
     }
 }
 

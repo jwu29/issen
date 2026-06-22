@@ -43,13 +43,16 @@ pub fn build_sessions(events: &[SessionEvent]) -> Vec<WslSession> {
     for ev in events {
         match ev.kind {
             SessionEventKind::Start => {
-                open.insert(ev.windows_pid, WslSession {
-                    distro: ev.distro.clone().unwrap_or_default(),
-                    windows_pid: ev.windows_pid,
-                    start_ns: ev.timestamp_ns,
-                    end_ns: None,
-                    user: ev.user.clone(),
-                });
+                open.insert(
+                    ev.windows_pid,
+                    WslSession {
+                        distro: ev.distro.clone().unwrap_or_default(),
+                        windows_pid: ev.windows_pid,
+                        start_ns: ev.timestamp_ns,
+                        end_ns: None,
+                        user: ev.user.clone(),
+                    },
+                );
             }
             SessionEventKind::Stop => {
                 if let Some(mut session) = open.remove(&ev.windows_pid) {

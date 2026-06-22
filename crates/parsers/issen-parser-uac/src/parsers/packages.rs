@@ -58,7 +58,11 @@ const PACKAGED_LIB_PREFIXES: &[&str] = &[
 pub fn find_unpackaged_paths(paths: &[String]) -> Vec<String> {
     paths
         .iter()
-        .filter(|p| !PACKAGED_LIB_PREFIXES.iter().any(|prefix| p.starts_with(prefix)))
+        .filter(|p| {
+            !PACKAGED_LIB_PREFIXES
+                .iter()
+                .any(|prefix| p.starts_with(prefix))
+        })
         .cloned()
         .collect()
 }
@@ -134,7 +138,10 @@ mod tests {
     #[test]
     fn find_unpackaged_paths_usr_lib_is_packaged() {
         let result = find_unpackaged_paths(&["/usr/lib/libssl.so.3".to_string()]);
-        assert!(result.is_empty(), "standard /usr/lib should be considered packaged");
+        assert!(
+            result.is_empty(),
+            "standard /usr/lib should be considered packaged"
+        );
     }
 
     #[test]

@@ -7,5 +7,5 @@
 pub mod clock;
 pub mod fish_history;
 pub mod hybrid_path;
-pub mod session;
 pub mod pattern;
+pub mod session;

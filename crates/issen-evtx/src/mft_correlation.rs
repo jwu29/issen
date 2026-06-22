@@ -50,7 +50,9 @@ pub fn correlate_with_mft(
     let mut results = Vec::new();
 
     for ev in events {
-        if ev.event_id != EID_SYSMON_FILE_CREATE && ev.event_id != EID_SYSMON_FILE_CREATE_STREAM_HASH {
+        if ev.event_id != EID_SYSMON_FILE_CREATE
+            && ev.event_id != EID_SYSMON_FILE_CREATE_STREAM_HASH
+        {
             continue;
         }
         let Some(target) = ev.data.get(SYSMON_FIELD_TARGET_FILENAME) else {

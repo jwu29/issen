@@ -173,10 +173,7 @@ mod tests {
 
     #[test]
     fn segment_orphaned_boot_has_no_shutdown() {
-        let events = vec![
-            make_event(6005, 1_000),
-            sec_ev(4624, 2_000),
-        ];
+        let events = vec![make_event(6005, 1_000), sec_ev(4624, 2_000)];
         let cycles = segment_by_boot_cycle(events);
         assert_eq!(cycles.len(), 1);
         assert_eq!(cycles[0].shutdown_time_ns, None);

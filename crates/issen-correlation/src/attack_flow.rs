@@ -122,8 +122,8 @@ struct RawObject {
 ///
 /// Returns `Err` if the JSON is invalid or the root object is not a bundle.
 pub fn parse_attack_flow_bundle(json: &str) -> anyhow::Result<AttackFlowBundle> {
-    let raw: RawBundle = serde_json::from_str(json)
-        .map_err(|e| anyhow::anyhow!("invalid JSON: {e}"))?;
+    let raw: RawBundle =
+        serde_json::from_str(json).map_err(|e| anyhow::anyhow!("invalid JSON: {e}"))?;
 
     if raw.type_ != "bundle" {
         return Err(anyhow::anyhow!(
@@ -148,9 +148,7 @@ pub fn parse_attack_flow_bundle(json: &str) -> anyhow::Result<AttackFlowBundle> 
             }
             Some("attack-action") => {
                 let confidence = obj.confidence.and_then(|v| match v {
-                    serde_json::Value::Number(n) => {
-                        n.as_u64().map(|u| u.min(100) as u8)
-                    }
+                    serde_json::Value::Number(n) => n.as_u64().map(|u| u.min(100) as u8),
                     _ => None,
                 });
                 bundle.actions.push(AttackAction {
@@ -199,8 +197,11 @@ pub fn bundle_to_correlation_rules(bundle: &AttackFlowBundle) -> Vec<Correlation
     let action_map: HashMap<&str, &AttackAction> =
         bundle.actions.iter().map(|a| (a.id.as_str(), a)).collect();
 
-    let operator_map: HashMap<&str, &AttackOperator> =
-        bundle.operators.iter().map(|o| (o.id.as_str(), o)).collect();
+    let operator_map: HashMap<&str, &AttackOperator> = bundle
+        .operators
+        .iter()
+        .map(|o| (o.id.as_str(), o))
+        .collect();
 
     // Determine start nodes
     let start_ids: Vec<&str> = if let Some(flow) = &bundle.flow {
@@ -259,14 +260,10 @@ pub fn bundle_to_correlation_rules(bundle: &AttackFlowBundle) -> Vec<Correlation
     let clauses: Vec<RuleClause> = ordered_actions
         .iter()
         .map(|action| {
-            let required_tag = format!(
-                "technique:{}",
-                action.technique_id.as_deref().unwrap_or("")
-            );
-            let mut clause = RuleClause::tagged(
-                EvidenceSource::Custom("attack-flow".into()),
-                required_tag,
-            );
+            let required_tag =
+                format!("technique:{}", action.technique_id.as_deref().unwrap_or(""));
+            let mut clause =
+                RuleClause::tagged(EvidenceSource::Custom("attack-flow".into()), required_tag);
             if let Some(tactic_id) = &action.tactic_id {
                 clause.attr_predicates.push(RuleAttrPredicate::Equals {
                     key: "tactic_id".into(),
@@ -357,7 +354,11 @@ pub fn bundle_to_flow_graph(bundle: &AttackFlowBundle) -> FlowGraph {
         }
     }
 
-    FlowGraph { title, nodes, edges }
+    FlowGraph {
+        title,
+        nodes,
+        edges,
+    }
 }
 
 /// Extract and parse all STIX bundles from a corpus zip file.
@@ -373,13 +374,14 @@ pub fn extract_bundles_from_zip(zip_path: &Path) -> anyhow::Result<Vec<AttackFlo
 
     let file = std::fs::File::open(zip_path)
         .map_err(|e| anyhow::anyhow!("cannot open zip {}: {e}", zip_path.display()))?;
-    let mut archive = zip::ZipArchive::new(file)
-        .map_err(|e| anyhow::anyhow!("invalid zip: {e}"))?;
+    let mut archive =
+        zip::ZipArchive::new(file).map_err(|e| anyhow::anyhow!("invalid zip: {e}"))?;
 
     let mut bundles = Vec::new();
 
     for i in 0..archive.len() {
-        let mut entry = archive.by_index(i)
+        let mut entry = archive
+            .by_index(i)
             .map_err(|e| anyhow::anyhow!("zip entry error: {e}"))?;
 
         let name = entry.name().to_string();
@@ -430,14 +432,13 @@ pub fn download_attack_flow_corpus_zip(cache_dir: &Path) -> anyhow::Result<PathB
         .map_err(|e| anyhow::anyhow!("cannot create cache dir: {e}"))?;
 
     let dest = cache_dir.join("attack-flow-v3.0.0.zip");
-    let mut response = reqwest::blocking::get(URL)
-        .map_err(|e| anyhow::anyhow!("download failed: {e}"))?;
+    let mut response =
+        reqwest::blocking::get(URL).map_err(|e| anyhow::anyhow!("download failed: {e}"))?;
 
-    let mut file = std::fs::File::create(&dest)
-        .map_err(|e| anyhow::anyhow!("cannot create file: {e}"))?;
+    let mut file =
+        std::fs::File::create(&dest).map_err(|e| anyhow::anyhow!("cannot create file: {e}"))?;
 
-    std::io::copy(&mut response, &mut file)
-        .map_err(|e| anyhow::anyhow!("copy failed: {e}"))?;
+    std::io::copy(&mut response, &mut file).map_err(|e| anyhow::anyhow!("copy failed: {e}"))?;
 
     Ok(dest)
 }

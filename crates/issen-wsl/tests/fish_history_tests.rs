@@ -64,7 +64,8 @@ fn parse_paths_collected() {
 
 #[test]
 fn parse_ordering_preserved() {
-    let input = b"- cmd: first\n  when: 100\n- cmd: second\n  when: 200\n- cmd: third\n  when: 300\n";
+    let input =
+        b"- cmd: first\n  when: 100\n- cmd: second\n  when: 200\n- cmd: third\n  when: 300\n";
     let entries = parse_fish_history(input);
     assert_eq!(entries[0].command, "first");
     assert_eq!(entries[1].command, "second");

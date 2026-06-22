@@ -224,14 +224,14 @@ mod tests {
     #[test]
     fn does_not_fire_when_archive_is_outside_user_desktop_space() {
         // Archive staged in a build/temp tree, not a user desktop — guard rejects.
-        let archive = create(
-            1,
-            1_000,
+        let archive = create(1, 1_000, "beth", "WS01", "C:\\Build\\artifacts\\loot.zip");
+        let cands = vec![create(
+            2,
+            1_500,
             "beth",
             "WS01",
-            "C:\\Build\\artifacts\\loot.zip",
-        );
-        let cands = vec![create(2, 1_500, "beth", "WS01", "C:\\Build\\artifacts\\Loot.lnk")];
+            "C:\\Build\\artifacts\\Loot.lnk",
+        )];
         assert!(evaluate_exfil_stage(&archive, &cands).is_none());
     }
 

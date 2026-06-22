@@ -76,9 +76,7 @@ impl DataSource for DdDataSource {
 
 // ── CollectionProvider ────────────────────────────────────────────────
 
-use issen_unpack::{
-    CollectionManifest, CollectionProvider, Confidence,
-};
+use issen_unpack::{CollectionManifest, CollectionProvider, Confidence};
 
 /// Format-recognition and manifest provider for raw (dd) disk images.
 ///

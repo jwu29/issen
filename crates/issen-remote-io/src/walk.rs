@@ -1,5 +1,5 @@
 use anyhow::Result;
-use opendal::{EntryMode, Operator, options};
+use opendal::{options, EntryMode, Operator};
 use std::io;
 
 /// List all non-directory entries under `prefix` in `op`.
@@ -11,11 +11,7 @@ use std::io;
 ///
 /// # Errors
 /// Returns an error if listing fails or writing to `out` fails.
-pub fn walk_remote_prefix(
-    op: &Operator,
-    prefix: &str,
-    out: &mut dyn io::Write,
-) -> Result<usize> {
+pub fn walk_remote_prefix(op: &Operator, prefix: &str, out: &mut dyn io::Write) -> Result<usize> {
     let list_opts = options::ListOptions {
         recursive: true,
         ..Default::default()
@@ -72,8 +68,7 @@ mod tests {
             .expect("write sample file");
 
         let mut out = Vec::<u8>::new();
-        let count =
-            walk_remote_prefix(&op, "artifacts/", &mut out).expect("walk should succeed");
+        let count = walk_remote_prefix(&op, "artifacts/", &mut out).expect("walk should succeed");
         assert_eq!(count, 1, "expected exactly one file");
         let text = String::from_utf8(out).expect("valid utf-8");
         // Line format: "<path>\t<size>\n"
