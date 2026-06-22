@@ -583,6 +583,39 @@ mod tests {
     use super::*;
 
     #[test]
+    fn ingest_result_carries_coverage_manifest() {
+        use issen_core::coverage::CoverageStatus;
+        let artifacts = vec![DiscoveredArtifact {
+            path: PathBuf::from(r"\$MFT"),
+            artifact_type: ArtifactType::Mft,
+        }];
+        let units = vec![ParsedUnit {
+            artifact_type: ArtifactType::Mft,
+            path: PathBuf::from(r"\$MFT"),
+            parser: "MFT".to_string(),
+            events: vec![],
+            bytes: 0,
+            completion: ParseCompletion::Complete,
+        }];
+        let result = ingest_result(&artifacts, &units, vec![]);
+        // Discovered + parsed → Parsed.
+        assert_eq!(
+            result.coverage.entry(ArtifactType::Mft).map(|e| e.status()),
+            Some(CoverageStatus::Parsed)
+        );
+        // The registry searches many classes; those absent from this run are
+        // clean negatives (SearchedAbsent), not coverage gaps.
+        assert!(
+            result
+                .coverage
+                .entries
+                .iter()
+                .any(|e| e.status() == CoverageStatus::SearchedAbsent),
+            "registry-searched classes absent from this run must be SearchedAbsent"
+        );
+    }
+
+    #[test]
     fn mft_mirror_events_from_root_flags_a_divergent_pair() {
         // Per-partition extraction layout: part-*/$MFT + part-*/$MFTMirr.
         let tmp = tempfile::tempdir().unwrap();
