@@ -342,6 +342,10 @@ pub enum Commands {
         /// Maximum number of events to include (default: 10000).
         #[arg(long)]
         max_events: Option<usize>,
+
+        /// Output format: html (default) or attack-navigator (ATT&CK Navigator layer JSON).
+        #[arg(long, default_value = "html")]
+        format: String,
     },
 
     /// Build a semantic supertimeline from a collection — parses all artifacts,
@@ -636,12 +640,14 @@ pub fn run() -> ExitCode {
             case_id,
             examiner,
             max_events,
+            format,
         } => commands::report::run(
             &db_path,
             &output,
             case_id.as_deref(),
             examiner.as_deref(),
             max_events,
+            &format,
         ),
         Commands::Srum { srudb_path, format } => commands::srum::run(&srudb_path, &format),
         Commands::Biome { biome_path, format } => commands::biome::run(&biome_path, &format),

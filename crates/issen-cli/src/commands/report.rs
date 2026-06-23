@@ -11,9 +11,23 @@ pub fn run(
     case_id: Option<&str>,
     examiner: Option<&str>,
     max_events: Option<usize>,
+    format: &str,
 ) -> Result<()> {
     let store = TimelineStore::open(db_path)
         .with_context(|| format!("Failed to open database: {}", db_path.display()))?;
+
+    // ATT&CK Navigator overlay: a severity-scored technique heatmap, not the
+    // HTML narrative. An unrecognized format is rejected loudly.
+    if format.eq_ignore_ascii_case("attack-navigator") {
+        let layer_name = case_id.unwrap_or("issen");
+        issen_report::generate_navigator_layer(&store, layer_name, output)
+            .with_context(|| format!("Failed to write Navigator layer: {}", output.display()))?;
+        println!("ATT&CK Navigator layer written to {}", output.display());
+        return Ok(());
+    }
+    if !format.eq_ignore_ascii_case("html") {
+        anyhow::bail!("unknown report format '{format}' (expected: html or attack-navigator)");
+    }
 
     let config = ReportConfig {
         title: case_id.map_or_else(
