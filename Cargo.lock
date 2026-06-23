@@ -6059,9 +6059,9 @@ dependencies = [
 
 [[package]]
 name = "memf-symbols"
-version = "0.2.1"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e3b5b586902174cb3fda7d2194b32d733b34fcd137518fd5d79da1641b979ef1"
+checksum = "26e9b8771befde294c986d8c8082e48f617be22aa3991a6ac660f0cc6c1281df"
 dependencies = [
  "goblin 0.9.3",
  "memf-format",
@@ -6074,9 +6074,9 @@ dependencies = [
 
 [[package]]
 name = "memf-windows"
-version = "0.2.1"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce6b15d2fe969673deee0159746ed14c5aa6658c6991ec61bac952849843dd58"
+checksum = "5d79f111fbb7b71cbff048f52a67ddcc9db83def6c7f747e4636e27821a19bc1"
 dependencies = [
  "aes",
  "aes-gcm",
