@@ -29,17 +29,6 @@ jobs:
           - target: x86_64-pc-windows-msvc
             os: windows-latest
     runs-on: ${{ matrix.os }}
-    env:
-      # sccache -> Cloudflare R2 (S3-compatible, off the GitHub cache quota).
-      # Layers UNDER rust-cache: when rust-cache hits, sccache is idle; on a
-      # Cargo.lock-change miss it still serves the cached DuckDB objects (the
-      # lock-change safety net rust-cache's whole-lock key can't provide).
-      SCCACHE_BUCKET: issen-sccache
-      SCCACHE_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
-      SCCACHE_REGION: auto
-      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-      RUSTC_WRAPPER: sccache
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -64,20 +53,6 @@ jobs:
         with:
           cache-on-failure: true
 
-      - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
-
-      # Route the bundled-DuckDB C++ compile (the 84-min MSVC cost) through
-      # sccache so a Cargo.lock-change rebuild reuses the cached objects. cc-rs
-      # honours CC/CXX; sccache wraps cl.exe per translation unit. Windows-only
-      # first — don't risk the already-fast macOS/Linux C++ builds until the
-      # MSVC wrapping is proven (check `sccache --show-stats`).
-      - name: Wrap C/C++ with sccache (Windows)
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          echo "CC=sccache cl.exe" >> "$GITHUB_ENV"
-          echo "CXX=sccache cl.exe" >> "$GITHUB_ENV"
-
       - name: Install musl tools (Linux)
         if: contains(matrix.target, 'musl')
         run: |
@@ -101,14 +76,6 @@ jobs:
 
       - name: Build issen
         run: cargo build --release -p issen-cli --target ${{ matrix.target }}
-
-      # Cache hit-rate (verify DuckDB C++ is actually caching on a lock-change
-      # rebuild; on a warm rust-cache hit cargo skips the compile, so C requests
-      # read ~0 — that's expected, not a failure).
-      - name: sccache stats
-        if: always()
-        shell: bash
-        run: sccache --show-stats
 
       - name: Package (Unix)
         if: runner.os != 'Windows'
