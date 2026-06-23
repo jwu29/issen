@@ -728,6 +728,28 @@ pub fn generate_report(
     Ok(())
 }
 
+/// Collect the case's findings from the timeline DB and write a MITRE ATT&CK
+/// **Navigator layer** JSON (a severity-scored technique heatmap) to `output`.
+///
+/// Each finding's `attack.t<id>` tag becomes a technique cell scored by the
+/// finding's severity, so the most-severe observed techniques stand out; the
+/// layer loads directly in the ATT&CK Navigator. Findings without a technique
+/// tag contribute nothing (they have no matrix cell).
+///
+/// # Errors
+///
+/// Returns [`ReportError::Database`] if querying the findings fails, or
+/// [`ReportError::Io`] if writing the layer file fails.
+pub fn generate_navigator_layer(
+    store: &issen_timeline::store::TimelineStore,
+    layer_name: &str,
+    output: &Path,
+) -> Result<(), ReportError> {
+    let (findings, _) = collect_findings(store.connection())?;
+    std::fs::write(output, findings_to_navigator_layer(&findings, layer_name))?;
+    Ok(())
+}
+
 // ===========================================================================
 // Tests
 // ===========================================================================
