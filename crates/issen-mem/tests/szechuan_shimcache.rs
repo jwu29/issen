@@ -50,9 +50,12 @@ fn szechuan_shimcache_recovers_entries() {
     // Volatility recovers 10 entries (some with empty / "-" / mojibake paths, so
     // an exact count is fragile). The robust tier-2 check: every confirmed real
     // execution artifact the oracle reported is recovered, and the count is in a
-    // comparable range. We surface a couple of borderline list nodes Volatility's
-    // per-entry is_valid() filter would drop (we show the raw evidence rather than
-    // discard it), so the count may slightly exceed the oracle's.
+    // comparable range. memf observed 11 here: our path-aware per-entry filter is
+    // a strict superset of Volatility's is_valid() — it keeps a link-inconsistent
+    // node that still carries a readable path (recovered evidence), dropping a
+    // node only when it is BOTH link-inconsistent AND pathless. So memf may
+    // exceed the oracle by the path-bearing borderline nodes it would discard,
+    // and never drops a path-bearing entry the oracle keeps.
     let lower: Vec<String> = entries
         .iter()
         .map(|e| e.path.to_ascii_lowercase())
