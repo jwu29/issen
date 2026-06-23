@@ -46,6 +46,13 @@ jobs:
           toolchain: 1.96.0
           targets: ${{ matrix.target }}
 
+      # Cache ~/.cargo + target/ per matrix target so the ~800-crate / bundled-
+      # DuckDB compile is only paid in full once. cache-on-failure keeps the
+      # warm compile even when a later step (MSI packaging) fails.
+      - uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
+        with:
+          cache-on-failure: true
+
       - name: Install musl tools (Linux)
         if: contains(matrix.target, 'musl')
         run: |
