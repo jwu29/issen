@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Generate docs/issen-fleet-inkblot.png — an additive stacked symmetric
-streamgraph of commit intensity across the issen forensics fleet.
+streamgraph of commit activity across the issen forensics fleet.
 
-Documentation support script. It is self-contained: it reads commit timestamps
-straight from the sibling fleet repos under ~/src (committer dates, HEAD), bins
-them hourly, Gaussian-smooths each repo's series, and stacks the bands about a
-symmetric centerline (matplotlib `baseline="sym"`). Total stream thickness at
-any moment is the whole fleet's hourly commit rate; the busiest repo straddles
-the centerline (inside-out band order) to minimise wiggle.
+Documentation support script. It is self-contained: it reads each commit's
+timestamp (`git log`, committer dates, HEAD) straight from the sibling fleet
+repos under ~/src, bins the commits hourly, Gaussian-smooths each repo's series,
+and stacks the bands about a symmetric centerline (matplotlib `baseline="sym"`).
+Total stream thickness at any moment is the whole fleet's hourly commit rate; the
+busiest repo straddles the centerline (inside-out band order) to minimise wiggle.
 
 Usage:
     python3 docs/issen-fleet-inkblot.py
@@ -55,7 +55,9 @@ OUT = SCRIPT_DIR / "issen-fleet-inkblot.png"
 
 
 def commit_times(repo_path):
-    """Yield naive local datetimes for every HEAD commit (committer date)."""
+    """Yield a naive local datetime for every HEAD commit (committer date, tz
+    stripped — local wall-clock hour). Each commit is one event of weight 1.
+    """
     try:
         res = subprocess.run(
             ["git", "-C", str(repo_path), "log", "--pretty=format:%cI"],
@@ -70,7 +72,7 @@ def commit_times(repo_path):
             # strip tz (commits are dominantly +08); keep local wall-clock hour
             yield dt.datetime.fromisoformat(line).replace(tzinfo=None)
         except ValueError:
-            continue
+            pass
 
 
 # ---- gather -----------------------------------------------------------------
@@ -80,22 +82,24 @@ for repo in REPOS:
     if not times:
         print(f"  warning: no commits found for {repo} (skipping)")
         continue
-    events.extend((t, repo) for t in times)
+    events.extend((t, repo, 1) for t in times)
 
 if not events:
     raise SystemExit(f"No commits gathered from any repo under {SRC_ROOT}")
 
 total_commits = len(events)
-repo_totals = collections.Counter(r for _, r in events)
-first = min(t for t, _ in events).replace(minute=0, second=0, microsecond=0)
-last = max(t for t, _ in events)
+repo_totals = collections.Counter()
+for _, repo, c in events:
+    repo_totals[repo] += c
+first = min(t for t, _, _ in events).replace(minute=0, second=0, microsecond=0)
+last = max(t for t, _, _ in events)
 n_hours = int((last - first).total_seconds() // 3600) + 1
 x = np.array([first + dt.timedelta(hours=i) for i in range(n_hours)])
 
 repos = [r for r, _ in repo_totals.most_common()]  # busiest first
 counts = {r: np.zeros(n_hours) for r in repos}
-for t, repo in events:
-    counts[repo][int((t - first).total_seconds() // 3600)] += 1
+for t, repo, c in events:
+    counts[repo][int((t - first).total_seconds() // 3600)] += c
 
 half = int(SIGMA_HOURS * 4)
 k = np.arange(-half, half + 1)
@@ -119,10 +123,13 @@ color_of = {r: cmap(0.04 + 0.92 * i / max(1, n - 1)) for i, r in enumerate(repos
 
 def nice_step(peak):
     raw = peak / 4.0
-    for s in (0.5, 1, 2, 2.5, 5, 10, 20, 25, 50, 100):
-        if s >= raw:
-            return s
-    return 200
+    if raw <= 0:
+        return 1
+    mag = 10 ** np.floor(np.log10(raw))      # power-of-ten magnitude
+    for m in (1, 2, 2.5, 5, 10):             # 1-2-2.5-5 ladder at that magnitude
+        if m * mag >= raw:
+            return m * mag
+    return 10 * mag
 
 
 # ---- draw -------------------------------------------------------------------
@@ -161,14 +168,14 @@ ax.margins(x=0.01)
 
 # single-row (one entry per line) legend down the right edge, busiest first
 handles = [Patch(facecolor=color_of[r], edgecolor="none",
-                 label=f"{r}  ({repo_totals[r]})") for r in repos]
+                 label=f"{r}  ({repo_totals[r]:,})") for r in repos]
 leg = ax.legend(handles=handles, loc="center left", bbox_to_anchor=(1.005, 0.5),
                 ncol=1, fontsize=6.4, framealpha=0.0, labelcolor="#c9d1d9",
                 handlelength=1.0, handleheight=1.0, labelspacing=0.28,
                 title="repo (commits) — busiest first", title_fontsize=7.5)
 leg.get_title().set_color("#8b949e")
 
-fig.text(0.5, 0.965, "issen forensics fleet — commit intensity inkblot",
+fig.text(0.5, 0.965, "issen forensics fleet — commit activity inkblot",
          ha="center", fontsize=16, fontweight="bold", color="#f0f6fc")
 fig.text(0.5, 0.938,
          "additive stacked streamgraph (symmetric) · total thickness = fleet "
@@ -177,12 +184,12 @@ fig.text(0.5, 0.938,
 
 cap = (f"{len(repos)} repos · {total_commits:,} commits · "
        f"{first.date().isoformat()} → {last.date().isoformat()} · "
-       f"Gaussian-smoothed hourly counts (sigma={SIGMA_HOURS:g}h) · "
-       f"fleet peak ~{total_peak:.0f}/h around {x[di].strftime('%b %d %H:%M')}")
+       f"Gaussian-smoothed hourly commit rate (sigma={SIGMA_HOURS:g}h) · "
+       f"fleet peak ~{total_peak:,.1f}/h around {x[di].strftime('%b %d %H:%M')}")
 fig.text(0.99, 0.012, cap, ha="right", fontsize=8, color="#6e7681")
 
 plt.tight_layout(rect=(0.0, 0.02, 0.89, 0.92))
 plt.savefig(OUT, dpi=140, facecolor=fig.get_facecolor())
 print("wrote", OUT)
 print(f"repos={len(repos)} commits={total_commits} hours={n_hours} "
-      f"total_peak={total_peak:.2f}/h peak_at={x[di]}")
+      f"total_peak={total_peak:,.1f}/h peak_at={x[di]}")
