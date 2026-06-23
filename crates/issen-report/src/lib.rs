@@ -1144,6 +1144,36 @@ mod tests {
     }
 
     #[test]
+    fn generate_navigator_layer_writes_attack_layer_from_db_findings() {
+        let store = TimelineStore::in_memory().expect("create store");
+        findings::create_findings_table(store.connection()).expect("create findings table");
+        let finding_rows = vec![issen_timeline::findings::FindingRow {
+            evidence_source_id: "case-001".to_string(),
+            artifact_path: "Security.evtx".to_string(),
+            engine: "Sigma".to_string(),
+            severity: "critical".to_string(),
+            rule_name: "RDP-BRUTE".to_string(),
+            description: "Failed-logon burst".to_string(),
+            matched_indicator: None,
+            tags: r#"["attack.t1110"]"#.to_string(),
+        }];
+        findings::inseissen_findings(store.connection(), &finding_rows).expect("insert findings");
+
+        let tmp = tempfile::NamedTempFile::new().expect("temp file");
+        generate_navigator_layer(&store, "case-001", tmp.path()).expect("generate navigator layer");
+
+        let layer = std::fs::read_to_string(tmp.path()).expect("read layer");
+        assert!(
+            layer.contains(r#""techniqueID": "T1110""#),
+            "layer missing technique: {layer}"
+        );
+        assert!(
+            layer.contains(r#""name": "case-001""#),
+            "layer missing name: {layer}"
+        );
+    }
+
+    #[test]
     fn test_collect_repoissen_data_max_events() {
         let store = TimelineStore::in_memory().expect("create store");
 
