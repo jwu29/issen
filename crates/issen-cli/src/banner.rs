@@ -23,7 +23,7 @@ mod tests {
     fn banner_has_blade_wordmark_tagline_and_footer() {
         let b = super::BANNER;
         assert!(b.contains("issen"), "missing wordmark");
-        assert!(b.contains(">"), "missing katana tip");
+        assert!(b.contains('>'), "missing katana tip");
         assert!(b.contains("a single flash of the blade"), "missing motto");
         assert!(
             b.contains("One command. One output. The full attack narrative."),
