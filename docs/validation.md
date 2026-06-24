@@ -238,6 +238,36 @@ fallback. Validated by the real dispatch code path
 
 Tier 2: real binary/code-path output, with scenarios we constructed.
 
+### Generic archive ingest (zip / 7z / tar.gz) — Tier 1/2 + security
+
+`issen-archive`'s `ArchiveProvider` extracts a generic zip / 7z / `.tar.gz`
+evidence collection to a tempdir (Confidence `Medium`, so a UAC/Velociraptor-shaped
+archive still routes to its specific `High` provider) and returns a
+`CollectionManifest` the orchestrator walks. The archive is untrusted evidence, so
+**safe extraction is the load-bearing property** — extraction can never write
+outside the tempdir. Tests in `~/src/issen/crates/issen-archive/`:
+
+- **Real archive — Tier 1.** The real DFIR Madness `DC01-autorunsc.zip` extracts
+  **byte-identical to the system `7z x`** (`autorunsc-citadel-dc01.csv`, SHA-256
+  `2a2ea036…78482`, 1 068 150 bytes) — a third-party artifact decoded the same way by
+  an independent tool.
+- **7z — Tier 2.** `extract_7z_matches_system_oracle` builds a `.7z` with the system
+  `7z` (p7zip 17.05) and asserts `sevenz-rust`'s extracted tree matches `7z x`
+  byte-for-byte (independent oracle).
+- **Zip-slip / path-traversal — security.** `zip_slip_*` / `tar_slip_*` and the
+  adversarial `adversarial_zipslip.rs` (hostile `../`, absolute, mixed-normalize, and
+  symlink entries; the parent dir snapshotted byte-for-byte) assert **nothing is written
+  outside the tempdir** — traversal entries are refused + recorded fail-loud. Containment
+  is *structural*: `safe_join` rejects any `..`/absolute/drive component on every entry of
+  every format; zip uses `enclosed_name()` **and** explicitly refuses symlink entries
+  (matching tar), so a future zip-crate change cannot reintroduce an escaping symlink.
+- **Decompression bomb — security.** `zip_bomb_errors_with_bound_no_oom`: `write_capped`
+  errors at the `MAX_TOTAL_UNCOMPRESSED` bound, never OOMs.
+
+The slip/bomb fixtures are Tier-3 (hand-authored hostile archives, emitted via raw `ustar`
+headers / `add_symlink` the way real malicious archives are built); the 7z and real-zip
+checks are Tier-1/2 against the independent system `7z`.
+
 ### DNS resolver cache — **PENDING (not validated)**
 
 Oracle **identified but the capability is not yet validated** — this is not a
