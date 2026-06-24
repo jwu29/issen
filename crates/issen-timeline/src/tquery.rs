@@ -940,4 +940,150 @@ mod tests {
             .expect("logon bucket");
         assert_eq!(r.columns[1].values[logon_idx], "2");
     }
+
+    // --- Phase 2: range op + set-membership filters -----------------------
+
+    #[test]
+    fn range_op_filters_numeric_logon_type() {
+        // The seed has two LogonType=2 logons. `logon-type >= 2` (Range::Ge)
+        // must compare numerically (TRY_CAST), matching both. `>= 3` matches
+        // none (both are exactly 2).
+        let store = seeded();
+        let ge2 = TypedQuery {
+            event_types: event_type_is("LogonSuccess"),
+            fields: vec![FieldFilter {
+                field: FieldRegistry::resolve("logon-type").expect("logon-type"),
+                op: FieldOp::Ge,
+                value: "2".into(),
+            }],
+            mode: Mode::Count,
+            ..Default::default()
+        };
+        assert_eq!(
+            ge2.run(store.connection()).expect("ge2").columns[0].values[0],
+            "2"
+        );
+
+        let gt2 = TypedQuery {
+            event_types: event_type_is("LogonSuccess"),
+            fields: vec![FieldFilter {
+                field: FieldRegistry::resolve("logon-type").expect("logon-type"),
+                op: FieldOp::Gt,
+                value: "2".into(),
+            }],
+            mode: Mode::Count,
+            ..Default::default()
+        };
+        assert_eq!(
+            gt2.run(store.connection()).expect("gt2").columns[0].values[0],
+            "0"
+        );
+    }
+
+    #[test]
+    fn in_filter_set_membership_binds_each_value() {
+        // LogonType IN ('2') matches the two type-2 logons; IN ('10','11')
+        // matches none in this seed. Each value binds as a parameter.
+        let store = seeded();
+        let in2 = TypedQuery {
+            event_types: event_type_is("LogonSuccess"),
+            in_filters: vec![FieldInFilter {
+                field: FieldRegistry::resolve("logon-type").expect("logon-type"),
+                values: vec!["2".into()],
+            }],
+            mode: Mode::Count,
+            ..Default::default()
+        };
+        assert_eq!(
+            in2.run(store.connection()).expect("in2").columns[0].values[0],
+            "2"
+        );
+
+        let in10 = TypedQuery {
+            event_types: event_type_is("LogonSuccess"),
+            in_filters: vec![FieldInFilter {
+                field: FieldRegistry::resolve("logon-type").expect("logon-type"),
+                values: vec!["10".into(), "11".into()],
+            }],
+            mode: Mode::Count,
+            ..Default::default()
+        };
+        assert_eq!(
+            in10.run(store.connection()).expect("in10").columns[0].values[0],
+            "0"
+        );
+    }
+
+    #[test]
+    fn in_filter_injection_value_binds_not_interpolated() {
+        let store = seeded();
+        let q = TypedQuery {
+            in_filters: vec![FieldInFilter {
+                field: FieldRegistry::resolve("logon-type").expect("logon-type"),
+                values: vec!["2') OR 1=1 --".into()],
+            }],
+            mode: Mode::Count,
+            ..Default::default()
+        };
+        // The payload binds as a literal value → matches nothing, never injects.
+        assert_eq!(
+            q.run(store.connection()).expect("bound").columns[0].values[0],
+            "0"
+        );
+        let n: i64 = store
+            .connection()
+            .query_row("SELECT count(*) FROM timeline", [], |r| r.get(0))
+            .expect("table survives");
+        assert_eq!(n, 3);
+    }
+
+    #[test]
+    fn preset_logons_shape() {
+        let q = presets::logons();
+        assert_eq!(q.event_types, vec!["LogonSuccess".to_string()]);
+        assert!(q.exclude_machine_accounts);
+        assert_eq!(q.in_filters.len(), 1);
+        assert_eq!(q.in_filters[0].field.name, "logon-type");
+        assert_eq!(q.in_filters[0].values, vec!["2", "10", "11"]);
+        assert!(matches!(q.mode, Mode::Distinct { ref target } if target == "user"));
+    }
+
+    #[test]
+    fn preset_files_shape() {
+        let q = presets::files();
+        assert_eq!(
+            q.event_types,
+            vec!["FileCreate", "FileModify", "FileDelete", "FileRename"]
+        );
+        assert!(matches!(q.mode, Mode::Rows { .. }));
+    }
+
+    #[test]
+    fn preset_persistence_shape() {
+        let q = presets::persistence();
+        assert_eq!(
+            q.event_types,
+            vec![
+                "ServiceInstall",
+                "ServiceStart",
+                "RegistryModify",
+                "ScheduledTaskRun"
+            ]
+        );
+        assert!(matches!(q.mode, Mode::Rows { .. }));
+    }
+
+    #[test]
+    fn preset_hosts_shape() {
+        let q = presets::hosts();
+        assert_eq!(
+            q.event_types,
+            vec![
+                "NetworkConnectionIPv4",
+                "NetworkConnectionIPv6",
+                "LogonSuccess",
+                "SMBConnect"
+            ]
+        );
+    }
 }
