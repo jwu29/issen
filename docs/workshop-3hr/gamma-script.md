@@ -368,11 +368,12 @@ flowchart LR
 `issen ingest <first.E01>` opens the container for you — the rest of the pipeline never sees EWF again.
 
 ```mermaid
-flowchart LR
-  S1[".E01"] --> D["one logical disk"]
-  S2[".E02"] --> D
-  S3[".E0n"] --> D
-  D --> V["verify stored MD5 / SHA<br/>before trusting a byte"]
+block-beta
+  columns 4
+  s1[".E01<br/>header · chunks · table"] s2[".E02<br/>chunks"] s3[".E0n<br/>chunks"] d["one logical disk<br/>verify MD5/SHA"]
+  s1 --> s2
+  s2 --> s3
+  s3 --> d
 ```
 
 ---
@@ -392,14 +393,14 @@ A raw sector stream is not yet a filesystem. First: **where do the volumes start
 > The Windows system volume is the one we want — that's where `\Windows\System32` and the hives live.
 
 ```mermaid
-flowchart LR
-  RAW["sector stream"] --> SIG{"signature?"}
-  SIG -->|"0x55AA @ 510 · 4 entries"| MBR["MBR (legacy)"]
-  SIG -->|"EFI PART · 128 entries · CRC"| GPT["GPT (modern)"]
-  MBR --> VOL["volume boundaries"]
-  GPT --> VOL
-  VOL --> NTFS["mount the NTFS<br/>system volume"]
+block-beta
+  columns 7
+  bc["boot code<br/>446 B"]:3
+  p1["part #1<br/>16 B"] p2["#2"] p3["#3"] p4["#4"]
+  sig["55 AA"]
 ```
+
+*The 512-byte MBR (above): 4 fixed-size partition entries + the `0x55AA` magic. **GPT** replaces this with a CRC-checked header + a 128-entry table — same job, a different on-disk structure.*
 
 ---
 
@@ -415,14 +416,19 @@ NTFS is the navigation engine for `[P]`: **`name → inode → block`**.
 **Our job:** resolve `C:\Windows\System32\coreupdater.exe` → MFT record → clusters → bytes, with **zero trust** in any length field along the way.
 
 ```mermaid
-flowchart LR
-  N["lookup: coreupdater.exe by path"] --> MFT["$MFT record (the inode)"]
-  MFT --> SI["$SI"]
-  MFT --> FN["$FN"]
-  MFT --> DATA["$DATA"]
-  DATA -->|"small · resident"| INLINE["bytes inside the record"]
-  DATA -->|"large · non-resident"| RUNS["data runs → clusters → bytes"]
+classDiagram
+  class MFT_RECORD {
+    FILE header
+    $STANDARD_INFORMATION
+    $FILE_NAME
+    $DATA
+  }
+  class RUNLIST { LCN + length pairs }
+  MFT_RECORD --> RUNLIST : $DATA non-resident
+  RUNLIST --> CLUSTERS : on-disk bytes
 ```
+
+*Resident `$DATA` holds the bytes **inside** the record; non-resident `$DATA` is a **runlist** of cluster ranges (above).*
 
 ---
 
@@ -440,12 +446,25 @@ Every NTFS file carries **two** sets of MAC times:
 In our case the attacker stomps **`Beth_Secret.txt`**. The `$SI`/`$FN` split is how we prove it — a finding flagged *Info → lead*, because the heuristic has false positives and the analyst confirms.
 
 ```mermaid
-flowchart TB
-  F["NTFS file"] --> SI["$SI times<br/>user-writable via API"]
-  F --> FN["$FN times<br/>kernel-set · hard to forge"]
-  SI -->|"$SI.modified  <  $FN.created"| A["⚠ impossible ordering<br/>→ timestomp lead"]
-  FN --> A
+classDiagram
+  class MFT_RECORD
+  class STANDARD_INFORMATION {
+    Created
+    Modified
+    Accessed
+    MFT_Changed
+  }
+  class FILE_NAME {
+    Created
+    Modified
+    Accessed
+    MFT_Changed
+  }
+  MFT_RECORD --> STANDARD_INFORMATION : $SI user-writable
+  MFT_RECORD --> FILE_NAME : $FN kernel-set
 ```
+
+*Both attributes carry the same four MAC fields. **Timestomp tell:** `$SI.Modified` earlier than `$FN.Created` — physically impossible, so flag it.*
 
 ---
 
@@ -462,12 +481,12 @@ NTFS journals its own changes. Three artifacts reconstruct *what happened to fil
 > USN is the hero of exfil hunting: it remembers the `loot.zip` that the attacker **created and then deleted** to cover tracks.
 
 ```mermaid
-flowchart LR
-  CH["a file changes"] --> MFT["$MFT<br/>current state + MAC"]
-  CH --> USN["$UsnJrnl:$J<br/>every create / delete / rename"]
-  CH --> LOG["$LogFile<br/>transaction replay"]
-  USN -->|"survives deletion"| EX["loot.zip: created → deleted"]
+block-beta
+  columns 5
+  a["USN"] b["Reason<br/>CREATE / DELETE / RENAME"] c["TimeStamp"] d["FileName"] e["ParentFRN"]
 ```
+
+*One `$UsnJrnl:$J` record (above) per change. The journal is an append-only stream of these — so a `loot.zip` `DELETE` record survives even after the file's MFT entry is reused.*
 
 ---
 
@@ -508,13 +527,12 @@ The registry is **one logical tree** that lives in **two different address space
 > Same keys, two readers. On disk a cell is a flat file offset; in memory it's a scattered allocation you reach through the **HMAP**.
 
 ```mermaid
-flowchart TB
-  REG["one logical registry"]
-  REG --> DISK["[P] On disk · hive FILE<br/>contiguous: regf + hbins"]
-  REG --> MEM["[M] In memory · _CMHIVE<br/>bins scattered in paged pool"]
-  DISK --> DT["cell index = flat offset<br/>0x1000 + index (+4 hdr)"]
-  MEM --> MT["cell index → HMAP walk<br/>directory → table → entry"]
+block-beta
+  columns 4
+  bb["regf base<br/>0x1000"] h1["hbin"] h2["hbin"] cc["nk / vk / sk / lf cells"]
 ```
+
+*The **on-disk hive file** (above) is one contiguous blob: a `regf` base block then a run of 4 KB `hbin`s holding the cells — so a cell index is a **flat offset** (`0x1000 + index`). In memory those same bins are scattered, and the index must be translated through the HMAP (next).*
 
 ---
 
@@ -531,21 +549,25 @@ The 32-bit cell index decomposes into four fields:
 
 > On **Server 2012 R2 (build 9600 — our DC)** the entry exposes only `BlockAddress`; newer builds add `PermanentBinAddress`. Issen tries the new field, then **falls back to `BlockAddress`** — without it every hive-cell read on the DC fails.
 
+**The cell index (a `u32`) is a packed bit-field:**
+
 ```mermaid
-flowchart LR
-  CI["cell index · u32"] --> B31["bit 31<br/>Stable / Volatile"]
-  CI --> BD["bits 30–21 & 0x3FF<br/>directory index"]
-  CI --> BT["bits 20–12 & 0x1FF<br/>table index"]
-  CI --> BO["bits 11–0 & 0xFFF<br/>offset in 4 KB bin"]
-  B31 --> STG["_HHIVE.Storage[ ]"]
-  STG --> DIR["_HMAP_DIRECTORY"]
-  BD --> DIR
-  DIR --> TBL["_HMAP_TABLE"]
-  BT --> TBL
-  TBL --> ENT["_HMAP_ENTRY<br/>BlockAddress → bin VA"]
-  ENT --> CELL["cell VA"]
-  BO --> CELL
-  CELL --> DATA["+4 size header → cell data"]
+block-beta
+  columns 4
+  b31["bit 31<br/>Stable / Volatile"] bd["bits 30-21<br/>dir index (0x3FF)"] bt["bits 20-12<br/>table index (0x1FF)"] bo["bits 11-0<br/>offset (0xFFF)"]
+```
+
+**Each field indexes the next level of the hive map — a pointer chase:**
+
+```mermaid
+classDiagram
+  class _HMAP_DIRECTORY { Directory[1024] }
+  class _HMAP_TABLE { Table[512] }
+  class _HMAP_ENTRY { BlockAddress }
+  _HMAP_DIRECTORY --> _HMAP_TABLE : dir index (30-21)
+  _HMAP_TABLE --> _HMAP_ENTRY : table index (20-12)
+  _HMAP_ENTRY --> BIN : 4 KB bin VA
+  BIN --> CELL : + offset (11-0), +4 size hdr
 ```
 
 ---
@@ -587,12 +609,20 @@ It's an **ESE B-tree** (same engine as Exchange/AD) — a parser job, not a casu
 > When the attacker deletes the malware, SRUM may still hold *"this process moved N bytes out at time T."* That's how you quantify the theft.
 
 ```mermaid
-flowchart LR
-  SRUM["SRUDB.dat · ESE B-tree"] --> APP["per-app · per-hour rows"]
-  APP --> BYTES["bytes sent / received"]
-  APP --> RUN["exe ran @ time"]
-  BYTES --> Q["quantify exfil —<br/>even after the malware is deleted"]
+classDiagram
+  class ESE_DB { B-tree pages }
+  class LEAF_PAGE { rows }
+  class SRUM_RECORD {
+    AppId
+    BytesSent
+    BytesRecvd
+    TimeStamp
+  }
+  ESE_DB --> LEAF_PAGE : descend B-tree
+  LEAF_PAGE --> SRUM_RECORD : per-app row
 ```
+
+*`SRUDB.dat` is an ESE database: descend the **B-tree** to the leaf pages, each row a `SRUM_RECORD` with the bytes-sent/received ledger that survives the malware's deletion.*
 
 ---
 
@@ -609,12 +639,19 @@ The disk shows what was **stored**. Memory shows what was **running**. This is t
 > Memory is where the **C2 IP, the live malicious process, and the `spoolsv` injection** live — none of which the disk can show you.
 
 ```mermaid
-flowchart LR
-  PID["PID"] --> EP["EPROCESS"]
-  EP --> CR3["DirectoryTableBase (CR3)"]
-  CR3 --> PW["PML4 → PDPT → PD → PT"]
-  PW --> PA["physical page in the dump"]
+classDiagram
+  class EPROCESS {
+    ImageFileName
+    DirectoryTableBase
+  }
+  EPROCESS --> PML4 : CR3 / DTB
+  PML4 --> PDPT
+  PDPT --> PD
+  PD --> PT
+  PT --> PHYS_PAGE : VA to PA
 ```
+
+*`EPROCESS.DirectoryTableBase` (CR3) roots a **4-level page table** — each virtual address indexes PML4 → PDPT → PD → PT to a physical page in the dump.*
 
 ---
 
