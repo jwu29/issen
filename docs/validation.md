@@ -161,12 +161,12 @@ no shared dependency with `memf`) run on the extracted resident hive.
 Tier 2: regipy is an independent oracle on a real dump, but the answer key is the
 regipy run we performed.
 
-> **OWED — re-run the regipy e2e post-migration.** `shellbags` was just migrated
-> onto `MemfHiveReader` / `winreg-core` (confirmed in `shellbags.rs`). The
-> migration is behavior-preserving in-repo (unchanged characterization tests +
-> the dual-backend equivalence above), but the **regipy 27-folder end-to-end has
-> not been re-run against the migrated walker in this session.** Until it is, the
-> 27-folder count is a pre-migration measurement. Re-run:
+> **CONFIRMED post-migration (2026-06-24).** `shellbags` was migrated onto
+> `MemfHiveReader` / `winreg-core`, and the regipy 27-folder e2e was **re-run
+> against the migrated walker** on `citadeldc01.mem`: it recovered the **identical
+> 27 folders** (incl. `FileShare\Secret`, `E:\FTK Imager`,
+> `Users\Administrator\…`), so the backend swap is behavior-preserving on real
+> data, not only in-repo. Reproduce:
 > ```bash
 > SZECHUAN_DC_MEM=/tmp/szechuan-extracted/citadeldc01.mem \
 >   cargo test -p issen-mem --test szechuan_shellbags -- --ignored
