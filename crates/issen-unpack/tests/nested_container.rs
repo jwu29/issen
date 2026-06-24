@@ -9,6 +9,9 @@
 //! `docs/validation.md`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
+// `fn name(&self) -> &str` is the trait signature; returning a literal can't be
+// `&'static str` here. The lib allows this same lint for the same reason.
+#![allow(clippy::unnecessary_literal_bound)]
 
 use std::path::Path;
 

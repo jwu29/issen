@@ -12,10 +12,25 @@ pub struct ProviderRegistration {
 
 inventory::collect!(ProviderRegistration);
 
+/// Upper bound on how deep `open_collection` will recurse into containers nested
+/// inside extracted archives (archive → disk image → …). A backstop against a
+/// crafted archive-in-archive bomb; real evidence nests one level (a zip holding
+/// a disk image).
+const MAX_CONTAINER_RECURSION: usize = 8;
+
 /// Probe all registered providers and open the collection with the best match.
+///
+/// When the opened collection is an archive that turns out to wrap a disk-image
+/// container (rather than loose artifacts), the image is cracked through the disk
+/// pipeline and that filesystem is returned — so `issen ingest evidence.zip`
+/// works directly on a zipped E01, not only on loose-artifact zips.
 ///
 /// Returns an error if no provider recognizes the format.
 pub fn open_collection(path: &Path) -> Result<CollectionManifest, RtError> {
+    open_collection_at(path, 0)
+}
+
+fn open_collection_at(path: &Path, depth: usize) -> Result<CollectionManifest, RtError> {
     let mut best: Option<(Box<dyn CollectionProvider>, Confidence)> = None;
 
     for reg in inventory::iter::<ProviderRegistration> {
@@ -42,7 +57,8 @@ pub fn open_collection(path: &Path) -> Result<CollectionManifest, RtError> {
                 ?confidence,
                 "Opening collection"
             );
-            provider.open(path)
+            let manifest = provider.open(path)?;
+            Ok(crack_nested_container(manifest, depth))
         }
         None => {
             let provider_names: Vec<String> = inventory::iter::<ProviderRegistration>
@@ -54,6 +70,54 @@ pub fn open_collection(path: &Path) -> Result<CollectionManifest, RtError> {
                 path.display(),
                 provider_names.join(", ")
             )))
+        }
+    }
+}
+
+/// If `manifest`'s extracted tree holds disk-image container first-segment(s) —
+/// i.e. an archive wrapped a disk image rather than loose artifacts — crack the
+/// image through the disk pipeline (a recursive `open_collection`) and return
+/// THAT filesystem manifest, keeping the archive's extraction dir alive. A
+/// directly opened disk image extracts only forensic artifacts (no nested
+/// containers), so this is a no-op for it; a loose-artifact collection likewise
+/// has no containers and passes through unchanged.
+fn crack_nested_container(manifest: CollectionManifest, depth: usize) -> CollectionManifest {
+    if depth >= MAX_CONTAINER_RECURSION {
+        return manifest;
+    }
+    let containers =
+        issen_core::container::collect_container_first_segments(&manifest.extracted_root);
+    let Some((first, rest)) = containers.split_first() else {
+        return manifest; // no nested container — loose-artifact collection
+    };
+    if !rest.is_empty() {
+        // Fail loud: one manifest is one cracked filesystem, so additional disk
+        // images in the same archive are NOT ingested here. Name them so the
+        // omission is visible, never a silent partial.
+        let skipped: Vec<String> = rest.iter().map(|p| p.display().to_string()).collect();
+        eprintln!(
+            "issen-unpack: archive holds {} disk images; ingesting only {} — \
+             ingest the others separately: {}",
+            containers.len(),
+            first.display(),
+            skipped.join(", ")
+        );
+    }
+    match open_collection_at(first, depth + 1) {
+        Ok(mut cracked) => {
+            cracked.keep_alive(manifest);
+            cracked
+        }
+        Err(e) => {
+            // The nested image failed to crack — surface it loudly, then fall
+            // back to the archive's loose-artifact extraction so anything
+            // alongside the image still parses (and the failure isn't silent).
+            eprintln!(
+                "issen-unpack: ERROR cracking disk image {} from archive: {e} — \
+                 falling back to loose-artifact extraction",
+                first.display()
+            );
+            manifest
         }
     }
 }
