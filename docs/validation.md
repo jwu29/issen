@@ -144,7 +144,7 @@ Tier 2: the ground truth is derivable from the hive construction *and* corrobora
 by an independent code path (`winreg-core`), genuinely checked, but the hive is
 one we constructed.
 
-### Shellbags BagMRU (registry-from-memory) — Tier 2 — **OWED: e2e re-run**
+### Shellbags BagMRU (registry-from-memory) — Tier 2 — **CONFIRMED**
 
 `memf`'s `shellbags::walk_shellbags` navigates the in-memory HMAP cell map to
 `Shell\BagMRU` (through `winreg-core`'s `Key` over `MemfHiveReader`) and rebuilds
@@ -295,17 +295,22 @@ are **unbuilt**. So: the oracle exists; the walker does not work on real 2012 R2
 data yet. No tier is assigned until the walker is built and differenced against
 MemProcFS.
 
-### Timeline query (Phase 1) — **IN-PROGRESS (not landed)**
+### Timeline query (Phase 1) — Tier 2 — **CONFIRMED**
 
-The intended oracle is **raw SQL on the real ingested `g1-rerun/dc01.duckdb`**:
-the typed-flag query layer must reproduce the raw-SQL numbers the deck quotes
-(e.g. the `event_type` histogram `RegistryModify` 195 485 / `FileCreate`
-111 240). The DuckDB timelines are present
-(`tests/data/dfirmadness-szechuan-sauce/g1-rerun/{dc01,desktop}.duckdb`), but a
-search of the committed test tree found **no test referencing those counts or
-the DuckDB timelines**. The Phase-1 work was in progress at write time, so this
-is recorded as **not yet landed** — promote to a tiered entry once the test
-exists and passes.
+The typed, injection-safe DuckDB query layer (`issen-timeline::tquery`,
+`FieldRegistry` / `TypedQuery` / `Mode`) landed in `c892f13`. The oracle is **raw
+SQL on the real ingested `g1-rerun/dc01.duckdb`**: `crates/issen-timeline/tests/
+tquery_real_szechuan.rs` (6 tests, run against the real DC01 timeline — not
+skipped) asserts the typed layer reproduces the raw-SQL numbers the deck quotes —
+the `event_type` histogram (`RegistryModify` 195 485 / `FileCreate` 111 240),
+`LogonSuccess` 2 540, `--ip 10.42.85.115` → 197, and `coreupdater.exe` first-seen
+— plus `injection_value_is_bound_not_interpolated_on_real_db`, which proves a
+hostile field value is parameter-bound, never string-interpolated. Reproduce:
+```bash
+cargo test -p issen-timeline --test tquery_real_szechuan
+```
+Tier 2: raw SQL is an independent check on the same real DB, but we authored the
+query scenarios; the DB itself is the real ingested Case 001 timeline.
 
 ## Cross-referenced format-crate validation
 
