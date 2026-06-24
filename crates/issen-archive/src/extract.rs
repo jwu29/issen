@@ -120,6 +120,15 @@ pub fn extract_zip_capped(
             .by_index(i)
             .map_err(|e| RtError::InvalidData(format!("zip entry {i}: {e}")))?;
 
+        // Refuse symlink entries outright (structural defense, matching extract_tar):
+        // a link target can point outside dest, and forensic extraction reconstructs
+        // no links. Do not rely on the zip crate materializing symlinks as inert
+        // files — make containment a property of this code, not of the dependency.
+        if entry.is_symlink() {
+            report.refused.push(entry.name().to_string());
+            continue;
+        }
+
         // The zip crate's enclosed_name() returns None for any entry whose name
         // would escape via `..` or an absolute / drive-rooted path. REFUSE it.
         let Some(rel) = entry.enclosed_name() else {
