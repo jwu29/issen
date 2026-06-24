@@ -31,8 +31,8 @@ pub const MAX_EXPANSION_RATIO: u64 = 100;
 /// the ratio term scales the allowance to genuinely large inputs (disk images)
 /// without ever admitting a high-ratio bomb.
 #[must_use]
-pub fn cap_for_archive_size(_compressed: u64) -> u64 {
-    MAX_TOTAL_UNCOMPRESSED // RED stub: ignores ratio
+pub fn cap_for_archive_size(compressed: u64) -> u64 {
+    MAX_TOTAL_UNCOMPRESSED.max(compressed.saturating_mul(MAX_EXPANSION_RATIO))
 }
 
 /// The bomb cap for a concrete archive file, from its on-disk (compressed) size.
