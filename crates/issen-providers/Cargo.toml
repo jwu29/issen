@@ -16,6 +16,7 @@ path = "src/lib.rs"
 # a DIRECT normal dependency here. `build.rs` reads THIS manifest and emits one
 # real `extern crate <dep> as _;` per dep into OUT_DIR/anchors.rs.
 [dependencies]
+issen-archive = { workspace = true }
 issen-dd = { workspace = true }
 issen-ewf = { workspace = true }
 issen-iso = { workspace = true }

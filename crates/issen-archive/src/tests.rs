@@ -35,6 +35,38 @@ fn write_minimal_tar_gz(path: &Path, files: &[(&str, &[u8])]) {
         .unwrap();
 }
 
+/// Build a single raw 512-byte `ustar` header + padded data block for `name`,
+/// writing the name verbatim (so a hostile `..` path that the tar crate's
+/// builder would reject can still be emitted, as a malicious archive does).
+fn raw_tar_entry(name: &str, data: &[u8]) -> Vec<u8> {
+    let mut block = vec![0u8; 512];
+    let nb = name.as_bytes();
+    block[..nb.len()].copy_from_slice(nb); // name field: bytes 0..100
+    block[100..108].copy_from_slice(b"0000644\0"); // mode
+    block[108..116].copy_from_slice(b"0000000\0"); // uid
+    block[116..124].copy_from_slice(b"0000000\0"); // gid
+                                                   // size (octal, 11 digits + NUL) at 124..136
+    let size_oct = format!("{:011o}\0", data.len());
+    block[124..136].copy_from_slice(size_oct.as_bytes());
+    block[136..148].copy_from_slice(b"00000000000\0"); // mtime
+    block[156] = b'0'; // typeflag: regular file
+    block[257..263].copy_from_slice(b"ustar\0"); // magic
+    block[263..265].copy_from_slice(b"00"); // version
+                                            // checksum: 8 spaces, sum, then "NNNNNN\0 "
+    for b in &mut block[148..156] {
+        *b = b' ';
+    }
+    let sum: u32 = block.iter().map(|&b| u32::from(b)).sum();
+    let chk = format!("{sum:06o}\0 ");
+    block[148..156].copy_from_slice(chk.as_bytes());
+
+    let mut out = block;
+    out.extend_from_slice(data);
+    let pad = (512 - data.len() % 512) % 512;
+    out.extend(std::iter::repeat_n(0u8, pad));
+    out
+}
+
 fn make_zip(path: &Path, entries: &[(&str, &[u8])]) {
     let file = std::fs::File::create(path).unwrap();
     let mut zip = zip::ZipWriter::new(file);
@@ -418,22 +450,31 @@ fn tar_slip_does_not_escape_extraction_dir() {
     std::fs::create_dir_all(&dest).unwrap();
 
     // Hand-craft a tar.gz with a `..` traversal entry plus a safe entry.
+    // The tar crate's append_data() refuses a `..` path, so for the hostile
+    // entry we emit the raw 512-byte ustar header ourselves (writing the name
+    // field directly) — exactly how a malicious archive is built in the wild.
     let archive = parent.path().join("evil.tar.gz");
     {
         let file = std::fs::File::create(&archive).unwrap();
-        let enc = flate2::write::GzEncoder::new(file, flate2::Compression::default());
-        let mut builder = tar::Builder::new(enc);
-        for (name, data) in [
-            ("../../tar-escaped.txt", &b"PWNED"[..]),
-            ("safe/inside.txt", &b"good"[..]),
-        ] {
-            let mut header = tar::Header::new_gnu();
-            header.set_size(data.len() as u64);
-            header.set_mode(0o644);
-            header.set_cksum();
-            builder.append_data(&mut header, name, data).unwrap();
-        }
-        builder.into_inner().unwrap().finish().unwrap();
+        let mut enc = flate2::write::GzEncoder::new(file, flate2::Compression::default());
+
+        // Hostile entry, raw.
+        enc.write_all(&raw_tar_entry("../../tar-escaped.txt", b"PWNED"))
+            .unwrap();
+
+        // Safe entry via the normal builder path, into the same gzip stream.
+        let mut builder = tar::Builder::new(&mut enc);
+        let data = &b"good"[..];
+        let mut header = tar::Header::new_ustar();
+        header.set_size(data.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        builder
+            .append_data(&mut header, "safe/inside.txt", data)
+            .unwrap();
+        builder.into_inner().unwrap();
+
+        enc.finish().unwrap();
     }
 
     let before: Vec<PathBuf> = walk(parent.path());
@@ -489,7 +530,7 @@ fn zip_bomb_errors_with_bound_no_oom() {
 
 #[test]
 fn default_cap_is_sane() {
-    assert!(MAX_TOTAL_UNCOMPRESSED >= 1024 * 1024 * 1024);
+    const { assert!(MAX_TOTAL_UNCOMPRESSED >= 1024 * 1024 * 1024) };
 }
 
 // ── inventory registration ────────────────────────────────────────────
