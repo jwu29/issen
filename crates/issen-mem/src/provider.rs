@@ -29,14 +29,42 @@ impl CollectionProvider for MemoryProvider {
         "Memory"
     }
 
-    fn probe(&self, _path: &Path) -> Result<Confidence, RtError> {
-        // RED stub.
-        Ok(Confidence::None)
+    fn probe(&self, path: &Path) -> Result<Confidence, RtError> {
+        // Magic-recognized dump headers are definitive — they win outright.
+        match detect_format(path).map_err(RtError::Io)? {
+            DumpFormat::Lime | DumpFormat::Avml | DumpFormat::WindowsCrashDump => {
+                Ok(Confidence::High)
+            }
+            // Headerless raw memory has no magic; the file extension is the only
+            // tiebreak, so it beats DdProvider's Low without claiming certainty.
+            DumpFormat::Raw => {
+                let is_mem_ext = path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .is_some_and(|ext| {
+                        MEMORY_EXTENSIONS
+                            .iter()
+                            .any(|m| ext.eq_ignore_ascii_case(m))
+                    });
+                Ok(if is_mem_ext {
+                    Confidence::Medium
+                } else {
+                    Confidence::None
+                })
+            }
+        }
     }
 
-    fn open(&self, _path: &Path) -> Result<CollectionManifest, RtError> {
-        // RED stub.
-        Err(RtError::UnsupportedFormat("stub".to_string()))
+    fn open(&self, path: &Path) -> Result<CollectionManifest, RtError> {
+        // DETECT + REDIRECT, not extraction: the ingest pipeline expects a
+        // manifest of extracted files, which memory walking does not produce.
+        // Fail loud with an actionable redirect to the `memory` subcommand.
+        let format = detect_format(path).map_err(RtError::Io)?;
+        Err(RtError::UnsupportedFormat(format!(
+            "detected {format} memory dump; 'ingest' analyzes disk/collection \
+             evidence — run 'issen memory {}' to analyze a memory image",
+            path.display()
+        )))
     }
 }
 
