@@ -50,6 +50,7 @@ members = [
     "crates/issen-browser",
     "crates/issen-evtx",
     "crates/issen-dd",
+    "crates/issen-archive",
     "crates/issen-vhd",
     "crates/issen-vhdx",
     "crates/issen-vmdk",
@@ -79,6 +80,7 @@ issen-plugin-sdk = { path = "crates/issen-plugin-sdk" }
 issen-timeline   = { path = "crates/issen-timeline" }
 issen-ewf        = { path = "crates/issen-ewf" }
 issen-dd         = { path = "crates/issen-dd" }
+issen-archive    = { path = "crates/issen-archive" }
 issen-vhd        = { path = "crates/issen-vhd" }
 issen-vhdx       = { path = "crates/issen-vhdx" }
 issen-vmdk       = { path = "crates/issen-vmdk" }
@@ -194,6 +196,7 @@ zip          = "2"
 percent-encoding = "2"
 flate2       = "1"
 tar          = "0.4"
+sevenz-rust  = "0.6"
 
 # Forensic artifact parsers
 srum-parser      = "0.1.0"
