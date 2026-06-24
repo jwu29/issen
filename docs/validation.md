@@ -217,6 +217,22 @@ password). The test asserts the secret is decrypted and equals `ROOT#123`.
 Tier 2: Volatility is an independent oracle on a real dump; the scenario (this
 dump, this secret) is the one we checked.
 
+### SAM NTLM hashes (hashdump) — Tier 2
+
+`memf`'s `hashdump` navigates the SAM `Domains\Account\Users\<RID>` V/F values and
+the SYSTEM boot key (via `MemfHiveReader`/winreg-core after the registry dedup),
+decrypts the per-user NTLM hash (RC4 rev-2 / AES rev-3), and **refuses on an
+unsupported SAM F revision** rather than fabricating a hash.
+`~/src/issen/crates/issen-mem/tests/szechuan_hashdump.rs` (env-gated
+`SZECHUAN_DC_MEM` + `SZECHUAN_HASHDUMP_ORACLE`, `#[ignore]`) validates it against
+**Volatility 3's `windows.hashdump`** on `citadeldc01.mem`: every oracle account's
+`rid → NT hash` reconciles exactly — `Administrator` (rid 500) NT
+`f56a8399599f1be040128b1dd9623c29`, `Guest` (rid 501) the empty hash. It is a
+**domain controller**, so SAM hashdump recovers only the *local* SAM accounts
+(domain hashes live in NTDS.dit); the test reconciles exactly that local set.
+
+Tier 2: Volatility 3 is an independent oracle on the same real dump.
+
 ### issen ingest format detection (memory vs disk) — Tier 2
 
 The ingest dispatcher must recognise a memory dump and redirect it to the
