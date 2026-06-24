@@ -1317,9 +1317,9 @@ flowchart LR
 
 ![Scan for slides, toolchain & contact](https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=https%3A%2F%2Flinktr.ee%2F4n6h4x0r)
 
-**Author:** [Albert Hui](https://linktr.ee/4n6h4x0r)
-**IR Validation:** [Eliza Wan](https://www.linkedin.com/in/eliwan/)
-**QA:** [Josiah Wu](https://jwu29-blog.com/)
+**Author:** Albert Hui · [linktr.ee/4n6h4x0r](https://linktr.ee/4n6h4x0r)
+**IR Validation:** Eliza Wan · [linkedin.com/in/eliwan](https://www.linkedin.com/in/eliwan/)
+**QA:** Josiah Wu · [jwu29-blog.com](https://jwu29-blog.com/)
 
 *Scan the code for the slides, the Issen toolchain, and a way to reach me — then bring your own cases.*
 
