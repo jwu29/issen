@@ -1,0 +1,27 @@
+[package]
+name = "issen-archive"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license = "Apache-2.0"
+description = "Generic evidence-archive provider (zip / 7z / tar.gz) for the Issen forensic pipeline"
+repository.workspace = true
+
+[lib]
+name = "issen_archive"
+path = "src/lib.rs"
+
+[dependencies]
+issen-core   = { workspace = true }
+issen-unpack = { workspace = true }
+inventory    = { workspace = true }
+zip          = { workspace = true }
+tar          = { workspace = true }
+flate2       = { workspace = true }
+sevenz-rust  = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true
