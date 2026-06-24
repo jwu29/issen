@@ -22,7 +22,7 @@
 
 **BSidesHK 2026 · Blue-Team Workshop · 3 hours, hands-on**
 
-Albert Hui — Security Ronin · IR Peer Review: Eliza Wan · TA: Josiah Wu
+Albert Hui — Security Ronin · Knowledge-Layer Co-Author: Eliza Wan · TA: Josiah Wu
 
 *Case 001 — "The Stolen Szechuan Sauce" · disk + RAM only · two real Windows hosts*
 
@@ -1594,6 +1594,51 @@ flowchart LR
 
 ---
 
+# More From the Fleet · sqlite4n6
+
+**The deleted rows are the evidence — and `sqlite3` can't see them.**
+
+`sqlite-forensic` carves deleted records out of any SQLite database — browser history, chat apps, mobile artifacts — into a **review-ready spreadsheet**: live, prior-changed, and deleted versions recovered from the uncheckpointed WAL, the rollback journal, and free space. Opens evidence **read-only**, never re-surfaces a live row as "deleted."
+
+```bash
+sqlite4n6 carve History.db        # → History.recovered.xlsx
+```
+
+> **Coming next: mobile forensics.** Most phone evidence *is* SQLite — the next release turns `sqlite4n6` into first-class iOS / Android app-database recovery.
+
+*The byte-layout diagrams in this deck come from its forensic paper.* · securityronin.github.io/sqlite-forensic
+
+```mermaid
+flowchart LR
+  DB["SQLite DB<br/>browser · chat · mobile"] --> C["sqlite4n6 carve"]
+  C --> R["deleted rows<br/>→ review-ready .xlsx"]
+  C -.->|"next release"| M["mobile forensics"]
+```
+
+---
+
+# More From the Fleet · blazehash
+
+**Hash. Sign. Timestamp. Prove. Seal.** — integrity hashing for workflows that end in a courtroom.
+
+- **BLAKE3 at 1,640 MB/s**, 25 hash algorithms — hash a whole evidence set fast.
+- **Ed25519 + post-quantum signing** and **Bitcoin-anchored timestamps** — prove a file existed, unaltered, at a given time.
+- **hashdeep-compatible** — every flag and output format you already use.
+
+```bash
+brew install securityronin/tap/blazehash
+```
+
+> Built for **legal proceedings**: a hash set you can put in front of a tribunal — verifiable, **signed, and timestamped**, not merely computed. · securityronin.github.io/blazehash
+
+```mermaid
+flowchart LR
+  E["evidence set"] --> H["blazehash<br/>hash · sign · timestamp"]
+  H --> P["court-defensible<br/>integrity proof"]
+```
+
+---
+
 # Thank You
 
 ### Build the narrative. Present with honesty. That's the moat.
@@ -1601,7 +1646,7 @@ flowchart LR
 ![Scan for slides, toolchain & contact](https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=https%3A%2F%2Flinktr.ee%2F4n6h4x0r)
 
 **Author:** Albert Hui · [linktr.ee/4n6h4x0r](https://linktr.ee/4n6h4x0r)
-**IR Peer Review:** Eliza Wan · [linkedin.com/in/eliwan](https://www.linkedin.com/in/eliwan/)
+**Knowledge-Layer Co-Author:** Eliza Wan · [linkedin.com/in/eliwan](https://www.linkedin.com/in/eliwan/)
 **QA:** Josiah Wu · [jwu29-blog.com](https://jwu29-blog.com/)
 
 *Scan the code for the slides, the Issen toolchain, and a way to reach me — then bring your own cases.*
