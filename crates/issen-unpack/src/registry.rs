@@ -58,7 +58,9 @@ fn open_collection_at(path: &Path, depth: usize) -> Result<CollectionManifest, R
                 "Opening collection"
             );
             let manifest = provider.open(path)?;
-            Ok(crack_nested_container(manifest, depth))
+            Ok(crack_nested_container(manifest, depth, &|p, d| {
+                open_collection_at(p, d)
+            }))
         }
         None => {
             let provider_names: Vec<String> = inventory::iter::<ProviderRegistration>
@@ -81,7 +83,11 @@ fn open_collection_at(path: &Path, depth: usize) -> Result<CollectionManifest, R
 /// directly opened disk image extracts only forensic artifacts (no nested
 /// containers), so this is a no-op for it; a loose-artifact collection likewise
 /// has no containers and passes through unchanged.
-fn crack_nested_container(manifest: CollectionManifest, depth: usize) -> CollectionManifest {
+fn crack_nested_container(
+    manifest: CollectionManifest,
+    depth: usize,
+    open: &dyn Fn(&Path, usize) -> Result<CollectionManifest, RtError>,
+) -> CollectionManifest {
     if depth >= MAX_CONTAINER_RECURSION {
         return manifest;
     }
@@ -103,7 +109,7 @@ fn crack_nested_container(manifest: CollectionManifest, depth: usize) -> Collect
             skipped.join(", ")
         );
     }
-    match open_collection_at(first, depth + 1) {
+    match open(first, depth + 1) {
         Ok(mut cracked) => {
             cracked.keep_alive(manifest);
             cracked
@@ -411,5 +417,78 @@ mod tests {
             names.contains(&"AlwaysNone".to_string()),
             "AlwaysNone should be registered"
         );
+    }
+
+    // ── crack_nested_container: hermetic branch coverage (injected opener) ────
+
+    fn manifest_with_files(name: &str, files: &[&str]) -> CollectionManifest {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        for f in files {
+            std::fs::write(tempdir.path().join(f), b"x").expect("write");
+        }
+        CollectionManifest::new(
+            name.to_string(),
+            tempdir,
+            vec![],
+            CollectionMetadata {
+                hostname: None,
+                collection_time: None,
+                os_type: OsType::Unknown,
+                tool_version: None,
+            },
+        )
+    }
+
+    fn ok_opener(
+        name: &'static str,
+    ) -> impl Fn(&Path, usize) -> Result<CollectionManifest, RtError> {
+        move |_p, _d| Ok(manifest_with_files(name, &["$MFT"]))
+    }
+
+    #[test]
+    fn crack_passes_through_with_no_container() {
+        let m = manifest_with_files("Archive", &["NTUSER.DAT", "system.evtx"]);
+        let out = crack_nested_container(m, 0, &ok_opener("EWF"));
+        assert_eq!(out.format_name, "Archive", "no container → unchanged");
+    }
+
+    #[test]
+    fn crack_recurses_into_a_disk_image() {
+        let m = manifest_with_files("Archive", &["inner.E01"]);
+        let out = crack_nested_container(m, 0, &ok_opener("EWF"));
+        assert_eq!(
+            out.format_name, "EWF",
+            ".E01 cracks through the disk pipeline"
+        );
+    }
+
+    #[test]
+    fn crack_warns_but_recurses_first_of_many() {
+        // Two images: the first cracks; the others are skipped with a loud warning.
+        let m = manifest_with_files("Archive", &["a.E01", "b.E01"]);
+        let out = crack_nested_container(m, 0, &ok_opener("EWF"));
+        assert_eq!(out.format_name, "EWF");
+    }
+
+    #[test]
+    fn crack_degrades_on_crack_failure() {
+        let m = manifest_with_files("Archive", &["inner.E01"]);
+        let err_opener = |_p: &Path, _d: usize| Err(RtError::UnsupportedFormat("boom".to_string()));
+        let out = crack_nested_container(m, 0, &err_opener);
+        assert_eq!(
+            out.format_name, "Archive",
+            "crack failure degrades to loose-artifact extraction"
+        );
+    }
+
+    #[test]
+    fn crack_respects_depth_guard() {
+        let m = manifest_with_files("Archive", &["inner.E01"]);
+        // At the recursion ceiling the opener must NOT be called.
+        let panicking = |_p: &Path, _d: usize| -> Result<CollectionManifest, RtError> {
+            panic!("opener must not run at max depth")
+        };
+        let out = crack_nested_container(m, MAX_CONTAINER_RECURSION, &panicking);
+        assert_eq!(out.format_name, "Archive");
     }
 }
