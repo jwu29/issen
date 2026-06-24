@@ -794,11 +794,32 @@ mod tests {
             ..Default::default()
         };
         let r = q.run(store.connection()).expect("distinct");
+
         assert_eq!(
             r.columns[0].values,
             vec!["rick".to_string()],
             "CITADEL-DC01$ machine account must be dropped"
         );
+    }
+
+    #[test]
+    fn group_by_metadata_field_does_not_error() {
+        // Regression: GROUP BY on a JSON metadata field (e.g. `ip`) must not trip
+        // DuckDB's binder ("metadata must appear in GROUP BY"). The json_extract
+        // expr is parameterized, so it cannot be repeated verbatim in GROUP BY —
+        // group by ordinal position instead.
+        let store = seeded();
+        let q = TypedQuery {
+            event_types: event_type_is("LogonSuccess"),
+            mode: Mode::GroupBy {
+                target: "ip".into(),
+            },
+            ..Default::default()
+        };
+        let r = q.run(store.connection()).expect("group-by on a json field must not error");
+        assert_eq!(r.columns.len(), 2, "value + count columns");
+        assert_eq!(r.columns[1].name, "count");
+        assert!(r.row_count >= 1, "expected at least one grouped Ip value");
     }
 
     #[test]
