@@ -676,6 +676,34 @@ flowchart LR
 
 ---
 
+# Credential Extraction — The Full Chain (vs Volatility 3)
+
+Credentials are a **chain**, not a single plugin — every secret descends from the SYSTEM boot key (or a user's password). issen walks the whole chain. **Volatility 3 stops at the registry/LSA layer — it has no DPAPI branch at all** (in the field you fall back to Impacket's `dpapi.py`). On the registry trio, **Vol3 is our oracle**: we cross-check against it, we don't claim to beat it.
+
+```mermaid
+flowchart LR
+  BK["SYSTEM<br/>boot key"] --> LSAK["LSA key<br/>(PolEKList)"]
+  SAM["SAM"] --> HD["hashdump<br/>→ NTLM"]
+  LSAK --> NLKM["NL$KM"] --> DCC["cachedump<br/>→ DCC2"]
+  LSAK --> DPS["DPAPI_SYSTEM"] --> MDK["machine DPAPI<br/>master key"]
+  MDK --> MACH["Wi-Fi PSK ·<br/>machine CredMan / Vault"]
+  LSAK --> LSEC["lsadump → $MACHINE.ACC,<br/>service passwords"]
+  UPW["user<br/>password"] --> UDK["user DPAPI<br/>master key"] --> COOK["browser v10/v20<br/>cookie keys"]
+```
+
+*`DPAPI_SYSTEM` is itself an **LSA secret** — so `lsadump` is the keystone: it feeds both `NL$KM` (cached creds) and the machine DPAPI master key (Wi-Fi, machine vault). User-context DPAPI (browser cookies) bootstraps from the user's password instead.*
+
+| Stage (artifact) | issen | validation | Vol3 |
+|---|---|---|---|
+| SAM NTLM — `hashdump` | RC4 + AES revisions; refuses on unsupported rev | ◐ correct; real-DC e2e landing | ✅ plugin |
+| LSA secrets — `lsadump` | bootkey → PolEKList → per-secret AES | ✅ Tier-2, **Vol3 as oracle** on real DC | ✅ plugin |
+| Cached domain creds — `cachedump` | NL$KM → DCC2; decrypts + refuses | ◐ correct; e2e owed | ✅ plugin |
+| DPAPI — cookies / CredMan / Vault / Wi-Fi — `dpapi-forensic` | audited RustCrypto; refuses-don't-fabricate | ✅ vs Impacket vectors | — **no plugin** |
+
+> **Honesty:** ◐ = code correct + refuses-don't-fabricate, real-data e2e owed. DPAPI is validated against Impacket vectors; the machine-DPAPI branch (`DPAPI_SYSTEM → master key → Wi-Fi`) isn't yet wired end-to-end on the case data. **No placeholder crypto anywhere — audited RustCrypto, or it refuses.**
+
+---
+
 # Part II — The Investigation, Question by Question
 
 We answer the **official DFIR Madness question set** — all 13 + the Advanced/Bonus set — **grouped by the issen command that answers them**, so you master one tool surface at a time. Two commands carry most of it:
