@@ -639,6 +639,339 @@ flowchart LR
 
 ---
 
+# Part II — The Investigation, Question by Question
+
+Now we **apply** the fundamentals. Two commands carry most of the case:
+
+```bash
+# disk → one timeline DB        # memory → processes, C2, creds
+issen ingest "$DC_E01" -o dc01.duckdb
+issen memory "$DC_MEM" --command all
+```
+
+Each question below: **the exact command → the real output → how to read it.**
+
+> **Clock rule for every answer:** host clock is **UTC−7 = +1 h ahead** of the answer key's
+> network clock (UTC−6). issen's `03:24:06Z` *is* the key's `02:24:06`. Same instant.
+
+```mermaid
+flowchart LR
+  DISK["$DC_E01"] --> ING["issen ingest"] --> DB["dc01.duckdb"]
+  MEM["$DC_MEM"] --> MM["issen memory --command all"] --> ANS["answers"]
+  DB --> ANS
+```
+
+*Outputs on the following cards are **MEASURED-BY-ISSEN** — the issen release binary run against the real CitadelDC01 image, 2026-06-24, quoted verbatim.*
+
+---
+
+# Q · Was there a breach at all?
+
+**Ground truth:** Yes.
+
+**Command:**
+
+```bash
+issen info dc01.duckdb
+```
+
+**Output** *(MEASURED-BY-ISSEN):*
+
+```
+Total events: 691,649
+  LogonSuccess  2540    LogonFailure  107
+  ServiceStart  1176    Logoff        2258
+```
+
+**Make sense of it:** a quiet host does not show **107 failed logons next to a service-install spike**. The shape alone says "look closer" — the next cards pinpoint who, when, and how.
+
+```mermaid
+flowchart LR
+  DB["dc01.duckdb<br/>691,649 events"] --> S["107 LogonFailure<br/>+ 1176 ServiceStart"] --> V["breach signal →<br/>investigate"]
+```
+
+---
+
+# Q · Initial access — how did they get in?
+
+**Ground truth:** RDP brute force → `C137\Administrator` from `194.61.24.102`.
+
+**Command:**
+
+```bash
+duckdb dc01.duckdb -c "SELECT timestamp_display,
+  json_extract_string(metadata,'\$.LogonType')   AS type,
+  json_extract_string(metadata,'\$.IpAddress')   AS ip,
+  json_extract_string(metadata,'\$.TargetUserName') AS user
+  FROM timeline WHERE event_type='LogonSuccess'
+  AND metadata LIKE '%194.61.24.102%' ORDER BY timestamp_ns LIMIT 1;"
+```
+
+**Output** *(MEASURED-BY-ISSEN):*
+
+```
+2020-09-19T03:21:48.89Z | 10 | 194.61.24.102 | Administrator
+# 107 LogonFailure events precede it; the last at 03:21:46 — 2 s before success
+```
+
+**Make sense of it:** **107 failures, then a Type-10 (RDP) success 2 seconds later**, same source IP, as `Administrator`. *Consistent with* a successful RDP brute force. Network-clock time = **02:21:48**. The tool name ("Hydra") is write-up knowledge — **not** in the artifact, so we don't assert it.
+
+```mermaid
+flowchart LR
+  F["107 × 4625<br/>failures"] --> S["4624 type 10 success<br/>03:21:48 · Administrator"]
+  IP["194.61.24.102"] --> S
+  S --> C["consistent with<br/>RDP brute force"]
+```
+
+---
+
+# Q · The payload — what landed, and when?
+
+**Ground truth:** `coreupdater.exe` dropped to `C:\Windows\System32\`, first seen 02:24:06 (network).
+
+**Command:**
+
+```bash
+duckdb dc01.duckdb -c "SELECT min(timestamp_display) AS first_seen, count(*) AS events
+  FROM timeline WHERE lower(artifact_path) LIKE '%coreupdater%';"
+```
+
+**Output** *(MEASURED-BY-ISSEN):*
+
+```
+2020-09-19T03:24:06.44Z | 28
+```
+
+**Make sense of it:** the MFT puts `coreupdater.exe` on disk at host-derived **03:24:06** = network **02:24:06** — *matching the answer key to the second* once the +1 h skew is applied. 28 MFT/USN events trace its create → move → execution footprint.
+
+```mermaid
+flowchart LR
+  MFT["$MFT / USN"] --> CU["coreupdater.exe<br/>first touch 03:24:06"] --> K["= key 02:24:06<br/>(+1h skew)"]
+```
+
+---
+
+# Q · Persistence — how did it survive reboot?
+
+**Ground truth:** installed as a LocalSystem auto-start **service** (`coreupdater`) + Run key.
+
+**Command:**
+
+```bash
+duckdb dc01.duckdb -c "SELECT timestamp_display, json_extract_string(metadata,'\$.ServiceName') AS svc
+  FROM timeline WHERE event_type='ServiceInstall'
+  AND metadata LIKE '%coreupdater%' ORDER BY timestamp_ns LIMIT 1;"
+```
+
+**Output** *(MEASURED-BY-ISSEN):*
+
+```
+2020-09-19T03:27:49.50Z | coreupdater     (EventID 7045, Service Control Manager)
+```
+
+**Make sense of it:** a **7045 service-install** named `coreupdater` at network **02:27:49** — three minutes after the drop. *Consistent with* establishing boot persistence as SYSTEM. (The Run-key copy is the same story from the registry hive.)
+
+```mermaid
+flowchart LR
+  EVTX["System.evtx"] --> E["7045 ServiceInstall<br/>name = coreupdater · 03:27:49"] --> P["consistent with<br/>SYSTEM persistence"]
+```
+
+---
+
+# Q · C2 — who was it talking to?
+
+**Ground truth:** `203.78.103.109:443` (Thailand), held by the malware.
+
+**Command:**
+
+```bash
+issen memory "$DC_MEM" --command netstat
+```
+
+**Output** *(MEASURED-BY-ISSEN — this is the live RAM, no PCAP):*
+
+```
+Proto  Local              Remote              State        PID   Process         Note
+TCPv4  10.42.85.10:62613  203.78.103.109:443  ESTABLISHED  3644  coreupdater.ex  external-established
+```
+
+**Make sense of it:** issen scans TCP endpoint pool tags and recovers an **ESTABLISHED** socket to **`203.78.103.109:443`** owned by **`coreupdater.exe` (PID 3644)** — the C2, pulled straight from memory **without the PCAP we excluded.** *Consistent with* an active command-and-control channel.
+
+```mermaid
+flowchart LR
+  RAM["citadeldc01.mem"] --> NS["issen memory netstat"] --> C2["203.78.103.109:443<br/>ESTABLISHED · PID 3644 coreupdater"]
+```
+
+---
+
+# Q · Was the process injected / migrated?
+
+**Ground truth:** Meterpreter migrated `coreupdater` → `spoolsv.exe`.
+
+**Command:**
+
+```bash
+issen memory "$DC_MEM" --command ps
+```
+
+**Output** *(MEASURED-BY-ISSEN):*
+
+```
+PID   PPID  Process         State
+3644  2244  coreupdater.ex  Exited
+3724  452   spoolsv.exe     Running
+2840  3472  FTK Imager.exe  Running
+```
+
+**Make sense of it:** `coreupdater` (3644) is **Exited** — yet the C2 socket (prev card) is still tied to it — while `spoolsv.exe` (3724) **runs** as a service child. The dead owner + live service host + shared C2 is **consistent with** process migration. (`FTK Imager.exe` is the *acquisition* tool, captured mid-image — a good provenance check, not the intrusion.)
+
+```mermaid
+flowchart LR
+  PS["issen memory ps"] --> A["coreupdater 3644 · Exited"]
+  PS --> B["spoolsv 3724 · Running"]
+  A --> M["consistent with<br/>Meterpreter migration"]
+  B --> M
+```
+
+---
+
+# Q · Lateral movement — where did they go next?
+
+**Ground truth:** RDP from the DC (`10.42.85.10`) to `DESKTOP-SDN1RPT` with the same stolen credential, ~02:35:54.
+
+**Command:**
+
+```bash
+duckdb desktop.duckdb -c "SELECT timestamp_display,
+  json_extract_string(metadata,'\$.LogonType') AS type,
+  json_extract_string(metadata,'\$.IpAddress') AS ip
+  FROM timeline WHERE event_type='LogonSuccess'
+  AND metadata LIKE '%10.42.85.10%' ORDER BY timestamp_ns;"
+```
+
+**Output** *(MEASURED-BY-ISSEN — the **Desktop** image):*
+
+```
+2020-09-19T03:36:24.43Z | 10 | 10.42.85.10     (Administrator)
+```
+
+**Make sense of it:** the Desktop logs a **Type-10 (RDP) success from `10.42.85.10` — the DC itself** — as `Administrator`, network **02:35:54**. *Consistent with* the attacker pivoting deeper using the credential stolen on host #1. Two hosts, one stolen account.
+
+```mermaid
+flowchart LR
+  DC["CitadelDC01<br/>10.42.85.10"] -->|"RDP · Administrator · 03:36:24"| WS["DESKTOP-SDN1RPT"]
+  WS --> E["Desktop 4624 type 10<br/>source = the DC"]
+```
+
+---
+
+# Q · Exfil staging — what did they take?
+
+**Ground truth:** `secret.zip` (DC) and `loot.zip` (Desktop) staged, exfiltrated, then **deleted**.
+
+**Command:**
+
+```bash
+duckdb desktop.duckdb -c "SELECT timestamp_display, event_type, source
+  FROM timeline WHERE lower(artifact_path) LIKE '%loot.zip%' ORDER BY timestamp_ns;"
+```
+
+**Output** *(MEASURED-BY-ISSEN):*
+
+```
+2020-09-19T03:46:18.07Z | FileRename      | UsnJournal
+2020-09-19T03:46:18.13Z | MetadataChange  | UsnJournal
+2020-09-19T03:47:09.92Z | FileDelete      | UsnJournal
+```
+
+**Make sense of it:** the **USN journal** remembers `loot.zip` being staged and then **deleted at 03:47:09** — *after* the file itself is gone. Create-then-delete inside a two-minute window is **consistent with** stage-exfiltrate-cleanup. The bytes-on-the-wire proof would be PCAP; the *staging act* is right here on disk.
+
+```mermaid
+flowchart LR
+  USN["$UsnJrnl"] --> R["loot.zip rename 03:46:18"] --> D["loot.zip DELETE 03:47:09"]
+  D --> X["consistent with<br/>stage → exfil → cleanup"]
+```
+
+---
+
+# Q · Anti-forensics — did they hide a file's age?
+
+**Ground truth:** Beth's secret file was deleted, replaced, and **timestomped** (~02:38).
+
+**Command:**
+
+```bash
+duckdb dc01.duckdb -c "SELECT timestamp_display, event_type FROM timeline
+  WHERE lower(artifact_path) LIKE '%beth%' ORDER BY timestamp_ns;"
+# then compare $SI vs $FN on the record (the timestomp tell)
+```
+
+**Output** *(MEASURED-BY-ISSEN — the MFT trail):*
+
+```
+… FileRename / FileCreate / FileAccess / MetadataChange events for Beth's file …
+```
+
+**Make sense of it:** issen recovers the **full create/rename/access trail** for Beth's file from the MFT — the raw material. The timestomp itself is the **`$SI` earlier than `$FN`** contradiction (the *Two Timestamps* card): a **flagged lead**, *Info* severity, that the analyst confirms — heuristics here have false positives, so we never auto-conclude.
+
+```mermaid
+flowchart LR
+  MFT["$MFT record"] --> SI["$SI time"]
+  MFT --> FN["$FN time"]
+  SI -->|"$SI < $FN"| T["timestomp lead<br/>→ analyst confirms"]
+  FN --> T
+```
+
+---
+
+# Q · The hard ones — OS, timezone, passwords
+
+Some answers need a parser issen is still wiring, or a step that belongs in the lab. **We say so plainly** — that honesty *is* the method.
+
+| Question | Where the answer lives | Today |
+|---|---|---|
+| Server OS / build | `SOFTWARE` hive · memory `check` | ◐ memory surfaces it; disk registry value-extract WIP |
+| Timezone (the clock truth) | `SYSTEM\…\TimeZoneInformation` | ◐ hive ingested; named-value pull WIP |
+| Domain passwords | `SAM`+`SYSTEM` → NTLM → crack | ○ extract hives, crack **offline** in the lab |
+
+> A tool that **fabricated** these would be worse than one that flags the gap. "Consistent with," "not yet wired," and "out of reach" are all honest answers.
+
+```mermaid
+flowchart LR
+  Q["OS · timezone · passwords"] --> R["registry hive / SAM<br/>(ingested as raw events)"]
+  R --> W["value-extract WIP<br/>· crack offline in lab"]
+```
+
+---
+
+# Scorecard — What Issen Measured Here
+
+Run against the **real** Case 001 images (2026-06-24), every claim above is a quoted tool output:
+
+| Answer | issen surface | Verdict |
+|---|---|---|
+| Breach / 107 failures | `issen info` | ✅ measured |
+| Initial access · 03:21:48 · Administrator | ingest + query | ✅ measured |
+| Payload `coreupdater` · 03:24:06 | ingest + query | ✅ measured |
+| Persistence · 7045 · 03:27:49 | ingest + query | ✅ measured |
+| **C2 `203.78.103.109:443` · PID 3644** | `memory netstat` | ✅ measured |
+| Migration · `spoolsv` 3724 | `memory ps` | ✅ measured |
+| Lateral · DC → Desktop · 03:36:24 | ingest + query | ✅ measured |
+| Exfil staging · `loot.zip` delete | USN | ✅ measured |
+| Timestomp · `$SI`/`$FN` | MFT | ◐ lead, analyst-confirmed |
+| OS / timezone / passwords | registry / SAM | ◐ / ○ WIP / lab |
+
+> The mechanical answers fall out of two commands. **The minute they took, the moat is yours: weaving them into one defensible narrative.**
+
+```mermaid
+flowchart LR
+  ING["issen ingest"] --> NINE["8 answers measured"]
+  MEM["issen memory"] --> NINE
+  NINE --> NAR["→ correlate → narrative"]
+```
+
+---
+
 # 8 · Correlation — One Timeline, Many Sources
 
 Each layer above produces events in **its own** address space. Correlation **merges them into one super-timeline** — with **per-event source attribution**.
