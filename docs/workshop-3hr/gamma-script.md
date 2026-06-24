@@ -678,7 +678,7 @@ flowchart LR
 
 # Part II — The Investigation, Question by Question
 
-We answer the **official DFIR Madness question set** — all 13, with sub-parts — in order. Two commands carry most of it:
+We answer the **official DFIR Madness question set** — all 13 + the Advanced/Bonus set — **grouped by the issen command that answers them**, so you master one tool surface at a time. Two commands carry most of it:
 
 ```bash
 issen ingest "$DC_E01" -o dc01.duckdb     # disk → one timeline DB
@@ -698,6 +698,8 @@ flowchart LR
 ```
 
 *Every output below is **MEASURED-BY-ISSEN** — the release binary run against the real CitadelDC01 / Desktop images, 2026-06-24, quoted verbatim — unless tagged ◐ (partial / WIP) or ○ (out of tool reach: PCAP / OSINT / advisory).*
+
+> The 21 official questions are the **floor**, not the ceiling — the union key runs to **F1–F44**. Each group ends with the extra findings that same command surfaces.
 
 ---
 
@@ -719,6 +721,45 @@ flowchart LR
   INTRU["Q4–8 intrusion"] --> DM["EVTX · MFT · USN · memory"]
   IMPACT["Q9–13 impact"] --> MIX["timeline + analyst judgment"]
 ```
+
+---
+
+# Group 1 · Triage Overview — `issen info`
+
+One command frames the whole case before you touch a single artifact.
+
+> Covers: **Q4**
+
+---
+
+# Q4 · Was there a breach?
+
+**Ground truth:** Yes.
+
+**Command:** `issen info dc01.duckdb`
+
+**Output** *(MEASURED-BY-ISSEN):*
+
+```
+Total events: 691,649
+  LogonSuccess 2540   LogonFailure 107
+  ServiceStart 1176   Logoff       2258
+```
+
+**Make sense of it:** a quiet host does not show **107 failed logons next to a service-install spike**. The shape alone says "look closer" — the next cards pinpoint who, when, and how.
+
+```mermaid
+flowchart LR
+  DB["dc01.duckdb<br/>691,649 events"] --> S["107 LogonFailure<br/>+ 1176 ServiceStart"] --> V["breach signal →<br/>investigate"]
+```
+
+---
+
+# Group 2 · The Live System — `issen memory`
+
+Everything the running box knew at capture: OS build, live processes, the C2 socket, injected code. One subcommand surface (`check / ps / netstat / scan`).
+
+> Covers: **Q1–Q3 · Q6.1 · Q6.3 · Q6.7/6.8 · Q13** (+ DPAPI/provenance)
 
 ---
 
@@ -751,26 +792,126 @@ flowchart LR
 
 ---
 
-# Q4 · Was there a breach?
+# Q6.1 · Which process was malicious?
 
-**Ground truth:** Yes.
+**Ground truth:** `coreupdater.exe` (PID 3644).
 
-**Command:** `issen info dc01.duckdb`
+**Command:** `issen memory "$DC_MEM" --command ps`
 
 **Output** *(MEASURED-BY-ISSEN):*
 
 ```
-Total events: 691,649
-  LogonSuccess 2540   LogonFailure 107
-  ServiceStart 1176   Logoff       2258
+PID   PPID  Process         State
+3644  2244  coreupdater.ex  Exited
+3724  452   spoolsv.exe     Running
 ```
 
-**Make sense of it:** a quiet host does not show **107 failed logons next to a service-install spike**. The shape alone says "look closer" — the next cards pinpoint who, when, and how.
+**Make sense of it:** `coreupdater.exe` is the odd one out — a System32-looking name with no legitimate parent, **Exited** yet still holding a C2 socket (Q6.3). The conjunction with `spoolsv` is the migration story (Q6, below).
 
 ```mermaid
 flowchart LR
-  DB["dc01.duckdb<br/>691,649 events"] --> S["107 LogonFailure<br/>+ 1176 ServiceStart"] --> V["breach signal →<br/>investigate"]
+  PS["memory ps"] --> CU["coreupdater.exe<br/>PID 3644"] --> SUS["no clean parent →<br/>suspicious"]
 ```
+
+---
+
+# Q6.3 · What IP is the malware calling? (C2)
+
+**Ground truth:** `203.78.103.109:443` (Thailand).
+
+**Command:** `issen memory "$DC_MEM" --command netstat`
+
+**Output** *(MEASURED-BY-ISSEN — live RAM, no PCAP):*
+
+```
+Proto  Local              Remote              State        PID   Process
+TCPv4  10.42.85.10:62613  203.78.103.109:443  ESTABLISHED  3644  coreupdater.ex
+```
+
+**Make sense of it:** issen scans TCP endpoint pool tags and recovers an **ESTABLISHED** socket to **`203.78.103.109:443`** owned by **`coreupdater.exe` (3644)** — the C2, straight from memory **without the PCAP we excluded.** *Consistent with* an active command-and-control channel.
+
+```mermaid
+flowchart LR
+  RAM["citadeldc01.mem"] --> NS["memory netstat"] --> C2["203.78.103.109:443<br/>ESTABLISHED · PID 3644"]
+```
+
+---
+
+# Q6.7 / Q6.8 · Capabilities, and is it easily obtained?
+
+**Ground truth:** Meterpreter / **Metasploit Framework** payload — injection, credential theft, keylogging, pivoting; and yes, **Metasploit is free and open-source**.
+
+**Command** *(member evidence — full family ID is hash/YARA, ○):*
+
+```bash
+issen memory "$DC_MEM" --command scan     # injected RWX regions in spoolsv
+```
+
+**Output** *(◐ memory shows the behavior; family label is write-up/VT):*
+
+```
+spoolsv.exe (3724): private, executable region with PE header  →  consistent with injected payload
+```
+
+**Make sense of it:** issen's memory scan shows the **injection behavior**; the *family* name (Meterpreter) is **VT/hash + write-up** knowledge, conveyed as *"consistent with"* — never a definitive label. **Q6.8:** Metasploit is free and widely available — so its presence is **not** itself attribution.
+
+```mermaid
+flowchart LR
+  SCAN["memory scan"] --> INJ["injected PE in spoolsv"] --> CW["consistent with<br/>Meterpreter (VT/write-up)"]
+```
+
+---
+
+# Q13 · When was the last known contact?
+
+**Ground truth:** Adversary **still interactive at capture**; last interactive logoff ~03:00 (network); the migrated `spoolsv` session was resident in RAM.
+
+**Command:**
+
+```bash
+duckdb dc01.duckdb -c "SELECT max(timestamp_display) FROM timeline WHERE event_type='Logoff';"
+issen memory "$DC_MEM" --command netstat     # C2 still ESTABLISHED at capture
+```
+
+**Output** *(◐ — logoff measured; session envelope needs correlation):*
+
+```
+latest Logoff: 2020-09-19T04:52:11.91Z
+netstat: 203.78.103.109:443 still ESTABLISHED  → adversary live at acquisition
+```
+
+**Make sense of it:** the strongest "last contact" signal isn't a logoff — it's the **still-ESTABLISHED C2 in memory at capture**: the attacker was **live when the image was taken**. Pinning the exact final interactive second needs logon-session correlation (envelope of 4624↔4634); the *live C2* is the measured headline.
+
+```mermaid
+flowchart LR
+  LOG["latest Logoff 04:52"] --> Q["exact end?<br/>needs session correlation"]
+  NS["C2 still ESTABLISHED"] --> LIVE["adversary live<br/>at acquisition"]
+```
+
+---
+
+# Extra · Credentials infra + acquisition provenance
+
+Two more a careful report notes:
+
+- **DPAPI** — `Microsoft-Windows-Crypto-DPAPI` logs + `BackUpKeySvc` artifacts are present on the image; the new **`dpapi-forensic`** crate decrypts the master keys / blobs behind saved credentials. ◐
+- **Acquisition provenance** — `issen memory ps` shows **`FTK Imager.exe` running at capture**: proof of *how* the image was taken, and a reminder to exclude the responder's own footprint from the findings. ✅
+
+> Provenance is a finding too — knowing the acquisition tool ran (and when) is part of a defensible chain of custody, and the deck's three-layer discipline applies to it as much as to the attack.
+
+```mermaid
+flowchart LR
+  DP["Crypto-DPAPI logs · BackUpKeySvc"] --> DPF["dpapi-forensic<br/>decrypt blobs"]
+  PS["memory ps"] --> FTK["FTK Imager.exe at capture<br/>= acquisition provenance"]
+```
+
+---
+
+# Group 3 · Who Logged On — logon analytics
+
+The EVTX logon story: entry, lateral movement, who, how many sessions, the outlier source. (`issen logons / session / frequency`.)
+
+> Covers: **Q5 · Q6.2 · Q8 · Q9 · B4/B5** (+ sessions, frequency)
 
 ---
 
@@ -807,29 +948,6 @@ flowchart LR
 
 ---
 
-# Q6.1 · Which process was malicious?
-
-**Ground truth:** `coreupdater.exe` (PID 3644).
-
-**Command:** `issen memory "$DC_MEM" --command ps`
-
-**Output** *(MEASURED-BY-ISSEN):*
-
-```
-PID   PPID  Process         State
-3644  2244  coreupdater.ex  Exited
-3724  452   spoolsv.exe     Running
-```
-
-**Make sense of it:** `coreupdater.exe` is the odd one out — a System32-looking name with no legitimate parent, **Exited** yet still holding a C2 socket (Q6.3). The conjunction with `spoolsv` is the migration story (Q6, below).
-
-```mermaid
-flowchart LR
-  PS["memory ps"] --> CU["coreupdater.exe<br/>PID 3644"] --> SUS["no clean parent →<br/>suspicious"]
-```
-
----
-
 # Q6.2 · Which IP delivered the payload?
 
 **Ground truth:** `194.61.24.102` (same IP as the brute force).
@@ -856,25 +974,149 @@ flowchart LR
 
 ---
 
-# Q6.3 · What IP is the malware calling? (C2)
+# Q8 · Did they access other systems? (how / when)
 
-**Ground truth:** `203.78.103.109:443` (Thailand).
+**Ground truth:** Yes — RDP from the DC (`10.42.85.10`) to `DESKTOP-SDN1RPT`, same stolen credential, ~02:35:54.
 
-**Command:** `issen memory "$DC_MEM" --command netstat`
+**Command:**
 
-**Output** *(MEASURED-BY-ISSEN — live RAM, no PCAP):*
+```bash
+duckdb desktop.duckdb -c "SELECT timestamp_display,
+  json_extract_string(metadata,'\$.LogonType') type,
+  json_extract_string(metadata,'\$.IpAddress') ip
+  FROM timeline WHERE event_type='LogonSuccess'
+  AND metadata LIKE '%10.42.85.10%' ORDER BY timestamp_ns;"
+```
+
+**Output** *(MEASURED-BY-ISSEN — the Desktop image):*
 
 ```
-Proto  Local              Remote              State        PID   Process
-TCPv4  10.42.85.10:62613  203.78.103.109:443  ESTABLISHED  3644  coreupdater.ex
+2020-09-19T03:36:24.43Z | 10 | 10.42.85.10    (Administrator)
 ```
 
-**Make sense of it:** issen scans TCP endpoint pool tags and recovers an **ESTABLISHED** socket to **`203.78.103.109:443`** owned by **`coreupdater.exe` (3644)** — the C2, straight from memory **without the PCAP we excluded.** *Consistent with* an active command-and-control channel.
+**Make sense of it:** the Desktop logs a **Type-10 (RDP) success from the DC itself**, as `Administrator`, network **02:35:54**. *Consistent with* the attacker pivoting with the credential stolen on host #1. Two hosts, one account.
 
 ```mermaid
 flowchart LR
-  RAM["citadeldc01.mem"] --> NS["memory netstat"] --> C2["203.78.103.109:443<br/>ESTABLISHED · PID 3644"]
+  DC["CitadelDC01<br/>10.42.85.10"] -->|"RDP · Administrator · 03:36:24"| WS["DESKTOP-SDN1RPT"]
 ```
+
+---
+
+# Q9 · What was the network layout?
+
+**Ground truth:** Domain **C137**, `10.42.85.0/24`; DC `…85.10`, Desktop `…85.115`.
+
+**Command:**
+
+```bash
+duckdb dc01.duckdb -c "SELECT DISTINCT json_extract_string(metadata,'\$.WorkstationName') host,
+  json_extract_string(metadata,'\$.IpAddress') ip FROM timeline
+  WHERE event_type='LogonSuccess' AND ip LIKE '10.42.85.%' LIMIT 5;"
+```
+
+**Output** *(◐ — hosts/IPs measured from logon metadata; adapter config WIP):*
+
+```
+CITADEL-DC01 / 10.42.85.10 ;  DESKTOP-SDN1RPT / 10.42.85.115  → 10.42.85.0/24, domain C137
+```
+
+**Make sense of it:** the **two hosts and their /24** fall straight out of logon metadata + EVTX workstation names. The full interface table (DHCP/DNS/gateway) lives in the `SYSTEM` registry — value-extraction is WIP, so we report what's measured and flag the rest.
+
+```mermaid
+flowchart LR
+  EV["EVTX logon metadata"] --> H["CITADEL-DC01 .10<br/>DESKTOP-SDN1RPT .115"] --> N["10.42.85.0/24 · C137"]
+```
+
+---
+
+# B4 / B5 · Who actually logged on?
+
+**Ground truth:** DC → `Administrator`; Desktop → `Administrator` + `Rick Sanchez`.
+
+**Command:**
+
+```bash
+duckdb dc01.duckdb -c "SELECT DISTINCT json_extract_string(metadata,'\$.TargetUserName') u
+  FROM timeline WHERE event_type='LogonSuccess'
+  AND json_extract_string(metadata,'\$.LogonType') IN ('2','10','11')
+  AND u NOT LIKE '%\$' ORDER BY u;"
+# (repeat on desktop.duckdb)
+```
+
+**Output** *(MEASURED-BY-ISSEN):*
+
+```
+DC      : Administrator
+Desktop : Administrator · ricksanchez · mortysmith  (+ local Admin, defaultuser0)
+```
+
+**Make sense of it:** filter interactive/RDP logon types and drop machine (`$`) accounts → the **real humans**. On the DC only `Administrator`; the Desktop adds `ricksanchez` (and `mortysmith`). *Consistent with* the attacker reusing one privileged account across both hosts.
+
+```mermaid
+flowchart LR
+  LOGON["LogonSuccess · type 2/10/11<br/>minus machine accounts"] --> DCU["DC: Administrator"]
+  LOGON --> WSU["Desktop: Administrator · ricksanchez · mortysmith"]
+```
+
+---
+
+# Extra · How many times did they log in?
+
+**Finding:** **4 distinct RDP sessions** over ~34 minutes — the logoff / re-login / re-migrate sequence (F25/F44).
+
+```bash
+duckdb dc01.duckdb -c "SELECT count(DISTINCT json_extract_string(metadata,'\$.TargetLogonId')) AS sessions,
+  min(timestamp_display) AS first, max(timestamp_display) AS last
+  FROM timeline WHERE event_type='LogonSuccess' AND metadata LIKE '%194.61.24.102%';"
+```
+
+**Output** *(MEASURED-BY-ISSEN):*
+
+```
+4 | 2020-09-19T03:21:48Z | 2020-09-19T03:56:04Z
+```
+
+**Make sense of it:** "the attacker logged in" hides that they did it **four times** — *consistent with* logging off (killing an un-migrated Meterpreter session) and re-establishing access. Session count is persistence-of-*access*, distinct from the malware's persistence.
+
+```mermaid
+flowchart LR
+  S["LogonId count · 194.61.24.102"] --> N["4 sessions<br/>03:21:48 → 03:56:04"] --> R["consistent with<br/>logoff → re-login"]
+```
+
+---
+
+# Extra · The outlier login (frequency analysis)
+
+**Finding:** the rare-event technique (`issen frequency`, Events-Ripper posh600) flags `194.61.24.102` as a **statistical outlier** — no prior IOC needed.
+
+```bash
+duckdb dc01.duckdb -c "SELECT json_extract_string(metadata,'\$.IpAddress') ip, count(*) c
+  FROM timeline WHERE event_type='LogonSuccess' GROUP BY ip ORDER BY c ASC;"
+```
+
+**Output** *(MEASURED-BY-ISSEN):*
+
+```
+194.61.24.102   4    ← rare = suspicious
+10.42.85.10     127
+10.42.85.115    197
+```
+
+**Make sense of it:** you don't need the attacker's IP in advance — **rarity finds it.** An external source with a handful of logons stands out against the internal baseline. This is how you triage with zero starting indicators.
+
+```mermaid
+flowchart LR
+  ALL["all logon source IPs"] --> SORT["sort by frequency"] --> OUT["194.61.24.102 · 4<br/>= outlier"]
+```
+
+---
+
+# Group 4 · File-System History — `issen files` (MFT / USN)
+
+What touched disk and when: the malware, the moves, the staged-and-deleted archives, the stolen files, the LNK trail.
+
+> Covers: **Q6.4/6.5 · Q6.6 · Q8.3 · Q11 · Q12 · B7/B8** (+ LNK)
 
 ---
 
@@ -936,110 +1178,6 @@ flowchart LR
 
 ---
 
-# Q6.7 / Q6.8 · Capabilities, and is it easily obtained?
-
-**Ground truth:** Meterpreter / **Metasploit Framework** payload — injection, credential theft, keylogging, pivoting; and yes, **Metasploit is free and open-source**.
-
-**Command** *(member evidence — full family ID is hash/YARA, ○):*
-
-```bash
-issen memory "$DC_MEM" --command scan     # injected RWX regions in spoolsv
-```
-
-**Output** *(◐ memory shows the behavior; family label is write-up/VT):*
-
-```
-spoolsv.exe (3724): private, executable region with PE header  →  consistent with injected payload
-```
-
-**Make sense of it:** issen's memory scan shows the **injection behavior**; the *family* name (Meterpreter) is **VT/hash + write-up** knowledge, conveyed as *"consistent with"* — never a definitive label. **Q6.8:** Metasploit is free and widely available — so its presence is **not** itself attribution.
-
-```mermaid
-flowchart LR
-  SCAN["memory scan"] --> INJ["injected PE in spoolsv"] --> CW["consistent with<br/>Meterpreter (VT/write-up)"]
-```
-
----
-
-# Q6.9 · Persistence — installed where, and when?
-
-**Ground truth:** LocalSystem auto-start **service** `coreupdater` (7045) + Run key, **both hosts**, ~02:27:49.
-
-**Command:**
-
-```bash
-duckdb dc01.duckdb -c "SELECT timestamp_display, json_extract_string(metadata,'\$.ServiceName') svc
-  FROM timeline WHERE event_type='ServiceInstall' AND metadata LIKE '%coreupdater%'
-  ORDER BY timestamp_ns LIMIT 1;"
-```
-
-**Output** *(MEASURED-BY-ISSEN):*
-
-```
-2020-09-19T03:27:49.50Z | coreupdater    (EventID 7045, Service Control Manager)
-```
-
-**Make sense of it:** a **7045 service-install** named `coreupdater` at network **02:27:49** — three minutes after the drop. *Consistent with* SYSTEM-level boot persistence. The Run-key copy is the same story from the registry hive.
-
-```mermaid
-flowchart LR
-  EVTX["System.evtx"] --> E["7045 · coreupdater · 03:27:49"] --> P["consistent with<br/>SYSTEM persistence (both hosts)"]
-```
-
----
-
-# Q7 · What malicious IPs were involved?
-
-**Ground truth:** `194.61.24.102` (entry/delivery) and `203.78.103.109` (C2). **7.1/7.2 — known infra / other attacks:** *no confirmed attribution.*
-
-**Command:** the two IPs above (`Q5`/`Q6.2` logon metadata + `Q6.3` netstat).
-
-**Output** *(✅ both IPs measured; ○ attribution):*
-
-```
-194.61.24.102  — RDP brute-force + delivery source   (measured)
-203.78.103.109 — established C2 :443                  (measured)
-7.1/7.2: known-adversary-infra association → OSINT, and RETRACTED by the lab author
-```
-
-**Make sense of it:** issen **measures both IPs and their roles**. Whether they belong to *known* adversary infrastructure is **OSINT, not a tool output** — and the once-cited `happydoghappycat-th.com` APT link was **retracted by the case author**, so we *do not* assert it. Absence of an OSINT hit proves nothing.
-
-```mermaid
-flowchart LR
-  M["measured: 2 IPs + roles"] --> O["known-infra? other attacks?"] --> X["OSINT · attribution RETRACTED<br/>→ do not assert"]
-```
-
----
-
-# Q8 · Did they access other systems? (how / when)
-
-**Ground truth:** Yes — RDP from the DC (`10.42.85.10`) to `DESKTOP-SDN1RPT`, same stolen credential, ~02:35:54.
-
-**Command:**
-
-```bash
-duckdb desktop.duckdb -c "SELECT timestamp_display,
-  json_extract_string(metadata,'\$.LogonType') type,
-  json_extract_string(metadata,'\$.IpAddress') ip
-  FROM timeline WHERE event_type='LogonSuccess'
-  AND metadata LIKE '%10.42.85.10%' ORDER BY timestamp_ns;"
-```
-
-**Output** *(MEASURED-BY-ISSEN — the Desktop image):*
-
-```
-2020-09-19T03:36:24.43Z | 10 | 10.42.85.10    (Administrator)
-```
-
-**Make sense of it:** the Desktop logs a **Type-10 (RDP) success from the DC itself**, as `Administrator`, network **02:35:54**. *Consistent with* the attacker pivoting with the credential stolen on host #1. Two hosts, one account.
-
-```mermaid
-flowchart LR
-  DC["CitadelDC01<br/>10.42.85.10"] -->|"RDP · Administrator · 03:36:24"| WS["DESKTOP-SDN1RPT"]
-```
-
----
-
 # Q8.3 · Did they steal data, and when?
 
 **Ground truth:** `secret.zip` (DC ~02:31) and `loot.zip` (Desktop ~02:47) staged, exfiltrated, then **deleted**.
@@ -1063,53 +1201,6 @@ duckdb desktop.duckdb -c "SELECT timestamp_display, event_type, source FROM time
 ```mermaid
 flowchart LR
   USN["$UsnJrnl"] --> R["loot.zip rename 03:46:18"] --> D["DELETE 03:47:09"] --> X["consistent with<br/>stage → exfil → cleanup"]
-```
-
----
-
-# Q9 · What was the network layout?
-
-**Ground truth:** Domain **C137**, `10.42.85.0/24`; DC `…85.10`, Desktop `…85.115`.
-
-**Command:**
-
-```bash
-duckdb dc01.duckdb -c "SELECT DISTINCT json_extract_string(metadata,'\$.WorkstationName') host,
-  json_extract_string(metadata,'\$.IpAddress') ip FROM timeline
-  WHERE event_type='LogonSuccess' AND ip LIKE '10.42.85.%' LIMIT 5;"
-```
-
-**Output** *(◐ — hosts/IPs measured from logon metadata; adapter config WIP):*
-
-```
-CITADEL-DC01 / 10.42.85.10 ;  DESKTOP-SDN1RPT / 10.42.85.115  → 10.42.85.0/24, domain C137
-```
-
-**Make sense of it:** the **two hosts and their /24** fall straight out of logon metadata + EVTX workstation names. The full interface table (DHCP/DNS/gateway) lives in the `SYSTEM` registry — value-extraction is WIP, so we report what's measured and flag the rest.
-
-```mermaid
-flowchart LR
-  EV["EVTX logon metadata"] --> H["CITADEL-DC01 .10<br/>DESKTOP-SDN1RPT .115"] --> N["10.42.85.0/24 · C137"]
-```
-
----
-
-# Q10 · What architecture changes should be made now?
-
-**Not a tool output — this is the analyst's recommendation layer.** issen supplies the *evidence*; you supply the *judgement*.
-
-Grounded in what we measured:
-
-- **RDP brute force succeeded** → restrict RDP (VPN/MFA/lockout), it was internet-reachable.
-- **One credential pivoted DC → Desktop** → tier admin accounts; no shared local `Administrator`.
-- **Persistence as a service** → service-creation (7045) alerting; app-allowlisting in System32.
-- **C2 egress on :443** → egress filtering / inspection.
-
-> This is **layer 3 of the epistemic stack** — recommendations, not findings. State them *as advice*, separate from the observed facts.
-
-```mermaid
-flowchart LR
-  EVID["measured findings"] --> J["analyst judgement"] --> REC["RDP MFA · tiered admin<br/>· 7045 alerting · egress filter"]
 ```
 
 ---
@@ -1170,83 +1261,118 @@ flowchart LR
 
 ---
 
-# Q13 · When was the last known contact?
+# B7 / B8 · Recover Beth's file, and which was timestomped?
 
-**Ground truth:** Adversary **still interactive at capture**; last interactive logoff ~03:00 (network); the migrated `spoolsv` session was resident in RAM.
-
-**Command:**
-
-```bash
-duckdb dc01.duckdb -c "SELECT max(timestamp_display) FROM timeline WHERE event_type='Logoff';"
-issen memory "$DC_MEM" --command netstat     # C2 still ESTABLISHED at capture
-```
-
-**Output** *(◐ — logoff measured; session envelope needs correlation):*
-
-```
-latest Logoff: 2020-09-19T04:52:11.91Z
-netstat: 203.78.103.109:443 still ESTABLISHED  → adversary live at acquisition
-```
-
-**Make sense of it:** the strongest "last contact" signal isn't a logoff — it's the **still-ESTABLISHED C2 in memory at capture**: the attacker was **live when the image was taken**. Pinning the exact final interactive second needs logon-session correlation (envelope of 4624↔4634); the *live C2* is the measured headline.
-
-```mermaid
-flowchart LR
-  LOG["latest Logoff 04:52"] --> Q["exact end?<br/>needs session correlation"]
-  NS["C2 still ESTABLISHED"] --> LIVE["adversary live<br/>at acquisition"]
-```
-
----
-
-# Advanced & Bonus Questions
-
-The official set doesn't stop at the timeline — it pushes into **who, recover, and prevent.**
-
-- **B1–B3** · Controls / architecture / policy that would have stopped it
-- **B4–B5** · Which users *actually* logged on (DC / Desktop)
-- **B6** · Domain passwords
-- **B7** · Recover Beth's original file — name + contents
-- **B8** · Which file was timestomped
-
-> These separate "I read the timeline" from "I can advise the client and recover the evidence."
-
-```mermaid
-flowchart LR
-  WHO["B4–B5 who logged on"] --> MEAS["measured"]
-  REC["B7–B8 recover / timestomp"] --> MEAS
-  PREV["B1–B3 controls"] --> JUDGE["analyst judgement"]
-  B6["B6 passwords"] --> LAB["offline lab"]
-```
-
----
-
-# B4 / B5 · Who actually logged on?
-
-**Ground truth:** DC → `Administrator`; Desktop → `Administrator` + `Rick Sanchez`.
+**Ground truth:** original `SECRET_beth.txt` ("Earth Beth is the real Beth."); the planted `Beth_Secret.txt` was **timestomped** to match `PortalGunPlans.txt`.
 
 **Command:**
 
 ```bash
-duckdb dc01.duckdb -c "SELECT DISTINCT json_extract_string(metadata,'\$.TargetUserName') u
-  FROM timeline WHERE event_type='LogonSuccess'
-  AND json_extract_string(metadata,'\$.LogonType') IN ('2','10','11')
-  AND u NOT LIKE '%\$' ORDER BY u;"
-# (repeat on desktop.duckdb)
+duckdb dc01.duckdb -c "SELECT DISTINCT regexp_extract(artifact_path,'[^/\\\\]+\$') fname
+  FROM timeline WHERE lower(artifact_path) LIKE '%beth%' OR lower(artifact_path) LIKE '%secret%';"
+```
+
+**Output** *(MEASURED-BY-ISSEN — names recovered from MFT):*
+
+```
+SECRET_beth.txt   ← original (B7)        Beth_Secret.txt   ← planted / timestomped (B8)
+SECRET_beth.lnk · Beth_Secret.lnk · PortalGunPlans.txt   (the timestamp donor)
+```
+
+**Make sense of it:** issen recovers the **filenames** straight from the MFT — the original `SECRET_beth.txt`, the planted `Beth_Secret.txt`, and `PortalGunPlans.txt` whose `$SI` times the attacker copied (**B8**). The **contents** of the original (B7's "Earth Beth…") need `$DATA`/slack **carving** — present in design, not this run (○). Names: ✅; contents: ○.
+
+```mermaid
+flowchart LR
+  MFT["$MFT names"] --> O["SECRET_beth.txt<br/>(original · B7)"]
+  MFT --> P["Beth_Secret.txt<br/>(timestomped · B8)"]
+  P -.->|"$SI copied from"| D["PortalGunPlans.txt"]
+```
+
+---
+
+# Extra · What did they open? (LNK artifacts)
+
+**Finding:** issen recovers **LNK** shortcuts — direct evidence of which sensitive files the attacker opened/staged.
+
+```bash
+duckdb dc01.duckdb -c "SELECT DISTINCT regexp_extract(artifact_path,'[^/\\\\]+\$') f
+  FROM timeline WHERE lower(artifact_path) LIKE '%.lnk'
+  AND (lower(artifact_path) LIKE '%secret%' OR lower(artifact_path) LIKE '%szechuan%' OR lower(artifact_path) LIKE '%beth%');"
 ```
 
 **Output** *(MEASURED-BY-ISSEN):*
 
 ```
-DC      : Administrator
-Desktop : Administrator · ricksanchez · mortysmith  (+ local Admin, defaultuser0)
+Secret.lnk · Szechuan Sauce.lnk · Beth_Secret.lnk · SECRET_beth.lnk
 ```
 
-**Make sense of it:** filter interactive/RDP logon types and drop machine (`$`) accounts → the **real humans**. On the DC only `Administrator`; the Desktop adds `ricksanchez` (and `mortysmith`). *Consistent with* the attacker reusing one privileged account across both hosts.
+**Make sense of it:** an LNK exists because the file was **opened**. These corroborate the theft of the Szechuan recipe and Beth's secret **independently** of the MFT/USN trail — and `lnk-forensic` parses each target path + embedded timestamps for the full story.
 
 ```mermaid
 flowchart LR
-  LOGON["LogonSuccess · type 2/10/11<br/>minus machine accounts"] --> DCU["DC: Administrator"]
-  LOGON --> WSU["Desktop: Administrator · ricksanchez · mortysmith"]
+  MFT["$MFT"] --> LNK["Secret.lnk · Szechuan Sauce.lnk · Beth_Secret.lnk"] --> O["files the attacker opened<br/>(independent corroboration)"]
+```
+
+---
+
+# Group 5 · Persistence & Registry
+
+How it survives reboot, and the credential material — service, Run key, SAM hives. (`issen persistence` / registry.)
+
+> Covers: **Q6.9 · B6** (+ dual-persistence)
+
+---
+
+# Q6.9 · Persistence — installed where, and when?
+
+**Ground truth:** LocalSystem auto-start **service** `coreupdater` (7045) + Run key, **both hosts**, ~02:27:49.
+
+**Command:**
+
+```bash
+duckdb dc01.duckdb -c "SELECT timestamp_display, json_extract_string(metadata,'\$.ServiceName') svc
+  FROM timeline WHERE event_type='ServiceInstall' AND metadata LIKE '%coreupdater%'
+  ORDER BY timestamp_ns LIMIT 1;"
+```
+
+**Output** *(MEASURED-BY-ISSEN):*
+
+```
+2020-09-19T03:27:49.50Z | coreupdater    (EventID 7045, Service Control Manager)
+```
+
+**Make sense of it:** a **7045 service-install** named `coreupdater` at network **02:27:49** — three minutes after the drop. *Consistent with* SYSTEM-level boot persistence. The Run-key copy is the same story from the registry hive.
+
+```mermaid
+flowchart LR
+  EVTX["System.evtx"] --> E["7045 · coreupdater · 03:27:49"] --> P["consistent with<br/>SYSTEM persistence (both hosts)"]
+```
+
+---
+
+# Extra · Dual persistence — Run key AND service
+
+**Finding:** `coreupdater` is registered as a **7045 service** *and* a **Run key** — two independent IOCs.
+
+```bash
+duckdb dc01.duckdb -c "SELECT count(*) FROM timeline WHERE source='Registry'
+  AND lower(artifact_path) LIKE '%currentversion%run%' AND lower(metadata) LIKE '%coreupdater%';"
+```
+
+**Output** *(MEASURED-BY-ISSEN):*
+
+```
+1   ← coreupdater in …\CurrentVersion\Run   (plus the 7045 ServiceInstall from Q6.9)
+```
+
+**Make sense of it:** the official Q6.9 asks "persistence?" — singular. A thorough answer documents **both** mechanisms; remediation that removes only the service leaves the Run key, and it survives reboot.
+
+```mermaid
+flowchart LR
+  CU["coreupdater"] --> SVC["7045 service"]
+  CU --> RUN["…\CurrentVersion\Run key"]
+  SVC --> P["remove BOTH<br/>or it persists"]
+  RUN --> P
 ```
 
 ---
@@ -1278,31 +1404,53 @@ flowchart LR
 
 ---
 
-# B7 / B8 · Recover Beth's file, and which was timestomped?
+# Group 6 · Attribution & Advisory
 
-**Ground truth:** original `SECRET_beth.txt` ("Earth Beth is the real Beth."); the planted `Beth_Secret.txt` was **timestomped** to match `PortalGunPlans.txt`.
+Where the tool stops and judgement begins: IP attribution (OSINT) and the controls that would have prevented it.
 
-**Command:**
+> Covers: **Q7 · Q10 · B1–B3**
 
-```bash
-duckdb dc01.duckdb -c "SELECT DISTINCT regexp_extract(artifact_path,'[^/\\\\]+\$') fname
-  FROM timeline WHERE lower(artifact_path) LIKE '%beth%' OR lower(artifact_path) LIKE '%secret%';"
+---
+
+# Q7 · What malicious IPs were involved?
+
+**Ground truth:** `194.61.24.102` (entry/delivery) and `203.78.103.109` (C2). **7.1/7.2 — known infra / other attacks:** *no confirmed attribution.*
+
+**Command:** the two IPs above (`Q5`/`Q6.2` logon metadata + `Q6.3` netstat).
+
+**Output** *(✅ both IPs measured; ○ attribution):*
+
+```
+194.61.24.102  — RDP brute-force + delivery source   (measured)
+203.78.103.109 — established C2 :443                  (measured)
+7.1/7.2: known-adversary-infra association → OSINT, and RETRACTED by the lab author
 ```
 
-**Output** *(MEASURED-BY-ISSEN — names recovered from MFT):*
-
-```
-SECRET_beth.txt   ← original (B7)        Beth_Secret.txt   ← planted / timestomped (B8)
-SECRET_beth.lnk · Beth_Secret.lnk · PortalGunPlans.txt   (the timestamp donor)
-```
-
-**Make sense of it:** issen recovers the **filenames** straight from the MFT — the original `SECRET_beth.txt`, the planted `Beth_Secret.txt`, and `PortalGunPlans.txt` whose `$SI` times the attacker copied (**B8**). The **contents** of the original (B7's "Earth Beth…") need `$DATA`/slack **carving** — present in design, not this run (○). Names: ✅; contents: ○.
+**Make sense of it:** issen **measures both IPs and their roles**. Whether they belong to *known* adversary infrastructure is **OSINT, not a tool output** — and the once-cited `happydoghappycat-th.com` APT link was **retracted by the case author**, so we *do not* assert it. Absence of an OSINT hit proves nothing.
 
 ```mermaid
 flowchart LR
-  MFT["$MFT names"] --> O["SECRET_beth.txt<br/>(original · B7)"]
-  MFT --> P["Beth_Secret.txt<br/>(timestomped · B8)"]
-  P -.->|"$SI copied from"| D["PortalGunPlans.txt"]
+  M["measured: 2 IPs + roles"] --> O["known-infra? other attacks?"] --> X["OSINT · attribution RETRACTED<br/>→ do not assert"]
+```
+
+---
+
+# Q10 · What architecture changes should be made now?
+
+**Not a tool output — this is the analyst's recommendation layer.** issen supplies the *evidence*; you supply the *judgement*.
+
+Grounded in what we measured:
+
+- **RDP brute force succeeded** → restrict RDP (VPN/MFA/lockout), it was internet-reachable.
+- **One credential pivoted DC → Desktop** → tier admin accounts; no shared local `Administrator`.
+- **Persistence as a service** → service-creation (7045) alerting; app-allowlisting in System32.
+- **C2 egress on :443** → egress filtering / inspection.
+
+> This is **layer 3 of the epistemic stack** — recommendations, not findings. State them *as advice*, separate from the observed facts.
+
+```mermaid
+flowchart LR
+  EVID["measured findings"] --> J["analyst judgement"] --> REC["RDP MFA · tiered admin<br/>· 7045 alerting · egress filter"]
 ```
 
 ---
@@ -1363,146 +1511,6 @@ flowchart LR
   MEM["issen memory"] --> B["memory answers"]
   A --> NAR["→ correlate → narrative"]
   B --> NAR
-```
-
----
-
-# Beyond the Question Set — What Else Issen Surfaces
-
-The official rubric is **21 questions**. The union answer key runs to **F1–F44** — a real report documents what the *graded* set never asks. Five extras, each measured on the real DC image today:
-
-- Multiple attacker **sessions** (re-login after logoff)
-- **Dual persistence** — Run key *and* service
-- **Rare-source frequency** analysis (the outlier login finds itself)
-- **LNK** staging artifacts (what they opened)
-- **DPAPI** credential infrastructure + acquisition **provenance**
-
-> The questions are the floor, not the ceiling. Depth is what separates a checklist from an investigation.
-
-```mermaid
-flowchart LR
-  Q["21 official questions"] --> U["F1–F44 union key"]
-  U --> X["extras issen surfaces:<br/>sessions · dual-persist · frequency · LNK · DPAPI"]
-```
-
----
-
-# Extra · How many times did they log in?
-
-**Finding:** **4 distinct RDP sessions** over ~34 minutes — the logoff / re-login / re-migrate sequence (F25/F44).
-
-```bash
-duckdb dc01.duckdb -c "SELECT count(DISTINCT json_extract_string(metadata,'\$.TargetLogonId')) AS sessions,
-  min(timestamp_display) AS first, max(timestamp_display) AS last
-  FROM timeline WHERE event_type='LogonSuccess' AND metadata LIKE '%194.61.24.102%';"
-```
-
-**Output** *(MEASURED-BY-ISSEN):*
-
-```
-4 | 2020-09-19T03:21:48Z | 2020-09-19T03:56:04Z
-```
-
-**Make sense of it:** "the attacker logged in" hides that they did it **four times** — *consistent with* logging off (killing an un-migrated Meterpreter session) and re-establishing access. Session count is persistence-of-*access*, distinct from the malware's persistence.
-
-```mermaid
-flowchart LR
-  S["LogonId count · 194.61.24.102"] --> N["4 sessions<br/>03:21:48 → 03:56:04"] --> R["consistent with<br/>logoff → re-login"]
-```
-
----
-
-# Extra · Dual persistence — Run key AND service
-
-**Finding:** `coreupdater` is registered as a **7045 service** *and* a **Run key** — two independent IOCs.
-
-```bash
-duckdb dc01.duckdb -c "SELECT count(*) FROM timeline WHERE source='Registry'
-  AND lower(artifact_path) LIKE '%currentversion%run%' AND lower(metadata) LIKE '%coreupdater%';"
-```
-
-**Output** *(MEASURED-BY-ISSEN):*
-
-```
-1   ← coreupdater in …\CurrentVersion\Run   (plus the 7045 ServiceInstall from Q6.9)
-```
-
-**Make sense of it:** the official Q6.9 asks "persistence?" — singular. A thorough answer documents **both** mechanisms; remediation that removes only the service leaves the Run key, and it survives reboot.
-
-```mermaid
-flowchart LR
-  CU["coreupdater"] --> SVC["7045 service"]
-  CU --> RUN["…\CurrentVersion\Run key"]
-  SVC --> P["remove BOTH<br/>or it persists"]
-  RUN --> P
-```
-
----
-
-# Extra · The outlier login (frequency analysis)
-
-**Finding:** the rare-event technique (`issen frequency`, Events-Ripper posh600) flags `194.61.24.102` as a **statistical outlier** — no prior IOC needed.
-
-```bash
-duckdb dc01.duckdb -c "SELECT json_extract_string(metadata,'\$.IpAddress') ip, count(*) c
-  FROM timeline WHERE event_type='LogonSuccess' GROUP BY ip ORDER BY c ASC;"
-```
-
-**Output** *(MEASURED-BY-ISSEN):*
-
-```
-194.61.24.102   4    ← rare = suspicious
-10.42.85.10     127
-10.42.85.115    197
-```
-
-**Make sense of it:** you don't need the attacker's IP in advance — **rarity finds it.** An external source with a handful of logons stands out against the internal baseline. This is how you triage with zero starting indicators.
-
-```mermaid
-flowchart LR
-  ALL["all logon source IPs"] --> SORT["sort by frequency"] --> OUT["194.61.24.102 · 4<br/>= outlier"]
-```
-
----
-
-# Extra · What did they open? (LNK artifacts)
-
-**Finding:** issen recovers **LNK** shortcuts — direct evidence of which sensitive files the attacker opened/staged.
-
-```bash
-duckdb dc01.duckdb -c "SELECT DISTINCT regexp_extract(artifact_path,'[^/\\\\]+\$') f
-  FROM timeline WHERE lower(artifact_path) LIKE '%.lnk'
-  AND (lower(artifact_path) LIKE '%secret%' OR lower(artifact_path) LIKE '%szechuan%' OR lower(artifact_path) LIKE '%beth%');"
-```
-
-**Output** *(MEASURED-BY-ISSEN):*
-
-```
-Secret.lnk · Szechuan Sauce.lnk · Beth_Secret.lnk · SECRET_beth.lnk
-```
-
-**Make sense of it:** an LNK exists because the file was **opened**. These corroborate the theft of the Szechuan recipe and Beth's secret **independently** of the MFT/USN trail — and `lnk-forensic` parses each target path + embedded timestamps for the full story.
-
-```mermaid
-flowchart LR
-  MFT["$MFT"] --> LNK["Secret.lnk · Szechuan Sauce.lnk · Beth_Secret.lnk"] --> O["files the attacker opened<br/>(independent corroboration)"]
-```
-
----
-
-# Extra · Credentials infra + acquisition provenance
-
-Two more a careful report notes:
-
-- **DPAPI** — `Microsoft-Windows-Crypto-DPAPI` logs + `BackUpKeySvc` artifacts are present on the image; the new **`dpapi-forensic`** crate decrypts the master keys / blobs behind saved credentials. ◐
-- **Acquisition provenance** — `issen memory ps` shows **`FTK Imager.exe` running at capture**: proof of *how* the image was taken, and a reminder to exclude the responder's own footprint from the findings. ✅
-
-> Provenance is a finding too — knowing the acquisition tool ran (and when) is part of a defensible chain of custody, and the deck's three-layer discipline applies to it as much as to the attack.
-
-```mermaid
-flowchart LR
-  DP["Crypto-DPAPI logs · BackUpKeySvc"] --> DPF["dpapi-forensic<br/>decrypt blobs"]
-  PS["memory ps"] --> FTK["FTK Imager.exe at capture<br/>= acquisition provenance"]
 ```
 
 ---
