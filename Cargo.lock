@@ -2621,6 +2621,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "edd0f118536f44f5ccd48bcb8b111bdc3de888b58c74639dfb034a357d0f206d"
 
 [[package]]
+name = "enable-ansi-support"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ea7457668b3da8a4b702f3d79e131aa3e81cd7e81cc95fb2d54fce9f182ecc77"
+dependencies = [
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "encode_unicode"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4353,6 +4362,7 @@ dependencies = [
  "csv",
  "ctrlc",
  "duckdb",
+ "enable-ansi-support",
  "flate2",
  "forensic-pivot",
  "forensicnomicon 0.5.8",
@@ -4528,9 +4538,11 @@ dependencies = [
  "anyhow",
  "chrono",
  "forensic-hashdb",
+ "inventory",
  "issen-core",
  "issen-correlation",
  "issen-timeline",
+ "issen-unpack",
  "memf-core",
  "memf-correlate",
  "memf-format",

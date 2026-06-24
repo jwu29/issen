@@ -1,0 +1,917 @@
+//! Typed, injection-safe timeline query core (design Phase 1).
+//!
+//! Turns the tribal-knowledge raw-SQL workflow (`duckdb dc01.duckdb -c
+//! "SELECT … json_extract_string(metadata,'$.IpAddress') …"`) into a typed
+//! surface: a curated [field registry](FieldRegistry) maps analyst-facing names
+//! (`ip`, `user`, `service`) to the JSON path inside `metadata`, and a
+//! [`TypedQuery`] compiles to a **parameterized** query on a **read-only**
+//! DuckDB handle. No analyst input is ever string-interpolated into SQL.
+//!
+//! Security invariants (see the design's "Security considerations"):
+//! - read-only by construction ([`open_read_only`]),
+//! - no interpolation (filters bind as parameters; `--path` globs are escaped),
+//! - loud on unknown fields ([`QueryError::UnknownField`]), never a silent
+//!   empty result,
+//! - empty != absent ([`QueryResult::field_populated`] distinguishes "0 matches"
+//!   from "that field was never present in this case").
+
+use std::path::Path;
+
+use duckdb::types::Value as DuckValue;
+use duckdb::{AccessMode, Config, Connection};
+use thiserror::Error;
+
+/// The logical type a registry field carries (drives parsing/display).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FieldType {
+    /// An IP address (string in the JSON, e.g. `IpAddress`).
+    IpAddress,
+    /// A free-text identifier (user/service/workstation names).
+    Text,
+    /// A logon-type code (numeric, stored as a JSON string like `"3"`).
+    LogonType,
+    /// A hex/identifier token (e.g. `TargetLogonId` `0x3cfe4`).
+    Id,
+}
+
+/// One curated field: an analyst-facing name mapped to its `metadata` JSON key.
+#[derive(Debug, Clone, Copy)]
+pub struct Field {
+    /// The canonical analyst-facing name (`ip`, `user`, …).
+    pub name: &'static str,
+    /// Accepted aliases (e.g. `logon-type` ⇒ also `logontype`).
+    pub aliases: &'static [&'static str],
+    /// The JSON key inside the `metadata` blob (`IpAddress`, `TargetUserName`…).
+    pub json_key: &'static str,
+    /// The logical type.
+    pub ftype: FieldType,
+    /// Which `event_type`/`source` typically populates this field (doc/listing).
+    pub populated_by: &'static str,
+}
+
+/// The curated field registry — the heart of the typed surface.
+///
+/// Hand-curated for Phase 1 (the design's "Open questions" prefers deriving
+/// this from parser manifests later; YAGNI for now). Each entry turns a
+/// `metadata.$.X` JSON path into a first-class, discoverable name.
+pub struct FieldRegistry;
+
+const FIELDS: &[Field] = &[
+    Field {
+        name: "ip",
+        aliases: &["ipaddress", "ip-address"],
+        json_key: "IpAddress",
+        ftype: FieldType::IpAddress,
+        populated_by: "LogonSuccess/Logoff (EventLog 4624/4634)",
+    },
+    Field {
+        name: "user",
+        aliases: &["username", "target-user"],
+        json_key: "TargetUserName",
+        ftype: FieldType::Text,
+        populated_by: "LogonSuccess/Logoff (EventLog)",
+    },
+    Field {
+        name: "logon-type",
+        aliases: &["logontype", "logon_type"],
+        json_key: "LogonType",
+        ftype: FieldType::LogonType,
+        populated_by: "LogonSuccess (EventLog 4624)",
+    },
+    Field {
+        name: "service",
+        aliases: &["service-name", "servicename"],
+        json_key: "ServiceName",
+        ftype: FieldType::Text,
+        populated_by: "ServiceInstall (EventLog 7045)",
+    },
+    Field {
+        name: "workstation",
+        aliases: &["workstation-name", "workstationname"],
+        json_key: "WorkstationName",
+        ftype: FieldType::Text,
+        populated_by: "LogonSuccess (EventLog 4624)",
+    },
+    Field {
+        name: "logon-id",
+        aliases: &["logonid", "target-logon-id", "targetlogonid"],
+        json_key: "TargetLogonId",
+        ftype: FieldType::Id,
+        populated_by: "LogonSuccess/Logoff (EventLog)",
+    },
+];
+
+impl FieldRegistry {
+    /// All curated fields (for `--list-fields`).
+    #[must_use]
+    pub fn all() -> &'static [Field] {
+        FIELDS
+    }
+
+    /// Resolve a name or alias to its [`Field`]. `None` for an unknown name —
+    /// callers must surface this loudly, never as an empty result.
+    #[must_use]
+    pub fn resolve(name: &str) -> Option<&'static Field> {
+        let key = name.trim().to_ascii_lowercase();
+        FIELDS.iter().find(|f| {
+            f.name.eq_ignore_ascii_case(&key)
+                || f.aliases.iter().any(|a| a.eq_ignore_ascii_case(&key))
+        })
+    }
+
+    /// Sorted, comma-joined list of canonical field names (for error messages).
+    #[must_use]
+    pub fn valid_names() -> String {
+        let mut names: Vec<&str> = FIELDS.iter().map(|f| f.name).collect();
+        names.sort_unstable();
+        names.join(", ")
+    }
+}
+
+/// A filter operator over a registry field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FieldOp {
+    /// `=` exact match.
+    Eq,
+    /// `!=` not equal.
+    Ne,
+    /// `~` substring (contains).
+    Contains,
+}
+
+/// A single typed metadata filter (`--field NAME OP VAL`, or its `--ip` sugar).
+#[derive(Debug, Clone)]
+pub struct FieldFilter {
+    /// Registry field name (already resolved at parse time).
+    pub field: &'static Field,
+    /// The operator.
+    pub op: FieldOp,
+    /// The analyst-supplied value (bound as a parameter, never interpolated).
+    pub value: String,
+}
+
+/// What to project / aggregate. A query is either rows or exactly one aggregate.
+#[derive(Debug, Clone)]
+pub enum Mode {
+    /// Project the given columns/fields as rows.
+    Rows {
+        /// Columns to show: a table column name or a registry field name.
+        show: Vec<String>,
+    },
+    /// `--count`: total matching rows.
+    Count,
+    /// `--distinct COL|FIELD`: distinct values (sorted).
+    Distinct {
+        /// The column/field whose distinct values to return.
+        target: String,
+    },
+    /// `--group-by COL|FIELD`: histogram (value, count).
+    GroupBy {
+        /// The column/field to group on.
+        target: String,
+    },
+    /// `--first`/`--last`: the min/max-timestamp row of the matched set.
+    Extreme {
+        /// `true` = first (min ts), `false` = last (max ts).
+        first: bool,
+    },
+}
+
+/// A typed, read-only timeline query (the design's Tier-1 engine).
+#[derive(Debug, Clone)]
+pub struct TypedQuery {
+    /// `event_type` filters (OR within; AND with the rest).
+    pub event_types: Vec<String>,
+    /// `source` filters (OR within).
+    pub sources: Vec<String>,
+    /// `artifact_path` glob/substring (compiled to an escaped, parameterized LIKE).
+    pub path: Option<String>,
+    /// Typed metadata filters (AND-combined).
+    pub fields: Vec<FieldFilter>,
+    /// Drop `user` values ending in `$` (machine accounts).
+    pub exclude_machine_accounts: bool,
+    /// Sort ascending by timestamp (rows / group-by ordering).
+    pub ascending: bool,
+    /// Row limit (rows mode only).
+    pub limit: Option<u64>,
+    /// What to project / aggregate.
+    pub mode: Mode,
+}
+
+impl Default for TypedQuery {
+    fn default() -> Self {
+        Self {
+            event_types: Vec::new(),
+            sources: Vec::new(),
+            path: None,
+            fields: Vec::new(),
+            exclude_machine_accounts: false,
+            ascending: true,
+            limit: None,
+            mode: Mode::Rows {
+                show: default_columns(),
+            },
+        }
+    }
+}
+
+fn default_columns() -> Vec<String> {
+    ["timestamp_display", "event_type", "source", "artifact_path"]
+        .iter()
+        .map(|s| (*s).to_string())
+        .collect()
+}
+
+/// Table columns the projection accepts directly (everything else is a field).
+const TABLE_COLUMNS: &[&str] = &[
+    "timestamp_ns",
+    "timestamp_display",
+    "event_type",
+    "source",
+    "artifact_path",
+    "description",
+    "user_account",
+    "hostname",
+    "evidence_source",
+];
+
+#[derive(Debug, Error)]
+pub enum QueryError {
+    #[error("DuckDB error: {0}")]
+    DuckDb(#[from] duckdb::Error),
+
+    #[error(
+        "unknown field '{name}'. Valid fields: {valid}. \
+         (use --list-fields to see the registry)"
+    )]
+    UnknownField { name: String, valid: String },
+
+    #[error("unknown column/field '{target}'. Valid: {valid}")]
+    UnknownTarget { target: String, valid: String },
+}
+
+/// Open a case DB on a **read-only** handle. A write is impossible by
+/// construction — the connection is opened with `access_mode=READ_ONLY`, so no
+/// code path (this one or a future caller's) can mutate evidence.
+pub fn open_read_only(path: &Path) -> Result<Connection, QueryError> {
+    let config = Config::default().access_mode(AccessMode::ReadOnly)?;
+    Ok(Connection::open_with_flags(path, config)?)
+}
+
+/// A single output column's name and its values for the matched rows.
+#[derive(Debug, Clone)]
+pub struct Column {
+    /// The column header (analyst-facing name).
+    pub name: String,
+    /// One string per row.
+    pub values: Vec<String>,
+}
+
+/// The result of a typed query: a uniform tabular shape the renderer consumes.
+#[derive(Debug, Clone)]
+pub struct QueryResult {
+    /// Output columns (header + per-row values).
+    pub columns: Vec<Column>,
+    /// Number of result rows.
+    pub row_count: usize,
+    /// For each registry field referenced by a filter/projection: whether ANY
+    /// ingested row in the case populated it. Distinguishes "0 matches" from
+    /// "field never present" (empty != absent).
+    pub field_populated: Vec<(String, bool)>,
+}
+
+/// A LIKE pattern escape: turn a `*`/`?` glob into SQL `%`/`_` while escaping
+/// the analyst's literal `%`, `_`, and the escape char itself. The value is
+/// still bound as a parameter — escaping only prevents an analyst `%` from
+/// silently widening the match (it does not, and cannot, prevent injection,
+/// which is handled by parameter binding).
+fn glob_to_like(glob: &str) -> String {
+    let mut out = String::with_capacity(glob.len() + 2);
+    for ch in glob.chars() {
+        match ch {
+            '*' => out.push('%'),
+            '?' => out.push('_'),
+            '%' | '_' | '\\' => {
+                out.push('\\');
+                out.push(ch);
+            }
+            other => out.push(other),
+        }
+    }
+    out
+}
+
+/// SQL expression extracting a registry field from the `metadata` JSON, with the
+/// JSON key bound as a parameter (no interpolation of the key either).
+fn field_expr() -> &'static str {
+    "json_extract_string(metadata, '$.' || ?)"
+}
+
+impl TypedQuery {
+    /// Resolve a projection/aggregation target to its SQL expression, binding
+    /// any field JSON key as a parameter. Unknown names fail loud.
+    fn target_expr(&self, target: &str, params: &mut Vec<DuckValue>) -> Result<String, QueryError> {
+        let key = target.trim().to_ascii_lowercase();
+        // event-type is the analyst spelling of the event_type column.
+        if key == "event-type" {
+            return Ok("event_type".to_string());
+        }
+        if TABLE_COLUMNS.contains(&key.as_str()) {
+            return Ok(key);
+        }
+        if let Some(field) = FieldRegistry::resolve(target) {
+            params.push(DuckValue::Text(field.json_key.to_string()));
+            return Ok(field_expr().to_string());
+        }
+        Err(QueryError::UnknownTarget {
+            target: target.to_string(),
+            valid: format!(
+                "{}, {}",
+                TABLE_COLUMNS.join(", "),
+                FieldRegistry::valid_names()
+            ),
+        })
+    }
+
+    /// Build the WHERE clause (without the leading `WHERE`), appending bound
+    /// params in left-to-right order. All analyst input binds as a parameter.
+    fn build_where(&self, params: &mut Vec<DuckValue>) -> String {
+        let mut clauses: Vec<String> = vec!["1=1".to_string()];
+
+        if !self.event_types.is_empty() {
+            let placeholders = vec!["?"; self.event_types.len()].join(", ");
+            clauses.push(format!("event_type IN ({placeholders})"));
+            for et in &self.event_types {
+                params.push(DuckValue::Text(et.clone()));
+            }
+        }
+        if !self.sources.is_empty() {
+            let placeholders = vec!["?"; self.sources.len()].join(", ");
+            clauses.push(format!("source IN ({placeholders})"));
+            for s in &self.sources {
+                params.push(DuckValue::Text(s.clone()));
+            }
+        }
+        if let Some(ref glob) = self.path {
+            clauses.push("artifact_path LIKE ? ESCAPE '\\'".to_string());
+            params.push(DuckValue::Text(glob_to_like(glob)));
+        }
+        for f in &self.fields {
+            let expr = field_expr();
+            params.push(DuckValue::Text(f.field.json_key.to_string()));
+            match f.op {
+                FieldOp::Eq => {
+                    clauses.push(format!("{expr} = ?"));
+                    params.push(DuckValue::Text(f.value.clone()));
+                }
+                FieldOp::Ne => {
+                    clauses.push(format!("{expr} <> ?"));
+                    params.push(DuckValue::Text(f.value.clone()));
+                }
+                FieldOp::Contains => {
+                    clauses.push(format!("{expr} LIKE ? ESCAPE '\\'"));
+                    params.push(DuckValue::Text(format!("%{}%", like_escape(&f.value))));
+                }
+            }
+        }
+        if self.exclude_machine_accounts {
+            // Drop user values ending in '$' (machine accounts). The field key
+            // and the literal pattern both bind as parameters.
+            let expr = field_expr();
+            params.push(DuckValue::Text("TargetUserName".to_string()));
+            clauses.push(format!(
+                "({expr} IS NULL OR {expr2} NOT LIKE ? ESCAPE '\\')",
+                expr2 = {
+                    params.push(DuckValue::Text("TargetUserName".to_string()));
+                    field_expr()
+                }
+            ));
+            params.push(DuckValue::Text("%\\$".to_string()));
+        }
+
+        clauses.join(" AND ")
+    }
+
+    /// Compile and run against a read-only connection, returning a uniform
+    /// [`QueryResult`]. The SQL is fully parameterized.
+    pub fn run(&self, conn: &Connection) -> Result<QueryResult, QueryError> {
+        match &self.mode {
+            Mode::Count => self.run_count(conn),
+            Mode::Distinct { target } => self.run_distinct(conn, target),
+            Mode::GroupBy { target } => self.run_group_by(conn, target),
+            Mode::Extreme { first } => self.run_extreme(conn, *first),
+            Mode::Rows { show } => self.run_rows(conn, show),
+        }
+    }
+
+    fn field_populated_report(&self, conn: &Connection) -> Result<Vec<(String, bool)>, QueryError> {
+        // For every registry field referenced by a filter, report whether ANY
+        // row in the whole case populated it (empty != absent diagnostic).
+        let mut out = Vec::new();
+        for f in &self.fields {
+            let populated = field_is_populated(conn, f.field.json_key)?;
+            out.push((f.field.name.to_string(), populated));
+        }
+        Ok(out)
+    }
+
+    fn run_count(&self, conn: &Connection) -> Result<QueryResult, QueryError> {
+        let mut params: Vec<DuckValue> = Vec::new();
+        let where_clause = self.build_where(&mut params);
+        let sql = format!("SELECT count(*) FROM timeline WHERE {where_clause}");
+        let count: i64 = conn.query_row(&sql, params_slice(&params).as_slice(), |r| r.get(0))?;
+        Ok(QueryResult {
+            columns: vec![Column {
+                name: "count".to_string(),
+                values: vec![count.to_string()],
+            }],
+            row_count: 1,
+            field_populated: self.field_populated_report(conn)?,
+        })
+    }
+
+    fn run_distinct(&self, conn: &Connection, target: &str) -> Result<QueryResult, QueryError> {
+        let mut expr_params: Vec<DuckValue> = Vec::new();
+        let expr = self.target_expr(target, &mut expr_params)?;
+        let mut params: Vec<DuckValue> = expr_params.clone();
+        let where_clause = self.build_where(&mut params);
+        let sql = format!(
+            "SELECT DISTINCT {expr} AS value FROM timeline WHERE {where_clause} \
+             ORDER BY value {dir}",
+            dir = if self.ascending { "ASC" } else { "DESC" }
+        );
+        let values = self.collect_single_column(conn, &sql, &params)?;
+        let row_count = values.len();
+        Ok(QueryResult {
+            columns: vec![Column {
+                name: target.to_string(),
+                values,
+            }],
+            row_count,
+            field_populated: self.field_populated_for_target(conn, target)?,
+        })
+    }
+
+    fn run_group_by(&self, conn: &Connection, target: &str) -> Result<QueryResult, QueryError> {
+        let mut expr_params: Vec<DuckValue> = Vec::new();
+        let expr = self.target_expr(target, &mut expr_params)?;
+        // Bind params in statement order: SELECT-expr (before WHERE), then the
+        // WHERE filter params, then the GROUP BY-expr copy (after WHERE).
+        let mut params: Vec<DuckValue> = expr_params.clone();
+        let where_clause = self.build_where(&mut params);
+        params.extend(expr_params);
+        let sql = format!(
+            "SELECT {expr} AS value, count(*) AS count FROM timeline WHERE {where_clause} \
+             GROUP BY {expr} ORDER BY count {dir}, value ASC",
+            dir = if self.ascending { "ASC" } else { "DESC" }
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params_slice(&params).as_slice(), |row| {
+            let value: Option<String> = row.get(0)?;
+            let count: i64 = row.get(1)?;
+            Ok((value.unwrap_or_default(), count.to_string()))
+        })?;
+        let mut values = Vec::new();
+        let mut counts = Vec::new();
+        for r in rows {
+            let (v, c) = r?;
+            values.push(v);
+            counts.push(c);
+        }
+        let row_count = values.len();
+        Ok(QueryResult {
+            columns: vec![
+                Column {
+                    name: target.to_string(),
+                    values,
+                },
+                Column {
+                    name: "count".to_string(),
+                    values: counts,
+                },
+            ],
+            row_count,
+            field_populated: self.field_populated_for_target(conn, target)?,
+        })
+    }
+
+    fn run_extreme(&self, conn: &Connection, first: bool) -> Result<QueryResult, QueryError> {
+        let mut params: Vec<DuckValue> = Vec::new();
+        let where_clause = self.build_where(&mut params);
+        let dir = if first { "ASC" } else { "DESC" };
+        let sql = format!(
+            "SELECT timestamp_ns, timestamp_display, event_type, source, artifact_path \
+             FROM timeline WHERE {where_clause} \
+             ORDER BY timestamp_ns {dir}, record_hash {dir} LIMIT 1"
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let mut rows = stmt.query_map(params_slice(&params).as_slice(), |row| {
+            Ok([
+                row.get::<_, i64>(0)?.to_string(),
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+            ])
+        })?;
+        let headers = [
+            "timestamp_ns",
+            "timestamp_display",
+            "event_type",
+            "source",
+            "artifact_path",
+        ];
+        let mut columns: Vec<Column> = headers
+            .iter()
+            .map(|h| Column {
+                name: (*h).to_string(),
+                values: Vec::new(),
+            })
+            .collect();
+        let mut row_count = 0;
+        if let Some(r) = rows.next() {
+            let vals = r?;
+            for (i, v) in vals.iter().enumerate() {
+                columns[i].values.push(v.clone());
+            }
+            row_count = 1;
+        }
+        Ok(QueryResult {
+            columns,
+            row_count,
+            field_populated: self.field_populated_report(conn)?,
+        })
+    }
+
+    fn run_rows(&self, conn: &Connection, show: &[String]) -> Result<QueryResult, QueryError> {
+        // Build each projection expression (binding field keys), then WHERE.
+        let mut select_params: Vec<DuckValue> = Vec::new();
+        let mut exprs: Vec<String> = Vec::new();
+        for col in show {
+            let e = self.target_expr(col, &mut select_params)?;
+            exprs.push(e);
+        }
+        let mut params: Vec<DuckValue> = select_params;
+        let where_clause = self.build_where(&mut params);
+        let dir = if self.ascending { "ASC" } else { "DESC" };
+        let limit = self.limit.map_or(String::new(), |l| format!(" LIMIT {l}"));
+        let select_list = exprs.join(", ");
+        let sql = format!(
+            "SELECT {select_list} FROM timeline WHERE {where_clause} \
+             ORDER BY timestamp_ns {dir}, record_hash {dir}{limit}"
+        );
+        let n = show.len();
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params_slice(&params).as_slice(), |row| {
+            let mut vals = Vec::with_capacity(n);
+            for i in 0..n {
+                let v: Option<String> = row.get(i)?;
+                vals.push(v.unwrap_or_default());
+            }
+            Ok(vals)
+        })?;
+        let mut columns: Vec<Column> = show
+            .iter()
+            .map(|c| Column {
+                name: c.clone(),
+                values: Vec::new(),
+            })
+            .collect();
+        let mut row_count = 0;
+        for r in rows {
+            let vals = r?;
+            for (i, v) in vals.into_iter().enumerate() {
+                columns[i].values.push(v);
+            }
+            row_count += 1;
+        }
+        Ok(QueryResult {
+            columns,
+            row_count,
+            field_populated: self.field_populated_report(conn)?,
+        })
+    }
+
+    fn field_populated_for_target(
+        &self,
+        conn: &Connection,
+        target: &str,
+    ) -> Result<Vec<(String, bool)>, QueryError> {
+        let mut out = self.field_populated_report(conn)?;
+        if let Some(field) = FieldRegistry::resolve(target) {
+            if !out.iter().any(|(n, _)| n == field.name) {
+                out.push((
+                    field.name.to_string(),
+                    field_is_populated(conn, field.json_key)?,
+                ));
+            }
+        }
+        Ok(out)
+    }
+
+    fn collect_single_column(
+        &self,
+        conn: &Connection,
+        sql: &str,
+        params: &[DuckValue],
+    ) -> Result<Vec<String>, QueryError> {
+        let mut stmt = conn.prepare(sql)?;
+        let rows = stmt.query_map(params_slice(params).as_slice(), |row| {
+            let v: Option<String> = row.get(0)?;
+            Ok(v.unwrap_or_default())
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+}
+
+/// Whether ANY row in the case populates a given JSON metadata key.
+fn field_is_populated(conn: &Connection, json_key: &str) -> Result<bool, QueryError> {
+    let sql = "SELECT count(*) > 0 FROM timeline \
+               WHERE json_extract_string(metadata, '$.' || ?) IS NOT NULL";
+    let populated: bool = conn.query_row(sql, [json_key], |r| r.get(0))?;
+    Ok(populated)
+}
+
+/// Escape SQL LIKE metacharacters in a literal value used inside a `%…%`
+/// contains pattern, so an analyst `%`/`_` does not silently widen the match.
+fn like_escape(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for ch in value.chars() {
+        if matches!(ch, '%' | '_' | '\\') {
+            out.push('\\');
+        }
+        out.push(ch);
+    }
+    out
+}
+
+fn params_slice(params: &[DuckValue]) -> Vec<&dyn duckdb::ToSql> {
+    params.iter().map(|p| p as &dyn duckdb::ToSql).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn registry_resolves_canonical_names_and_aliases() {
+        assert_eq!(
+            FieldRegistry::resolve("ip").expect("ip field").json_key,
+            "IpAddress"
+        );
+        assert_eq!(
+            FieldRegistry::resolve("user").expect("user field").json_key,
+            "TargetUserName"
+        );
+        assert_eq!(
+            FieldRegistry::resolve("logon-type")
+                .expect("logon-type field")
+                .json_key,
+            "LogonType"
+        );
+        // alias
+        assert_eq!(
+            FieldRegistry::resolve("targetlogonid")
+                .expect("logon-id alias")
+                .json_key,
+            "TargetLogonId"
+        );
+        assert!(FieldRegistry::resolve("nope").is_none());
+    }
+
+    #[test]
+    fn registry_covers_the_six_required_fields() {
+        for name in [
+            "ip",
+            "user",
+            "logon-type",
+            "service",
+            "workstation",
+            "logon-id",
+        ] {
+            assert!(
+                FieldRegistry::resolve(name).is_some(),
+                "registry must cover {name}"
+            );
+        }
+    }
+
+    #[test]
+    fn glob_compiles_and_escapes_metacharacters() {
+        // glob wildcards translate; analyst literal %/_ are escaped.
+        assert_eq!(glob_to_like("*coreupdater*"), "%coreupdater%");
+        assert_eq!(glob_to_like("a?b"), "a_b");
+        assert_eq!(glob_to_like("100%_x"), "100\\%\\_x");
+    }
+
+    #[test]
+    fn like_escape_neutralises_metacharacters() {
+        assert_eq!(like_escape("a%b_c"), "a\\%b\\_c");
+        assert_eq!(like_escape(r"x\y"), r"x\\y");
+    }
+
+    use crate::store::TimelineStore;
+    use issen_core::artifacts::ArtifactType;
+    use issen_core::timeline::event::{EventType, TimelineEvent};
+
+    fn seeded() -> TimelineStore {
+        let store = TimelineStore::in_memory().expect("store");
+        let logon = TimelineEvent::new(
+            1_000,
+            "2020-09-19T03:24:06Z".into(),
+            EventType::Other("LogonSuccess".into()),
+            ArtifactType::EventLog,
+            "Security.evtx".into(),
+            "logon".into(),
+            "CASE".into(),
+        )
+        .with_metadata("IpAddress", serde_json::json!("10.42.85.115"))
+        .with_metadata("TargetUserName", serde_json::json!("rick"))
+        .with_metadata("LogonType", serde_json::json!("2"));
+        let machine = TimelineEvent::new(
+            2_000,
+            "2020-09-19T03:25:00Z".into(),
+            EventType::Other("LogonSuccess".into()),
+            ArtifactType::EventLog,
+            "Security.evtx".into(),
+            "logon".into(),
+            "CASE".into(),
+        )
+        .with_metadata("IpAddress", serde_json::json!("10.42.85.10"))
+        .with_metadata("TargetUserName", serde_json::json!("CITADEL-DC01$"))
+        .with_metadata("LogonType", serde_json::json!("2"));
+        let file = TimelineEvent::new(
+            3_000,
+            "2020-09-19T03:26:00Z".into(),
+            EventType::FileCreate,
+            ArtifactType::Mft,
+            "C:/coreupdater.exe".into(),
+            "file".into(),
+            "CASE".into(),
+        );
+        store.inseissen_event(&logon).expect("insert");
+        store.inseissen_event(&machine).expect("insert");
+        store.inseissen_event(&file).expect("insert");
+        store
+    }
+
+    fn event_type_is(name: &str) -> Vec<String> {
+        // The store records event_type via Debug formatting; Other("X") renders
+        // as `Other("X")`. Match what the store actually stored.
+        vec![format!("Other(\"{name}\")")]
+    }
+
+    #[test]
+    fn ip_filter_extracts_metadata_field() {
+        let store = seeded();
+        let q = TypedQuery {
+            event_types: event_type_is("LogonSuccess"),
+            fields: vec![FieldFilter {
+                field: FieldRegistry::resolve("ip").expect("ip field"),
+                op: FieldOp::Eq,
+                value: "10.42.85.115".into(),
+            }],
+            mode: Mode::Count,
+            ..Default::default()
+        };
+        let r = q.run(store.connection()).expect("count");
+        assert_eq!(r.columns[0].values[0], "1");
+    }
+
+    #[test]
+    fn exclude_machine_accounts_drops_dollar_users() {
+        let store = seeded();
+        let q = TypedQuery {
+            event_types: event_type_is("LogonSuccess"),
+            exclude_machine_accounts: true,
+            mode: Mode::Distinct {
+                target: "user".into(),
+            },
+            ..Default::default()
+        };
+        let r = q.run(store.connection()).expect("distinct");
+        assert_eq!(
+            r.columns[0].values,
+            vec!["rick".to_string()],
+            "CITADEL-DC01$ machine account must be dropped"
+        );
+    }
+
+    #[test]
+    fn injection_payload_binds_as_parameter_not_sql() {
+        // A --path value containing SQL metacharacters/quotes must bind as a
+        // parameter and break out of NOTHING — it simply matches no rows. The
+        // table also survives (read-only handle would block a write regardless).
+        let store = seeded();
+        let q = TypedQuery {
+            path: Some("'; DROP TABLE timeline;--".into()),
+            mode: Mode::Count,
+            ..Default::default()
+        };
+        let r = q.run(store.connection()).expect("must not error or inject");
+        assert_eq!(r.columns[0].values[0], "0");
+        // table intact
+        let n: i64 = store
+            .connection()
+            .query_row("SELECT count(*) FROM timeline", [], |r| r.get(0))
+            .expect("table survives");
+        assert_eq!(n, 3);
+    }
+
+    #[test]
+    fn unknown_target_fails_loud_not_empty() {
+        let store = seeded();
+        let q = TypedQuery {
+            mode: Mode::Distinct {
+                target: "nonexistent-field".into(),
+            },
+            ..Default::default()
+        };
+        let err = q.run(store.connection()).expect_err("must fail loud");
+        match err {
+            QueryError::UnknownTarget { target, valid } => {
+                assert_eq!(target, "nonexistent-field");
+                assert!(valid.contains("ip"), "must list valid fields");
+            }
+            other => panic!("expected UnknownTarget, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn empty_result_reports_field_populated_true_when_present() {
+        let store = seeded();
+        // ip IS populated, but no row matches this value ⇒ genuine empty.
+        let q = TypedQuery {
+            event_types: event_type_is("LogonSuccess"),
+            fields: vec![FieldFilter {
+                field: FieldRegistry::resolve("ip").expect("ip field"),
+                op: FieldOp::Eq,
+                value: "203.0.113.99".into(),
+            }],
+            mode: Mode::Count,
+            ..Default::default()
+        };
+        let r = q.run(store.connection()).expect("count");
+        assert_eq!(r.columns[0].values[0], "0");
+        assert_eq!(
+            r.field_populated,
+            vec![("ip".to_string(), true)],
+            "ip must report populated=true (genuine empty, not coverage gap)"
+        );
+    }
+
+    #[test]
+    fn empty_result_reports_field_absent_when_never_present() {
+        let store = seeded();
+        // service is NEVER populated in this seed ⇒ coverage gap, not clean.
+        let q = TypedQuery {
+            fields: vec![FieldFilter {
+                field: FieldRegistry::resolve("service").expect("service field"),
+                op: FieldOp::Eq,
+                value: "coreupdater".into(),
+            }],
+            mode: Mode::Count,
+            ..Default::default()
+        };
+        let r = q.run(store.connection()).expect("count");
+        assert_eq!(r.columns[0].values[0], "0");
+        assert_eq!(r.field_populated, vec![("service".to_string(), false)]);
+    }
+
+    #[test]
+    fn path_first_returns_min_timestamp_row() {
+        let store = seeded();
+        let q = TypedQuery {
+            path: Some("*coreupdater*".into()),
+            mode: Mode::Extreme { first: true },
+            ..Default::default()
+        };
+        let r = q.run(store.connection()).expect("first");
+        assert_eq!(r.row_count, 1);
+        assert_eq!(r.columns[0].values[0], "3000"); // timestamp_ns of the file row
+    }
+
+    #[test]
+    fn group_by_event_type_histogram() {
+        let store = seeded();
+        let q = TypedQuery {
+            mode: Mode::GroupBy {
+                target: "event-type".into(),
+            },
+            ascending: false,
+            ..Default::default()
+        };
+        let r = q.run(store.connection()).expect("group-by");
+        // Two LogonSuccess + one FileCreate.
+        let logon_idx = r.columns[0]
+            .values
+            .iter()
+            .position(|v| v.contains("LogonSuccess"))
+            .expect("logon bucket");
+        assert_eq!(r.columns[1].values[logon_idx], "2");
+    }
+}

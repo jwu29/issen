@@ -46,3 +46,5 @@ pub mod query;
 pub mod stats;
 pub mod store;
 pub mod temporal;
+pub mod tquery;
+pub mod trender;
