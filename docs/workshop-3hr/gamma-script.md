@@ -1398,6 +1398,8 @@ The deliverable is not a tool dump. It's an **attack-chain narrative** a board c
 
 Built from **graded findings**, each tagged *"consistent with"* — never a verdict.
 
+> **Write every sentence in one of three layers:** ① **observed fact** (state it) → ② **forensic inference** ("consistent with", never "proves") → ③ **legal conclusion** (hand to the tribunal). Never let a layer-① finding wear layer-③ language. *(See "Present It Like an Expert Witness.")*
+
 ```mermaid
 flowchart LR
   A["T1110<br/>brute force"] --> B["T1021.001<br/>RDP"]
