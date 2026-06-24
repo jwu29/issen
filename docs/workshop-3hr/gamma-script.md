@@ -286,19 +286,25 @@ flowchart TB
 
 ```mermaid
 flowchart TB
-  K["KNOWLEDGE — forensicnomicon<br/>format specs, magic bytes, the report vocabulary"]
-  C["CONTAINER — ewf / vmdk / vhdx / dd / memf-format<br/>raw image → addressable stream"]
-  F["FILESYSTEM — ntfs / ext4 / apfs<br/>name → inode → block"]
-  PG["PAGING + OS STRUCTURE — memf-hw / memf-windows<br/>VA → PA, EPROCESS, VAD, netstat"]
-  L["LOG FORMAT — winevt (EVTX), journald<br/>seek by timestamp / record-id"]
-  PA["PARSER — registry / srum / browser / prefetch<br/>records → forensic meaning"]
-  O["ORCHESTRATION — Issen<br/>wire all paths, correlate, report"]
-  K --> C --> F --> PA
-  C --> PG --> PA
-  C --> L --> PA
-  PA --> O
-  PG --> O
-  L --> O
+  subgraph ORCH ["ORCHESTRATION"]
+    O["Issen — wire all paths · correlate · report"]
+  end
+  subgraph PARSE ["PARSER"]
+    PA["registry · srum · browser · prefetch — records → forensic meaning"]
+  end
+  subgraph NAV ["NAVIGATION — three parallel address spaces"]
+    direction LR
+    F["FILESYSTEM<br/>ntfs · ext4 · apfs<br/>name → inode → block"]
+    PG["MEMORY<br/>memf-hw · memf-windows<br/>VA → PA · EPROCESS · netstat"]
+    L["LOG FORMAT<br/>winevt (EVTX) · journald<br/>seek by timestamp / record-id"]
+  end
+  subgraph CON ["CONTAINER"]
+    C["ewf · vmdk · vhdx · dd · memf-format — raw image → addressable stream"]
+  end
+  subgraph KNOW ["KNOWLEDGE — the foundation"]
+    K["forensicnomicon<br/>format specs · magic bytes · report vocabulary"]
+  end
+  ORCH === PARSE === NAV === CON === KNOW
 ```
 
 **Dependencies point down to KNOWLEDGE; evidence flows up to ORCHESTRATION.**
@@ -652,6 +658,38 @@ classDiagram
 ```
 
 *`EPROCESS.DirectoryTableBase` (CR3) roots a **4-level page table** — each virtual address indexes PML4 → PDPT → PD → PT to a physical page in the dump.*
+
+---
+
+# Auto-Profile — Zero-Config Symbols (vs Volatility 3)
+
+Every offset `memf` reads is exact for **this** kernel build, because it resolves the kernel's own **PDB** — never a hand-picked profile. The chain (`memf-symbols`):
+
+1. **Find the kernel in the dump** — scan physical pages for the `ntoskrnl` / `ntkrnlmp` MZ/PE header, reverse-map the **RSDS CodeView** record to the kernel base (MZ/PE-validated, not guessed). ✅
+2. **Read the PDB GUID + age** straight from that CodeView record — a fingerprint unique to one Windows build (this *is* the build identity; no registry `NtBuildNumber` needed).
+3. **GUID-match the PDB** — pull `ntkrnlmp.pdb` from the **Microsoft public symbol server**, GUID+age matched, then cache it. ✅
+4. **Overlay** the matching struct layout (`EPROCESS`, TCP endpoint, registry `_CM_KEY` offsets…) for that build. ◐ (overlay coverage is per-build WIP)
+
+**Microsoft Windows Server, too.** `citadeldc01` is a Windows **Server** DC — its server kernel resolves through the *same* GUID+age path. There is no separate "server profile": client and server are one code path.
+
+**Symbol-cache interop** — resolved in this order, so you reuse symbols you already have:
+
+1. `$MEMF_SYMBOL_CACHE`
+2. `$_NT_SYMBOL_PATH` (WinDbg `srv*DIR*URL` layout)
+3. **Volatility's own `CACHE_PATH`** (`~/.cache/volatility3`) — we read Volatility's symbol cache directly.
+
+> **Can Volatility 3 do this?** Vol3 uses pre-built **ISF JSON** symbol tables and its *automagic* to pick one — it does **not** fetch the PDB from Microsoft itself; you build/download the ISF in a separate step. issen GUID-matches and downloads the PDB **inline**, and on top of that reads Vol3's cache.
+
+```mermaid
+flowchart LR
+  DUMP["citadeldc01.mem<br/>(Windows Server DC)"] --> SCAN["scan MZ/PE<br/>+ RSDS reverse-map"]
+  SCAN --> ID["PDB GUID + age"]
+  ID --> SRV["Microsoft symbol server<br/>ntkrnlmp.pdb"]
+  SRV --> OV["build-exact overlay<br/>EPROCESS · TCP · _CM_KEY"]
+  ID -.reuse.-> VOL["Volatility CACHE_PATH"]
+```
+
+*Exact offsets for **this** build, fetched from Microsoft — not a guessed profile — and it will even read Volatility's symbol cache.*
 
 ---
 
