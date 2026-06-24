@@ -819,7 +819,9 @@ mod tests {
             },
             ..Default::default()
         };
-        let r = q.run(store.connection()).expect("group-by on a json field must not error");
+        let r = q
+            .run(store.connection())
+            .expect("group-by on a json field must not error");
         assert_eq!(r.columns.len(), 2, "value + count columns");
         assert_eq!(r.columns[1].name, "count");
         assert!(r.row_count >= 1, "expected at least one grouped Ip value");
