@@ -41,16 +41,16 @@ fn utf16le(bytes: &[u8]) -> String {
 #[test]
 #[ignore = "needs the 2 GB DFIR Madness citadeldc01.mem; set SZECHUAN_DC_MEM"]
 fn szechuan_lsadump_decrypts_default_password() {
+    // Volatility-reported _CMHIVE VA of the SYSTEM hive (memf does not populate a
+    // name for it; matched by VA, low 48 bits).
+    const SYSTEM_HIVE_VA: u64 = 0xc001_f0c2_8000;
+    const VA_MASK: u64 = 0xFFFF_FFFF_FFFF;
+
     let Some(dump) = citadel_dc_mem() else {
         eprintln!("citadeldc01.mem not found; skipping (set SZECHUAN_DC_MEM)");
         return;
     };
     let (_fmt, reader) = build_reader(&dump, None, None).expect("build reader from dump");
-
-    // Volatility-reported _CMHIVE VA of the SYSTEM hive (memf does not populate a
-    // name for it; matched by VA, low 48 bits).
-    const SYSTEM_HIVE_VA: u64 = 0xc001_f0c2_8000;
-    const VA_MASK: u64 = 0xFFFF_FFFF_FFFF;
 
     let hives = memf_windows::registry::walk_hive_list(&reader).expect("walk_hive_list");
     let system = hives
