@@ -186,17 +186,18 @@ pub enum Commands {
 
     /// Query and export the timeline.
     Timeline {
-        /// Path to the DuckDB database.
+        /// Path to the DuckDB database. Optional only with --list-fields.
         #[arg(value_name = "DB_PATH")]
-        db_path: PathBuf,
+        db_path: Option<PathBuf>,
 
-        /// Filter by event type (e.g. FileCreate, ProcessExec).
-        #[arg(long)]
-        event_type: Option<String>,
+        /// Filter by event type (repeatable; OR within). Replaces the legacy
+        /// single-value form for the typed-query path.
+        #[arg(long = "event-type", value_name = "TYPE")]
+        event_type: Vec<String>,
 
-        /// Filter by artifact source (e.g. UsnJournal, EventLog).
-        #[arg(long)]
-        source: Option<String>,
+        /// Filter by artifact source (repeatable; OR within).
+        #[arg(long, value_name = "SOURCE")]
+        source: Vec<String>,
 
         /// Maximum number of events to display.
         #[arg(short = 'n', long, default_value = "50")]
@@ -218,13 +219,70 @@ pub enum Commands {
         #[arg(long, default_value = "informational")]
         min_severity: String,
 
-        /// Output format: text, json, csv, bodyfile.
+        /// Output format: text or json (json is jsonguard-sanitized).
         #[arg(long, default_value = "text")]
         format: String,
 
         /// Render a temporal-rule narrative — a pure view over the DB (never ingests).
         #[arg(long)]
         narrative: bool,
+
+        // --- Tier-1 typed-query surface (design Phase 1) ---
+        /// Print the curated field registry (name -> JSON path) and exit.
+        #[arg(long = "list-fields")]
+        list_fields: bool,
+
+        /// Filter artifact_path by a glob (e.g. '*coreupdater*', '*.lnk').
+        #[arg(long, value_name = "GLOB")]
+        path: Option<String>,
+
+        /// Typed metadata filter NAME<OP>VAL (OP in =,!=,~). Repeatable.
+        #[arg(long = "field", value_name = "NAME<OP>VAL")]
+        field: Vec<String>,
+
+        /// Sugar: filter by IpAddress (= --field ip=VAL).
+        #[arg(long, value_name = "IP")]
+        ip: Option<String>,
+
+        /// Sugar: filter by TargetUserName (= --field user=VAL).
+        #[arg(long, value_name = "USER")]
+        user: Option<String>,
+
+        /// Sugar: filter by ServiceName (= --field service=VAL).
+        #[arg(long, value_name = "SERVICE")]
+        service: Option<String>,
+
+        /// Sugar: filter by LogonType (= --field logon-type=VAL).
+        #[arg(long = "logon-type", value_name = "N")]
+        logon_type: Option<String>,
+
+        /// Drop user/account values ending in '$' (machine accounts).
+        #[arg(long = "exclude-machine-accounts")]
+        exclude_machine_accounts: bool,
+
+        /// Projection: columns/fields to show (comma-separated).
+        #[arg(long, value_name = "COLS")]
+        show: Option<String>,
+
+        /// Aggregation: total matching rows.
+        #[arg(long)]
+        count: bool,
+
+        /// Aggregation: distinct values of a column/field.
+        #[arg(long, value_name = "COL")]
+        distinct: Option<String>,
+
+        /// Aggregation: histogram (value, count) grouped by a column/field.
+        #[arg(long = "group-by", value_name = "COL")]
+        group_by: Option<String>,
+
+        /// Aggregation: the earliest (min-timestamp) matching row.
+        #[arg(long)]
+        first: bool,
+
+        /// Aggregation: the latest (max-timestamp) matching row.
+        #[arg(long)]
+        last: bool,
     },
 
     /// Show information about a timeline database.
@@ -601,18 +659,89 @@ pub fn run() -> ExitCode {
             min_severity,
             format,
             narrative,
-        } => commands::timeline::run(
-            &db_path,
-            event_type.as_deref(),
-            source.as_deref(),
-            limit,
-            descending,
-            export_sqlite.as_deref(),
-            flagged,
-            &min_severity,
-            &format,
-            narrative,
-        ),
+            list_fields,
+            path,
+            field,
+            ip,
+            user,
+            service,
+            logon_type,
+            exclude_machine_accounts,
+            show,
+            count,
+            distinct,
+            group_by,
+            first,
+            last,
+        } => {
+            // --list-fields is a pure registry dump; no DB required.
+            if list_fields {
+                commands::timeline_query::list_fields();
+                Ok(())
+            } else {
+                // Route to the Tier-1 typed-query path when any typed flag is
+                // set; the legacy export/flagged/narrative path keeps its own
+                // contract.
+                let typed = path.is_some()
+                    || !field.is_empty()
+                    || ip.is_some()
+                    || user.is_some()
+                    || service.is_some()
+                    || logon_type.is_some()
+                    || exclude_machine_accounts
+                    || show.is_some()
+                    || count
+                    || distinct.is_some()
+                    || group_by.is_some()
+                    || first
+                    || last
+                    || !event_type.is_empty()
+                    || !source.is_empty();
+
+                match db_path {
+                    None => Err(anyhow::anyhow!(
+                        "a DB_PATH is required (use --list-fields to list fields without one)"
+                    )),
+                    Some(db) if typed && export_sqlite.is_none() && !flagged && !narrative => {
+                        let args = commands::timeline_query::QueryArgs {
+                            event_types: event_type,
+                            sources: source,
+                            path,
+                            fields: field,
+                            ip,
+                            user,
+                            service,
+                            logon_type,
+                            exclude_machine_accounts,
+                            show,
+                            count,
+                            distinct,
+                            group_by,
+                            first,
+                            last,
+                            sort_desc: descending,
+                            limit: Some(limit),
+                            format,
+                        };
+                        commands::timeline_query::run(&db, &args)
+                    }
+                    // Legacy path (export / flagged / narrative / plain listing):
+                    // the typed event_type/source vecs collapse to their first.
+                    Some(db) => commands::timeline::run(
+                        &db,
+                        event_type.first().map(String::as_str),
+                        source.first().map(String::as_str),
+                        limit,
+                        descending,
+                        export_sqlite.as_deref(),
+                        flagged,
+                        &min_severity,
+                        &format,
+                        narrative,
+                    ),
+                }
+            }
+        }
         Commands::Info { db_path } => commands::info::run(&db_path),
         Commands::Feed { action } => commands::feed::run(&action.to_lib_action()),
         Commands::Scan {
