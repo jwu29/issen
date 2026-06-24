@@ -455,14 +455,17 @@ impl TypedQuery {
     fn run_group_by(&self, conn: &Connection, target: &str) -> Result<QueryResult, QueryError> {
         let mut expr_params: Vec<DuckValue> = Vec::new();
         let expr = self.target_expr(target, &mut expr_params)?;
-        // Bind params in statement order: SELECT-expr (before WHERE), then the
-        // WHERE filter params, then the GROUP BY-expr copy (after WHERE).
-        let mut params: Vec<DuckValue> = expr_params.clone();
+        // Bind params in statement order: the SELECT-expr param(s) (before
+        // WHERE), then the WHERE filter params. GROUP BY references the SELECT
+        // value by ORDINAL POSITION (`GROUP BY 1`) — the json_extract expr is
+        // parameterized, so repeating it verbatim makes DuckDB treat the two as
+        // distinct exprs ("metadata must appear in GROUP BY"); grouping by
+        // position binds the param once and matches the SELECT exactly.
+        let mut params: Vec<DuckValue> = expr_params;
         let where_clause = self.build_where(&mut params);
-        params.extend(expr_params);
         let sql = format!(
             "SELECT {expr} AS value, count(*) AS count FROM timeline WHERE {where_clause} \
-             GROUP BY {expr} ORDER BY count {dir}, value ASC",
+             GROUP BY 1 ORDER BY count {dir}, value ASC",
             dir = if self.ascending { "ASC" } else { "DESC" }
         );
         let mut stmt = conn.prepare(&sql)?;
