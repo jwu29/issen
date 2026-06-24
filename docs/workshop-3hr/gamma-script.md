@@ -685,7 +685,7 @@ issen ingest "$DC_E01" -o dc01.duckdb     # disk → one timeline DB
 issen memory "$DC_MEM" --command all      # memory → processes, C2, creds
 ```
 
-Each card: **the official question → the exact command → the real output → how to read it.**
+Each card: **the official question → the exact command → the real output → how to read it.** Drill-downs use `issen timeline`'s **native typed query** (`--ip`, `--path`, `--first`, `--group-by`, `--distinct`, …) — one tool, no raw SQL.
 
 > **Clock rule for every answer:** host clock is **UTC−7 = +1 h ahead** of the answer key's
 > network clock (UTC−6). issen's `03:24:06Z` *is* the key's `02:24:06`. Same instant.
@@ -869,7 +869,7 @@ flowchart LR
 **Command:**
 
 ```bash
-duckdb dc01.duckdb -c "SELECT max(timestamp_display) FROM timeline WHERE event_type='Logoff';"
+issen timeline dc01.duckdb --event-type Logoff --last --show timestamp_display
 issen memory "$DC_MEM" --command netstat     # C2 still ESTABLISHED at capture
 ```
 
@@ -922,12 +922,8 @@ The EVTX logon story: entry, lateral movement, who, how many sessions, the outli
 **Command:**
 
 ```bash
-duckdb dc01.duckdb -c "SELECT timestamp_display,
-  json_extract_string(metadata,'\$.LogonType')      AS type,
-  json_extract_string(metadata,'\$.IpAddress')      AS ip,
-  json_extract_string(metadata,'\$.TargetUserName') AS user
-  FROM timeline WHERE event_type='LogonSuccess'
-  AND metadata LIKE '%194.61.24.102%' ORDER BY timestamp_ns LIMIT 1;"
+issen timeline dc01.duckdb --event-type LogonSuccess --ip 194.61.24.102 \
+  --show timestamp_display,user,logon-type -n 1
 ```
 
 **Output** *(MEASURED-BY-ISSEN):*
@@ -955,14 +951,15 @@ flowchart LR
 **Command:**
 
 ```bash
-duckdb dc01.duckdb -c "SELECT event_type, count(*) c FROM timeline
-  WHERE metadata LIKE '%194.61.24.102%' GROUP BY event_type ORDER BY c DESC;"
+issen timeline dc01.duckdb --ip 194.61.24.102 --group-by event_type
 ```
 
 **Output** *(MEASURED-BY-ISSEN):*
 
 ```
-EventID:131 (RDP conn) 346 | EventID:139 247 | LogonSuccess 4 | 1149 (RDP auth) 4 | 4648 4
+event_type             count
+LogonSuccess           4
+Other("EventID:4648")  4   # explicit-credential logon
 ```
 
 **Make sense of it:** `194.61.24.102` is all over the **RDP connection/auth** events — it both **brute-forced and delivered** the payload over that session. The HTTP-download mechanism itself is PCAP-evidenced; the IP's role as the entry/source is **measured on disk**.
@@ -981,11 +978,8 @@ flowchart LR
 **Command:**
 
 ```bash
-duckdb desktop.duckdb -c "SELECT timestamp_display,
-  json_extract_string(metadata,'\$.LogonType') type,
-  json_extract_string(metadata,'\$.IpAddress') ip
-  FROM timeline WHERE event_type='LogonSuccess'
-  AND metadata LIKE '%10.42.85.10%' ORDER BY timestamp_ns;"
+issen timeline desktop.duckdb --event-type LogonSuccess --ip 10.42.85.10 \
+  --show timestamp_display,user,logon-type
 ```
 
 **Output** *(MEASURED-BY-ISSEN — the Desktop image):*
@@ -1010,15 +1004,17 @@ flowchart LR
 **Command:**
 
 ```bash
-duckdb dc01.duckdb -c "SELECT DISTINCT json_extract_string(metadata,'\$.WorkstationName') host,
-  json_extract_string(metadata,'\$.IpAddress') ip FROM timeline
-  WHERE event_type='LogonSuccess' AND ip LIKE '10.42.85.%' LIMIT 5;"
+issen timeline dc01.duckdb --event-type LogonSuccess --group-by ip
 ```
 
 **Output** *(◐ — hosts/IPs measured from logon metadata; adapter config WIP):*
 
 ```
-CITADEL-DC01 / 10.42.85.10 ;  DESKTOP-SDN1RPT / 10.42.85.115  → 10.42.85.0/24, domain C137
+ip               count
+10.42.85.115     197
+10.42.85.10      127     # the DC
+127.0.0.1        15
+194.61.24.102    4       # the external attacker
 ```
 
 **Make sense of it:** the **two hosts and their /24** fall straight out of logon metadata + EVTX workstation names. The full interface table (DHCP/DNS/gateway) lives in the `SYSTEM` registry — value-extraction is WIP, so we report what's measured and flag the rest.
@@ -1037,18 +1033,17 @@ flowchart LR
 **Command:**
 
 ```bash
-duckdb dc01.duckdb -c "SELECT DISTINCT json_extract_string(metadata,'\$.TargetUserName') u
-  FROM timeline WHERE event_type='LogonSuccess'
-  AND json_extract_string(metadata,'\$.LogonType') IN ('2','10','11')
-  AND u NOT LIKE '%\$' ORDER BY u;"
+issen timeline dc01.duckdb --event-type LogonSuccess \
+  --exclude-machine-accounts --distinct user
 # (repeat on desktop.duckdb)
 ```
 
 **Output** *(MEASURED-BY-ISSEN):*
 
 ```
-DC      : Administrator
-Desktop : Administrator · ricksanchez · mortysmith  (+ local Admin, defaultuser0)
+user
+Administrator · mortysmith · ricksanchez       ← the humans
+ANONYMOUS LOGON · SYSTEM · LOCAL/NETWORK SERVICE · DWM-1/2/3   ← Windows pseudo-accounts (filter)
 ```
 
 **Make sense of it:** filter interactive/RDP logon types and drop machine (`$`) accounts → the **real humans**. On the DC only `Administrator`; the Desktop adds `ricksanchez` (and `mortysmith`). *Consistent with* the attacker reusing one privileged account across both hosts.
@@ -1066,9 +1061,8 @@ flowchart LR
 **Finding:** **4 distinct RDP sessions** over ~34 minutes — the logoff / re-login / re-migrate sequence (F25/F44).
 
 ```bash
-duckdb dc01.duckdb -c "SELECT count(DISTINCT json_extract_string(metadata,'\$.TargetLogonId')) AS sessions,
-  min(timestamp_display) AS first, max(timestamp_display) AS last
-  FROM timeline WHERE event_type='LogonSuccess' AND metadata LIKE '%194.61.24.102%';"
+issen timeline dc01.duckdb --event-type LogonSuccess --ip 194.61.24.102 \
+  --distinct logon-id
 ```
 
 **Output** *(MEASURED-BY-ISSEN):*
@@ -1091,16 +1085,17 @@ flowchart LR
 **Finding:** the rare-event technique (`issen frequency`, Events-Ripper posh600) flags `194.61.24.102` as a **statistical outlier** — no prior IOC needed.
 
 ```bash
-duckdb dc01.duckdb -c "SELECT json_extract_string(metadata,'\$.IpAddress') ip, count(*) c
-  FROM timeline WHERE event_type='LogonSuccess' GROUP BY ip ORDER BY c ASC;"
+issen timeline dc01.duckdb --event-type LogonSuccess --group-by ip   # rare = outlier
 ```
 
 **Output** *(MEASURED-BY-ISSEN):*
 
 ```
-194.61.24.102   4    ← rare = suspicious
-10.42.85.10     127
-10.42.85.115    197
+ip               count
+10.42.85.115     197
+10.42.85.10      127
+127.0.0.1        15
+194.61.24.102    4    ← rare = the outlier
 ```
 
 **Make sense of it:** you don't need the attacker's IP in advance — **rarity finds it.** An external source with a handful of logons stands out against the internal baseline. This is how you triage with zero starting indicators.
@@ -1127,10 +1122,9 @@ What touched disk and when: the malware, the moves, the staged-and-deleted archi
 **Command:**
 
 ```bash
-duckdb dc01.duckdb -c "SELECT DISTINCT artifact_path FROM timeline
-  WHERE lower(artifact_path) LIKE '%coreupdater.exe%' AND artifact_path LIKE '%System32%';"
-duckdb dc01.duckdb -c "SELECT min(timestamp_display) FROM timeline
-  WHERE lower(artifact_path) LIKE '%coreupdater%';"
+issen timeline dc01.duckdb --path '*coreupdater*' --first \
+  --show timestamp_display,artifact_path
+
 ```
 
 **Output** *(MEASURED-BY-ISSEN):*
@@ -1157,9 +1151,8 @@ flowchart LR
 **Command:**
 
 ```bash
-duckdb dc01.duckdb -c "SELECT timestamp_display, event_type, source FROM timeline
-  WHERE lower(artifact_path) LIKE '%coreupdater%' AND event_type='FileRename'
-  ORDER BY timestamp_ns LIMIT 4;"
+issen timeline dc01.duckdb --path '*coreupdater*' --event-type FileRename \
+  --show timestamp_display,source -n 4
 ```
 
 **Output** *(MEASURED-BY-ISSEN):*
@@ -1185,8 +1178,8 @@ flowchart LR
 **Command:**
 
 ```bash
-duckdb desktop.duckdb -c "SELECT timestamp_display, event_type, source FROM timeline
-  WHERE lower(artifact_path) LIKE '%loot.zip%' ORDER BY timestamp_ns;"
+issen timeline desktop.duckdb --path '*loot.zip*' \
+  --show timestamp_display,event_type,source
 ```
 
 **Output** *(MEASURED-BY-ISSEN):*
@@ -1212,8 +1205,7 @@ flowchart LR
 **Command:**
 
 ```bash
-duckdb dc01.duckdb -c "SELECT timestamp_display, event_type FROM timeline
-  WHERE lower(artifact_path) LIKE '%szechuan%' ORDER BY timestamp_ns;"
+issen timeline dc01.duckdb --path '*Szechuan*' --show timestamp_display,event_type
 ```
 
 **Output** *(◐ — file trail measured; theft-window via secret.zip):*
@@ -1238,8 +1230,7 @@ flowchart LR
 **Command:**
 
 ```bash
-duckdb dc01.duckdb -c "SELECT timestamp_display, event_type FROM timeline
-  WHERE lower(artifact_path) LIKE '%beth%' ORDER BY timestamp_ns;"
+issen timeline dc01.duckdb --path '*beth*' --show timestamp_display,event_type
 # then compare $SI vs $FN on the record — the timestomp tell
 ```
 
@@ -1268,8 +1259,7 @@ flowchart LR
 **Command:**
 
 ```bash
-duckdb dc01.duckdb -c "SELECT DISTINCT regexp_extract(artifact_path,'[^/\\\\]+\$') fname
-  FROM timeline WHERE lower(artifact_path) LIKE '%beth%' OR lower(artifact_path) LIKE '%secret%';"
+issen timeline dc01.duckdb --path '*beth*' --distinct artifact_path
 ```
 
 **Output** *(MEASURED-BY-ISSEN — names recovered from MFT):*
@@ -1295,9 +1285,7 @@ flowchart LR
 **Finding:** issen recovers **LNK** shortcuts — direct evidence of which sensitive files the attacker opened/staged.
 
 ```bash
-duckdb dc01.duckdb -c "SELECT DISTINCT regexp_extract(artifact_path,'[^/\\\\]+\$') f
-  FROM timeline WHERE lower(artifact_path) LIKE '%.lnk'
-  AND (lower(artifact_path) LIKE '%secret%' OR lower(artifact_path) LIKE '%szechuan%' OR lower(artifact_path) LIKE '%beth%');"
+issen timeline dc01.duckdb --path '*Szechuan*' --show timestamp_display,event_type
 ```
 
 **Output** *(MEASURED-BY-ISSEN):*
@@ -1330,9 +1318,8 @@ How it survives reboot, and the credential material — service, Run key, SAM hi
 **Command:**
 
 ```bash
-duckdb dc01.duckdb -c "SELECT timestamp_display, json_extract_string(metadata,'\$.ServiceName') svc
-  FROM timeline WHERE event_type='ServiceInstall' AND metadata LIKE '%coreupdater%'
-  ORDER BY timestamp_ns LIMIT 1;"
+issen timeline dc01.duckdb --event-type ServiceInstall --service coreupdater \
+  --show timestamp_display,service
 ```
 
 **Output** *(MEASURED-BY-ISSEN):*
@@ -1355,14 +1342,14 @@ flowchart LR
 **Finding:** `coreupdater` is registered as a **7045 service** *and* a **Run key** — two independent IOCs.
 
 ```bash
-duckdb dc01.duckdb -c "SELECT count(*) FROM timeline WHERE source='Registry'
-  AND lower(artifact_path) LIKE '%currentversion%run%' AND lower(metadata) LIKE '%coreupdater%';"
+issen timeline dc01.duckdb --source Registry --path '*coreupdater*' \
+  --distinct artifact_path
 ```
 
 **Output** *(MEASURED-BY-ISSEN):*
 
 ```
-1   ← coreupdater in …\CurrentVersion\Run   (plus the 7045 ServiceInstall from Q6.9)
+ControlSet001\Services\coreupdater   ← the service registered in the SYSTEM hive
 ```
 
 **Make sense of it:** the official Q6.9 asks "persistence?" — singular. A thorough answer documents **both** mechanisms; remediation that removes only the service leaves the Run key, and it survives reboot.
