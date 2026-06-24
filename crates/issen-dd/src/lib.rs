@@ -206,6 +206,37 @@ mod tests {
     }
 
     #[test]
+    fn dd_provider_open_pcap_names_pcap_and_shows_hex() {
+        // Classic little-endian pcap magic 0xA1B2C3D4 (on-disk: d4 c3 b2 a1).
+        let mut bytes = vec![0xD4, 0xC3, 0xB2, 0xA1];
+        bytes.extend_from_slice(&[0x02, 0x00, 0x04, 0x00, 0, 0, 0, 0, 0, 0, 0, 0]);
+        let img = make_image(&bytes);
+        let err = DdProvider.open(img.path()).expect_err("must fail loud");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("d4 c3 b2 a1"),
+            "must show the leading magic bytes as hex; got: {msg}"
+        );
+        assert!(
+            msg.to_lowercase().contains("pcap"),
+            "must name the detected pcap format; got: {msg}"
+        );
+    }
+
+    #[test]
+    fn dd_provider_open_arbitrary_bytes_shows_hex_dump() {
+        let bytes: Vec<u8> = (0u8..16).collect();
+        let img = make_image(&bytes);
+        let err = DdProvider.open(img.path()).expect_err("must fail loud");
+        let msg = err.to_string();
+        // The first 16 bytes (00..0f) must appear as a hex dump in the message.
+        assert!(
+            msg.contains("00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f"),
+            "must include the first 16 bytes as a hex dump; got: {msg}"
+        );
+    }
+
+    #[test]
     fn dd_provider_open_nonexistent_returns_err() {
         assert!(DdProvider
             .open(Path::new("/tmp/nonexistent_99999.dd"))

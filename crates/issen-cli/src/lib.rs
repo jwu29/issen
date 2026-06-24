@@ -761,4 +761,47 @@ mod tests {
         // Verify the CLI definition is valid (no conflicting args, etc.).
         Cli::command().debug_assert();
     }
+
+    // ── should_use_ansi (FIX 4) ──────────────────────────────────────────
+    // Never => false regardless; Always => true regardless; Auto gates on
+    // (stdout is a tty) AND (the terminal actually renders ANSI). The second
+    // clause is what stops a Windows legacy console — a tty that does NOT render
+    // ANSI — from garbling escapes.
+
+    #[test]
+    fn ansi_never_is_always_false() {
+        for tty in [false, true] {
+            for cap in [false, true] {
+                assert!(!should_use_ansi(ColorChoice::Never, tty, cap));
+            }
+        }
+    }
+
+    #[test]
+    fn ansi_always_is_always_true() {
+        for tty in [false, true] {
+            for cap in [false, true] {
+                assert!(should_use_ansi(ColorChoice::Always, tty, cap));
+            }
+        }
+    }
+
+    #[test]
+    fn ansi_auto_tty_and_capable_keeps_color() {
+        // Mac/Linux interactive terminal: tty + capable ⇒ colors KEPT.
+        assert!(should_use_ansi(ColorChoice::Auto, true, true));
+    }
+
+    #[test]
+    fn ansi_auto_tty_but_not_capable_goes_clean() {
+        // Windows legacy console: a tty that can't render ANSI ⇒ clean, not garbled.
+        assert!(!should_use_ansi(ColorChoice::Auto, true, false));
+    }
+
+    #[test]
+    fn ansi_auto_not_tty_is_false() {
+        // Piped/redirected: not a tty ⇒ no ANSI, even if "capable".
+        assert!(!should_use_ansi(ColorChoice::Auto, false, true));
+        assert!(!should_use_ansi(ColorChoice::Auto, false, false));
+    }
 }

@@ -624,6 +624,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn unsupported_collection_error_has_single_prefix() {
+        // An unrecognized/unsupported file routed through the collection pipeline
+        // must surface an error whose Display carries the "Unsupported format:"
+        // prefix EXACTLY ONCE. `open_collection` already returns `RtError`
+        // (usually `UnsupportedFormat`), so re-wrapping it with
+        // `UnsupportedFormat(e.to_string())` double-prefixed the message.
+        let f = tempfile::NamedTempFile::new().expect("tempfile");
+        std::fs::write(f.path(), b"not a collection of any kind").expect("write");
+
+        let progress = ProgressReporter::new();
+        let err = run_collection_pipeline(f.path(), &progress)
+            .expect_err("an unsupported file must error");
+        let msg = err.to_string();
+        let count = msg.matches("Unsupported format:").count();
+        assert_eq!(
+            count, 1,
+            "expected exactly one 'Unsupported format:' prefix; got {count} in: {msg}"
+        );
+    }
+
+    #[test]
     fn ingest_result_carries_coverage_manifest() {
         use issen_core::coverage::CoverageStatus;
         let artifacts = vec![DiscoveredArtifact {
