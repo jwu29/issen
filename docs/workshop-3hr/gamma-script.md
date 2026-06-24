@@ -695,7 +695,7 @@ flowchart LR
 
 | Stage (artifact) | issen | validation | Vol3 |
 |---|---|---|---|
-| SAM NTLM — `hashdump` | RC4 + AES revisions; refuses on unsupported rev | ◐ correct; real-DC e2e landing | ✅ plugin |
+| SAM NTLM — `hashdump` | RC4 + AES revisions; refuses on unsupported rev | ✅ Tier-2, **Vol3 as oracle** on real DC (Administrator `f56a8399…`) | ✅ plugin |
 | LSA secrets — `lsadump` | bootkey → PolEKList → per-secret AES | ✅ Tier-2, **Vol3 as oracle** on real DC | ✅ plugin |
 | Cached domain creds — `cachedump` | NL$KM → DCC2; decrypts + refuses | ◐ correct; e2e owed | ✅ plugin |
 | DPAPI — cookies / CredMan / Vault / Wi-Fi — `dpapi-forensic` | audited RustCrypto; refuses-don't-fabricate | ✅ vs Impacket vectors | — **no plugin** |
