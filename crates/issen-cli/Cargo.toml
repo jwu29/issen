@@ -55,6 +55,11 @@ srum-core    = { workspace = true }
 clap = { workspace = true }
 colored = { workspace = true }
 is-terminal = { workspace = true }
+# Direct pin (not workspace-inherited): the root Cargo.toml carries an
+# uncommitted local [patch.crates-io] for tier-2 testing, so this single
+# consumer pins the version here rather than adding a workspace.dependencies
+# entry. No-op returning Ok on Unix (colors stay on); enables VT on Windows.
+enable-ansi-support = "0.3"
 anyhow = { workspace = true }
 duckdb = { workspace = true }
 serde_json = { workspace = true }

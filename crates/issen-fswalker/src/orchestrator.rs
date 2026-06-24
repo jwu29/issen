@@ -132,8 +132,9 @@ fn with_evidence<R>(
     if path.is_dir() {
         Ok(f(path, &discover_artifacts(path, &detect_from_registry)?))
     } else {
-        let manifest = issen_unpack::registry::open_collection(path)
-            .map_err(|e| RtError::UnsupportedFormat(e.to_string()))?;
+        // `open_collection` already returns `RtError` (usually
+        // `UnsupportedFormat`); propagate it as-is so the prefix isn't doubled.
+        let manifest = issen_unpack::registry::open_collection(path)?;
         tracing::info!(
             format = %manifest.format_name,
             artifacts = manifest.artifacts.len(),
@@ -280,8 +281,9 @@ pub fn run_collection_pipeline(
     collection_path: &Path,
     progress: &ProgressReporter,
 ) -> Result<(Vec<TimelineEvent>, IngestResult), RtError> {
-    let manifest = issen_unpack::registry::open_collection(collection_path)
-        .map_err(|e| RtError::UnsupportedFormat(e.to_string()))?;
+    // `open_collection` already returns `RtError` (usually `UnsupportedFormat`);
+    // propagate it as-is so the prefix isn't doubled.
+    let manifest = issen_unpack::registry::open_collection(collection_path)?;
 
     tracing::info!(
         format = %manifest.format_name,
@@ -581,8 +583,9 @@ pub fn run_collection_pipeline_parallel(
     collection_path: &Path,
     progress: &ProgressReporter,
 ) -> Result<(Vec<TimelineEvent>, IngestResult), RtError> {
-    let manifest = issen_unpack::registry::open_collection(collection_path)
-        .map_err(|e| RtError::UnsupportedFormat(e.to_string()))?;
+    // `open_collection` already returns `RtError` (usually `UnsupportedFormat`);
+    // propagate it as-is so the prefix isn't doubled.
+    let manifest = issen_unpack::registry::open_collection(collection_path)?;
 
     tracing::info!(
         format = %manifest.format_name,

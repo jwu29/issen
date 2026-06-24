@@ -69,7 +69,7 @@ pub mod progress_view;
 pub mod scanning;
 
 /// When to emit ANSI color codes.
-#[derive(ValueEnum, Debug, Clone, Default)]
+#[derive(ValueEnum, Debug, Clone, Copy, Default)]
 pub enum ColorChoice {
     /// Emit colors only when stdout is an interactive terminal (default).
     #[default]
@@ -78,6 +78,21 @@ pub enum ColorChoice {
     Always,
     /// Never emit ANSI color codes.
     Never,
+}
+
+/// Decide whether tracing should emit ANSI color, given the color policy, whether
+/// stdout is a tty, and whether the terminal actually renders ANSI.
+///
+/// `Auto` requires BOTH a tty AND an ANSI-capable terminal: `is_terminal()` alone
+/// is the wrong predicate because a Windows legacy console IS a tty yet does not
+/// render ANSI (escapes would garble). On a Mac/Linux interactive terminal both
+/// hold, so colors are kept; a piped/redirected stream isn't a tty, so it's clean.
+fn should_use_ansi(color: ColorChoice, stdout_is_tty: bool, ansi_capable: bool) -> bool {
+    match color {
+        ColorChoice::Never => false,
+        ColorChoice::Always => true,
+        ColorChoice::Auto => stdout_is_tty && ansi_capable,
+    }
 }
 
 /// Issen — fast forensic triage for incident responders.
@@ -522,9 +537,19 @@ pub fn run() -> ExitCode {
     } else {
         "warn,evtx=error"
     };
+    // On Unix every tty renders ANSI, so `enable_ansi_support` is a no-op that
+    // returns Ok — colors stay on. On Windows it attempts to turn on VT
+    // processing; ANSI is capable iff that succeeded (a legacy console without VT
+    // fails here, so we fall back to clean output instead of garbled escapes).
+    let ansi_capable = enable_ansi_support::enable_ansi_support().is_ok();
     tracing_subscriber::fmt()
         .with_env_filter(filter)
         .with_target(false)
+        .with_ansi(should_use_ansi(
+            cli.color,
+            std::io::stdout().is_terminal(),
+            ansi_capable,
+        ))
         .try_init()
         .ok();
 

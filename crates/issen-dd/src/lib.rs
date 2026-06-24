@@ -102,12 +102,60 @@ impl CollectionProvider for DdProvider {
         // wired for it yet. Returning an empty manifest would emit a silent,
         // clean-looking timeline (indistinguishable from a genuinely clean
         // image) — fail loud instead of fabricating "no findings".
-        DdDataSource::open(path)?;
+        //
+        // "Show the unrecognized value": surface the leading magic bytes at
+        // offset 0 so the investigator can identify the format themselves, and
+        // name a known-but-unsupported one (a network capture) when we see it.
+        let src = DdDataSource::open(path)?;
+        let mut head = [0u8; LEADING_BYTES];
+        let read = src.read_at(0, &mut head)?;
+        let head = &head[..read];
+        let hex = hex_dump(head);
         Err(RtError::UnsupportedFormat(format!(
             "{}: image opens, but artifact extraction is not yet wired for \
-             this container (refusing to emit a silent empty timeline)",
-            self.name()
+             this container (refusing to emit a silent empty timeline). \
+             First bytes at offset 0: {hex}{}",
+            self.name(),
+            describe_known_format(head),
         )))
+    }
+}
+
+/// Number of leading bytes shown in the diagnostic hex dump.
+const LEADING_BYTES: usize = 16;
+
+/// Space-separated lowercase hex of `bytes` (e.g. `a1 b2 c3 d4`).
+fn hex_dump(bytes: &[u8]) -> String {
+    bytes
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Name a known-but-unsupported format from the leading bytes, or empty string.
+///
+/// `issen ingest` analyzes disk/memory images, not these, so naming them turns a
+/// dead-end "unsupported" into an actionable redirect. Magic per the pcap and
+/// pcapng (`[pcapng]`) specs — both byte orders for classic pcap.
+fn describe_known_format(head: &[u8]) -> &'static str {
+    if head.len() < 4 {
+        return "";
+    }
+    match head[..4] {
+        // Classic libpcap: magic 0xA1B2C3D4 written in the capturer's byte order,
+        // so it lands on disk as a1 b2 c3 d4 (big-endian) or d4 c3 b2 a1 (little).
+        // The ns-resolution variant 0xA1B23C4D / 0x4D3CB2A1 reads the same way.
+        [0xA1, 0xB2, 0xC3, 0xD4]
+        | [0xD4, 0xC3, 0xB2, 0xA1]
+        | [0xA1, 0xB2, 0x3C, 0x4D]
+        | [0x4D, 0x3C, 0xB2, 0xA1]
+        // pcapng Section Header Block type 0x0A0D0D0A.
+        | [0x0A, 0x0D, 0x0D, 0x0A] => {
+            " (looks like a pcap capture — issen ingest analyzes disk/memory \
+             images, not network captures)"
+        }
+        _ => "",
     }
 }
 
