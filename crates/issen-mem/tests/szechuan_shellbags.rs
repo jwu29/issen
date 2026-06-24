@@ -38,17 +38,17 @@ fn citadel_dc_mem() -> Option<PathBuf> {
 #[test]
 #[ignore = "needs the 2 GB DFIR Madness citadeldc01.mem; set SZECHUAN_DC_MEM"]
 fn szechuan_shellbags_recovers_bagmru_from_resident_usrclass() {
-    let Some(dump) = citadel_dc_mem() else {
-        eprintln!("citadeldc01.mem not found; skipping (set SZECHUAN_DC_MEM)");
-        return;
-    };
-    let (_fmt, reader) = build_reader(&dump, None, None).expect("build reader from dump");
-
     // The Administrator UsrClass.dat with a fully-resident, populated BagMRU
     // (the other UsrClass copies are paged out). UsrClass hives carry no useful
     // file name, so match by VA (low 48 bits), as lsadump does for SYSTEM.
     const USRCLASS_HIVE_VA: u64 = 0xc001_f1e9_4000;
     const VA_MASK: u64 = 0xFFFF_FFFF_FFFF;
+
+    let Some(dump) = citadel_dc_mem() else {
+        eprintln!("citadeldc01.mem not found; skipping (set SZECHUAN_DC_MEM)");
+        return;
+    };
+    let (_fmt, reader) = build_reader(&dump, None, None).expect("build reader from dump");
 
     let hives = memf_windows::registry::walk_hive_list(&reader).expect("walk_hive_list");
     let usrclass = hives
