@@ -10,6 +10,8 @@
 
 use std::collections::{HashMap, HashSet};
 
+use sha2::{Digest, Sha256};
+
 /// A pipeline stage. `Ingest`/`Correlate`/`Scan` form the disk chain; `Memory`
 /// is independent (it consumes memory dumps, not the disk timeline).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -128,39 +130,54 @@ pub fn plan<S: std::hash::BuildHasher>(
 
 /// Stable, order-independent fingerprint of a set of self-describing input
 /// parts. Same inputs (any order) → same string; any change → different string.
-/// STUB (RED).
+/// SHA-256 hex over the sorted, separator-delimited parts.
 #[must_use]
 pub fn fingerprint(parts: &[String]) -> String {
-    let _ = parts;
-    String::new()
+    use std::fmt::Write as _;
+    let mut sorted: Vec<&str> = parts.iter().map(String::as_str).collect();
+    sorted.sort_unstable();
+    let mut hasher = Sha256::new();
+    for p in sorted {
+        hasher.update(p.as_bytes());
+        hasher.update([0x1f_u8]); // unit separator: unambiguous part boundary
+    }
+    hasher.finalize().iter().fold(String::new(), |mut acc, b| {
+        // write! to a String is infallible; the Result is intentionally ignored.
+        let _ = write!(acc, "{b:02x}");
+        acc
+    })
 }
 
-/// Ingest-stage fingerprint from the evidence set (path, byte-size). STUB (RED).
+/// Ingest-stage fingerprint from the evidence set (path, byte-size).
 #[must_use]
 pub fn ingest_fingerprint(evidence: &[(String, u64)]) -> String {
-    let _ = evidence;
-    String::new()
+    let parts: Vec<String> = evidence
+        .iter()
+        .map(|(p, n)| format!("ev:{p}:{n}"))
+        .collect();
+    fingerprint(&parts)
 }
 
-/// Correlate-stage fingerprint from the correlation ruleset version. STUB (RED).
+/// Correlate-stage fingerprint from the correlation ruleset version.
 #[must_use]
 pub fn correlate_fingerprint(ruleset_version: &str) -> String {
-    let _ = ruleset_version;
-    String::new()
+    fingerprint(&[format!("rules:{ruleset_version}")])
 }
 
-/// Scan-stage fingerprint from the ruleset version and the feed snapshot. STUB (RED).
+/// Scan-stage fingerprint from the ruleset version and the feed snapshot.
 #[must_use]
 pub fn scan_fingerprint(ruleset_version: &str, feed_snapshot: &str) -> String {
-    let _ = (ruleset_version, feed_snapshot);
-    String::new()
+    fingerprint(&[
+        format!("rules:{ruleset_version}"),
+        format!("feeds:{feed_snapshot}"),
+    ])
 }
 
-/// Memory-stage fingerprint from the dump set (path, byte-size). STUB (RED).
+/// Memory-stage fingerprint from the dump set (path, byte-size).
 #[must_use]
 pub fn memory_fingerprint(dumps: &[(String, u64)]) -> String {
-    let _ = dumps;
-    String::new()
+    let parts: Vec<String> = dumps.iter().map(|(p, n)| format!("dump:{p}:{n}")).collect();
+    fingerprint(&parts)
 }
 
 #[cfg(test)]

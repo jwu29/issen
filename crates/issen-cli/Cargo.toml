@@ -16,6 +16,7 @@ name = "issen_cli"
 path = "src/lib.rs"
 
 [dependencies]
+sha2 = { workspace = true }
 ctrlc = { workspace = true }
 indicatif = { workspace = true }
 forensic-pivot = { workspace = true }
@@ -75,7 +76,6 @@ assert_cmd = { workspace = true }
 flate2 = { workspace = true }
 issen-disk = { workspace = true }
 predicates = { workspace = true }
-sha2 = { workspace = true }
 tar = { workspace = true }
 tempfile = { workspace = true }
 # link_completeness drift gate parses the issen-parsers aggregator manifest.
