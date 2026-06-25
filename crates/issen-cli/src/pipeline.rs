@@ -180,9 +180,172 @@ pub fn memory_fingerprint(dumps: &[(String, u64)]) -> String {
     fingerprint(&parts)
 }
 
+/// What kind of evidence a path holds, for routing to the disk chain vs the
+/// memory leg.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EvidenceKind {
+    Disk,
+    Memory,
+}
+
+/// Opt-out / control flags on the bare front door.
+#[derive(Debug, Clone, Default)]
+pub struct Flags {
+    pub no_scan: bool,
+    pub no_correlate: bool,
+    /// Ignore saved stage-state and redo everything.
+    pub rerun: bool,
+    /// Force exactly one stage (debug/power-user escape hatch).
+    pub only: Option<Stage>,
+}
+
+/// Classify an evidence path by extension. `None` = unrecognized (the caller
+/// warns and skips). Directories/collections are classified as disk by the
+/// shell, not here. `.raw`/`.dd` are treated as disk (dd images); memory dumps
+/// must use `.mem`/`.vmem`/`.lime`/`.dmp`/`.core`. STUB (RED).
+#[must_use]
+pub fn classify(path: &str) -> Option<EvidenceKind> {
+    let _ = path;
+    None
+}
+
+/// The stages applicable to this case given what evidence is present and the
+/// flags, in [`Stage::ORDER`]. STUB (RED).
+#[must_use]
+pub fn applicable_stages(has_disk: bool, has_memory: bool, flags: &Flags) -> Vec<Stage> {
+    let _ = (has_disk, has_memory, flags);
+    Vec::new()
+}
+
+/// Resolve the per-stage actions for a run: restrict to applicable stages (and
+/// `--only`), honor `--rerun` (ignore prior state), then delegate to [`plan`].
+/// STUB (RED).
+#[must_use]
+pub fn resolve_actions<S: std::hash::BuildHasher>(
+    applicable: &[Stage],
+    flags: &Flags,
+    current_fp: &HashMap<Stage, String, S>,
+    prior: &[StageRecord],
+) -> Vec<(Stage, Action)> {
+    let _ = (applicable, flags, current_fp, prior);
+    Vec::new()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn classify_routes_by_extension_case_insensitively() {
+        assert_eq!(classify("DC01.E01"), Some(EvidenceKind::Disk));
+        assert_eq!(classify("img.vmdk"), Some(EvidenceKind::Disk));
+        assert_eq!(classify("disk.raw"), Some(EvidenceKind::Disk));
+        assert_eq!(classify("citadeldc01.mem"), Some(EvidenceKind::Memory));
+        assert_eq!(classify("dump.LiME"), Some(EvidenceKind::Memory));
+        assert_eq!(classify("notes.txt"), None);
+    }
+
+    #[test]
+    fn applicable_stages_follow_present_evidence_and_order() {
+        let f = Flags::default();
+        assert_eq!(
+            applicable_stages(true, true, &f),
+            vec![Stage::Ingest, Stage::Correlate, Stage::Scan, Stage::Memory]
+        );
+        assert_eq!(
+            applicable_stages(true, false, &f),
+            vec![Stage::Ingest, Stage::Correlate, Stage::Scan]
+        );
+        assert_eq!(applicable_stages(false, true, &f), vec![Stage::Memory]);
+    }
+
+    #[test]
+    fn applicable_stages_respect_no_scan_no_correlate() {
+        let f = Flags {
+            no_scan: true,
+            no_correlate: true,
+            ..Flags::default()
+        };
+        assert_eq!(
+            applicable_stages(true, true, &f),
+            vec![Stage::Ingest, Stage::Memory]
+        );
+    }
+
+    #[test]
+    fn rerun_forces_every_applicable_stage_even_when_unchanged() {
+        let applicable = vec![Stage::Ingest, Stage::Correlate, Stage::Scan];
+        let cur = fp(&[
+            (Stage::Ingest, "e1"),
+            (Stage::Correlate, "r1"),
+            (Stage::Scan, "f1"),
+        ]);
+        let prior = vec![
+            rec(Stage::Ingest, Status::Done, "e1"),
+            rec(Stage::Correlate, Status::Done, "r1"),
+            rec(Stage::Scan, Status::Done, "f1"),
+        ];
+        let flags = Flags {
+            rerun: true,
+            ..Flags::default()
+        };
+        let out = resolve_actions(&applicable, &flags, &cur, &prior);
+        for s in applicable {
+            assert_eq!(
+                action_for(&out, s),
+                Some(Action::Run(Reason::Missing)),
+                "{s:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn only_restricts_to_one_stage() {
+        let applicable = vec![Stage::Ingest, Stage::Correlate, Stage::Scan];
+        let cur = fp(&[
+            (Stage::Ingest, "e1"),
+            (Stage::Correlate, "r1"),
+            (Stage::Scan, "f2"),
+        ]);
+        let prior = vec![
+            rec(Stage::Ingest, Status::Done, "e1"),
+            rec(Stage::Correlate, Status::Done, "r1"),
+            rec(Stage::Scan, Status::Done, "f1"),
+        ];
+        let flags = Flags {
+            only: Some(Stage::Scan),
+            ..Flags::default()
+        };
+        let out = resolve_actions(&applicable, &flags, &cur, &prior);
+        assert_eq!(out.len(), 1);
+        assert_eq!(
+            action_for(&out, Stage::Scan),
+            Some(Action::Run(Reason::Stale))
+        );
+    }
+
+    #[test]
+    fn default_run_delegates_to_plan() {
+        // Updated feeds only → scan re-runs, ingest+correlate skip.
+        let applicable = vec![Stage::Ingest, Stage::Correlate, Stage::Scan];
+        let cur = fp(&[
+            (Stage::Ingest, "e1"),
+            (Stage::Correlate, "r1"),
+            (Stage::Scan, "f2"),
+        ]);
+        let prior = vec![
+            rec(Stage::Ingest, Status::Done, "e1"),
+            rec(Stage::Correlate, Status::Done, "r1"),
+            rec(Stage::Scan, Status::Done, "f1"),
+        ];
+        let out = resolve_actions(&applicable, &Flags::default(), &cur, &prior);
+        assert_eq!(action_for(&out, Stage::Ingest), Some(Action::Skip));
+        assert_eq!(action_for(&out, Stage::Correlate), Some(Action::Skip));
+        assert_eq!(
+            action_for(&out, Stage::Scan),
+            Some(Action::Run(Reason::Stale))
+        );
+    }
 
     #[test]
     fn fingerprint_is_deterministic_and_order_independent() {
