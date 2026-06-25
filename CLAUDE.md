@@ -572,10 +572,14 @@ These four exercise both hosts × both media (disk + memory), so the ingest driv
 full analyzer set — NTFS / registry / EVTX / prefetch / LNK / SRUM / browser / Biome on
 the disk legs and memf-windows on the memory legs — all feeding one `forensicnomicon::report`
 aggregation. Extract the four to `/tmp` (never under `~/src` — the committed bytes are the
-zips; see the provenance standard above), then ingest them together into one timeline:
-`issen ingest <DC01.mem> <DC01.E01> <DESKTOP.mem> <DESKTOP.E01> -o /tmp/<name>.duckdb`.
-A run that completes and produces a populated, multi-source timeline (rows + findings tagged
-per evidence source) is the runtime confirmation; deliberately exclude pagefile and pcap.
+zips; see the provenance standard above). The validation has **two legs**, because
+`issen ingest`/`correlate` are disk-only — `.mem` dumps route through `issen memory`:
+
+- **Disk leg** (both E01s into one unified timeline): `issen ingest <DC01.E01> <DESKTOP.E01> -o /tmp/<name>.duckdb` — drives NTFS / registry / EVTX / prefetch / LNK / SRUM / browser / Biome, each tagged with its evidence source. (Pass only the FIRST `.E01` segment; ewf follows `.E02…` automatically.)
+- **Memory leg** (each dump): `issen memory <DC01.mem>` and `issen memory <DESKTOP.mem>` — drives memf-windows (EPROCESS / netstat / hashdump / …).
+
+Both legs completing and producing populated, non-crashing output across all analyzers is
+the runtime confirmation. Deliberately exclude pagefile and pcap.
 
 ## Release & Distribution Standard — binaries + Homebrew/apt/winget (every app/CLI repo)
 
