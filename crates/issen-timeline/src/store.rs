@@ -183,11 +183,69 @@ impl TimelineStore {
         }
         Ok(out)
     }
+
+    /// Record (upsert, keyed on stage) the completion state of a pipeline stage
+    /// so the resumable front door can plan the next run. STUB (RED).
+    pub fn record_stage_state(
+        &self,
+        stage: &str,
+        status: &str,
+        fingerprint: &str,
+    ) -> Result<(), TimelineStoreError> {
+        let _ = (stage, status, fingerprint);
+        Ok(())
+    }
+
+    /// Load all persisted pipeline stage-state rows. STUB (RED).
+    pub fn load_stage_states(&self) -> Result<Vec<StoredStageState>, TimelineStoreError> {
+        Ok(Vec::new())
+    }
+}
+
+/// A persisted pipeline stage-state row (string-typed). The pipeline-layer enums
+/// (`Stage`/`Status`) live in `issen-cli` and map to/from these strings, keeping
+/// the timeline store ignorant of pipeline semantics.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredStageState {
+    pub stage: String,
+    pub status: String,
+    pub fingerprint: String,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stage_state_roundtrips() {
+        let store = TimelineStore::in_memory().expect("store");
+        store
+            .record_stage_state("ingest", "done", "e1")
+            .expect("record");
+        let states = store.load_stage_states().expect("load");
+        assert_eq!(states.len(), 1);
+        assert_eq!(
+            states[0],
+            StoredStageState {
+                stage: "ingest".into(),
+                status: "done".into(),
+                fingerprint: "e1".into(),
+            }
+        );
+    }
+
+    #[test]
+    fn record_stage_state_upserts_by_stage() {
+        let store = TimelineStore::in_memory().expect("store");
+        store
+            .record_stage_state("scan", "incomplete", "f1")
+            .expect("r1");
+        store.record_stage_state("scan", "done", "f2").expect("r2");
+        let states = store.load_stage_states().expect("load");
+        assert_eq!(states.len(), 1, "upsert keeps one row per stage");
+        assert_eq!(states[0].status, "done");
+        assert_eq!(states[0].fingerprint, "f2");
+    }
 
     #[test]
     fn test_create_in_memory_store() {
