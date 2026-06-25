@@ -72,7 +72,7 @@ authors = ["Issen Contributors"]
 
 [workspace.dependencies]
 # Internal crates (path dependencies)
-forensicnomicon  = "0.5"
+forensicnomicon  = "0.11"
 forensic-pivot   = { path = "crates/forensic-pivot" }
 issen-core       = { path = "crates/issen-core" }
 issen-fswalker   = { path = "crates/issen-fswalker" }
