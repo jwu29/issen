@@ -59,10 +59,33 @@ use mft::attribute::x30::FileNameAttr;
 use mft::attribute::MftAttributeContent;
 use mft::attribute::MftAttributeType;
 use mft::MftParser;
+use ntfs_core::MftData;
 use tracing::warn;
 
 /// NTFS Master File Table parser.
 pub struct MftFileParser;
+
+/// The four `$FILE_NAME` MACE timestamps, decoupled from the `mft` crate's
+/// `FileNameAttr` so full-precision (ntfs-core) values can be substituted for
+/// the truncated ones. `From<&FileNameAttr>` preserves the mft-crate path.
+#[derive(Clone, Copy)]
+struct FnTimestamps {
+    created: DateTime<Utc>,
+    modified: DateTime<Utc>,
+    accessed: DateTime<Utc>,
+    mft_modified: DateTime<Utc>,
+}
+
+impl From<&FileNameAttr> for FnTimestamps {
+    fn from(f: &FileNameAttr) -> Self {
+        Self {
+            created: f.created,
+            modified: f.modified,
+            accessed: f.accessed,
+            mft_modified: f.mft_modified,
+        }
+    }
+}
 
 /// Convert a Windows FILETIME (100-nanosecond intervals since 1601-01-01) to
 /// nanoseconds since the Unix epoch.
@@ -104,6 +127,12 @@ pub fn datetime_to_display(dt: &DateTime<Utc>) -> String {
 }
 
 /// Create a [`TimelineEvent`] from an MFT timestamp.
+///
+/// `attribute` is the source NTFS attribute (`"$SI"` or `"$FN"`); it is stamped
+/// into the description and an `mft_attribute` metadata field so the two MACE
+/// quads are distinguishable in the super-timeline. It also makes the
+/// `$SI`/`$FN` record hashes differ when their timestamps coincide, so dedup
+/// keeps both rows.
 fn mace_event(
     timestamp: &DateTime<Utc>,
     event_type: EventType,
@@ -111,11 +140,13 @@ fn mace_event(
     full_path: &str,
     is_dir: bool,
     source_id: &str,
+    attribute: &str,
 ) -> TimelineEvent {
     let ts_ns = datetime_to_ns(timestamp);
     let ts_display = datetime_to_display(timestamp);
     let kind = if is_dir { "directory" } else { "file" };
-    let description = format!("{event_type}: {full_path} (MFT entry {entry_id}, {kind})");
+    let description =
+        format!("{event_type} ({attribute}): {full_path} (MFT entry {entry_id}, {kind})");
 
     TimelineEvent::new(
         ts_ns,
@@ -128,6 +159,7 @@ fn mace_event(
     )
     .with_activity_category(issen_core::ActivityCategory::FileSystemActivity)
     .with_metadata("mft_entry_id", serde_json::json!(entry_id))
+    .with_metadata("mft_attribute", serde_json::json!(attribute))
     .with_metadata("is_directory", serde_json::json!(is_dir))
     // FilePath correlation join key (carried over from the removed cli builtin).
     .with_entity_ref(issen_core::timeline::event::EntityRef::FilePath(
@@ -152,14 +184,15 @@ fn extract_standard_info(entry: &mft::entry::MftEntry) -> Option<StandardInfoAtt
 /// Minimum valid MFT size — at least one 1024-byte entry.
 const MIN_MFT_SIZE: u64 = 1024;
 
-/// Emit the four MACE timestamp events for a single MFT entry.
+/// Emit the four `$SI` MACE timestamp events for a single MFT entry.
 ///
-/// `fn_attr` carries the `$FILE_NAME` attribute when it co-exists with the
-/// `$STANDARD_INFORMATION` source of these timestamps. When present, its four
-/// timestamps are surfaced onto the `FileCreate` event's metadata
-/// (`fn_created` / `fn_modified` / `fn_accessed` / `fn_mft_modified`) so a
-/// downstream timestomp detector can compare `$SI` vs `$FN`. Pass `None` when
-/// only one of the two attributes exists — behavior is then unchanged.
+/// `fn_ts` carries the co-existing `$FILE_NAME` timestamps. When present, the
+/// four `$FN` values are surfaced onto the `FileCreate` event's metadata
+/// (`fn_created` / `fn_modified` / `fn_accessed` / `fn_mft_modified`) so the
+/// timestomp detector can compare `$SI` vs `$FN` from one event. The `$FN`
+/// quad is *also* emitted as four distinct rows by [`emit_fn_mace`] for the
+/// MACB×2 super-timeline; this metadata is the detector's single-event view,
+/// not a substitute for those rows. Pass `None` when no `$FN` is available.
 #[allow(clippy::too_many_arguments)]
 fn emit_mace_timestamps(
     batch: &mut Vec<TimelineEvent>,
@@ -171,7 +204,7 @@ fn emit_mace_timestamps(
     full_path: &str,
     is_dir: bool,
     source_id: &str,
-    fn_attr: Option<&FileNameAttr>,
+    fn_ts: Option<FnTimestamps>,
 ) {
     batch.push(mace_event(
         modified,
@@ -180,6 +213,7 @@ fn emit_mace_timestamps(
         full_path,
         is_dir,
         source_id,
+        "$SI",
     ));
     batch.push(mace_event(
         accessed,
@@ -188,6 +222,7 @@ fn emit_mace_timestamps(
         full_path,
         is_dir,
         source_id,
+        "$SI",
     ));
     let mut create_event = mace_event(
         created,
@@ -196,6 +231,7 @@ fn emit_mace_timestamps(
         full_path,
         is_dir,
         source_id,
+        "$SI",
     );
     // Surface all four $SI MACE values (nanosecond-precise) onto the FileCreate
     // event so the timestomp FP gate (copy/volume-move) and the stronger
@@ -217,7 +253,7 @@ fn emit_mace_timestamps(
             "si_mft_changed",
             serde_json::json!(datetime_to_display(mft_modified)),
         );
-    if let Some(fname) = fn_attr {
+    if let Some(fname) = fn_ts {
         create_event = create_event
             .with_metadata(
                 "fn_created",
@@ -244,7 +280,34 @@ fn emit_mace_timestamps(
         full_path,
         is_dir,
         source_id,
+        "$SI",
     ));
+}
+
+/// Emit the four `$FILE_NAME` MACE events as distinct super-timeline rows
+/// (MACB×2). Marked `"$FN"` so they are distinguishable from the `$SI` quad and
+/// survive dedup even when their timestamps coincide with `$SI`'s.
+fn emit_fn_mace(
+    batch: &mut Vec<TimelineEvent>,
+    fn_ts: FnTimestamps,
+    entry_id: u64,
+    full_path: &str,
+    is_dir: bool,
+    source_id: &str,
+) {
+    for (ts, event_type) in [
+        (&fn_ts.modified, EventType::FileModify),
+        (&fn_ts.accessed, EventType::FileAccess),
+        (&fn_ts.created, EventType::FileCreate),
+        (
+            &fn_ts.mft_modified,
+            EventType::Other("MftEntryModified".to_string()),
+        ),
+    ] {
+        batch.push(mace_event(
+            ts, event_type, entry_id, full_path, is_dir, source_id, "$FN",
+        ));
+    }
 }
 
 /// Read the full contents of a `DataSource` into a `Vec<u8>`.
@@ -303,6 +366,13 @@ impl ForensicParser for MftFileParser {
         let buffer = read_all(input)?;
         stats.bytes_processed = buffer.len() as u64;
 
+        // Full-precision $SI/$FN FILETIMEs. The mft crate converts via
+        // winstructs (`ticks / 10`, 100 ns → µs, dropping the final tick);
+        // ntfs-core preserves the full 100 ns. Parse the same buffer once and
+        // override the timestamps per record, degrading to the mft-crate value
+        // when a record is absent (no regression, just less precision).
+        let precise = MftData::parse(&buffer).ok();
+
         // Parse via the mft crate.
         let mut parser = match MftParser::from_buffer(buffer) {
             Ok(p) => p,
@@ -346,37 +416,51 @@ impl ForensicParser for MftFileParser {
             let is_dir = entry.is_dir();
             let entry_id = entry.header.record_number;
 
+            // On-disk MFT entry number (record header @ 0x2C). The mft crate's
+            // `record_number` is the iteration index, which coincides with the
+            // on-disk number only for a full, position-aligned $MFT; ntfs-core
+            // keys `by_entry` by the on-disk number, so read it directly
+            // (bounds-checked) to align the two parsers for any input.
+            let ondisk_entry = entry
+                .data
+                .get(0x2C..0x30)
+                .and_then(|b| <[u8; 4]>::try_from(b).ok())
+                .map_or(entry_id, |b| u64::from(u32::from_le_bytes(b)));
+            let pe = precise.as_ref().and_then(|d| d.get_by_entry(ondisk_entry));
+
+            // Full-precision $FN MACE (fall back to the mft crate per field).
+            let fn_ts = FnTimestamps {
+                created: pe.and_then(|e| e.fn_created).unwrap_or(file_name.created),
+                modified: pe.and_then(|e| e.fn_modified).unwrap_or(file_name.modified),
+                accessed: pe.and_then(|e| e.fn_accessed).unwrap_or(file_name.accessed),
+                mft_modified: pe
+                    .and_then(|e| e.fn_mft_modified)
+                    .unwrap_or(file_name.mft_modified),
+            };
+
             // Prefer $STANDARD_INFORMATION timestamps; fall back to $FILE_NAME.
             // When $SI drives the timestamps, surface the co-existing $FN
             // timestamps onto the FileCreate event so a timestomp detector can
             // compare $SI vs $FN.
+            // Full MACB×2 super-timeline: the 4 $SI MACE rows (with $SI/$FN
+            // metadata on FileCreate for timestomp detection) PLUS the 4 $FN
+            // MACE rows. When $SI is absent, only the $FN quad is emitted.
             if let Some(si) = extract_standard_info(&entry) {
                 emit_mace_timestamps(
                     &mut batch,
-                    &si.modified,
-                    &si.accessed,
-                    &si.created,
-                    &si.mft_modified,
+                    &pe.and_then(|e| e.si_modified).unwrap_or(si.modified),
+                    &pe.and_then(|e| e.si_accessed).unwrap_or(si.accessed),
+                    &pe.and_then(|e| e.si_created).unwrap_or(si.created),
+                    &pe.and_then(|e| e.si_mft_modified)
+                        .unwrap_or(si.mft_modified),
                     entry_id,
                     &full_path,
                     is_dir,
                     source_id,
-                    Some(&file_name),
-                );
-            } else {
-                emit_mace_timestamps(
-                    &mut batch,
-                    &file_name.modified,
-                    &file_name.accessed,
-                    &file_name.created,
-                    &file_name.mft_modified,
-                    entry_id,
-                    &full_path,
-                    is_dir,
-                    source_id,
-                    None,
+                    Some(fn_ts),
                 );
             }
+            emit_fn_mace(&mut batch, fn_ts, entry_id, &full_path, is_dir, source_id);
 
             if batch.len() >= 1000 {
                 stats.events_emitted += batch.len() as u64;
@@ -604,6 +688,7 @@ mod tests {
             "Users/analyst/report.docx",
             false,
             "evidence-001",
+            "$SI",
         );
         assert_eq!(event.event_type, EventType::FileCreate);
         assert_eq!(event.source, ArtifactType::Mft);
@@ -631,6 +716,7 @@ mod tests {
             "Windows/System32/coreupdater.exe",
             false,
             "evidence-001",
+            "$SI",
         );
         assert!(
             event.entity_refs.contains(&EntityRef::FilePath(
@@ -652,6 +738,7 @@ mod tests {
             "Windows/System32",
             true,
             "src-1",
+            "$SI",
         );
         assert!(event.description.contains("directory"));
         assert_eq!(event.metadata["is_directory"], serde_json::json!(true));
@@ -669,6 +756,7 @@ mod tests {
             "test.txt",
             false,
             "ev-1",
+            "$SI",
         );
         assert_eq!(
             event.event_type,
@@ -716,6 +804,79 @@ mod tests {
 
         let events = emitter.into_events();
         assert!(events.is_empty());
+    }
+
+    /// Real WinSxS component record (DC01 `$MFT` entry 74419) whose `$SI`
+    /// Modified FILETIME ends in a non-zero 100 ns digit. TSK `istat`
+    /// (independent oracle) reports `2013-06-18T15:02:18.305856600Z`; the
+    /// `mft` crate's `winstructs` truncates 100 ns → µs, rendering
+    /// `.305856000Z` in the timeline (the `bug1.jpg` report). Guards full
+    /// precision on the ingested `FileModify` event.
+    #[test]
+    fn parse_preserves_100ns_si_precision() {
+        const REC: &[u8] = include_bytes!("../tests/data/dc01_mft_record_74419.bin");
+        let emitter = CollectingEmitter::new();
+        MftFileParser
+            .parse(
+                &SliceSource(REC.to_vec()),
+                &emitter,
+                &issen_core::plugin::ParseOptions::default(),
+            )
+            .expect("parse single record");
+
+        let events = emitter.into_events();
+        let fm = events
+            .iter()
+            .find(|e| e.event_type == EventType::FileModify && e.description.contains("($SI)"))
+            .expect("$SI FileModify event present");
+        assert_eq!(
+            fm.timestamp_display, "2013-06-18T15:02:18.305856600Z",
+            "timeline $SI Modified lost 100 ns precision (TSK istat oracle)"
+        );
+    }
+
+    /// Full MACB×2 super-timeline: one MFT record yields 8 timeline rows — the
+    /// four `$SI` MACE plus the four `$FN` MACE — each marked by attribute.
+    /// Oracle: TSK `istat -o 718848 … 74419` (UTC). `$FN` MACE all coincide at
+    /// `2020-09-17T16:49:48.592055100Z`, distinguished by event type.
+    #[test]
+    fn parse_emits_full_8_macb_si_and_fn() {
+        const REC: &[u8] = include_bytes!("../tests/data/dc01_mft_record_74419.bin");
+        let emitter = CollectingEmitter::new();
+        MftFileParser
+            .parse(
+                &SliceSource(REC.to_vec()),
+                &emitter,
+                &issen_core::plugin::ParseOptions::default(),
+            )
+            .expect("parse single record");
+        let events = emitter.into_events();
+
+        assert_eq!(events.len(), 8, "expected 8 MACB×2 rows for one record");
+        let si: Vec<_> = events
+            .iter()
+            .filter(|e| e.description.contains("($SI)"))
+            .collect();
+        let fnn: Vec<_> = events
+            .iter()
+            .filter(|e| e.description.contains("($FN)"))
+            .collect();
+        assert_eq!(si.len(), 4, "expected 4 $SI rows");
+        assert_eq!(fnn.len(), 4, "expected 4 $FN rows");
+
+        let fn_modify = fnn
+            .iter()
+            .find(|e| e.event_type == EventType::FileModify)
+            .expect("$FN FileModify row");
+        assert_eq!(
+            fn_modify.timestamp_display, "2020-09-17T16:49:48.592055100Z",
+            "$FN Modified mismatch vs TSK istat oracle"
+        );
+        // Programmatic distinction independent of the description string.
+        assert_eq!(
+            fn_modify.metadata.get("mft_attribute"),
+            Some(&serde_json::json!("$FN"))
+        );
     }
 
     #[test]
@@ -833,7 +994,7 @@ mod tests {
             "Users/analyst/report.docx",
             false,
             "evidence-001",
-            Some(&fn_attr),
+            Some((&fn_attr).into()),
         );
 
         let create = batch

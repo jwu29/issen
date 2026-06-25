@@ -4560,6 +4560,7 @@ dependencies = [
  "chrono",
  "indicatif",
  "mft",
+ "ntfs-core",
  "tempfile",
 ]
 
@@ -4747,6 +4748,7 @@ dependencies = [
  "inventory",
  "issen-core",
  "mft",
+ "ntfs-core",
  "serde_json",
  "tempfile",
  "tracing",

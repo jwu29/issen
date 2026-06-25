@@ -12,6 +12,7 @@ chrono = { workspace = true }
 anyhow = { workspace = true }
 indicatif = { workspace = true }
 mft = { workspace = true }
+ntfs-core = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
