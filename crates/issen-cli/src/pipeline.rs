@@ -205,16 +205,37 @@ pub struct Flags {
 /// must use `.mem`/`.vmem`/`.lime`/`.dmp`/`.core`. STUB (RED).
 #[must_use]
 pub fn classify(path: &str) -> Option<EvidenceKind> {
-    let _ = path;
-    None
+    const DISK: &[&str] = &[
+        "e01", "ex01", "s01", "vmdk", "vhd", "vhdx", "qcow2", "raw", "dd", "img", "001", "iso",
+        "aff4",
+    ];
+    const MEMORY: &[&str] = &["mem", "vmem", "lime", "dmp", "core"];
+    let ext = std::path::Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)?;
+    if DISK.contains(&ext.as_str()) {
+        Some(EvidenceKind::Disk)
+    } else if MEMORY.contains(&ext.as_str()) {
+        Some(EvidenceKind::Memory)
+    } else {
+        None
+    }
 }
 
 /// The stages applicable to this case given what evidence is present and the
 /// flags, in [`Stage::ORDER`]. STUB (RED).
 #[must_use]
 pub fn applicable_stages(has_disk: bool, has_memory: bool, flags: &Flags) -> Vec<Stage> {
-    let _ = (has_disk, has_memory, flags);
-    Vec::new()
+    Stage::ORDER
+        .into_iter()
+        .filter(|s| match s {
+            Stage::Ingest => has_disk,
+            Stage::Correlate => has_disk && !flags.no_correlate,
+            Stage::Scan => has_disk && !flags.no_scan,
+            Stage::Memory => has_memory,
+        })
+        .collect()
 }
 
 /// Resolve the per-stage actions for a run: restrict to applicable stages (and
@@ -227,8 +248,22 @@ pub fn resolve_actions<S: std::hash::BuildHasher>(
     current_fp: &HashMap<Stage, String, S>,
     prior: &[StageRecord],
 ) -> Vec<(Stage, Action)> {
-    let _ = (applicable, flags, current_fp, prior);
-    Vec::new()
+    let allowed: HashSet<Stage> = match flags.only {
+        Some(s) if applicable.contains(&s) => std::iter::once(s).collect(),
+        Some(_) => HashSet::new(), // --only a non-applicable stage → nothing runs
+        None => applicable.iter().copied().collect(),
+    };
+    let fp: HashMap<Stage, String> = current_fp
+        .iter()
+        .filter(|(s, _)| allowed.contains(s))
+        .map(|(s, v)| (*s, v.clone()))
+        .collect();
+    // --rerun ignores prior state: every applicable stage reads as Missing → runs.
+    if flags.rerun {
+        plan(&[], &fp)
+    } else {
+        plan(prior, &fp)
+    }
 }
 
 #[cfg(test)]
