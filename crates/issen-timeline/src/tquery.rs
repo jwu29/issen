@@ -99,6 +99,13 @@ const FIELDS: &[Field] = &[
         ftype: FieldType::Id,
         populated_by: "LogonSuccess/Logoff (EventLog)",
     },
+    Field {
+        name: "port",
+        aliases: &["ip-port", "remote-port"],
+        json_key: "Port",
+        ftype: FieldType::Text,
+        populated_by: "NetworkConnection/LogonSuccess (EventLog)",
+    },
 ];
 
 impl FieldRegistry {
