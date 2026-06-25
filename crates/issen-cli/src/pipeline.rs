@@ -334,8 +334,19 @@ pub struct RunReport {
 /// # Errors
 /// Propagates store read errors.
 pub fn load_prior(store: &TimelineStore) -> anyhow::Result<Vec<StageRecord>> {
-    let _ = store;
-    Ok(Vec::new())
+    let rows = store
+        .load_stage_states()
+        .map_err(|e| anyhow::anyhow!("load stage state: {e}"))?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|r| {
+            Some(StageRecord {
+                stage: Stage::from_token(&r.stage)?,
+                status: Status::from_token(&r.status)?,
+                fingerprint: r.fingerprint,
+            })
+        })
+        .collect())
 }
 
 /// Run the resumable pipeline: load prior state, resolve actions, then for each
@@ -351,8 +362,29 @@ pub fn run_bare<S: std::hash::BuildHasher>(
     store: &TimelineStore,
     executor: &dyn StageExecutor,
 ) -> anyhow::Result<RunReport> {
-    let _ = (applicable, flags, current_fp, store, executor);
-    Ok(RunReport::default())
+    let prior = load_prior(store)?;
+    let actions = resolve_actions(applicable, flags, current_fp, &prior);
+    let mut report = RunReport::default();
+    for (stage, action) in actions {
+        match action {
+            Action::Skip => report.skipped.push(stage),
+            Action::Run(reason) => {
+                let Some(fp) = current_fp.get(&stage) else {
+                    continue; // cov:unreachable: actions are derived from current_fp keys
+                };
+                // Mark incomplete BEFORE running so a crash mid-stage is resumable.
+                store
+                    .record_stage_state(stage.as_str(), Status::Incomplete.as_str(), fp)
+                    .map_err(|e| anyhow::anyhow!("record stage incomplete: {e}"))?;
+                executor.execute(stage)?;
+                store
+                    .record_stage_state(stage.as_str(), Status::Done.as_str(), fp)
+                    .map_err(|e| anyhow::anyhow!("record stage done: {e}"))?;
+                report.ran.push((stage, reason));
+            }
+        }
+    }
+    Ok(report)
 }
 
 #[cfg(test)]
