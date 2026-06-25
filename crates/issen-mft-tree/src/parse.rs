@@ -183,4 +183,31 @@ mod tests {
         let result = FileTree::from_mft(tmp.path());
         assert!(result.is_err());
     }
+
+    /// Real WinSxS component record (DC01 `$MFT` entry 74419) whose `$SI`
+    /// Modified FILETIME ends in a non-zero 100 ns digit. TSK `istat`
+    /// (independent oracle) reports `2013-06-18T15:02:18.305856600Z`; the
+    /// `mft` crate's `winstructs` truncates 100 ns → µs, silently dropping the
+    /// trailing 600 ns and rendering `.305856000`. This guards full precision.
+    #[test]
+    fn from_mft_preserves_100ns_filetime_precision() {
+        use chrono::{DateTime, Utc};
+
+        const REC: &[u8] = include_bytes!("../tests/data/dc01_mft_record_74419.bin");
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(tmp.path(), REC).unwrap();
+
+        let tree = FileTree::from_mft(tmp.path()).unwrap();
+        let node = (0..tree.node_count())
+            .map(|i| tree.node(i))
+            .find(|n| n.name.contains("37E2F32E"))
+            .expect("settingcontent record present");
+
+        let expected: DateTime<Utc> = "2013-06-18T15:02:18.305856600Z".parse().unwrap();
+        assert_eq!(
+            node.si_timestamps.modified, expected,
+            "$SI Modified lost 100 ns precision: got {}, want {} (TSK istat)",
+            node.si_timestamps.modified, expected
+        );
+    }
 }
