@@ -555,6 +555,28 @@ duplicate** (the README links up to the catalog). Document large untracked/gitig
 too (provenance even when the bytes aren't committed — e.g. a vendored oracle's test corpus). Use
 straight ASCII in paths/commands.
 
+### Convergence / release end-to-end validation corpus (Case-001 Szechuan)
+
+Whenever a change could affect issen's runtime output across artifact types — a
+fleet-wide dependency convergence (e.g. the forensicnomicon 0.11 sweep), a release
+candidate, or any cross-cutting parser/report change — **confirm it end-to-end with a
+single unified `issen ingest` of these four Case-001 (DFIR Madness "Szechuan Sauce")
+sources, and NO others** (no pagefile, no pcap):
+
+1. **DC01 memory** — `tests/data/dfirmadness-szechuan-sauce/DC01-memory.zip`
+2. **DC01 disk** — `tests/data/dfirmadness-szechuan-sauce/DC01-E01.zip`
+3. **Desktop (SDN1RPT) memory** — `tests/data/dfirmadness-szechuan-sauce/DESKTOP-SDN1RPT-memory.zip`
+4. **Desktop (SDN1RPT) disk** — `tests/data/dfirmadness-szechuan-sauce/DESKTOP-E01.zip`
+
+These four exercise both hosts × both media (disk + memory), so the ingest drives the
+full analyzer set — NTFS / registry / EVTX / prefetch / LNK / SRUM / browser / Biome on
+the disk legs and memf-windows on the memory legs — all feeding one `forensicnomicon::report`
+aggregation. Extract the four to `/tmp` (never under `~/src` — the committed bytes are the
+zips; see the provenance standard above), then ingest them together into one timeline:
+`issen ingest <DC01.mem> <DC01.E01> <DESKTOP.mem> <DESKTOP.E01> -o /tmp/<name>.duckdb`.
+A run that completes and produces a populated, multi-source timeline (rows + findings tagged
+per evidence source) is the runtime confirmation; deliberately exclude pagefile and pcap.
+
 ## Release & Distribution Standard — binaries + Homebrew/apt/winget (every app/CLI repo)
 
 Reference implementations (both verified end-to-end): **`blazehash`** and **`disk-forensic`** —
