@@ -7,6 +7,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use mft::attribute::header::ResidentialHeader;
 use mft::attribute::{MftAttributeContent, MftAttributeType};
 use mft::MftParser;
+use ntfs_core::MftData;
 
 use crate::node::{FileNode, NtfsTimestamps};
 use crate::tree::FileTree;
@@ -25,6 +26,14 @@ impl FileTree {
     pub fn from_mft(path: &Path) -> Result<Self> {
         let buffer =
             std::fs::read(path).with_context(|| format!("Failed to read: {}", path.display()))?;
+
+        // Full-precision $SI/$FN timestamps. The `mft` crate converts FILETIME
+        // through winstructs, which does `ticks / 10` (100 ns → µs) and silently
+        // drops the final 100 ns tick. ntfs-core preserves the full 100 ns, so
+        // parse the same buffer once and override the timestamps per record. A
+        // parse failure (or a record ntfs-core skips) degrades to the `mft`
+        // crate's value rather than erroring — no regression, just less precision.
+        let precise = MftData::parse(&buffer).ok();
 
         let mut parser =
             MftParser::from_buffer(buffer).context("Failed to initialise MFT parser")?;
@@ -61,16 +70,39 @@ impl FileTree {
             let entry_id = entry.header.record_number;
             let parent_entry = fname.parent.entry;
 
-            // $FILE_NAME timestamps (kernel-managed).
+            // On-disk MFT entry number (record header @ 0x2C). The `mft` crate's
+            // `record_number` is just the iteration index, which coincides with
+            // the on-disk number only for a full, position-aligned $MFT;
+            // ntfs-core keys `by_entry` by the on-disk number, so read it
+            // directly (bounds-checked) to align the two parsers for any input.
+            let ondisk_entry = entry
+                .data
+                .get(0x2C..0x30)
+                .and_then(|b| <[u8; 4]>::try_from(b).ok())
+                .map_or(entry_id, |b| u64::from(u32::from_le_bytes(b)));
+            let precise_entry = precise.as_ref().and_then(|d| d.get_by_entry(ondisk_entry));
+
+            // $FILE_NAME timestamps (kernel-managed). Prefer ntfs-core's
+            // full-precision FILETIME; fall back to the `mft` crate per field.
             let fn_ts = NtfsTimestamps {
-                modified: fname.modified,
-                accessed: fname.accessed,
-                created: fname.created,
-                entry_modified: fname.mft_modified,
+                modified: precise_entry
+                    .and_then(|e| e.fn_modified)
+                    .unwrap_or(fname.modified),
+                accessed: precise_entry
+                    .and_then(|e| e.fn_accessed)
+                    .unwrap_or(fname.accessed),
+                created: precise_entry
+                    .and_then(|e| e.fn_created)
+                    .unwrap_or(fname.created),
+                entry_modified: precise_entry
+                    .and_then(|e| e.fn_mft_modified)
+                    .unwrap_or(fname.mft_modified),
             };
 
-            // $STANDARD_INFORMATION timestamps (user-visible, preferred).
-            let si_ts = entry
+            // $STANDARD_INFORMATION timestamps (user-visible, preferred). The
+            // `mft` crate values are the fallback base when ntfs-core is absent
+            // for a record; ntfs-core's full-precision values override per field.
+            let si_fallback = entry
                 .iter_attributes_matching(Some(vec![MftAttributeType::StandardInformation]))
                 .filter_map(std::result::Result::ok)
                 .find_map(|attr| {
@@ -86,6 +118,20 @@ impl FileTree {
                     }
                 })
                 .unwrap_or(fn_ts);
+            let si_ts = NtfsTimestamps {
+                modified: precise_entry
+                    .and_then(|e| e.si_modified)
+                    .unwrap_or(si_fallback.modified),
+                accessed: precise_entry
+                    .and_then(|e| e.si_accessed)
+                    .unwrap_or(si_fallback.accessed),
+                created: precise_entry
+                    .and_then(|e| e.si_created)
+                    .unwrap_or(si_fallback.created),
+                entry_modified: precise_entry
+                    .and_then(|e| e.si_mft_modified)
+                    .unwrap_or(si_fallback.entry_modified),
+            };
 
             // Only store fn_timestamps if they differ from si_timestamps.
             let fn_timestamps = if fn_ts == si_ts { None } else { Some(fn_ts) };
