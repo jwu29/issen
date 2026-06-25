@@ -792,11 +792,55 @@ mod tests {
         let events = emitter.into_events();
         let fm = events
             .iter()
-            .find(|e| e.event_type == EventType::FileModify)
-            .expect("FileModify event present");
+            .find(|e| e.event_type == EventType::FileModify && e.description.contains("($SI)"))
+            .expect("$SI FileModify event present");
         assert_eq!(
             fm.timestamp_display, "2013-06-18T15:02:18.305856600Z",
             "timeline $SI Modified lost 100 ns precision (TSK istat oracle)"
+        );
+    }
+
+    /// Full MACB×2 super-timeline: one MFT record yields 8 timeline rows — the
+    /// four `$SI` MACE plus the four `$FN` MACE — each marked by attribute.
+    /// Oracle: TSK `istat -o 718848 … 74419` (UTC). `$FN` MACE all coincide at
+    /// `2020-09-17T16:49:48.592055100Z`, distinguished by event type.
+    #[test]
+    fn parse_emits_full_8_macb_si_and_fn() {
+        const REC: &[u8] = include_bytes!("../tests/data/dc01_mft_record_74419.bin");
+        let emitter = CollectingEmitter::new();
+        MftFileParser
+            .parse(
+                &SliceSource(REC.to_vec()),
+                &emitter,
+                &issen_core::plugin::ParseOptions::default(),
+            )
+            .expect("parse single record");
+        let events = emitter.into_events();
+
+        assert_eq!(events.len(), 8, "expected 8 MACB×2 rows for one record");
+        let si: Vec<_> = events
+            .iter()
+            .filter(|e| e.description.contains("($SI)"))
+            .collect();
+        let fnn: Vec<_> = events
+            .iter()
+            .filter(|e| e.description.contains("($FN)"))
+            .collect();
+        assert_eq!(si.len(), 4, "expected 4 $SI rows");
+        assert_eq!(fnn.len(), 4, "expected 4 $FN rows");
+
+        let fn_modify = fnn
+            .iter()
+            .find(|e| e.event_type == EventType::FileModify)
+            .expect("$FN FileModify row");
+        assert_eq!(
+            fn_modify.timestamp_display, "2020-09-17T16:49:48.592055100Z",
+            "$FN Modified mismatch vs TSK istat oracle"
+        );
+        // Programmatic distinction independent of the description string.
+        assert_eq!(
+            fn_modify.metadata.get("mft_attribute"),
+            Some(&serde_json::json!("$FN"))
         );
     }
 
