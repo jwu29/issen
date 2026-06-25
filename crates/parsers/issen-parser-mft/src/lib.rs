@@ -184,14 +184,15 @@ fn extract_standard_info(entry: &mft::entry::MftEntry) -> Option<StandardInfoAtt
 /// Minimum valid MFT size — at least one 1024-byte entry.
 const MIN_MFT_SIZE: u64 = 1024;
 
-/// Emit the four MACE timestamp events for a single MFT entry.
+/// Emit the four `$SI` MACE timestamp events for a single MFT entry.
 ///
-/// `fn_attr` carries the `$FILE_NAME` attribute when it co-exists with the
-/// `$STANDARD_INFORMATION` source of these timestamps. When present, its four
-/// timestamps are surfaced onto the `FileCreate` event's metadata
-/// (`fn_created` / `fn_modified` / `fn_accessed` / `fn_mft_modified`) so a
-/// downstream timestomp detector can compare `$SI` vs `$FN`. Pass `None` when
-/// only one of the two attributes exists — behavior is then unchanged.
+/// `fn_ts` carries the co-existing `$FILE_NAME` timestamps. When present, the
+/// four `$FN` values are surfaced onto the `FileCreate` event's metadata
+/// (`fn_created` / `fn_modified` / `fn_accessed` / `fn_mft_modified`) so the
+/// timestomp detector can compare `$SI` vs `$FN` from one event. The `$FN`
+/// quad is *also* emitted as four distinct rows by [`emit_fn_mace`] for the
+/// MACB×2 super-timeline; this metadata is the detector's single-event view,
+/// not a substitute for those rows. Pass `None` when no `$FN` is available.
 #[allow(clippy::too_many_arguments)]
 fn emit_mace_timestamps(
     batch: &mut Vec<TimelineEvent>,
