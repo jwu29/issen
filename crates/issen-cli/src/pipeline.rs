@@ -10,6 +10,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use issen_timeline::store::TimelineStore;
 use sha2::{Digest, Sha256};
 
 /// A pipeline stage. `Ingest`/`Correlate`/`Scan` form the disk chain; `Memory`
@@ -266,9 +267,189 @@ pub fn resolve_actions<S: std::hash::BuildHasher>(
     }
 }
 
+impl Stage {
+    /// Stable persistence token (matches the `pipeline_state.stage` column).
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Stage::Ingest => "ingest",
+            Stage::Correlate => "correlate",
+            Stage::Scan => "scan",
+            Stage::Memory => "memory",
+        }
+    }
+
+    /// Parse a persistence token back into a stage (`None` if unrecognized).
+    #[must_use]
+    pub fn from_token(s: &str) -> Option<Stage> {
+        match s {
+            "ingest" => Some(Stage::Ingest),
+            "correlate" => Some(Stage::Correlate),
+            "scan" => Some(Stage::Scan),
+            "memory" => Some(Stage::Memory),
+            _ => None,
+        }
+    }
+}
+
+impl Status {
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Status::Done => "done",
+            Status::Incomplete => "incomplete",
+        }
+    }
+
+    #[must_use]
+    pub fn from_token(s: &str) -> Option<Status> {
+        match s {
+            "done" => Some(Status::Done),
+            "incomplete" => Some(Status::Incomplete),
+            _ => None,
+        }
+    }
+}
+
+/// Executes a single pipeline stage end-to-end. The real implementation calls
+/// the ingest/correlate/scan/memory commands and streams their output; tests
+/// inject a recording mock. This is the seam that keeps [`run_bare`]'s
+/// orchestration testable without real evidence.
+pub trait StageExecutor {
+    /// # Errors
+    /// Propagates any failure from the underlying stage command.
+    fn execute(&self, stage: Stage) -> anyhow::Result<()>;
+}
+
+/// Outcome of a bare-path run: which stages ran (and why) and which were skipped.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct RunReport {
+    pub ran: Vec<(Stage, Reason)>,
+    pub skipped: Vec<Stage>,
+}
+
+/// Read persisted stage-state into planner records, dropping rows with
+/// unrecognized tokens (forward-compatible). STUB (RED).
+///
+/// # Errors
+/// Propagates store read errors.
+pub fn load_prior(store: &TimelineStore) -> anyhow::Result<Vec<StageRecord>> {
+    let _ = store;
+    Ok(Vec::new())
+}
+
+/// Run the resumable pipeline: load prior state, resolve actions, then for each
+/// stage to run, mark it incomplete, execute it, and mark it done — so a crash
+/// mid-stage leaves it resumable. Up-to-date stages are skipped. STUB (RED).
+///
+/// # Errors
+/// Propagates store and executor errors; a failed stage stays `incomplete`.
+pub fn run_bare<S: std::hash::BuildHasher>(
+    applicable: &[Stage],
+    flags: &Flags,
+    current_fp: &HashMap<Stage, String, S>,
+    store: &TimelineStore,
+    executor: &dyn StageExecutor,
+) -> anyhow::Result<RunReport> {
+    let _ = (applicable, flags, current_fp, store, executor);
+    Ok(RunReport::default())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct MockExecutor {
+        ran: std::cell::RefCell<Vec<Stage>>,
+        fail_on: Option<Stage>,
+    }
+    impl MockExecutor {
+        fn new() -> Self {
+            Self {
+                ran: std::cell::RefCell::new(Vec::new()),
+                fail_on: None,
+            }
+        }
+        fn failing(stage: Stage) -> Self {
+            Self {
+                ran: std::cell::RefCell::new(Vec::new()),
+                fail_on: Some(stage),
+            }
+        }
+    }
+    impl StageExecutor for MockExecutor {
+        fn execute(&self, stage: Stage) -> anyhow::Result<()> {
+            self.ran.borrow_mut().push(stage);
+            if self.fail_on == Some(stage) {
+                anyhow::bail!("simulated stage failure");
+            }
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn stage_and_status_tokens_roundtrip() {
+        for s in Stage::ORDER {
+            assert_eq!(Stage::from_token(s.as_str()), Some(s));
+        }
+        assert_eq!(
+            Status::from_token(Status::Done.as_str()),
+            Some(Status::Done)
+        );
+        assert_eq!(
+            Status::from_token(Status::Incomplete.as_str()),
+            Some(Status::Incomplete)
+        );
+        assert_eq!(Stage::from_token("bogus"), None);
+    }
+
+    #[test]
+    fn cold_run_executes_all_then_resume_skips_all() {
+        let store = TimelineStore::in_memory().expect("store");
+        let applicable = vec![Stage::Ingest, Stage::Correlate, Stage::Scan];
+        let cur = fp(&[
+            (Stage::Ingest, "e1"),
+            (Stage::Correlate, "r1"),
+            (Stage::Scan, "f1"),
+        ]);
+
+        let exec = MockExecutor::new();
+        let r1 = run_bare(&applicable, &Flags::default(), &cur, &store, &exec).expect("run1");
+        assert_eq!(
+            *exec.ran.borrow(),
+            vec![Stage::Ingest, Stage::Correlate, Stage::Scan]
+        );
+        assert!(r1.skipped.is_empty());
+
+        // Same inputs again: everything is up to date → nothing executes.
+        let exec2 = MockExecutor::new();
+        let r2 = run_bare(&applicable, &Flags::default(), &cur, &store, &exec2).expect("run2");
+        assert!(
+            exec2.ran.borrow().is_empty(),
+            "resume must skip completed stages"
+        );
+        assert_eq!(
+            r2.skipped,
+            vec![Stage::Ingest, Stage::Correlate, Stage::Scan]
+        );
+    }
+
+    #[test]
+    fn failed_stage_stays_incomplete_and_only_it_resumes() {
+        let store = TimelineStore::in_memory().expect("store");
+        let applicable = vec![Stage::Ingest, Stage::Correlate];
+        let cur = fp(&[(Stage::Ingest, "e1"), (Stage::Correlate, "r1")]);
+
+        let exec = MockExecutor::failing(Stage::Correlate);
+        let err = run_bare(&applicable, &Flags::default(), &cur, &store, &exec);
+        assert!(err.is_err(), "a stage failure propagates");
+
+        // Ingest committed 'done'; correlate left 'incomplete' → re-run runs ONLY correlate.
+        let exec2 = MockExecutor::new();
+        let r2 = run_bare(&applicable, &Flags::default(), &cur, &store, &exec2).expect("resume");
+        assert_eq!(*exec2.ran.borrow(), vec![Stage::Correlate]);
+        assert_eq!(r2.skipped, vec![Stage::Ingest]);
+    }
 
     #[test]
     fn classify_routes_by_extension_case_insensitively() {
