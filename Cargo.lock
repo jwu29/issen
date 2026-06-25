@@ -2433,10 +2433,10 @@ dependencies = [
  "livedisk-core",
  "livedisk-forensic",
  "mbr-partition-forensic",
- "qcow2-core",
+ "qcow2-core 0.2.0",
  "thiserror 2.0.18",
  "vhdx-core",
- "vmdk-core 0.7.0",
+ "vmdk-core",
  "vmdk-forensic",
 ]
 
@@ -5124,7 +5124,7 @@ dependencies = [
  "inventory",
  "issen-core",
  "issen-unpack",
- "qcow2-core",
+ "qcow2-core 0.3.0",
  "tempfile",
  "thiserror 2.0.18",
 ]
@@ -5280,7 +5280,7 @@ dependencies = [
  "issen-unpack",
  "tempfile",
  "thiserror 2.0.18",
- "vmdk-core 0.6.4",
+ "vmdk-core",
 ]
 
 [[package]]
@@ -6073,12 +6073,12 @@ dependencies = [
 
 [[package]]
 name = "memf-correlate"
-version = "0.2.1"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aefc5d1ae1c6803d8e4aa509c59ea250b32e76b448173a2adfbcc7b71bc6e790"
+checksum = "9a3c55b7ee97e8a55e645ce22450b9fab94666ce747d64ea12089c0dae21b025"
 dependencies = [
  "chrono",
- "forensicnomicon 0.5.8",
+ "forensicnomicon 0.10.0",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -6103,11 +6103,11 @@ dependencies = [
 
 [[package]]
 name = "memf-linux"
-version = "0.2.1"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9164c1b5e80524105978563d9bb6700fe4afe424218d193efd39443e735838c6"
+checksum = "b7d108da7a733012ed9636a98a4a6e91f46ba3bf197dec6e0e8d47e35131d064"
 dependencies = [
- "forensicnomicon 0.5.8",
+ "forensicnomicon 0.10.0",
  "goblin 0.9.3",
  "inventory",
  "memf-core",
@@ -7817,6 +7817,16 @@ name = "qcow2-core"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dbf609d64969828693c51090ac47f2416f68fbd2c72bbc20eeac692090f335f7"
+dependencies = [
+ "flate2",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "qcow2-core"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4dc58d234981c0bdd1f8b885de0da037968589aa686c26344cceccfa62a20784"
 dependencies = [
  "flate2",
  "thiserror 2.0.18",
@@ -10870,18 +10880,6 @@ dependencies = [
 
 [[package]]
 name = "vmdk-core"
-version = "0.6.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41314149dbca8b448160ce33ae66fa7da21fa15e20da25de924a3198e163f71f"
-dependencies = [
- "flate2",
- "md-5",
- "sha2",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "vmdk-core"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "584273835580554c1fc77ec002c0c37cc07199bb53ee359fb1d8cd4a1957acf1"
@@ -10899,7 +10897,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "97b1dd8d35f49adc7f30d9a13230c37c3fdb72173c2fb94b3551c72d4c08ccd2"
 dependencies = [
  "forensicnomicon 0.5.8",
- "vmdk-core 0.7.0",
+ "vmdk-core",
 ]
 
 [[package]]
