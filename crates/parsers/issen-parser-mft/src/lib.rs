@@ -127,6 +127,12 @@ pub fn datetime_to_display(dt: &DateTime<Utc>) -> String {
 }
 
 /// Create a [`TimelineEvent`] from an MFT timestamp.
+///
+/// `attribute` is the source NTFS attribute (`"$SI"` or `"$FN"`); it is stamped
+/// into the description and an `mft_attribute` metadata field so the two MACE
+/// quads are distinguishable in the super-timeline. It also makes the
+/// `$SI`/`$FN` record hashes differ when their timestamps coincide, so dedup
+/// keeps both rows.
 fn mace_event(
     timestamp: &DateTime<Utc>,
     event_type: EventType,
@@ -134,11 +140,13 @@ fn mace_event(
     full_path: &str,
     is_dir: bool,
     source_id: &str,
+    attribute: &str,
 ) -> TimelineEvent {
     let ts_ns = datetime_to_ns(timestamp);
     let ts_display = datetime_to_display(timestamp);
     let kind = if is_dir { "directory" } else { "file" };
-    let description = format!("{event_type}: {full_path} (MFT entry {entry_id}, {kind})");
+    let description =
+        format!("{event_type} ({attribute}): {full_path} (MFT entry {entry_id}, {kind})");
 
     TimelineEvent::new(
         ts_ns,
@@ -151,6 +159,7 @@ fn mace_event(
     )
     .with_activity_category(issen_core::ActivityCategory::FileSystemActivity)
     .with_metadata("mft_entry_id", serde_json::json!(entry_id))
+    .with_metadata("mft_attribute", serde_json::json!(attribute))
     .with_metadata("is_directory", serde_json::json!(is_dir))
     // FilePath correlation join key (carried over from the removed cli builtin).
     .with_entity_ref(issen_core::timeline::event::EntityRef::FilePath(
@@ -203,6 +212,7 @@ fn emit_mace_timestamps(
         full_path,
         is_dir,
         source_id,
+        "$SI",
     ));
     batch.push(mace_event(
         accessed,
@@ -211,6 +221,7 @@ fn emit_mace_timestamps(
         full_path,
         is_dir,
         source_id,
+        "$SI",
     ));
     let mut create_event = mace_event(
         created,
@@ -219,6 +230,7 @@ fn emit_mace_timestamps(
         full_path,
         is_dir,
         source_id,
+        "$SI",
     );
     // Surface all four $SI MACE values (nanosecond-precise) onto the FileCreate
     // event so the timestomp FP gate (copy/volume-move) and the stronger
@@ -267,7 +279,34 @@ fn emit_mace_timestamps(
         full_path,
         is_dir,
         source_id,
+        "$SI",
     ));
+}
+
+/// Emit the four `$FILE_NAME` MACE events as distinct super-timeline rows
+/// (MACB×2). Marked `"$FN"` so they are distinguishable from the `$SI` quad and
+/// survive dedup even when their timestamps coincide with `$SI`'s.
+fn emit_fn_mace(
+    batch: &mut Vec<TimelineEvent>,
+    fn_ts: FnTimestamps,
+    entry_id: u64,
+    full_path: &str,
+    is_dir: bool,
+    source_id: &str,
+) {
+    for (ts, event_type) in [
+        (&fn_ts.modified, EventType::FileModify),
+        (&fn_ts.accessed, EventType::FileAccess),
+        (&fn_ts.created, EventType::FileCreate),
+        (
+            &fn_ts.mft_modified,
+            EventType::Other("MftEntryModified".to_string()),
+        ),
+    ] {
+        batch.push(mace_event(
+            ts, event_type, entry_id, full_path, is_dir, source_id, "$FN",
+        ));
+    }
 }
 
 /// Read the full contents of a `DataSource` into a `Vec<u8>`.
@@ -402,6 +441,9 @@ impl ForensicParser for MftFileParser {
             // When $SI drives the timestamps, surface the co-existing $FN
             // timestamps onto the FileCreate event so a timestomp detector can
             // compare $SI vs $FN.
+            // Full MACB×2 super-timeline: the 4 $SI MACE rows (with $SI/$FN
+            // metadata on FileCreate for timestomp detection) PLUS the 4 $FN
+            // MACE rows. When $SI is absent, only the $FN quad is emitted.
             if let Some(si) = extract_standard_info(&entry) {
                 emit_mace_timestamps(
                     &mut batch,
@@ -416,20 +458,8 @@ impl ForensicParser for MftFileParser {
                     source_id,
                     Some(fn_ts),
                 );
-            } else {
-                emit_mace_timestamps(
-                    &mut batch,
-                    &fn_ts.modified,
-                    &fn_ts.accessed,
-                    &fn_ts.created,
-                    &fn_ts.mft_modified,
-                    entry_id,
-                    &full_path,
-                    is_dir,
-                    source_id,
-                    None,
-                );
             }
+            emit_fn_mace(&mut batch, fn_ts, entry_id, &full_path, is_dir, source_id);
 
             if batch.len() >= 1000 {
                 stats.events_emitted += batch.len() as u64;
@@ -657,6 +687,7 @@ mod tests {
             "Users/analyst/report.docx",
             false,
             "evidence-001",
+            "$SI",
         );
         assert_eq!(event.event_type, EventType::FileCreate);
         assert_eq!(event.source, ArtifactType::Mft);
@@ -684,6 +715,7 @@ mod tests {
             "Windows/System32/coreupdater.exe",
             false,
             "evidence-001",
+            "$SI",
         );
         assert!(
             event.entity_refs.contains(&EntityRef::FilePath(
@@ -705,6 +737,7 @@ mod tests {
             "Windows/System32",
             true,
             "src-1",
+            "$SI",
         );
         assert!(event.description.contains("directory"));
         assert_eq!(event.metadata["is_directory"], serde_json::json!(true));
@@ -722,6 +755,7 @@ mod tests {
             "test.txt",
             false,
             "ev-1",
+            "$SI",
         );
         assert_eq!(
             event.event_type,
