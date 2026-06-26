@@ -593,6 +593,29 @@ fn str_value(hive: &Hive<Cursor<Vec<u8>>>, key_path: &str, name: &str) -> Option
         .map(|s| s.trim_end_matches('\0').to_string())
 }
 
+/// First non-empty string from a value on an already-opened [`Key`], reading
+/// either a REG_SZ scalar (`DhcpIPAddress`) or the first meaningful entry of a
+/// REG_MULTI_SZ list (`IPAddress`/`SubnetMask`/`DefaultGateway` are multi-valued
+/// even for a single binding). `0.0.0.0` placeholders are skipped.
+fn key_str(key: &winreg_core::key::Key<'_>, name: &str) -> Option<String> {
+    let v = key.value(name).ok().flatten()?;
+    if let Ok(s) = v.as_string() {
+        let s = s.trim_end_matches('\0').trim().to_string();
+        if !s.is_empty() {
+            return Some(s);
+        }
+    }
+    if let Ok(multi) = v.as_multi_string() {
+        for s in multi {
+            let s = s.trim_end_matches('\0').trim().to_string();
+            if !s.is_empty() && s != "0.0.0.0" {
+                return Some(s);
+            }
+        }
+    }
+    None
+}
+
 /// Resolve the live `ControlSet00N` from `Select\Current` (there is no
 /// `CurrentControlSet` link in an offline SYSTEM hive).
 fn current_control_set(hive: &Hive<Cursor<Vec<u8>>>) -> String {
@@ -669,8 +692,86 @@ fn extract_named_values(
                         .with_metadata("computer_name", serde_json::json!(cn)),
                 );
             }
+            // TCP/IP identity (hostname + primary DNS domain) — Q9 network
+            // layout. `NV Hostname`/`Domain` carry the configured identity even
+            // when ComputerName is the NetBIOS name.
+            let params = format!(r"{cs}\Services\Tcpip\Parameters");
+            let host = str_value(hive, &params, "NV Hostname")
+                .filter(|s| !s.is_empty())
+                .or_else(|| str_value(hive, &params, "Hostname").filter(|s| !s.is_empty()));
+            let domain = str_value(hive, &params, "Domain")
+                .filter(|s| !s.is_empty())
+                .or_else(|| str_value(hive, &params, "NV Domain").filter(|s| !s.is_empty()));
+            if host.is_some() || domain.is_some() {
+                out.push(
+                    mk(
+                        format!(
+                            "TCP/IP identity: {} (domain {})",
+                            host.as_deref().unwrap_or("?"),
+                            domain.as_deref().unwrap_or("?")
+                        ),
+                        &params,
+                    )
+                    .with_metadata("tcpip_hostname", serde_json::json!(host))
+                    .with_metadata("tcpip_domain", serde_json::json!(domain)),
+                );
+            }
+            // Per-interface IPv4 bindings — Q9.
+            let if_root = format!(r"{cs}\Services\Tcpip\Parameters\Interfaces");
+            out.extend(interface_events(hive, &if_root, mk));
         }
         _ => {}
+    }
+    out
+}
+
+/// One `system-info` event per bound IPv4 interface under `Interfaces\{GUID}`
+/// (Q9 network layout). A static binding exposes `IPAddress`/`SubnetMask`
+/// (REG_MULTI_SZ); a DHCP lease exposes `DhcpIPAddress` (REG_SZ). Interfaces
+/// with no bound address (unbound/0.0.0.0 stubs) are skipped. `mk` is the
+/// shared `system-info` event builder from [`extract_named_values`].
+fn interface_events(
+    hive: &Hive<Cursor<Vec<u8>>>,
+    if_root: &str,
+    mk: impl Fn(String, &str) -> TimelineEvent,
+) -> Vec<TimelineEvent> {
+    let mut out = Vec::new();
+    let Ok(Some(parent)) = hive.open_key(if_root) else {
+        return out;
+    };
+    let Ok(subs) = parent.subkeys() else {
+        return out;
+    };
+    for sub in subs {
+        let Some(ip) = key_str(&sub, "IPAddress").or_else(|| key_str(&sub, "DhcpIPAddress")) else {
+            continue;
+        };
+        let mask = key_str(&sub, "SubnetMask").or_else(|| key_str(&sub, "DhcpSubnetMask"));
+        let gw = key_str(&sub, "DefaultGateway").or_else(|| key_str(&sub, "DhcpDefaultGateway"));
+        let dhcp = matches!(
+            sub.value("EnableDHCP")
+                .ok()
+                .flatten()
+                .and_then(|v| v.as_u32().ok()),
+            Some(1)
+        );
+        let key = format!(r"{if_root}\{}", sub.name());
+        out.push(
+            mk(
+                format!(
+                    "Network interface: IP {} mask {} gateway {} ({})",
+                    ip,
+                    mask.as_deref().unwrap_or("?"),
+                    gw.as_deref().unwrap_or("?"),
+                    if dhcp { "DHCP" } else { "static" }
+                ),
+                &key,
+            )
+            .with_metadata("ip_address", serde_json::json!(ip))
+            .with_metadata("subnet_mask", serde_json::json!(mask))
+            .with_metadata("default_gateway", serde_json::json!(gw))
+            .with_metadata("dhcp_enabled", serde_json::json!(dhcp)),
+        );
     }
     out
 }
