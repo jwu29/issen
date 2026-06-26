@@ -23,8 +23,27 @@ where
     S: Sync,
     R: Send,
 {
-    let _ = (sources, max_par, parse);
-    todo!("implement capped, order-preserving parallel map")
+    let threads = max_par.max(1);
+    // A dedicated pool bounds in-flight parses to `threads` independently of the
+    // global rayon pool, so memory stays bounded (we never hold more than
+    // `threads` images' worth of extracted artifacts at once). `par_iter`'s
+    // `collect` preserves input order regardless of completion order.
+    match rayon::ThreadPoolBuilder::new().num_threads(threads).build() {
+        Ok(pool) => pool.install(|| {
+            sources
+                .par_iter()
+                .enumerate()
+                .map(|(i, s)| parse(i, s))
+                .collect()
+        }),
+        // If the OS refuses the thread pool, degrade to a correct serial map
+        // rather than fail the whole ingest — same order, same results.
+        Err(_) => sources
+            .iter()
+            .enumerate()
+            .map(|(i, s)| parse(i, s))
+            .collect(),
+    }
 }
 
 #[cfg(test)]
