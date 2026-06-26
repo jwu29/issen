@@ -1011,4 +1011,68 @@ mod tests {
             tz.description
         );
     }
+
+    /// Real DC SYSTEM hive: the network-configuration decoder must surface the
+    /// host's static IPv4 binding (Q9 network layout: 10.42.85.10 /
+    /// 255.255.255.0, gateway 10.42.85.100) from
+    /// `ControlSet00N\Services\Tcpip\Parameters\Interfaces\{GUID}` — a registry
+    /// VALUE (`IPAddress`/`SubnetMask` are REG_MULTI_SZ) the generic key walk
+    /// drops. Ground truth confirmed with the regipy oracle on the real hive.
+    #[test]
+    fn real_system_hive_surfaces_network_interface() {
+        let p = hive("SYSTEM");
+        if !p.exists() {
+            eprintln!("SKIP: SYSTEM hive absent");
+            return;
+        }
+        let events = parse_hive(&p, "dc01-SYSTEM").unwrap();
+        let net = events
+            .iter()
+            .find(|e| e.description.contains("10.42.85.10"))
+            .expect("network-interface system-info event (IP 10.42.85.10)");
+        assert_eq!(
+            net.activity_category,
+            Some(issen_core::ActivityCategory::SystemState),
+            "a network binding is host (network) state"
+        );
+        assert!(
+            net.description.contains("255.255.255.0"),
+            "subnet mask surfaced: {}",
+            net.description
+        );
+        assert!(
+            net.description.contains("10.42.85.100"),
+            "default gateway surfaced: {}",
+            net.description
+        );
+        assert!(matches!(&net.event_type, EventType::Other(s) if s == "system-info"));
+    }
+
+    /// Real DC SYSTEM hive: the network decoder also surfaces the host's TCP/IP
+    /// identity — hostname CITADEL-DC01 and primary DNS domain C137.local (Q9)
+    /// from `...\Tcpip\Parameters` (`NV Hostname` / `Domain`). The DNS domain
+    /// is a registry VALUE the generic key walk never surfaces.
+    #[test]
+    fn real_system_hive_surfaces_tcpip_identity() {
+        let p = hive("SYSTEM");
+        if !p.exists() {
+            eprintln!("SKIP: SYSTEM hive absent");
+            return;
+        }
+        let events = parse_hive(&p, "dc01-SYSTEM").unwrap();
+        let id = events
+            .iter()
+            .find(|e| e.description.contains("C137.local"))
+            .expect("TCP/IP identity event (domain C137.local)");
+        assert!(
+            id.description.to_uppercase().contains("CITADEL-DC01"),
+            "hostname surfaced: {}",
+            id.description
+        );
+        assert_eq!(
+            id.activity_category,
+            Some(issen_core::ActivityCategory::SystemState),
+            "TCP/IP identity is host (network) state"
+        );
+    }
 }
