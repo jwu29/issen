@@ -10,10 +10,17 @@ pub struct RuleRow {
     pub description: String,
 }
 
-/// Gather the bundled detection rules. STUB (RED).
+/// Gather the bundled detection rules from the temporal rule pack.
 #[must_use]
 pub fn collect() -> Vec<RuleRow> {
-    Vec::new()
+    issen_correlation::temporal_rule::bundled_temporal_rules()
+        .into_iter()
+        .map(|r| RuleRow {
+            id: r.id,
+            severity: r.severity,
+            description: r.description.unwrap_or_default(),
+        })
+        .collect()
 }
 
 /// Print the bundled detection rules.
@@ -26,7 +33,8 @@ pub fn run() -> anyhow::Result<()> {
         println!("No detection rules bundled.");
         return Ok(());
     }
-    println!("{:<44}  {:<10}  {}", "RULE", "SEVERITY", "DESCRIPTION");
+    let (rule, sev, desc) = ("RULE", "SEVERITY", "DESCRIPTION");
+    println!("{rule:<44}  {sev:<10}  {desc}");
     println!("{}", "-".repeat(100));
     for r in &rows {
         println!("{:<44}  {:<10}  {}", r.id, r.severity, r.description);
