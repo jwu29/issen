@@ -24,17 +24,19 @@ pub enum Stage {
 }
 
 impl Stage {
-    /// Canonical evaluation order. Disk chain first, then the independent memory leg.
-    pub const ORDER: [Stage; 4] = [Stage::Ingest, Stage::Correlate, Stage::Scan, Stage::Memory];
+    /// Canonical evaluation order. Both ingest legs (disk, then memory) populate
+    /// the timeline before correlate/scan consume it.
+    pub const ORDER: [Stage; 4] = [Stage::Ingest, Stage::Memory, Stage::Correlate, Stage::Scan];
 
     /// Upstream stages whose re-run forces this stage to re-run, because this
-    /// stage consumes their output. Re-ingesting the disk timeline invalidates
-    /// correlation and scanning; the memory leg depends on neither.
+    /// stage consumes their output. Correlate and scan run over the *combined*
+    /// disk+memory timeline, so a re-run of either ingest leg invalidates them;
+    /// the two ingest legs depend on nothing.
     #[must_use]
     pub fn deps(self) -> &'static [Stage] {
         match self {
             Stage::Ingest | Stage::Memory => &[],
-            Stage::Correlate | Stage::Scan => &[Stage::Ingest],
+            Stage::Correlate | Stage::Scan => &[Stage::Ingest, Stage::Memory],
         }
     }
 }
@@ -498,7 +500,7 @@ mod tests {
         let f = Flags::default();
         assert_eq!(
             applicable_stages(true, true, &f),
-            vec![Stage::Ingest, Stage::Correlate, Stage::Scan, Stage::Memory]
+            vec![Stage::Ingest, Stage::Memory, Stage::Correlate, Stage::Scan]
         );
         assert_eq!(
             applicable_stages(true, false, &f),
@@ -715,6 +717,38 @@ mod tests {
         );
         // Memory is independent of the disk chain — unchanged, so it skips.
         assert_eq!(action_for(&p, Stage::Memory), Some(Action::Skip));
+    }
+
+    #[test]
+    fn changed_memory_cascades_to_correlate_and_scan() {
+        // A new/changed memory dump (disk unchanged): memory re-runs, and because
+        // correlate+scan consume the combined disk+memory timeline, they cascade.
+        let cur = fp(&[
+            (Stage::Ingest, "e1"),
+            (Stage::Memory, "m2"),
+            (Stage::Correlate, "r1"),
+            (Stage::Scan, "f1"),
+        ]);
+        let prior = vec![
+            rec(Stage::Ingest, Status::Done, "e1"),
+            rec(Stage::Memory, Status::Done, "m1"),
+            rec(Stage::Correlate, Status::Done, "r1"),
+            rec(Stage::Scan, Status::Done, "f1"),
+        ];
+        let p = plan(&prior, &cur);
+        assert_eq!(action_for(&p, Stage::Ingest), Some(Action::Skip));
+        assert_eq!(
+            action_for(&p, Stage::Memory),
+            Some(Action::Run(Reason::Stale))
+        );
+        assert_eq!(
+            action_for(&p, Stage::Correlate),
+            Some(Action::Run(Reason::UpstreamRerun))
+        );
+        assert_eq!(
+            action_for(&p, Stage::Scan),
+            Some(Action::Run(Reason::UpstreamRerun))
+        );
     }
 
     #[test]

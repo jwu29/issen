@@ -1,0 +1,248 @@
+//! `issen <evidence…>` — the resumable bare front door.
+//!
+//! Classifies evidence (disk vs memory), computes per-stage input fingerprints,
+//! opens the deterministic case DB, and drives [`crate::pipeline::run_bare`] with
+//! a [`RealExecutor`] that calls the existing ingest / memory / correlate stages.
+//! Re-running on the same evidence resumes from the first incomplete/stale stage.
+//!
+//! Each stage prints a labelled banner and a live spinner with an elapsed timer,
+//! on top of the underlying commands' own progress, so a long stage never reads
+//! as stalled. See `docs/cli-unified-frontdoor-spec.md`.
+
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
+
+use anyhow::Context as _;
+use indicatif::{ProgressBar, ProgressStyle};
+use issen_timeline::store::TimelineStore;
+
+use crate::commands;
+use crate::pipeline::{self, EvidenceKind, Flags, RunReport, Stage, StageExecutor};
+
+/// Human label for a stage banner.
+fn stage_label(stage: Stage) -> &'static str {
+    match stage {
+        Stage::Ingest => "Ingest — parse disk artifacts into the timeline",
+        Stage::Memory => "Memory — parse dumps into the timeline",
+        Stage::Correlate => "Correlate — cross-artifact rules over the timeline",
+        Stage::Scan => "Scan — match the timeline against threat-intel feeds",
+    }
+}
+
+/// A cheap snapshot of the threat-intel feed cache, so `scan` re-runs when feeds
+/// change. Placeholder for the prototype: a stable token (use `--rerun` to force
+/// a re-scan after `issen feed update`).
+fn feed_snapshot() -> String {
+    "v0".to_string()
+}
+
+/// Run the resumable pipeline over `evidence`.
+///
+/// # Errors
+/// Fails if no usable evidence is given, the case DB cannot be opened, or a
+/// stage errors (a failed stage stays resumable).
+pub fn run(evidence: &[PathBuf], verbose: bool) -> anyhow::Result<()> {
+    if evidence.is_empty() {
+        anyhow::bail!(
+            "no evidence given — pass disk images, a collection, or memory dumps, \
+             e.g. `issen DC01.E01 dump.mem` (see `issen --help`)"
+        );
+    }
+
+    // Classify + size each input.
+    let mut disk: Vec<(PathBuf, u64)> = Vec::new();
+    let mut mem: Vec<(PathBuf, u64)> = Vec::new();
+    for p in evidence {
+        let size = std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
+        match pipeline::classify(&p.to_string_lossy()) {
+            Some(EvidenceKind::Disk) => disk.push((p.clone(), size)),
+            Some(EvidenceKind::Memory) => mem.push((p.clone(), size)),
+            None if p.is_dir() => disk.push((p.clone(), 0)), // a collection directory
+            None => eprintln!(
+                "warning: unrecognized evidence type, skipping: {}",
+                p.display()
+            ),
+        }
+    }
+    let has_disk = !disk.is_empty();
+    let has_memory = !mem.is_empty();
+    if !has_disk && !has_memory {
+        anyhow::bail!("no usable evidence among the given paths");
+    }
+
+    // Per-stage input fingerprints.
+    let disk_fp_in = sized_paths(&disk);
+    let mem_fp_in = sized_paths(&mem);
+    let ruleset = env!("CARGO_PKG_VERSION");
+    let feeds = feed_snapshot();
+    let mut current_fp: HashMap<Stage, String> = HashMap::new();
+    if has_disk {
+        current_fp.insert(Stage::Ingest, pipeline::ingest_fingerprint(&disk_fp_in));
+        current_fp.insert(Stage::Correlate, pipeline::correlate_fingerprint(ruleset));
+        current_fp.insert(Stage::Scan, pipeline::scan_fingerprint(ruleset, &feeds));
+    }
+    if has_memory {
+        current_fp.insert(Stage::Memory, pipeline::memory_fingerprint(&mem_fp_in));
+    }
+
+    // Deterministic case DB per evidence set, so a re-run finds it and resumes.
+    let mut all = disk_fp_in.clone();
+    all.extend(mem_fp_in.clone());
+    let full = pipeline::ingest_fingerprint(&all);
+    let case_id = full.get(..12).unwrap_or(full.as_str());
+    let db_path = std::env::current_dir()
+        .context("resolving current directory for the case DB")?
+        .join(format!("issen-case-{case_id}.duckdb"));
+
+    let store = TimelineStore::open(&db_path)
+        .with_context(|| format!("opening case database {}", db_path.display()))?;
+
+    let flags = Flags::default();
+    let applicable = pipeline::applicable_stages(has_disk, has_memory, &flags);
+    let scan_applicable = applicable.contains(&Stage::Scan);
+
+    println!(
+        "issen: {} stage(s) for this case → {}",
+        applicable.len(),
+        db_path.display()
+    );
+
+    let executor = RealExecutor {
+        disk: disk.iter().map(|(p, _)| p.clone()).collect(),
+        mem: mem.iter().map(|(p, _)| p.clone()).collect(),
+        db_path: db_path.clone(),
+        scan_applicable,
+        verbose,
+        total: applicable.len(),
+        step: std::cell::Cell::new(0),
+    };
+
+    let report = pipeline::run_bare(&applicable, &flags, &current_fp, &store, &executor)?;
+    print_summary(&report, &db_path);
+    Ok(())
+}
+
+fn sized_paths(items: &[(PathBuf, u64)]) -> Vec<(String, u64)> {
+    items
+        .iter()
+        .map(|(p, n)| (p.to_string_lossy().into_owned(), *n))
+        .collect()
+}
+
+fn print_summary(report: &RunReport, db_path: &Path) {
+    println!(
+        "\nPipeline complete: {} stage(s) ran, {} skipped → {}",
+        report.ran.len(),
+        report.skipped.len(),
+        db_path.display()
+    );
+    for stage in &report.skipped {
+        println!("  · {} (up to date)", stage.as_str());
+    }
+}
+
+/// Drives the real stage commands against one shared case DB.
+struct RealExecutor {
+    disk: Vec<PathBuf>,
+    mem: Vec<PathBuf>,
+    db_path: PathBuf,
+    scan_applicable: bool,
+    verbose: bool,
+    total: usize,
+    step: std::cell::Cell<usize>,
+}
+
+impl RealExecutor {
+    /// A live spinner with a frequent tick, so a quiet stage never looks stalled.
+    fn spinner(&self, stage: Stage) -> ProgressBar {
+        let n = self.step.get() + 1;
+        self.step.set(n);
+        let pb = ProgressBar::new_spinner();
+        pb.set_style(
+            ProgressStyle::with_template("{spinner} [{prefix}] {wide_msg} ({elapsed})")
+                .unwrap_or_else(|_| ProgressStyle::default_spinner()),
+        );
+        pb.set_prefix(format!("{n}/{}", self.total));
+        pb.set_message(stage_label(stage).to_string());
+        pb.enable_steady_tick(Duration::from_millis(120));
+        pb
+    }
+}
+
+impl StageExecutor for RealExecutor {
+    fn execute(&self, stage: Stage) -> anyhow::Result<()> {
+        let started = Instant::now();
+        match stage {
+            Stage::Ingest => {
+                // ingest prints its own indicatif progress; no extra spinner.
+                let n = self.step.get() + 1;
+                self.step.set(n);
+                println!("▶ [{n}/{}] {}", self.total, stage_label(stage));
+                commands::ingest::run(
+                    &self.disk,
+                    &self.db_path,
+                    None,
+                    None,
+                    self.scan_applicable,
+                    None,
+                    None,
+                    None,
+                    None,
+                    false,
+                    self.verbose,
+                    false,
+                )?;
+            }
+            Stage::Memory => {
+                let pb = self.spinner(stage);
+                let dirs: HashSet<PathBuf> = self
+                    .mem
+                    .iter()
+                    .filter_map(|p| p.parent().map(Path::to_path_buf))
+                    .collect();
+                let store = TimelineStore::open(&self.db_path).with_context(|| {
+                    format!("opening {} for memory leg", self.db_path.display())
+                })?;
+                let mut events = 0u64;
+                for dir in dirs {
+                    pb.set_message(format!("memory leg: {}", dir.display()));
+                    events += commands::correlate_mem::ingest_memory_leg(&store, &dir);
+                }
+                pb.finish_and_clear();
+                println!("  memory events: {events}");
+            }
+            Stage::Correlate => {
+                let pb = self.spinner(stage);
+                let store = TimelineStore::open(&self.db_path).with_context(|| {
+                    format!("opening {} for correlation", self.db_path.display())
+                })?;
+                let corrs = store
+                    .run_and_persist()
+                    .map_err(|e| anyhow::anyhow!("correlation: {e}"))?;
+                pb.finish_and_clear();
+                println!("  correlated findings: {}", corrs.len());
+            }
+            Stage::Scan => {
+                // Threat-intel scan is folded into the ingest pass (ingest --scan).
+                // A standalone re-scan over an existing timeline is future work; use
+                // `--rerun` to re-scan after `issen feed update`.
+            }
+        }
+        println!(
+            "✔ {} ({:.1}s)",
+            short_label(stage),
+            started.elapsed().as_secs_f64()
+        );
+        Ok(())
+    }
+}
+
+fn short_label(stage: Stage) -> &'static str {
+    match stage {
+        Stage::Ingest => "ingest",
+        Stage::Memory => "memory",
+        Stage::Correlate => "correlate",
+        Stage::Scan => "scan",
+    }
+}

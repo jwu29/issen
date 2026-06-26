@@ -8,6 +8,7 @@ pub mod frequency;
 pub mod info;
 pub mod ingest;
 pub mod memf;
+pub mod pipeline_run;
 pub mod pivot;
 pub mod pivot_cmd;
 pub mod processes;

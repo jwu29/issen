@@ -115,6 +115,7 @@ fn verb_common(args: VerbCli) -> commands::timeline_verbs::VerbCommon {
 /// Issen — fast forensic triage for incident responders.
 #[derive(Parser, Debug)]
 #[command(name = "issen", version, about, before_help = banner::BANNER)]
+#[command(args_conflicts_with_subcommands = true)]
 pub struct Cli {
     /// Enable verbose/debug logging.
     #[arg(short, long, global = true)]
@@ -124,8 +125,15 @@ pub struct Cli {
     #[arg(long, global = true, default_value = "auto", value_name = "WHEN")]
     color: ColorChoice,
 
+    /// Evidence for the default resumable pipeline (disk images, collections,
+    /// or memory dumps). With no subcommand, `issen <evidence…>` ingests,
+    /// correlates, scans, and analyses memory in one pass and prints findings —
+    /// re-run it to resume from where it stopped.
+    #[arg(value_name = "EVIDENCE")]
+    evidence: Vec<std::path::PathBuf>,
+
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 }
 
 // The top-level dispatch enum is constructed exactly once per process (clap
@@ -731,286 +739,295 @@ pub fn run() -> ExitCode {
         .try_init()
         .ok();
 
-    let result = match cli.command {
-        Commands::Analyse { collection_path } => commands::analyse::run(&collection_path),
-        Commands::Correlate { case_dir } => commands::correlate::run(&case_dir),
-        Commands::Supertimeline { collection, format } => {
-            commands::supertimeline::run(&collection, &format)
-        }
-        Commands::Ingest {
-            evidence_paths,
-            output,
-            evidence_source,
-            source,
-            scan,
-            yara_rules,
-            sigma_rules,
-            hash_iocs,
-            network_iocs,
-            refresh,
-            verbose_rows,
-        } => {
-            // No -o → auto-name `issen-ingested-<UTC>Z.duckdb` in the cwd.
-            let output =
-                output.unwrap_or_else(|| commands::ingest::auto_output_path(chrono::Utc::now()));
-            commands::ingest::run(
-                &evidence_paths,
-                &output,
-                evidence_source.as_deref(),
-                source.as_deref(),
+    let result = if let Some(command) = cli.command {
+        match command {
+            Commands::Analyse { collection_path } => commands::analyse::run(&collection_path),
+            Commands::Correlate { case_dir } => commands::correlate::run(&case_dir),
+            Commands::Supertimeline { collection, format } => {
+                commands::supertimeline::run(&collection, &format)
+            }
+            Commands::Ingest {
+                evidence_paths,
+                output,
+                evidence_source,
+                source,
                 scan,
+                yara_rules,
+                sigma_rules,
+                hash_iocs,
+                network_iocs,
+                refresh,
+                verbose_rows,
+            } => {
+                // No -o → auto-name `issen-ingested-<UTC>Z.duckdb` in the cwd.
+                let output = output
+                    .unwrap_or_else(|| commands::ingest::auto_output_path(chrono::Utc::now()));
+                commands::ingest::run(
+                    &evidence_paths,
+                    &output,
+                    evidence_source.as_deref(),
+                    source.as_deref(),
+                    scan,
+                    yara_rules.as_deref(),
+                    sigma_rules.as_deref(),
+                    hash_iocs.as_deref(),
+                    network_iocs.as_deref(),
+                    refresh,
+                    cli.verbose,
+                    verbose_rows,
+                )
+            }
+            Commands::Timeline {
+                db_path,
+                event_type,
+                source,
+                limit,
+                descending,
+                export_sqlite,
+                flagged,
+                min_severity,
+                format,
+                narrative,
+                list_fields,
+                path,
+                field,
+                ip,
+                user,
+                service,
+                logon_type,
+                exclude_machine_accounts,
+                show,
+                count,
+                distinct,
+                group_by,
+                first,
+                last,
+                sql,
+            } => {
+                // --list-fields is a pure registry dump; no DB required.
+                if list_fields {
+                    commands::timeline_query::list_fields();
+                    Ok(())
+                } else if let Some(sql) = sql {
+                    // Guarded read-only raw SQL escape hatch.
+                    match db_path {
+                        Some(db) => commands::timeline_verbs::run_sql(&db, &sql, &format),
+                        None => Err(anyhow::anyhow!("a DB_PATH is required for --sql")),
+                    }
+                } else {
+                    // Route to the Tier-1 typed-query path when any typed flag is
+                    // set; the legacy export/flagged/narrative path keeps its own
+                    // contract.
+                    let typed = path.is_some()
+                        || !field.is_empty()
+                        || ip.is_some()
+                        || user.is_some()
+                        || service.is_some()
+                        || logon_type.is_some()
+                        || exclude_machine_accounts
+                        || show.is_some()
+                        || count
+                        || distinct.is_some()
+                        || group_by.is_some()
+                        || first
+                        || last
+                        || !event_type.is_empty()
+                        || !source.is_empty();
+
+                    match db_path {
+                        None => Err(anyhow::anyhow!(
+                            "a DB_PATH is required (use --list-fields to list fields without one)"
+                        )),
+                        Some(db) if typed && export_sqlite.is_none() && !flagged && !narrative => {
+                            let args = commands::timeline_query::QueryArgs {
+                                event_types: event_type,
+                                sources: source,
+                                path,
+                                fields: field,
+                                ip,
+                                user,
+                                service,
+                                logon_type,
+                                exclude_machine_accounts,
+                                show,
+                                count,
+                                distinct,
+                                group_by,
+                                first,
+                                last,
+                                sort_desc: descending,
+                                limit: Some(limit),
+                                format,
+                            };
+                            commands::timeline_query::run(&db, &args)
+                        }
+                        // Legacy path (export / flagged / narrative / plain listing):
+                        // the typed event_type/source vecs collapse to their first.
+                        Some(db) => commands::timeline::run(
+                            &db,
+                            event_type.first().map(String::as_str),
+                            source.first().map(String::as_str),
+                            limit,
+                            descending,
+                            export_sqlite.as_deref(),
+                            flagged,
+                            &min_severity,
+                            &format,
+                            narrative,
+                        ),
+                    }
+                }
+            }
+            Commands::Logons { args, user, ip } => {
+                let db = args.db_path.clone();
+                commands::timeline_verbs::run_logons(
+                    &db,
+                    &commands::timeline_verbs::LogonsArgs {
+                        user,
+                        ip,
+                        common: verb_common(args),
+                    },
+                )
+            }
+            Commands::Files { args, path } => {
+                let db = args.db_path.clone();
+                commands::timeline_verbs::run_files(
+                    &db,
+                    &commands::timeline_verbs::FilesArgs {
+                        path,
+                        common: verb_common(args),
+                    },
+                )
+            }
+            Commands::Persistence {
+                args,
+                service,
+                registry_key,
+            } => {
+                let db = args.db_path.clone();
+                commands::timeline_verbs::run_persistence(
+                    &db,
+                    &commands::timeline_verbs::PersistenceArgs {
+                        service,
+                        registry_key,
+                        common: verb_common(args),
+                    },
+                )
+            }
+            Commands::Hosts { args, host, port } => {
+                let db = args.db_path.clone();
+                commands::timeline_verbs::run_hosts(
+                    &db,
+                    &commands::timeline_verbs::HostsArgs {
+                        host,
+                        port,
+                        common: verb_common(args),
+                    },
+                )
+            }
+            Commands::Info { db_path } => commands::info::run(&db_path),
+            Commands::Feed { action } => commands::feed::run(&action.to_lib_action()),
+            Commands::Scan {
+                target,
+                yara_rules,
+                sigma_rules,
+                hash_iocs,
+                network_iocs,
+                stix_bundle,
+                min_severity,
+                format,
+                auto_feeds,
+            } => commands::scan::run(
+                &target,
                 yara_rules.as_deref(),
                 sigma_rules.as_deref(),
                 hash_iocs.as_deref(),
                 network_iocs.as_deref(),
-                refresh,
-                cli.verbose,
-                verbose_rows,
-            )
-        }
-        Commands::Timeline {
-            db_path,
-            event_type,
-            source,
-            limit,
-            descending,
-            export_sqlite,
-            flagged,
-            min_severity,
-            format,
-            narrative,
-            list_fields,
-            path,
-            field,
-            ip,
-            user,
-            service,
-            logon_type,
-            exclude_machine_accounts,
-            show,
-            count,
-            distinct,
-            group_by,
-            first,
-            last,
-            sql,
-        } => {
-            // --list-fields is a pure registry dump; no DB required.
-            if list_fields {
-                commands::timeline_query::list_fields();
-                Ok(())
-            } else if let Some(sql) = sql {
-                // Guarded read-only raw SQL escape hatch.
-                match db_path {
-                    Some(db) => commands::timeline_verbs::run_sql(&db, &sql, &format),
-                    None => Err(anyhow::anyhow!("a DB_PATH is required for --sql")),
+                stix_bundle.as_deref(),
+                &min_severity,
+                &format,
+                auto_feeds,
+            ),
+            Commands::RemoteAccess {
+                evidence_path,
+                rules_dir,
+                custom_rules,
+                categories,
+                format,
+                db,
+            } => commands::remote_access::run(
+                &evidence_path,
+                rules_dir.as_deref(),
+                custom_rules.as_deref(),
+                categories.as_deref(),
+                &format,
+                db.as_deref(),
+            ),
+            Commands::Memory {
+                dump_path,
+                command,
+                profile,
+                format,
+                pid,
+                cr3,
+            } => commands::memf::run(&dump_path, profile.as_deref(), &command, &format, pid, cr3),
+            Commands::Report {
+                db_path,
+                output,
+                case_id,
+                examiner,
+                max_events,
+                format,
+            } => commands::report::run(
+                &db_path,
+                &output,
+                case_id.as_deref(),
+                examiner.as_deref(),
+                max_events,
+                &format,
+            ),
+            Commands::Srum { srudb_path, format } => commands::srum::run(&srudb_path, &format),
+            Commands::Biome { biome_path, format } => commands::biome::run(&biome_path, &format),
+            Commands::Frequency {
+                evtx_dir,
+                evtx_file,
+                cap,
+                key,
+                json,
+            } => match commands::frequency::parse_key(&key) {
+                Ok(freq_key) => {
+                    commands::frequency::run(&evtx_dir, &evtx_file, cap, freq_key, json)
                 }
-            } else {
-                // Route to the Tier-1 typed-query path when any typed flag is
-                // set; the legacy export/flagged/narrative path keeps its own
-                // contract.
-                let typed = path.is_some()
-                    || !field.is_empty()
-                    || ip.is_some()
-                    || user.is_some()
-                    || service.is_some()
-                    || logon_type.is_some()
-                    || exclude_machine_accounts
-                    || show.is_some()
-                    || count
-                    || distinct.is_some()
-                    || group_by.is_some()
-                    || first
-                    || last
-                    || !event_type.is_empty()
-                    || !source.is_empty();
-
-                match db_path {
-                    None => Err(anyhow::anyhow!(
-                        "a DB_PATH is required (use --list-fields to list fields without one)"
-                    )),
-                    Some(db) if typed && export_sqlite.is_none() && !flagged && !narrative => {
-                        let args = commands::timeline_query::QueryArgs {
-                            event_types: event_type,
-                            sources: source,
-                            path,
-                            fields: field,
-                            ip,
-                            user,
-                            service,
-                            logon_type,
-                            exclude_machine_accounts,
-                            show,
-                            count,
-                            distinct,
-                            group_by,
-                            first,
-                            last,
-                            sort_desc: descending,
-                            limit: Some(limit),
-                            format,
-                        };
-                        commands::timeline_query::run(&db, &args)
-                    }
-                    // Legacy path (export / flagged / narrative / plain listing):
-                    // the typed event_type/source vecs collapse to their first.
-                    Some(db) => commands::timeline::run(
-                        &db,
-                        event_type.first().map(String::as_str),
-                        source.first().map(String::as_str),
-                        limit,
-                        descending,
-                        export_sqlite.as_deref(),
-                        flagged,
-                        &min_severity,
-                        &format,
-                        narrative,
-                    ),
+                Err(e) => Err(anyhow::anyhow!("{e}")),
+            },
+            Commands::Processes {
+                evtx_dir,
+                evtx_file,
+                json,
+                link_sessions,
+            } => commands::processes::run(&evtx_dir, &evtx_file, json, link_sessions),
+            Commands::Session {
+                evtx_dir,
+                evtx_file,
+                json,
+            } => commands::session::run(&evtx_dir, &evtx_file, json),
+            Commands::Pivot { action } => match action {
+                PivotAction::Sync { cache_dir } => {
+                    let default_cache = dirs_next_cache();
+                    let cache = cache_dir.unwrap_or(default_cache);
+                    commands::pivot_cmd::run_sync(&cache)
                 }
-            }
+                PivotAction::Rules { rules_dir } => {
+                    commands::pivot_cmd::run_rules(rules_dir.as_deref())
+                }
+                PivotAction::Eval { evidence_file } => {
+                    commands::pivot_cmd::run_eval(&evidence_file)
+                }
+            },
         }
-        Commands::Logons { args, user, ip } => {
-            let db = args.db_path.clone();
-            commands::timeline_verbs::run_logons(
-                &db,
-                &commands::timeline_verbs::LogonsArgs {
-                    user,
-                    ip,
-                    common: verb_common(args),
-                },
-            )
-        }
-        Commands::Files { args, path } => {
-            let db = args.db_path.clone();
-            commands::timeline_verbs::run_files(
-                &db,
-                &commands::timeline_verbs::FilesArgs {
-                    path,
-                    common: verb_common(args),
-                },
-            )
-        }
-        Commands::Persistence {
-            args,
-            service,
-            registry_key,
-        } => {
-            let db = args.db_path.clone();
-            commands::timeline_verbs::run_persistence(
-                &db,
-                &commands::timeline_verbs::PersistenceArgs {
-                    service,
-                    registry_key,
-                    common: verb_common(args),
-                },
-            )
-        }
-        Commands::Hosts { args, host, port } => {
-            let db = args.db_path.clone();
-            commands::timeline_verbs::run_hosts(
-                &db,
-                &commands::timeline_verbs::HostsArgs {
-                    host,
-                    port,
-                    common: verb_common(args),
-                },
-            )
-        }
-        Commands::Info { db_path } => commands::info::run(&db_path),
-        Commands::Feed { action } => commands::feed::run(&action.to_lib_action()),
-        Commands::Scan {
-            target,
-            yara_rules,
-            sigma_rules,
-            hash_iocs,
-            network_iocs,
-            stix_bundle,
-            min_severity,
-            format,
-            auto_feeds,
-        } => commands::scan::run(
-            &target,
-            yara_rules.as_deref(),
-            sigma_rules.as_deref(),
-            hash_iocs.as_deref(),
-            network_iocs.as_deref(),
-            stix_bundle.as_deref(),
-            &min_severity,
-            &format,
-            auto_feeds,
-        ),
-        Commands::RemoteAccess {
-            evidence_path,
-            rules_dir,
-            custom_rules,
-            categories,
-            format,
-            db,
-        } => commands::remote_access::run(
-            &evidence_path,
-            rules_dir.as_deref(),
-            custom_rules.as_deref(),
-            categories.as_deref(),
-            &format,
-            db.as_deref(),
-        ),
-        Commands::Memory {
-            dump_path,
-            command,
-            profile,
-            format,
-            pid,
-            cr3,
-        } => commands::memf::run(&dump_path, profile.as_deref(), &command, &format, pid, cr3),
-        Commands::Report {
-            db_path,
-            output,
-            case_id,
-            examiner,
-            max_events,
-            format,
-        } => commands::report::run(
-            &db_path,
-            &output,
-            case_id.as_deref(),
-            examiner.as_deref(),
-            max_events,
-            &format,
-        ),
-        Commands::Srum { srudb_path, format } => commands::srum::run(&srudb_path, &format),
-        Commands::Biome { biome_path, format } => commands::biome::run(&biome_path, &format),
-        Commands::Frequency {
-            evtx_dir,
-            evtx_file,
-            cap,
-            key,
-            json,
-        } => match commands::frequency::parse_key(&key) {
-            Ok(freq_key) => commands::frequency::run(&evtx_dir, &evtx_file, cap, freq_key, json),
-            Err(e) => Err(anyhow::anyhow!("{e}")),
-        },
-        Commands::Processes {
-            evtx_dir,
-            evtx_file,
-            json,
-            link_sessions,
-        } => commands::processes::run(&evtx_dir, &evtx_file, json, link_sessions),
-        Commands::Session {
-            evtx_dir,
-            evtx_file,
-            json,
-        } => commands::session::run(&evtx_dir, &evtx_file, json),
-        Commands::Pivot { action } => match action {
-            PivotAction::Sync { cache_dir } => {
-                let default_cache = dirs_next_cache();
-                let cache = cache_dir.unwrap_or(default_cache);
-                commands::pivot_cmd::run_sync(&cache)
-            }
-            PivotAction::Rules { rules_dir } => {
-                commands::pivot_cmd::run_rules(rules_dir.as_deref())
-            }
-            PivotAction::Eval { evidence_file } => commands::pivot_cmd::run_eval(&evidence_file),
-        },
+    } else {
+        // Bare front door: `issen <evidence…>` — the resumable pipeline.
+        commands::pipeline_run::run(&cli.evidence, cli.verbose)
     };
 
     match result {
