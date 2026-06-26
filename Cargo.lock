@@ -4997,6 +4997,7 @@ dependencies = [
  "inventory",
  "issen-core",
  "serde_json",
+ "tempfile",
  "trash-core",
 ]
 
@@ -11772,9 +11773,9 @@ dependencies = [
 
 [[package]]
 name = "winreg-artifacts"
-version = "0.2.2"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "76b44537bd2bd5c1363ff3fe6e2437c6e47cb33a72088fad97578ec93c0e6591"
+checksum = "890e84032271d98d1db8a2d484ee21a133e8b940b33e25d086dbcdcef205a4e8"
 dependencies = [
  "chrono",
  "forensicnomicon",
