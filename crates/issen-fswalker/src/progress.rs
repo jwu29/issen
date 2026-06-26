@@ -1,5 +1,5 @@
 use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 /// The pipeline phase a source is currently in, for the live display.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,11 +56,21 @@ pub struct ProgressReporter {
     errors_encountered: Arc<AtomicU64>,
     artifacts_total: Arc<AtomicU64>,
     phase: Arc<AtomicU8>,
+    /// One entry per worker bar; `Some(label)` = that slot is parsing `label`,
+    /// `None` = idle. Empty when the reporter has no worker bars.
+    worker_slots: Arc<Mutex<Vec<Option<String>>>>,
 }
 
 impl ProgressReporter {
     #[must_use]
     pub fn new() -> Self {
+        Self::with_workers(0)
+    }
+
+    /// Create a reporter with `n` worker slots backing the per-source worker
+    /// bars. `new()` (`n == 0`) shows no worker bars.
+    #[must_use]
+    pub fn with_workers(n: usize) -> Self {
         Self {
             events_emitted: Arc::new(AtomicU64::new(0)),
             bytes_processed: Arc::new(AtomicU64::new(0)),
@@ -68,7 +78,38 @@ impl ProgressReporter {
             errors_encountered: Arc::new(AtomicU64::new(0)),
             artifacts_total: Arc::new(AtomicU64::new(0)),
             phase: Arc::new(AtomicU8::new(Phase::Queued as u8)),
+            worker_slots: Arc::new(Mutex::new(vec![None; n])),
         }
+    }
+
+    /// Claim a worker slot for the artifact `label` currently being parsed; the
+    /// returned guard frees the slot on drop. When every slot is busy the guard
+    /// owns no slot (the artifact simply isn't shown until one frees) — this
+    /// never panics and never displaces a live slot.
+    pub fn claim_worker(&self, label: impl Into<String>) -> WorkerGuard {
+        let label = label.into();
+        let mut slots = self
+            .worker_slots
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let idx = slots.iter().position(Option::is_none);
+        if let Some(i) = idx {
+            slots[i] = Some(label);
+        }
+        WorkerGuard {
+            slots: Arc::clone(&self.worker_slots),
+            idx,
+        }
+    }
+
+    /// A snapshot of every worker slot's current artifact label (`None` = idle),
+    /// for the render loop. Empty when the reporter has no worker slots.
+    #[must_use]
+    pub fn worker_labels(&self) -> Vec<Option<String>> {
+        self.worker_slots
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
     }
 
     /// Set the current pipeline phase (for the live display).
@@ -147,6 +188,28 @@ impl ProgressReporter {
 impl Default for ProgressReporter {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Holds a [`ProgressReporter`] worker slot for the lifetime of one artifact's
+/// parse; the slot returns to idle when this guard drops.
+#[must_use = "the worker slot is held only while this guard is alive"]
+pub struct WorkerGuard {
+    slots: Arc<Mutex<Vec<Option<String>>>>,
+    idx: Option<usize>,
+}
+
+impl Drop for WorkerGuard {
+    fn drop(&mut self) {
+        if let Some(i) = self.idx {
+            let mut slots = self
+                .slots
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if let Some(slot) = slots.get_mut(i) {
+                *slot = None;
+            }
+        }
     }
 }
 
