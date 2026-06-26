@@ -63,7 +63,7 @@ export WS_E01="$SZ/20200918_0417_DESKTOP-SDN1RPT.E01"
 issen memory "$DC_MEM" --command all
 
 # 2. Disk: parse the DC image into a timeline DB, then a narrative HTML report
-issen ingest "$DC_E01" -o /tmp/dc01.duckdb
+issen "$DC_E01" -o /tmp/dc01.duckdb
 issen report /tmp/dc01.duckdb -o /tmp/dc01-report.html --case-id "case001-dc01"
 ```
 
@@ -97,7 +97,7 @@ not yet wired. Answer from the write-ups.
 ### 4. Was there a breach?  ✅
 `Yes.` Parse the DC disk and surface cross-artifact findings:
 ```bash
-issen ingest "$DC_E01" -o /tmp/dc01.duckdb
+issen "$DC_E01" -o /tmp/dc01.duckdb
 issen correlate "$SZ/E01-DC01"
 ```
 issen measures the members: a 4625 failed-logon burst, thousands of `LogonSuccess` events incl. the
@@ -107,7 +107,7 @@ attacker logon, and service-install events.
 `RDP brute force against Administrator, then a successful interactive logon from 194.61.24.102.`
 The logon evidence lives in the DC's EVTX (carried in the ingested timeline):
 ```bash
-issen ingest "$DC_E01" -o /tmp/dc01.duckdb
+issen "$DC_E01" -o /tmp/dc01.duckdb
 issen timeline /tmp/dc01.duckdb --event-type LogonSuccess
 issen timeline /tmp/dc01.duckdb --event-type LogonFailure
 ```
@@ -139,7 +139,7 @@ this session byte-for-byte against Volatility `windows.netscan`.)*
 
 **Where the malware is on disk** — ✅
 ```bash
-issen ingest "$WS_E01" -o /tmp/ws.duckdb
+issen "$WS_E01" -o /tmp/ws.duckdb
 issen timeline /tmp/ws.duckdb --event-type FileCreate
 ```
 `C:\Windows\System32\coreupdater.exe`; the Desktop `FileCreate` is host-derived `03:40:00Z`.
@@ -171,7 +171,7 @@ issen timeline /tmp/dc01.duckdb --event-type LogonSuccess   # 194.61.24.102 as l
 `Yes — DESKTOP-SDN1RPT, by RDP from inside the DC, reusing the stolen Administrator credential.`
 Ingest both hosts into **one** timeline for cross-host correlation:
 ```bash
-issen ingest "$DC_E01" "$WS_E01" -o /tmp/case001.duckdb -s case001
+issen "$DC_E01" "$WS_E01" -o /tmp/case001.duckdb -s case001
 issen timeline /tmp/case001.duckdb --event-type LogonSuccess
 ```
 issen measured the Desktop **4624 LogonType 10 from `10.42.85.10` (the DC), Administrator, host-derived
@@ -181,7 +181,7 @@ issen measured the Desktop **4624 LogonType 10 from `10.42.85.10` (the DC), Admi
 `secret.zip` staged/exfiltrated/deleted on the DC (~02:31 network clock), `loot.zip` on the Desktop
 (~02:48). The MFT/USN staging trail:
 ```bash
-issen ingest "$WS_E01" -o /tmp/ws.duckdb
+issen "$WS_E01" -o /tmp/ws.duckdb
 issen timeline /tmp/ws.duckdb --event-type FileCreate
 issen timeline /tmp/ws.duckdb --event-type FileDelete
 ```
@@ -200,7 +200,7 @@ add a firewall/IPS, kill credential reuse, deploy EDR. No command — analyst re
 `~02:30 UTC network clock (host-derived ~03:30Z)` — the recipe rode the `secret.zip` window;
 `Szechuan Sauce.txt` was accessed at network-clock `02:32:21`.
 ```bash
-issen ingest "$DC_E01" -o /tmp/dc01.duckdb
+issen "$DC_E01" -o /tmp/dc01.duckdb
 issen timeline /tmp/dc01.duckdb | grep -i "Szechuan Sauce"
 ```
 issen surfaces the file-access members; the woven chain is a correlation target.
@@ -208,7 +208,7 @@ issen surfaces the file-access members; the woven chain is a correlation target.
 ### 13. Were other sensitive files stolen/accessed? Times?  ✅
 `Yes — SECRET_beth.txt deleted and a different Beth_Secret.txt created (then timestomped ~02:38).`
 ```bash
-issen ingest "$DC_E01" -o /tmp/dc01.duckdb
+issen "$DC_E01" -o /tmp/dc01.duckdb
 issen timeline /tmp/dc01.duckdb | grep -i "Beth_Secret"
 ```
 issen measured the **8 `Beth_Secret` MFT events** (create/access/delete). The timestomp shows up as the
