@@ -183,6 +183,28 @@ mod tests {
         }
     }
 
+    /// A file-backed `DataSource` that reports its `source_path` — exercises the
+    /// `$R` sibling-recovery path (which reads the paired content file from the
+    /// `$I` file's directory).
+    struct FileSource {
+        bytes: Vec<u8>,
+        path: std::path::PathBuf,
+    }
+    impl DataSource for FileSource {
+        fn len(&self) -> u64 {
+            self.bytes.len() as u64
+        }
+        fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<usize, RtError> {
+            let off = offset as usize;
+            let n = buf.len().min(self.bytes.len().saturating_sub(off));
+            buf[..n].copy_from_slice(&self.bytes[off..off + n]);
+            Ok(n)
+        }
+        fn source_path(&self) -> Option<&std::path::Path> {
+            Some(&self.path)
+        }
+    }
+
     /// Build a valid version-2 `$I` index file:
     ///   [0..8]   version = 2 (LE u64)
     ///   [8..16]  original size (LE u64)
@@ -203,6 +225,65 @@ mod tests {
             data.extend_from_slice(&unit.to_le_bytes());
         }
         data
+    }
+
+    #[test]
+    fn recovers_dollar_r_content_from_sibling() {
+        // B7: with the paired `$R` content file present beside the `$I` index
+        // (as the disk-collection sweep now places them), the parser recovers the
+        // deleted file's content — answering "recover the original file" (the
+        // Szechuan `SECRET_beth.txt` → "Earth beth is the real beth.").
+        let dir = tempfile::tempdir().expect("tempdir");
+        let i_path = dir.path().join("$IU2L112.txt");
+        let r_path = dir.path().join("$RU2L112.txt");
+        let content = b"Earth beth is the real beth."; // 28 bytes
+        let idx = build_v2_index(
+            r"C:\FileShare\Secret\SECRET_beth.txt",
+            content.len() as u64,
+            132_000_000_000_000_000u64,
+        );
+        std::fs::write(&i_path, &idx).expect("write $I");
+        std::fs::write(&r_path, content).expect("write $R");
+
+        let source = FileSource {
+            bytes: idx,
+            path: i_path,
+        };
+        let collector = Collector::default();
+        RecycleBinParser
+            .parse(
+                &source,
+                &collector,
+                &issen_core::plugin::ParseOptions::default(),
+            )
+            .expect("parse");
+
+        let events = collector.0.lock().expect("lock");
+        assert_eq!(events.len(), 1);
+        let m = &events[0].metadata;
+        assert_eq!(
+            m.get("recovered_content_size")
+                .and_then(serde_json::Value::as_u64),
+            Some(28),
+            "the recovered $R content length must be surfaced"
+        );
+        assert_eq!(
+            m.get("content_size_matches")
+                .and_then(serde_json::Value::as_bool),
+            Some(true),
+            "$R length must match the $I-recorded original size"
+        );
+        assert_eq!(
+            m.get("recovered_content_preview")
+                .and_then(serde_json::Value::as_str),
+            Some("Earth beth is the real beth."),
+            "the recovered text content must be surfaced as a preview"
+        );
+        assert!(
+            events[0].description.contains("recovered"),
+            "the FileDelete description must note content was recovered: {}",
+            events[0].description
+        );
     }
 
     #[test]
