@@ -351,20 +351,34 @@ pub fn load_prior(store: &TimelineStore) -> anyhow::Result<Vec<StageRecord>> {
         .collect())
 }
 
+/// Persists and reloads per-stage state. The real impl writes the case DB's
+/// `pipeline_state` table, opening it *briefly* per call so it never holds the
+/// DB open while a stage executor opens it (DuckDB allows one handle per file);
+/// tests use an in-memory recorder. This seam keeps [`run_bare`] testable and
+/// free of the file-lock / WAL hazards of holding a connection across stages.
+pub trait StateRecorder {
+    /// # Errors
+    /// Propagates state read errors.
+    fn load(&self) -> anyhow::Result<Vec<StageRecord>>;
+    /// # Errors
+    /// Propagates state write errors.
+    fn record(&self, stage: Stage, status: Status, fingerprint: &str) -> anyhow::Result<()>;
+}
+
 /// Run the resumable pipeline: load prior state, resolve actions, then for each
 /// stage to run, mark it incomplete, execute it, and mark it done — so a crash
-/// mid-stage leaves it resumable. Up-to-date stages are skipped. STUB (RED).
+/// mid-stage leaves it resumable. Up-to-date stages are skipped.
 ///
 /// # Errors
-/// Propagates store and executor errors; a failed stage stays `incomplete`.
+/// Propagates recorder and executor errors; a failed stage stays `incomplete`.
 pub fn run_bare<S: std::hash::BuildHasher>(
     applicable: &[Stage],
     flags: &Flags,
     current_fp: &HashMap<Stage, String, S>,
-    store: &TimelineStore,
+    recorder: &dyn StateRecorder,
     executor: &dyn StageExecutor,
 ) -> anyhow::Result<RunReport> {
-    let prior = load_prior(store)?;
+    let prior = recorder.load()?;
     let actions = resolve_actions(applicable, flags, current_fp, &prior);
     let mut report = RunReport::default();
     for (stage, action) in actions {
@@ -375,13 +389,9 @@ pub fn run_bare<S: std::hash::BuildHasher>(
                     continue; // cov:unreachable: actions are derived from current_fp keys
                 };
                 // Mark incomplete BEFORE running so a crash mid-stage is resumable.
-                store
-                    .record_stage_state(stage.as_str(), Status::Incomplete.as_str(), fp)
-                    .map_err(|e| anyhow::anyhow!("record stage incomplete: {e}"))?;
+                recorder.record(stage, Status::Incomplete, fp)?;
                 executor.execute(stage)?;
-                store
-                    .record_stage_state(stage.as_str(), Status::Done.as_str(), fp)
-                    .map_err(|e| anyhow::anyhow!("record stage done: {e}"))?;
+                recorder.record(stage, Status::Done, fp)?;
                 report.ran.push((stage, reason));
             }
         }
@@ -421,6 +431,26 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct MemRecorder {
+        rows: std::cell::RefCell<Vec<StageRecord>>,
+    }
+    impl StateRecorder for MemRecorder {
+        fn load(&self) -> anyhow::Result<Vec<StageRecord>> {
+            Ok(self.rows.borrow().clone())
+        }
+        fn record(&self, stage: Stage, status: Status, fingerprint: &str) -> anyhow::Result<()> {
+            let mut rows = self.rows.borrow_mut();
+            rows.retain(|r| r.stage != stage);
+            rows.push(StageRecord {
+                stage,
+                status,
+                fingerprint: fingerprint.to_string(),
+            });
+            Ok(())
+        }
+    }
+
     #[test]
     fn stage_and_status_tokens_roundtrip() {
         for s in Stage::ORDER {
@@ -439,7 +469,7 @@ mod tests {
 
     #[test]
     fn cold_run_executes_all_then_resume_skips_all() {
-        let store = TimelineStore::in_memory().expect("store");
+        let rec = MemRecorder::default();
         let applicable = vec![Stage::Ingest, Stage::Correlate, Stage::Scan];
         let cur = fp(&[
             (Stage::Ingest, "e1"),
@@ -448,7 +478,7 @@ mod tests {
         ]);
 
         let exec = MockExecutor::new();
-        let r1 = run_bare(&applicable, &Flags::default(), &cur, &store, &exec).expect("run1");
+        let r1 = run_bare(&applicable, &Flags::default(), &cur, &rec, &exec).expect("run1");
         assert_eq!(
             *exec.ran.borrow(),
             vec![Stage::Ingest, Stage::Correlate, Stage::Scan]
@@ -457,7 +487,7 @@ mod tests {
 
         // Same inputs again: everything is up to date → nothing executes.
         let exec2 = MockExecutor::new();
-        let r2 = run_bare(&applicable, &Flags::default(), &cur, &store, &exec2).expect("run2");
+        let r2 = run_bare(&applicable, &Flags::default(), &cur, &rec, &exec2).expect("run2");
         assert!(
             exec2.ran.borrow().is_empty(),
             "resume must skip completed stages"
@@ -470,17 +500,17 @@ mod tests {
 
     #[test]
     fn failed_stage_stays_incomplete_and_only_it_resumes() {
-        let store = TimelineStore::in_memory().expect("store");
+        let rec = MemRecorder::default();
         let applicable = vec![Stage::Ingest, Stage::Correlate];
         let cur = fp(&[(Stage::Ingest, "e1"), (Stage::Correlate, "r1")]);
 
         let exec = MockExecutor::failing(Stage::Correlate);
-        let err = run_bare(&applicable, &Flags::default(), &cur, &store, &exec);
+        let err = run_bare(&applicable, &Flags::default(), &cur, &rec, &exec);
         assert!(err.is_err(), "a stage failure propagates");
 
         // Ingest committed 'done'; correlate left 'incomplete' → re-run runs ONLY correlate.
         let exec2 = MockExecutor::new();
-        let r2 = run_bare(&applicable, &Flags::default(), &cur, &store, &exec2).expect("resume");
+        let r2 = run_bare(&applicable, &Flags::default(), &cur, &rec, &exec2).expect("resume");
         assert_eq!(*exec2.ran.borrow(), vec![Stage::Correlate]);
         assert_eq!(r2.skipped, vec![Stage::Ingest]);
     }

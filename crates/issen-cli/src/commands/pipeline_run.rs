@@ -95,12 +95,15 @@ pub fn run(evidence: &[PathBuf], verbose: bool) -> anyhow::Result<()> {
         .context("resolving current directory for the case DB")?
         .join(format!("issen-case-{case_id}.duckdb"));
 
-    let store = TimelineStore::open(&db_path)
-        .with_context(|| format!("opening case database {}", db_path.display()))?;
+    // Stage-state lives in the case DB's pipeline_state table; the recorder opens
+    // the DB only briefly per read/write, so it never holds the handle while a
+    // stage executor opens the same file (DuckDB permits one handle per file).
+    let recorder = DbStateRecorder {
+        db_path: db_path.clone(),
+    };
 
     let flags = Flags::default();
     let applicable = pipeline::applicable_stages(has_disk, has_memory, &flags);
-    let scan_applicable = applicable.contains(&Stage::Scan);
 
     println!(
         "issen: {} stage(s) for this case → {}",
@@ -112,13 +115,12 @@ pub fn run(evidence: &[PathBuf], verbose: bool) -> anyhow::Result<()> {
         disk: disk.iter().map(|(p, _)| p.clone()).collect(),
         mem: mem.iter().map(|(p, _)| p.clone()).collect(),
         db_path: db_path.clone(),
-        scan_applicable,
         verbose,
         total: applicable.len(),
         step: std::cell::Cell::new(0),
     };
 
-    let report = pipeline::run_bare(&applicable, &flags, &current_fp, &store, &executor)?;
+    let report = pipeline::run_bare(&applicable, &flags, &current_fp, &recorder, &executor)?;
     print_summary(&report, &db_path);
     Ok(())
 }
@@ -142,12 +144,38 @@ fn print_summary(report: &RunReport, db_path: &Path) {
     }
 }
 
+/// Persists stage-state in the case DB's `pipeline_state` table, opening the DB
+/// only briefly per call so it never contends with a stage executor's handle.
+struct DbStateRecorder {
+    db_path: PathBuf,
+}
+
+impl pipeline::StateRecorder for DbStateRecorder {
+    fn load(&self) -> anyhow::Result<Vec<pipeline::StageRecord>> {
+        let store = TimelineStore::open(&self.db_path)
+            .with_context(|| format!("opening {} for stage-state", self.db_path.display()))?;
+        pipeline::load_prior(&store)
+    }
+
+    fn record(
+        &self,
+        stage: Stage,
+        status: pipeline::Status,
+        fingerprint: &str,
+    ) -> anyhow::Result<()> {
+        let store = TimelineStore::open(&self.db_path)
+            .with_context(|| format!("opening {} to record stage-state", self.db_path.display()))?;
+        store
+            .record_stage_state(stage.as_str(), status.as_str(), fingerprint)
+            .map_err(|e| anyhow::anyhow!("record stage-state: {e}"))
+    }
+}
+
 /// Drives the real stage commands against one shared case DB.
 struct RealExecutor {
     disk: Vec<PathBuf>,
     mem: Vec<PathBuf>,
     db_path: PathBuf,
-    scan_applicable: bool,
     verbose: bool,
     total: usize,
     step: std::cell::Cell<usize>,
@@ -179,12 +207,15 @@ impl StageExecutor for RealExecutor {
                 let n = self.step.get() + 1;
                 self.step.set(n);
                 println!("▶ [{n}/{}] {}", self.total, stage_label(stage));
+                // Scan is its own stage, not folded into ingest: enabling ingest
+                // --scan re-tags every event (O(n) DuckDB updates) — pathological
+                // on a multi-million-event timeline and pointless with no feeds.
                 commands::ingest::run(
                     &self.disk,
                     &self.db_path,
                     None,
                     None,
-                    self.scan_applicable,
+                    false,
                     None,
                     None,
                     None,
