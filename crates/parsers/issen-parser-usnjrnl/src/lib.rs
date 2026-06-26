@@ -372,7 +372,14 @@ fn record_to_event(record: &UsnRecordV2, evidence_source_id: &str) -> TimelineEv
     let event_type = record.reason.to_event_type();
     let reason_desc = record.reason.describe();
 
-    let description = format!("{}: {} ({})", event_type, record.file_name, reason_desc);
+    // Include the USN sequence: it uniquely identifies the journal record, so
+    // distinct writes to the same file in the same second (e.g. setupapi.dev.log
+    // device-install churn) read as the distinct operations they are and carry
+    // distinct record_hashes (correct cross-ingest dedup).
+    let description = format!(
+        "{}: {} ({}) [USN {}]",
+        event_type, record.file_name, reason_desc, record.usn
+    );
 
     TimelineEvent::new(
         timestamp_ns,
@@ -645,6 +652,46 @@ mod tests {
         assert!(events[0].description.contains("file1.txt"));
         assert!(events[1].description.contains("file2.exe"));
         assert_eq!(events[1].event_type, EventType::FileDelete);
+    }
+
+    #[test]
+    fn usn_sequence_distinguishes_otherwise_identical_records() {
+        // Two USN records identical in name / reason / timestamp but with
+        // different USN sequence numbers are DISTINCT journal entries (e.g.
+        // setupapi.dev.log extended twice in the same second). The event must
+        // surface the USN so the rows read distinctly AND carry distinct
+        // record_hashes (so a re-ingest dedups them correctly, but two real
+        // writes stay two events).
+        let mk = |usn: i64| UsnRecordV2 {
+            record_length: 0,
+            major_version: 2,
+            minor_version: 0,
+            file_reference_number: 1,
+            parent_file_reference_number: 1,
+            usn,
+            timestamp: 130_000_000_000_000_000,
+            reason: UsnReasonFlags(UsnReasonFlags::DATA_EXTEND),
+            source_info: 0,
+            security_id: 0,
+            file_attributes: 0,
+            file_name: "setupapi.dev.log".to_string(),
+        };
+        let a = record_to_event(&mk(1000), "src");
+        let b = record_to_event(&mk(2000), "src");
+        assert!(
+            a.description.contains("1000") && b.description.contains("2000"),
+            "the USN sequence must appear in the description: {:?} / {:?}",
+            a.description,
+            b.description
+        );
+        assert_ne!(
+            a.description, b.description,
+            "distinct USN records must read distinctly"
+        );
+        assert_ne!(
+            a.record_hash, b.record_hash,
+            "distinct USN records must carry distinct record_hashes"
+        );
     }
 
     #[test]
