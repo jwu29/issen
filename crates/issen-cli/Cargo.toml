@@ -18,6 +18,7 @@ path = "src/lib.rs"
 [dependencies]
 sha2 = { workspace = true }
 ctrlc = { workspace = true }
+rayon = { workspace = true }
 indicatif = { workspace = true }
 forensic-pivot = { workspace = true }
 issen-core = { workspace = true }

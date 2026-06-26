@@ -64,6 +64,7 @@ extern crate issen_providers as _;
 pub mod banner;
 pub mod commands;
 pub mod ingest_progress;
+pub mod parallel_sources;
 pub mod parsers;
 pub mod pipeline;
 pub mod progress_view;

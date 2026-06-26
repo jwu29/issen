@@ -4461,6 +4461,7 @@ dependencies = [
  "mft",
  "ntfs-core",
  "predicates",
+ "rayon",
  "serde_json",
  "sha2",
  "srum-core",
