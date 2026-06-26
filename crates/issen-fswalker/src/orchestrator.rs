@@ -329,7 +329,7 @@ pub fn run_auto(
 pub fn run_auto_parse_jobs(
     path: &Path,
     progress: &ProgressReporter,
-    skip: &dyn Fn(&ArtifactType, &Path, &str) -> bool,
+    skip: &(dyn Fn(&ArtifactType, &Path, &str) -> bool + Sync),
     opts: &ParseOptions,
 ) -> Result<(Vec<ParseJob>, IngestResult, usize), RtError> {
     // `with_evidence` keeps the collection manifest's TempDir alive across the
@@ -414,17 +414,26 @@ pub fn parse_into_jobs(
     artifacts: &[DiscoveredArtifact],
     parsers: &[Box<dyn ForensicParser>],
     progress: &ProgressReporter,
-    skip: &dyn Fn(&ArtifactType, &Path, &str) -> bool,
+    skip: &(dyn Fn(&ArtifactType, &Path, &str) -> bool + Sync),
     opts: &ParseOptions,
 ) -> (Vec<ParseJob>, Vec<String>, usize) {
+    // Intra-source (level-2) parallelism: the artifacts of one evidence source
+    // parse concurrently (each `parse_one_artifact` is independent and CPU-bound).
+    // `par_iter().collect()` PRESERVES artifact order, so the units — and thus the
+    // commit order and timeline ids — stay deterministic regardless of which
+    // artifact finishes first. `complete_artifact` is atomic, safe across workers.
+    let per_artifact: Vec<(Vec<ParseJob>, Vec<String>, usize)> = artifacts
+        .par_iter()
+        .map(|artifact| {
+            let unit = parse_one_artifact(artifact, parsers, progress, skip, opts);
+            progress.complete_artifact();
+            unit
+        })
+        .collect();
     let mut units = Vec::new();
     let mut errors = Vec::new();
     let mut skipped = 0usize;
-    for artifact in artifacts {
-        let (u, e, s) = parse_one_artifact(artifact, parsers, progress, skip, opts);
-        // One completion per artifact (not per matching parser) so artifacts_completed
-        // tracks toward artifacts_total for a correct determinate bar.
-        progress.complete_artifact();
+    for (u, e, s) in per_artifact {
         units.extend(u);
         errors.extend(e);
         skipped += s;
