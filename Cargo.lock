@@ -4501,6 +4501,7 @@ dependencies = [
  "flate2",
  "forensicnomicon",
  "issen-core",
+ "rayon",
  "reqwest",
  "serde",
  "serde_json",

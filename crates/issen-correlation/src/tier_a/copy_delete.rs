@@ -138,8 +138,9 @@ pub fn copy_delete_pairs<E>(
     creates: &[(E, FileFacts)],
 ) -> Vec<Correlation>
 where
-    E: EventView,
+    E: EventView + Sync,
 {
+    use rayon::prelude::*;
     // Pre-sort creates by timestamp ONCE so each delete scans only the
     // ±WINDOW slice (binary-searched) instead of every create — O(D log C +
     // matches) instead of O(D × C). Positive timestamps only (the per-candidate
@@ -152,43 +153,50 @@ where
     sorted.sort_by_key(|(e, _)| e.timestamp_ns());
     let sorted_ts: Vec<i64> = sorted.iter().map(|(e, _)| e.timestamp_ns()).collect();
 
-    let mut out = Vec::new();
-    for (del_ev, del_facts) in deletes {
-        let del_ts = del_ev.timestamp_ns();
-        if del_ts <= 0 {
-            continue;
-        }
-        // The window [del_ts - W, del_ts + W] as a contiguous slice of `sorted`.
-        let lo = sorted_ts.partition_point(|&t| t < del_ts.saturating_sub(COPY_DELETE_WINDOW_NS));
-        let hi = sorted_ts.partition_point(|&t| t <= del_ts.saturating_add(COPY_DELETE_WINDOW_NS));
-        let mut best: Option<&(E, FileFacts)> = None;
-        for candidate in sorted[lo..hi].iter().copied() {
-            let (cre_ev, cre_facts) = candidate;
-            let cre_ts = cre_ev.timestamp_ns();
-            if del_ev.hostname() != cre_ev.hostname() {
-                continue;
+    // Each delete's window scan is independent (read-only over `sorted`) and
+    // produces at most one correlation, so run the deletes in parallel —
+    // copy-delete is the dominant correlate cost on a real MFT timeline.
+    // `collect` preserves the input order of `deletes`, so findings stay
+    // deterministic regardless of which delete finishes first.
+    deletes
+        .par_iter()
+        .filter_map(|(del_ev, del_facts)| {
+            let del_ts = del_ev.timestamp_ns();
+            if del_ts <= 0 {
+                return None;
             }
-            if !guards_hold(del_facts, cre_facts) {
-                continue;
-            }
-            let nearer = match best {
-                Some((cur_ev, _)) => {
-                    (cre_ts - del_ts).abs() < (cur_ev.timestamp_ns() - del_ts).abs()
+            // The window [del_ts - W, del_ts + W] as a contiguous slice of `sorted`.
+            let lo =
+                sorted_ts.partition_point(|&t| t < del_ts.saturating_sub(COPY_DELETE_WINDOW_NS));
+            let hi =
+                sorted_ts.partition_point(|&t| t <= del_ts.saturating_add(COPY_DELETE_WINDOW_NS));
+            let mut best: Option<&(E, FileFacts)> = None;
+            for candidate in sorted[lo..hi].iter().copied() {
+                let (cre_ev, cre_facts) = candidate;
+                let cre_ts = cre_ev.timestamp_ns();
+                if del_ev.hostname() != cre_ev.hostname() {
+                    continue;
                 }
-                None => true,
-            };
-            if nearer {
-                best = Some(candidate);
+                if !guards_hold(del_facts, cre_facts) {
+                    continue;
+                }
+                let nearer = match best {
+                    Some((cur_ev, _)) => {
+                        (cre_ts - del_ts).abs() < (cur_ev.timestamp_ns() - del_ts).abs()
+                    }
+                    None => true,
+                };
+                if nearer {
+                    best = Some(candidate);
+                }
             }
-        }
-        if let Some((cre_ev, _)) = best {
-            let cre_ts = cre_ev.timestamp_ns();
-            let (first, last) = if del_ts <= cre_ts {
-                (del_ts, cre_ts)
-            } else {
-                (cre_ts, del_ts)
-            };
-            out.push(
+            best.map(|(cre_ev, _)| {
+                let cre_ts = cre_ev.timestamp_ns();
+                let (first, last) = if del_ts <= cre_ts {
+                    (del_ts, cre_ts)
+                } else {
+                    (cre_ts, del_ts)
+                };
                 Correlation::new(
                     "CORR-COPY-DELETE",
                     forensicnomicon::report::Severity::Medium,
@@ -201,11 +209,10 @@ where
                 .with_member(CorrelationMember::new(
                     cre_ev.id(),
                     CorrelationRole::Consequent,
-                )),
-            );
-        }
-    }
-    out
+                ))
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]
