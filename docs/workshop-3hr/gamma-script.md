@@ -4,6 +4,10 @@
 > into Gamma → *Create new* → *Paste in text* → *Cards (one per `---`)*.
 > Each `---` is a new card; the `#` line is the card title; bullets become the card body.
 > Suggested Gamma settings: **dark theme**, **16:9**, accent = teal/amber, "punchy" text density.
+> **Tint convention:** callouts beginning 🛠️ **The hard way** are the *traditional* multi-tool
+> workflow — give them a **muted amber tint** in Gamma so they read as a distinct "before",
+> against the **teal** issen path (⚡ **The issen way**). The colour switch is the cue: amber = the
+> old grind, teal = one command.
 > **Every content card carries a Mermaid illustration** — code-fences render natively in Gamma,
 > leave them as-is. If a fence ever fails to render, the bullets above it still stand alone.
 >
@@ -371,7 +375,7 @@ flowchart LR
 - **E01 carries its own hashes.** Acquisition stored an MD5/SHA. Verify it before you trust a single byte — chain of custody starts here.
 - **Compression is transparent.** EWF is zlib-compressed under the hood; the reader inflates on the fly. You address sectors, not compressed blocks.
 
-`issen ingest <first.E01>` opens the container for you — the rest of the pipeline never sees EWF again. And because issen reads **zip / 7z / tar.gz** natively, you can point it straight at the evidence archive you downloaded (`issen ingest DC01-E01.zip`) — it unwraps the archive *and* cracks the split E01 inside, no manual unzip.
+`issen <first.E01>` opens the container for you — the rest of the pipeline never sees EWF again. And because issen reads **zip / 7z / tar.gz** natively, you can point it straight at the evidence archive you downloaded (`issen DC01-E01.zip`) — it unwraps the archive *and* cracks the split E01 inside, no manual unzip.
 
 ```mermaid
 block-beta
@@ -744,15 +748,15 @@ flowchart LR
 
 # Part II — The Investigation, Question by Question
 
-We answer the **official DFIR Madness question set** — all 13 + the Advanced/Bonus set — **grouped by the issen command that answers them**, so you master one tool surface at a time. Two commands carry most of it:
+We answer the **official DFIR Madness question set** — all 13 + the Advanced/Bonus set — **grouped by the issen command that answers them**, so you master one tool surface at a time. One command builds the whole case (ingest + correlate + scan, one pass); one digs the memory:
 
 ```bash
 # issen reads the download archive directly — zip / 7z / tar.gz, no manual unzip
-issen ingest DC01-E01.zip -o dc01.duckdb     # disk → one timeline DB
+issen DC01-E01.zip -o dc01.duckdb        # disk → timeline + correlations + findings
 issen memory citadeldc01.mem --command all   # memory → processes, C2, creds
 ```
 
-> **One thing you still extract:** the **memory dump**. `issen ingest` unwraps the archive,
+> **One thing you still extract:** the **memory dump**. `issen` unwraps the archive,
 > cracks the **E01 disk image inside it**, and walks the filesystem — all from the `.zip` you
 > downloaded. But the memory walker reads a *raw page stream*, so unzip the memory archive to
 > `citadeldc01.mem` first. Everything disk-side ingests the `.zip` as-is.
@@ -764,7 +768,7 @@ Each card: **the official question → the exact command → the real output →
 
 ```mermaid
 flowchart LR
-  DISK["DC01-E01.zip"] --> ING["issen ingest<br/>(reads zip, cracks E01)"] --> DB["dc01.duckdb"]
+  DISK["DC01-E01.zip"] --> ING["issen DC01-E01.zip<br/>(ingest+correlate+scan)"] --> DB["dc01.duckdb"]
   MEM["citadeldc01.mem"] --> MM["issen memory --command all"] --> ANS["answers"]
   DB --> ANS
 ```
@@ -802,6 +806,10 @@ One command frames the whole case before you touch a single artifact.
 
 > Covers: **Q4**
 
+> 🛠️ **The hard way** — mount the E01 in FTK Imager, open Security.evtx in Event Viewer, hunt for a failed-logon spike sitting next to a service install. Minutes of clicking, easy to miss.
+
+⚡ **The issen way** — `issen info dc01.duckdb`: one frame; the breach shape jumps out.
+
 ---
 
 # Q4 · Was there a breach?
@@ -832,6 +840,10 @@ flowchart LR
 Everything the running box knew at capture: OS build, live processes, the C2 socket, injected code. One subcommand surface (`check / ps / netstat / scan`).
 
 > Covers: **Q1–Q3 · Q6.1 · Q6.3 · Q6.7/6.8 · Q13** (+ DPAPI/provenance)
+
+> 🛠️ **The hard way** — identify the kernel build, *download or build the Volatility 3 ISF symbol table* for it, let automagic pick a profile, then run `windows.pslist`, `windows.netscan`, `windows.malfind` as three separate plugins.
+
+⚡ **The issen way** — `issen memory citadeldc01.mem --command all`: GUID-matches and pulls the PDB **inline**, then walks processes, the C2 socket, and injected regions in one pass.
 
 ---
 
@@ -979,11 +991,15 @@ flowchart LR
 
 ---
 
-# Group 3 · Who Logged On — logon analytics
+# Group 3 · Who Logged On — `issen timeline --event-type LogonSuccess`
 
-The EVTX logon story: entry, lateral movement, who, how many sessions, the outlier source. (`issen logons / session / frequency`.)
+The EVTX logon story: entry, lateral movement, who, how many sessions, the outlier source. (`issen timeline logons` · `issen session` · `issen frequency`.)
 
 > Covers: **Q5 · Q6.2 · Q8 · Q9 · B4/B5** (+ sessions, frequency)
+
+> 🛠️ **The hard way** — `log2timeline.py` → `psort.py` into a multi-GB CSV, then grep / Excel-filter millions of rows for the 4624s and pivot by IP by hand.
+
+⚡ **The issen way** — `issen timeline dc01.duckdb --event-type LogonSuccess --ip 194.61.24.102 --group-by event_type`: a typed query, no raw SQL, answer in one line.
 
 ---
 
@@ -1179,11 +1195,15 @@ flowchart LR
 
 ---
 
-# Group 4 · File-System History — `issen files` (MFT / USN)
+# Group 4 · File-System History — `issen timeline files` (MFT / USN)
 
 What touched disk and when: the malware, the moves, the staged-and-deleted archives, the stolen files, the LNK trail.
 
 > Covers: **Q6.4/6.5 · Q6.6 · Q8.3 · Q11 · Q12 · B7/B8** (+ LNK)
+
+> 🛠️ **The hard way** — `MFTECmd`/`analyzeMFT` on `$MFT`, parse `$UsnJrnl` separately, then merge two CSVs and reconcile timestamps to rebuild the file's history.
+
+⚡ **The issen way** — `issen timeline dc01.duckdb --path '*coreupdater*' --first`: MFT + USN already unified in the timeline; one glob, one answer.
 
 ---
 
@@ -1375,11 +1395,15 @@ flowchart LR
 
 ---
 
-# Group 5 · Persistence & Registry
+# Group 5 · Persistence & Registry — `issen timeline persistence`
 
-How it survives reboot, and the credential material — service, Run key, SAM hives. (`issen persistence` / registry.)
+How it survives reboot, and the credential material — service, Run key, SAM hives. (`issen timeline persistence` / registry.)
 
 > Covers: **Q6.9 · B6** (+ dual-persistence)
+
+> 🛠️ **The hard way** — export the SYSTEM/SOFTWARE/SAM hives, run RegRipper for the Run key + services and `secretsdump.py` for the hashes — three tools, three outputs to reconcile.
+
+⚡ **The issen way** — `issen timeline dc01.duckdb --event-type ServiceInstall --service coreupdater` (+ the `--source Registry` view): persistence and credential material already in the timeline.
 
 ---
 
@@ -1443,7 +1467,7 @@ flowchart LR
 **Command** *(extract the hives; crack **offline** — not a live tool step):*
 
 ```bash
-issen ingest DC01-E01.zip -o dc01.duckdb  # SAM + SYSTEM hives extracted from the archive & ingested
+issen DC01-E01.zip -o dc01.duckdb  # SAM + SYSTEM hives extracted from the archive & ingested
 # → carve SAM/SYSTEM → NTLM hashes → hashcat/john, offline in the lab
 ```
 
@@ -1468,6 +1492,10 @@ flowchart LR
 Where the tool stops and judgement begins: IP attribution (OSINT) and the controls that would have prevented it.
 
 > Covers: **Q7 · Q10 · B1–B3**
+
+> 🛠️ **The hard way** — manual VirusTotal / OSINT lookups on each IP, then hand-write the board brief and the control recommendations.
+
+⚡ **The issen way** — issen supplies the *measured evidence* (IPs, roles, the chain); **attribution (OSINT) and advisory stay the analyst's judgement** — no tool shortcut, and we don't pretend otherwise.
 
 ---
 
@@ -1566,7 +1594,7 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-  ING["issen ingest"] --> A["disk answers"]
+  ING["issen DC01-E01.zip"] --> A["disk answers"]
   MEM["issen memory"] --> B["memory answers"]
   A --> NAR["→ correlate → narrative"]
   B --> NAR
@@ -1604,6 +1632,12 @@ The deliverable is not a tool dump. It's an **attack-chain narrative** a board c
 `T1110` brute force → `T1021.001` RDP → `T1543.003` service persistence → `T1055` injection → `T1071/T1573` C2 → `T1070.006` timestomp → `T1560/T1041` stage & exfil.
 
 Built from **graded findings**, each tagged *"consistent with"* — never a verdict.
+
+```bash
+issen DC01-E01.zip citadeldc01.mem -o case.duckdb   # build it: ingest + correlate + scan + memory, one pass
+issen report case.duckdb --format text              # the attack-chain narrative, live in the terminal
+issen report case.duckdb                            # the same, as a board-ready HTML report
+```
 
 > **Write every sentence in one of three layers:** ① **observed fact** (state it) → ② **forensic inference** ("consistent with", never "proves") → ③ **legal conclusion** (hand to the tribunal). Never let a layer-① finding wear layer-③ language. *(See "Present It Like an Expert Witness.")*
 

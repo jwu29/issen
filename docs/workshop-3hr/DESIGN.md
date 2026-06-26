@@ -98,7 +98,7 @@ Full official question set + answers + sources: see `ctf-yardstick.md`.
 
 Prioritized for the 6-day window; ordered by workshop leverage.
 
-1. **`issen correlate <case-dir>` — unified five-source command** *(makes the flyer's central
+1. **`issen <evidence…>` — unified pipeline (all five sources, one command)** *(makes the flyer's central
    claim real)*. Thin orchestration over existing pieces: disk-extract → EVTX ingest → memf →
    SRUM → temporal rules → one DuckDB → one `issen report`. Per-event `source=` attribution.
 2. **ATT&CK tagging on raw events** (4625→T1110, 4624/type10→T1021.001, 7045→T1543.003,
