@@ -242,4 +242,45 @@ mod tests {
         assert_eq!(b.phase(), Phase::Discovering);
         assert_eq!(b.artifacts_total(), 9);
     }
+
+    #[test]
+    fn worker_slots_claim_release_and_overflow() {
+        // Worker bars: each in-flight artifact claims a slot naming what it's
+        // parsing; the slot frees when the guard drops. Slots are shared across
+        // clones (the render thread reads from its own clone).
+        let r = ProgressReporter::with_workers(2);
+        let render_side = r.clone();
+        assert_eq!(render_side.worker_labels(), vec![None, None]);
+
+        let g1 = r.claim_worker("$MFT");
+        assert_eq!(
+            render_side.worker_labels(),
+            vec![Some("$MFT".to_string()), None]
+        );
+        let g2 = r.claim_worker("Registry");
+        assert_eq!(
+            render_side.worker_labels(),
+            vec![Some("$MFT".to_string()), Some("Registry".to_string())]
+        );
+
+        // All slots busy → overflow claim shows nowhere, but never panics and
+        // never displaces a live slot.
+        let g3 = r.claim_worker("EVTX");
+        assert_eq!(
+            render_side.worker_labels(),
+            vec![Some("$MFT".to_string()), Some("Registry".to_string())]
+        );
+
+        drop(g1); // frees slot 0
+        assert_eq!(
+            render_side.worker_labels(),
+            vec![None, Some("Registry".to_string())]
+        );
+        drop(g2);
+        drop(g3);
+        assert_eq!(render_side.worker_labels(), vec![None, None]);
+
+        // new() has no worker slots.
+        assert!(ProgressReporter::new().worker_labels().is_empty());
+    }
 }
