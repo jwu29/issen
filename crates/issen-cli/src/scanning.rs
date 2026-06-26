@@ -278,6 +278,25 @@ pub fn run_scan_phase(
     (findings, summary)
 }
 
+/// Run the event-level detection pass over the PERSISTED timeline and store the
+/// findings in `scan_findings`. This is the body of the bare pipeline's Scan
+/// stage, factored out so it is unit-testable over an in-memory store.
+///
+/// Loads the timeline *with metadata* (so the `$SI`/`$FN` timestomp detector
+/// and the Sigma / native-ATT&CK passes see artifact-specific fields), runs
+/// [`run_scan_phase`], and persists the resulting findings. Full-timeline tag
+/// enrichment is deliberately skipped here — re-tagging every row is the O(n)
+/// DuckDB pathology that motivated splitting scan out of ingest; the
+/// `scan_findings` table is the surfacing path (`report`, `timeline --flagged`).
+pub fn scan_persisted(
+    store: &issen_timeline::store::TimelineStore,
+    engine: &ScanEngine,
+    evidence_root: &Path,
+) -> anyhow::Result<ScanPhaseSummary> {
+    let _ = (store, engine, evidence_root);
+    Ok(ScanPhaseSummary::default()) // RED stub — GREEN fills this in
+}
+
 /// Known metadata field names that may contain IP addresses.
 const IP_FIELDS: &[&str] = &[
     "SourceIp",
@@ -1108,6 +1127,37 @@ detection:
         assert!(
             summary.total_findings >= 1,
             "the timestomp lead must be counted in the phase summary"
+        );
+    }
+
+    #[test]
+    fn scan_persisted_flags_and_stores_timestomp_from_db() {
+        use issen_timeline::store::TimelineStore;
+        // The bare pipeline's Scan stage runs over the PERSISTED timeline, not
+        // the in-memory parse output. Seed a timestomped FileCreate, persist it,
+        // then scan the store: the timestomp finding must be both counted AND
+        // written to `scan_findings`, so `report` / `timeline --flagged` surface
+        // it. This is the regression guard for the bare pipeline that produced
+        // zero timestomp findings on the real Szechuan DC ingest.
+        let store = TimelineStore::in_memory().expect("store");
+        store
+            .inseissen_batch(&[timestomped_file_create()])
+            .expect("ingest");
+        let engine = ScanEngine::new();
+        let dir = tempfile::tempdir().unwrap();
+
+        let summary = scan_persisted(&store, &engine, dir.path()).expect("scan persisted");
+        assert!(
+            summary.timestomp_findings >= 1,
+            "scan over the persisted timeline must flag the $SI<$FN timestomp"
+        );
+        let rows = issen_timeline::findings::query_findings(store.connection(), None)
+            .expect("query findings");
+        assert!(
+            rows.iter()
+                .any(|r| r.engine == "Timestomp" && r.rule_name == "NTFS-TIMESTOMP-SI-FN-MISMATCH"),
+            "the timestomp finding must be persisted to scan_findings, got {} rows",
+            rows.len()
         );
     }
 
