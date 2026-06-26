@@ -204,13 +204,20 @@ pub struct Flags {
 
 /// Classify an evidence path by extension. `None` = unrecognized (the caller
 /// warns and skips). Directories/collections are classified as disk by the
-/// shell, not here. `.raw`/`.dd` are treated as disk (dd images); memory dumps
-/// must use `.mem`/`.vmem`/`.lime`/`.dmp`/`.core`. STUB (RED).
+/// shell, not here. `.raw`/`.dd` are treated as disk (dd images); evidence
+/// archives (`.zip`/`.7z`/`.tar.gz`/…) route to the disk leg, where
+/// `issen-unpack` cracks the image/collection out of them; memory dumps must
+/// use `.mem`/`.vmem`/`.lime`/`.dmp`/`.core`.
 #[must_use]
 pub fn classify(path: &str) -> Option<EvidenceKind> {
     const DISK: &[&str] = &[
+        // Container / raw disk images.
         "e01", "ex01", "s01", "vmdk", "vhd", "vhdx", "qcow2", "raw", "dd", "img", "001", "iso",
         "aff4",
+        // Evidence archives — issen-unpack cracks a zipped E01 (or a
+        // loose-artifact collection) out of these onto the disk leg, so no
+        // manual extract is needed.
+        "zip", "7z", "tar", "gz", "tgz", "bz2", "tbz2", "xz", "txz", "zst",
     ];
     const MEMORY: &[&str] = &["mem", "vmem", "lime", "dmp", "core"];
     let ext = std::path::Path::new(path)
@@ -523,6 +530,18 @@ mod tests {
         assert_eq!(classify("citadeldc01.mem"), Some(EvidenceKind::Memory));
         assert_eq!(classify("dump.LiME"), Some(EvidenceKind::Memory));
         assert_eq!(classify("notes.txt"), None);
+    }
+
+    #[test]
+    fn classify_routes_evidence_archives_to_the_disk_leg() {
+        // issen-unpack cracks a zipped E01 (and loose-artifact collections) out
+        // of an archive, so an evidence archive must route to the disk leg —
+        // `issen DC01-E01.zip` should work without a manual extract.
+        assert_eq!(classify("DC01-E01.zip"), Some(EvidenceKind::Disk));
+        assert_eq!(classify("collection.7z"), Some(EvidenceKind::Disk));
+        assert_eq!(classify("evidence.tar.gz"), Some(EvidenceKind::Disk));
+        assert_eq!(classify("evidence.tgz"), Some(EvidenceKind::Disk));
+        assert_eq!(classify("UAC-host.tar.bz2"), Some(EvidenceKind::Disk));
     }
 
     #[test]
