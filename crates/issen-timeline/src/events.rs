@@ -367,7 +367,7 @@ impl TimelineStore {
         let mut stmt = self.connection().prepare(
             "SELECT id, timestamp_ns, timestamp_display, event_type, source,
                     artifact_path, description, user_account, hostname, tags,
-                    evidence_source, entity_refs, activity_category
+                    evidence_source, entity_refs, activity_category, metadata
              FROM timeline ORDER BY timestamp_ns ASC, record_hash ASC",
         )?;
         let raw_rows = stmt.query_map([], |row| {
@@ -385,6 +385,7 @@ impl TimelineStore {
                 evidence_source: row.get(10)?,
                 entity_refs: row.get(11)?,
                 activity_category: row.get(12)?,
+                metadata: row.get(13)?,
             })
         })?;
 
@@ -418,6 +419,15 @@ impl TimelineStore {
                 .activity_category
                 .as_deref()
                 .and_then(issen_core::ActivityCategory::from_code);
+            // Reconstruct the structured metadata map (artifact-specific fields
+            // such as the $FN/$SI timestamps the timestomp detector reads). A
+            // malformed/absent blob degrades to empty rather than dropping the
+            // event.
+            event.metadata = r
+                .metadata
+                .as_deref()
+                .and_then(|s| serde_json::from_str(s).ok())
+                .unwrap_or_default();
             events.push(event);
         }
         Ok(events)
@@ -439,6 +449,7 @@ struct RawTimelineRow {
     evidence_source: String,
     entity_refs: String,
     activity_category: Option<String>,
+    metadata: Option<String>,
 }
 
 #[cfg(test)]
