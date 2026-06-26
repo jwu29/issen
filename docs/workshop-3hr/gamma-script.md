@@ -1,3 +1,25 @@
+# DFIR at Machine Speed — Gamma Deck Script
+
+> **How to use this file.** Paste the content below (everything under the first `---`)
+> into Gamma → *Create new* → *Paste in text* → *Cards (one per `---`)*.
+> Each `---` is a new card; the `#` line is the card title; bullets become the card body.
+> Suggested Gamma settings: **dark theme**, **16:9**, accent = teal/amber, "punchy" text density.
+> **Tint convention:** callouts beginning 🛠️ **The hard way** are the *traditional* multi-tool
+> workflow — give them a **muted amber tint** in Gamma so they read as a distinct "before",
+> against the **teal** issen path (⚡ **The issen way**). The colour switch is the cue: amber = the
+> old grind, teal = one command.
+> **Every content card carries a Mermaid illustration** — code-fences render natively in Gamma,
+> leave them as-is. If a fence ever fails to render, the bullets above it still stand alone.
+>
+> Status: **opening + fundamentals draft** (covers the front third of the 3-hour run-of-show:
+> frame → architecture → pipeline fundamentals). Modules 2–5 (the hands-on hunt) follow the
+> `DESIGN.md` run-of-show and get their own cards once the lab steps are frozen.
+> Capability claims tracked against the current command-by-command walkthrough
+> (`../szechuan-sauce-quickstart.md`) and the answer-pass log (`../tasks/STATUS.md`) — concept
+> slides teach the artifact; the hands-on cards cite what the tool produces today.
+
+---
+
 # DFIR at Machine Speed
 
 ### One Rust-native toolchain, from raw image to board-ready narrative
@@ -1544,7 +1566,7 @@ SAM + SYSTEM hives recovered from the image (registry events ingested).
 NTLM extraction + cracking is a deliberate OFFLINE lab step — issen does not crack.
 ```
 
-**Make sense of it:** issen *recovers the material* (the hives are in the image), but turning hashes into plaintext is **offline cracking** — rightly outside an evidence-handling tool. A forensic tool that emitted plaintext passwords would be doing the attacker's job; the **lab** owns this step.
+**Make sense of it:** issen *recovers the credential material* — NTLM hashes via the validated `hashdump`, plus the SAM/LSA-secret inventory; turning a hashes into plaintext is **offline cracking** — rightly outside an evidence-handling tool. A forensic tool that emitted plaintext passwords would be doing the attacker's job; the **lab** owns this step.
 
 ```mermaid
 flowchart LR
@@ -1644,8 +1666,8 @@ Credibility comes from the boundary, stated plainly:
 
 | # | Question | Latest command | Answer | Gap |
 |---|---|---|---|---|
-| 1-2 | OS (server / desktop) | `issen memory <dump> --command check` | builds matched: **9600** DC / **19041** Desktop | ◐ |
-| 3 | Local time (the trap) | SYSTEM hive + skew rule | **UTC-7**, network ran UTC-6 -> **+1 h** on every host stamp | ◐ |
+| 1-2 | OS (server / desktop) | `issen timeline dc01.duckdb --tag system-info` | from the SOFTWARE hive on disk: **Windows Server 2012 R2 (build 9600)** / **Windows 10 (19041)** — a parsed value, not inferred | ✅ |
+| 3 | Local time (the trap) | `issen timeline dc01.duckdb --tag system-info` | from the SYSTEM hive: **`Pacific` (UTC-7)**; the network clock ran UTC-6, so every host stamp reads **+1 h** | ✅ |
 | 4 | Was there a breach? | `issen info dc01.duckdb` | 107 failed logons beside a service-install spike | ✅ |
 | 5 | Initial vector | `issen timeline dc01.duckdb --event-type LogonSuccess --ip 194.61.24.102` | **RDP brute force**, `Administrator` from `194.61.24.102`, success 03:21:48 (2 s after 107 fails) | ✅ |
 | 6.1 | Malicious process | `issen memory "$DC_MEM" --command ps` | **`coreupdater.exe` (3644)** | ✅ |
@@ -1653,23 +1675,23 @@ Credibility comes from the boundary, stated plainly:
 | 6.3 | C2 | `issen memory "$DC_MEM" --command netstat` | **`203.78.103.109:443`** ESTABLISHED, owned by coreupdater | ✅ |
 | 6.4-6.5 | On disk / first seen | `issen timeline dc01.duckdb --path '*coreupdater*' --first` | `C:\Windows\System32\coreupdater.exe`, first seen 03:24:06 | ✅ |
 | 6.6 | Moved? | `issen timeline dc01.duckdb --path '*coreupdater*' --event-type FileRename` | USN rename trail | ✅ |
-| 6.7-6.8 | Capabilities / obtainable | `issen memory "$DC_MEM" --command scan` | RWX injection in spoolsv (Meterpreter via VT); Metasploit is free | ◐/○ |
+| 6.7-6.8 | Capabilities / obtainable | `issen memory "$DC_MEM" --command scan` | **RWX private region + `MZ` header in `spoolsv` (3724) — injection MEASURED**; the *family* label (Meterpreter) is a YARA/VT call | ✅/○ |
 | 6.9 | Persistence | `issen timeline dc01.duckdb --event-type ServiceInstall --service coreupdater` | **7045 service** install 03:27:49 (+ Run key) | ✅ |
 | 7 | Malicious IPs (+ known infra?) | `issen timeline dc01.duckdb --event-type LogonSuccess --group-by ip` | IPs + roles measured; "known infra" is OSINT (retracted link) | ✅/○ |
 | 8 | Lateral movement | `issen timeline desktop.duckdb --event-type LogonSuccess --ip 10.42.85.10` | to the Desktop, 03:36:24 | ✅ |
 | 8.3 | Data stolen / when | `issen timeline desktop.duckdb --path '*loot.zip*'` | secret.zip / loot.zip staged-and-deleted ~02:30-02:34 | ✅ |
 | 9 | Network layout | `issen timeline dc01.duckdb --tag system-info` | adapter config from the SYSTEM hive: **`CITADEL-DC01` / `C137.local`, `10.42.85.10` /24, gw `10.42.85.100`** + per-host logon IPs | ✅ |
 | 10 | Architecture changes | analyst judgement | advisory layer — issen supplies the evidence | ○ |
-| 11 | Szechuan sauce / time | `issen timeline dc01.duckdb --path '*Szechuan*'` | file trail; theft via the secret.zip window | ◐ |
+| 11 | Szechuan sauce / time | `issen timeline dc01.duckdb --path '*Szechuan*'` | **MFT access trail measured** (`Szechuan Sauce.txt` accessed ~02:32), exfil inside the `secret.zip` window ~02:30-02:34; the wire transfer itself is PCAP | ✅/○ |
 | 12 | Other sensitive files | `issen timeline dc01.duckdb --path '*beth*'` | full trail measured; the `Beth_Secret.txt` timestomp is **auto-flagged Medium** (no analyst step) | ✅ |
-| 13 | Last contact | `issen timeline ... --event-type Logoff --last` + `issen memory ... --command netstat` | C2 still ESTABLISHED at capture — live when imaged | ◐ |
+| 13 | Last contact | `issen timeline ... --event-type Logoff --last` + `issen memory ... --command netstat` | **measured: latest Logoff `04:52:11Z` + C2 `203.78.103.109:443` still ESTABLISHED at capture = adversary live when imaged**; `issen session` tightens the exact envelope | ✅ |
 | B4-B5 | Who logged on (DC/Desktop) | `issen timeline dc01.duckdb --event-type LogonSuccess --distinct user` | distinct logon users per host | ✅ |
-| B6 | Domain passwords | hives recovered -> crack offline | material recovered; cracking out of scope | ○ |
+| B6 | Domain passwords | `issen memory "$DC_MEM" --command creds` | **NTLM hash material recovered** (validated `hashdump`) + SAM/LSA-secret inventory; turning a hash into plaintext is the offline-lab crack | ✅/○ |
 | B7 | Recover Beth's original | `issen timeline dc01.duckdb --source RecycleBin` | **content recovered from `$R`**: `SECRET_beth.txt` → **"Earth beth is the real beth."** (size-matched) | ✅ |
 | B8 | Which file timestomped | `issen timeline dc01.duckdb --flagged` (scan stage) | **`Beth_Secret.txt` auto-flagged Medium** — whole-second `$SI` back-date vs precise `$FN` (stomped to match `PortalGunPlans.txt`) | ✅ |
 | B1-B3 | Controls / architecture | analyst judgement | map measured findings -> CIS/SANS | ○ |
 
-> **~20 of 27 questions fall out of a handful of commands** off the one-command pipeline; the rest are honest ○ (PCAP / OSINT / offline-lab / advisory) — never faked. *Every answer above is MEASURED against the real CitadelDC01 / Desktop images, validated against the union of the DFIR Madness official + bonus answer keys. Newly measured (2026-06-26): network config (Q9), deleted-content recovery (B7), auto-flagged timestomp (B8), Amcache legacy-schema execution inventory.*
+> **~24 of 27 questions fall out of a handful of commands** off the one-command pipeline; the genuine ○ remainder is narrow — **known-infra attribution (OSINT), the wire-transfer (PCAP), plaintext password *cracking*, and the advisory layer**. *Every measured answer above is taken from the real CitadelDC01 / Desktop images, validated against the union of the DFIR Madness official + bonus answer keys. Newly measured (2026-06-26): OS/timezone from the registry (Q1-3), network config (Q9), credential **material** (B6), deleted-content recovery (B7), auto-flagged timestomp (B8), Amcache legacy-schema execution inventory, and per-type registry value rendering.*
 
 ---
 
@@ -1831,15 +1853,9 @@ flowchart LR
 
 ### Build the narrative. Present with honesty. That's the moat.
 
-![Scan for slides, toolchain & contact](https://quickchart.io/qr?text=https%3A%2F%2Flinktr.ee%2F4n6h4x0r&size=260&margin=2)
-
 **Author:** Albert Hui · [linktr.ee/4n6h4x0r](https://linktr.ee/4n6h4x0r)
 **IR Peer Review:** Eliza Wan · [linkedin.com/in/eliwan](https://www.linkedin.com/in/eliwan/)
 **QA:** Josiah Wu · [jwu29-blog.com](https://jwu29-blog.com/)
-
-*Scan the code for the slides, the Issen toolchain, and a way to reach me — then bring your own cases.*
-
-> Presenter note: the QR encodes `linktr.ee/4n6h4x0r`. To collect feedback live instead, repoint the image `…?data=` parameter to your feedback-form URL.
 
 ---
 
