@@ -224,10 +224,25 @@ pub fn run(
                 } else {
                     String::new()
                 };
-                sp.finish(&format!(
-                    "✓ {} artifacts · {} events{err_suffix}",
-                    result.artifacts_parsed, result.total_events
-                ));
+                if result.artifacts_parsed == 0 && result.total_events == 0 {
+                    // The disk leg found nothing in this source. Don't show a
+                    // green ✓ over an empty bar (misleading). The most common
+                    // cause is a memory dump handed to the disk leg — point the
+                    // analyst at the memory leg instead of leaving them puzzled.
+                    let lbl = setup.source_label.to_ascii_lowercase();
+                    if lbl.contains("memory") || lbl.contains("mem.") || lbl.contains(".mem") {
+                        sp.finish(
+                            "○ no disk artifacts — looks like a memory dump; run `issen memory <file>`",
+                        );
+                    } else {
+                        sp.finish("○ no disk artifacts found");
+                    }
+                } else {
+                    sp.finish(&format!(
+                        "✓ {} artifacts · {} events{err_suffix}",
+                        result.artifacts_parsed, result.total_events
+                    ));
+                }
             }
             Err(e) => sp.finish(&format!("✗ parse failed: {e}")),
         }
