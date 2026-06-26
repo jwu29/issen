@@ -144,77 +144,6 @@ pub struct Cli {
 #[allow(clippy::large_enum_variant)]
 #[derive(Subcommand, Debug)]
 pub enum Commands {
-    /// Rapid triage of a UAC or supported collection — rootkits, hidden processes, network.
-    Analyse {
-        /// Path to the collection file (UAC .tar.gz, zip, etc.).
-        #[arg(value_name = "COLLECTION_PATH")]
-        collection_path: PathBuf,
-    },
-
-    /// Ingest a case directory and surface cross-artifact Correlated Findings.
-    Correlate {
-        /// Path to the case directory holding the evidence to correlate.
-        #[arg(value_name = "CASE_DIR")]
-        case_dir: PathBuf,
-    },
-
-    /// Ingest evidence and parse artifacts into a timeline.
-    Ingest {
-        /// One or more evidence paths (file, directory, or a folder of disk
-        /// images). Multiple inputs build one unified timeline, each tagged with
-        /// a distinct per-source id for cross-host correlation.
-        #[arg(value_name = "EVIDENCE_PATH", required = true, num_args = 1..)]
-        evidence_paths: Vec<PathBuf>,
-
-        /// Remote source URI to ingest from (s3://, gcs://, azblob://, webdav://, http(s)://, file://, gdrive://).
-        /// When set, evidence is fetched from the remote URI before ingestion.
-        #[arg(long, value_name = "URI")]
-        source: Option<String>,
-
-        /// Output DuckDB database path. Defaults to
-        /// `issen-ingested-<UTC>Z.duckdb` in the current directory.
-        #[arg(short, long)]
-        output: Option<PathBuf>,
-
-        /// Evidence source identifier (e.g. case number or host).
-        #[arg(short = 's', long)]
-        evidence_source: Option<String>,
-
-        /// Run signature scanning after ingest using cached threat intel feeds.
-        #[arg(long)]
-        scan: bool,
-
-        /// Path to YARA rules file or directory.
-        #[arg(long)]
-        yara_rules: Option<PathBuf>,
-
-        /// Path to Sigma rules directory.
-        #[arg(long)]
-        sigma_rules: Option<PathBuf>,
-
-        /// Path to hash IOC file (one hash per line).
-        #[arg(long)]
-        hash_iocs: Option<Vec<PathBuf>>,
-
-        /// Path to network IOC file (IPs/domains/CIDRs, one per line).
-        #[arg(long)]
-        network_iocs: Option<Vec<PathBuf>>,
-
-        /// Re-parse and overwrite every unit, ignoring the prior completed-unit
-        /// state. Default is resume: units already ingested for this evidence
-        /// source are skipped (issen #115).
-        #[arg(long)]
-        refresh: bool,
-
-        /// Emit full per-row events for high-volume parser tables instead of the
-        /// default aggregate-per-app summary. Currently affects SRUM's
-        /// PushNotifications/EnergyUsage tables (hundreds of low-signal rows are
-        /// otherwise collapsed into one summary event per app). Off by default to
-        /// keep the timeline flood-resistant.
-        #[arg(long)]
-        verbose_rows: bool,
-    },
-
     /// Query and export the timeline.
     Timeline {
         /// Path to the DuckDB database. Optional only with --list-fields.
@@ -469,12 +398,6 @@ pub enum Commands {
         cr3: Option<u64>,
     },
 
-    /// Pivot engine — sync threat intelligence feeds, list rules, evaluate evidence.
-    Pivot {
-        #[command(subcommand)]
-        action: PivotAction,
-    },
-
     /// List the bundled detection rules ("what detections do you have?").
     Rules,
 
@@ -502,18 +425,6 @@ pub enum Commands {
 
         /// Output format: html (default) or attack-navigator (ATT&CK Navigator layer JSON).
         #[arg(long, default_value = "html")]
-        format: String,
-    },
-
-    /// Build a semantic supertimeline from a collection — parses all artifacts,
-    /// applies temporal correlation rules, and outputs a narrative timeline.
-    Supertimeline {
-        /// Path to the collection file (UAC .tar.gz, zip) or evidence directory.
-        #[arg(value_name = "COLLECTION")]
-        collection: PathBuf,
-
-        /// Output format: narrative (default), jsonl, csv.
-        #[arg(long, default_value = "narrative")]
         format: String,
     },
 
@@ -663,28 +574,6 @@ pub enum FeedAction {
     },
 }
 
-#[derive(Subcommand, Debug)]
-pub enum PivotAction {
-    /// Download stale threat intelligence feeds into the cache directory.
-    Sync {
-        /// Cache directory for pivot feeds (default: ~/.local/share/issen/pivot/).
-        #[arg(long, value_name = "PATH")]
-        cache_dir: Option<PathBuf>,
-    },
-    /// List bundled and directory-loaded pivot rules.
-    Rules {
-        /// Optional directory with additional YAML rule files.
-        #[arg(long, value_name = "PATH")]
-        rules_dir: Option<PathBuf>,
-    },
-    /// Evaluate pivot rules against a JSON evidence file.
-    Eval {
-        /// Path to a JSON file containing an array of Evidence objects.
-        #[arg(value_name = "EVIDENCE_FILE")]
-        evidence_file: PathBuf,
-    },
-}
-
 impl FeedAction {
     /// Convert to the library's FeedAction type.
     fn to_lib_action(&self) -> commands::feed::FeedAction {
@@ -744,42 +633,6 @@ pub fn run() -> ExitCode {
 
     let result = if let Some(command) = cli.command {
         match command {
-            Commands::Analyse { collection_path } => commands::analyse::run(&collection_path),
-            Commands::Correlate { case_dir } => commands::correlate::run(&case_dir),
-            Commands::Supertimeline { collection, format } => {
-                commands::supertimeline::run(&collection, &format)
-            }
-            Commands::Ingest {
-                evidence_paths,
-                output,
-                evidence_source,
-                source,
-                scan,
-                yara_rules,
-                sigma_rules,
-                hash_iocs,
-                network_iocs,
-                refresh,
-                verbose_rows,
-            } => {
-                // No -o → auto-name `issen-ingested-<UTC>Z.duckdb` in the cwd.
-                let output = output
-                    .unwrap_or_else(|| commands::ingest::auto_output_path(chrono::Utc::now()));
-                commands::ingest::run(
-                    &evidence_paths,
-                    &output,
-                    evidence_source.as_deref(),
-                    source.as_deref(),
-                    scan,
-                    yara_rules.as_deref(),
-                    sigma_rules.as_deref(),
-                    hash_iocs.as_deref(),
-                    network_iocs.as_deref(),
-                    refresh,
-                    cli.verbose,
-                    verbose_rows,
-                )
-            }
             Commands::Timeline {
                 db_path,
                 event_type,
@@ -1015,19 +868,6 @@ pub fn run() -> ExitCode {
                 evtx_file,
                 json,
             } => commands::session::run(&evtx_dir, &evtx_file, json),
-            Commands::Pivot { action } => match action {
-                PivotAction::Sync { cache_dir } => {
-                    let default_cache = dirs_next_cache();
-                    let cache = cache_dir.unwrap_or(default_cache);
-                    commands::pivot_cmd::run_sync(&cache)
-                }
-                PivotAction::Rules { rules_dir } => {
-                    commands::pivot_cmd::run_rules(rules_dir.as_deref())
-                }
-                PivotAction::Eval { evidence_file } => {
-                    commands::pivot_cmd::run_eval(&evidence_file)
-                }
-            },
         }
     } else {
         // Bare front door: `issen <evidence…>` — the resumable pipeline.
@@ -1041,16 +881,6 @@ pub fn run() -> ExitCode {
             ExitCode::FAILURE
         }
     }
-}
-
-/// Return `~/.local/share/issen/pivot/` as the default pivot cache dir.
-fn dirs_next_cache() -> PathBuf {
-    std::env::var_os("HOME")
-        .map_or_else(|| PathBuf::from("."), PathBuf::from)
-        .join(".local")
-        .join("share")
-        .join("issen")
-        .join("pivot")
 }
 
 #[cfg(test)]
