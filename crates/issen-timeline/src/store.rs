@@ -124,10 +124,10 @@ impl TimelineStore {
             -- log + the per-event provenance column. Completion is written here
             -- in the SAME transaction as a unit's events, so 'events flushed' and
             -- 'unit complete' can never disagree across a crash. Additive: case
-            -- DBs predating this get NULL ingest_unit_id (legacy rows are
+            -- DBs predating this get NULL parse_job_id (legacy rows are
             -- immutable and not eligible for resume).
             CREATE TABLE IF NOT EXISTS ingest_log (
-                unit_id        VARCHAR PRIMARY KEY,
+                parse_job_id        VARCHAR PRIMARY KEY,
                 evidence_key   VARCHAR NOT NULL,
                 artifact_type  VARCHAR NOT NULL,
                 parser         VARCHAR NOT NULL,
@@ -137,11 +137,11 @@ impl TimelineStore {
                 started_at     TIMESTAMP,
                 completed_at   TIMESTAMP
             );
-            ALTER TABLE timeline ADD COLUMN IF NOT EXISTS ingest_unit_id VARCHAR;
+            ALTER TABLE timeline ADD COLUMN IF NOT EXISTS parse_job_id VARCHAR;
             CREATE INDEX IF NOT EXISTS idx_ingest_log_evidence_status
                 ON ingest_log (evidence_key, status);
             CREATE INDEX IF NOT EXISTS idx_timeline_ingest_unit
-                ON timeline (ingest_unit_id);
+                ON timeline (parse_job_id);
 
             -- Unified front door (resumable pipeline): per-stage completion state
             -- so a re-run of `issen <evidence>` can plan which stages to re-run.
@@ -306,9 +306,9 @@ mod tests {
     }
 
     #[test]
-    fn schema_has_ingest_log_and_unit_id_for_resume() {
+    fn schema_has_ingest_log_and_parse_job_id_for_resume() {
         // issen #115 step 2: resumable ingestion needs a durable `ingest_log`
-        // (the per-unit completion record) and a per-event `ingest_unit_id`
+        // (the per-unit completion record) and a per-event `parse_job_id`
         // provenance column on `timeline` (so a resume can delete a unit's
         // partial rows and re-parse idempotently).
         let store = TimelineStore::in_memory().expect("create store");
@@ -320,8 +320,8 @@ mod tests {
         let n: i64 = stmt.query_row([], |r| r.get(0)).expect("query ingest_log");
         assert_eq!(n, 0, "ingest_log starts empty");
 
-        conn.prepare("SELECT ingest_unit_id FROM timeline LIMIT 0")
-            .expect("timeline.ingest_unit_id column must exist");
+        conn.prepare("SELECT parse_job_id FROM timeline LIMIT 0")
+            .expect("timeline.parse_job_id column must exist");
     }
 
     #[test]

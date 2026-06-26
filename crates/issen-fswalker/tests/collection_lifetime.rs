@@ -1,8 +1,8 @@
-//! Regression (issen #115 / collection ingest): `run_auto_units` must keep the
+//! Regression (issen #115 / collection ingest): `run_auto_parse_jobs` must keep the
 //! collection's extracted tempdir alive across *parsing*, not just discovery.
 //!
 //! A prior version scoped the `CollectionManifest` to the discovery branch, so
-//! its RAII `TempDir` deleted the extracted files before `parse_units` opened
+//! its RAII `TempDir` deleted the extracted files before `parse_into_jobs` opened
 //! them — real Velociraptor collections discovered hundreds of artifacts but
 //! parsed zero, every one failing "No such file or directory".
 //!
@@ -21,7 +21,7 @@ use issen_core::plugin::traits::{
     DataSource, EventEmitter, ForensicParser, ParseOptions, ParseStats, ParserCapabilities,
 };
 use issen_core::timeline::event::{EventType, TimelineEvent};
-use issen_fswalker::orchestrator::run_auto_units;
+use issen_fswalker::orchestrator::run_auto_parse_jobs;
 use issen_fswalker::progress::ProgressReporter;
 use issen_unpack::registry::ProviderRegistration;
 use issen_unpack::{
@@ -74,7 +74,7 @@ inventory::submit!(ProviderRegistration {
     create: || Box::new(SentinelProvider),
 });
 
-/// Parser claiming `ArtifactType::Mft`. `parse_units` opens the file *before*
+/// Parser claiming `ArtifactType::Mft`. `parse_into_jobs` opens the file *before*
 /// calling this, so if the extracted file was deleted (the bug) the open fails
 /// and this never runs.
 struct MftTouchParser;
@@ -129,7 +129,7 @@ inventory::submit!(ParserRegistration {
 });
 
 #[test]
-fn run_auto_units_keeps_collection_files_alive_through_parse() {
+fn run_auto_parse_jobs_keeps_collection_files_alive_through_parse() {
     let dir = tempfile::tempdir().expect("tmp");
     let collection = dir.path().join("collection.bin");
     std::fs::write(&collection, SENTINEL).expect("write sentinel");
@@ -137,8 +137,8 @@ fn run_auto_units_keeps_collection_files_alive_through_parse() {
     let progress = ProgressReporter::new();
     let no_skip = |_: &ArtifactType, _: &Path, _: &str| false;
     let (units, result, skipped) =
-        run_auto_units(&collection, &progress, &no_skip, &ParseOptions::default())
-            .expect("run_auto_units");
+        run_auto_parse_jobs(&collection, &progress, &no_skip, &ParseOptions::default())
+            .expect("run_auto_parse_jobs");
 
     assert_eq!(skipped, 0, "nothing is pre-completed");
     assert!(

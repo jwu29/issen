@@ -6,13 +6,13 @@ use crate::store::{TimelineStore, TimelineStoreError};
 /// A resumable ingestion unit: one `(evidence, artifact-type, parser)` parse
 /// whose events and completion marker commit atomically (issen #115).
 ///
-/// The `unit_id` is the durable identity a resume keys on — to delete a
+/// The `parse_job_id` is the durable identity a resume keys on — to delete a
 /// half-written unit's rows and re-parse it from scratch — so it must be
 /// derived from the parse's structural coordinates (evidence key + artifact
 /// path + parser), never from a counter that shifts between runs.
 #[derive(Debug, Clone)]
-pub struct IngestUnit {
-    pub unit_id: String,
+pub struct ParseJobRecord {
+    pub parse_job_id: String,
     pub evidence_key: String,
     pub artifact_type: String,
     pub parser: String,
@@ -24,8 +24,8 @@ pub struct IngestUnit {
     pub complete: bool,
 }
 
-impl IngestUnit {
-    /// Derive the durable `unit_id` from a parse's structural coordinates.
+impl ParseJobRecord {
+    /// Derive the durable `parse_job_id` from a parse's structural coordinates.
     ///
     /// SHA-256 hex (matching the fleet `record_hash` convention) over the four
     /// coordinates, each **NUL-separated** so the encoding is injective: a byte
@@ -51,7 +51,7 @@ impl IngestUnit {
         hex::encode(hasher.finalize())
     }
 
-    /// Construct a unit with its `unit_id` derived from the coordinates.
+    /// Construct a unit with its `parse_job_id` derived from the coordinates.
     ///
     /// The secure-by-default surface: the id is *always* derived via
     /// [`Self::stable_id`], so it can never be hand-set inconsistently with the
@@ -65,7 +65,7 @@ impl IngestUnit {
         bytes: i64,
     ) -> Self {
         Self {
-            unit_id: Self::stable_id(evidence_key, artifact_type, artifact_path, parser),
+            parse_job_id: Self::stable_id(evidence_key, artifact_type, artifact_path, parser),
             evidence_key: evidence_key.to_string(),
             artifact_type: artifact_type.to_string(),
             parser: parser.to_string(),
@@ -78,21 +78,21 @@ impl IngestUnit {
 /// The resume decision (issen #115 step 6): which discovered units still need
 /// parsing.
 ///
-/// Returns the complement of `completed` — units whose `unit_id` is not yet
+/// Returns the complement of `completed` — units whose `parse_job_id` is not yet
 /// recorded `complete` — or, when `refresh` is set, *every* unit, so a
-/// `--refresh` run re-parses from scratch. [`TimelineStore::commit_unit`]'s
+/// `--refresh` run re-parses from scratch. [`TimelineStore::commit_parse_job`]'s
 /// delete-first then makes the re-parse idempotent. The interrupted unit of a
 /// crashed run is absent from `completed` (its atomic commit rolled back), so it
 /// is naturally included.
 #[must_use]
 pub fn units_to_ingest<'a, S: std::hash::BuildHasher>(
-    discovered: &'a [IngestUnit],
+    discovered: &'a [ParseJobRecord],
     completed: &std::collections::HashSet<String, S>,
     refresh: bool,
-) -> Vec<&'a IngestUnit> {
+) -> Vec<&'a ParseJobRecord> {
     discovered
         .iter()
-        .filter(|u| refresh || !completed.contains(&u.unit_id))
+        .filter(|u| refresh || !completed.contains(&u.parse_job_id))
         .collect()
 }
 
@@ -328,16 +328,16 @@ impl TimelineStore {
     /// Resume-safe by construction: a crash mid-parse rolls the transaction
     /// back, leaving NO committed rows for the unit, so "events flushed" and
     /// "unit complete" can never disagree across a restart. Re-committing the
-    /// same `unit_id` deletes its prior rows first, so a deterministic re-parse
+    /// same `parse_job_id` deletes its prior rows first, so a deterministic re-parse
     /// is idempotent (no duplication). Returns the number of events written.
-    pub fn commit_unit(
+    pub fn commit_parse_job(
         &self,
-        unit: &IngestUnit,
+        unit: &ParseJobRecord,
         events: &[TimelineEvent],
     ) -> Result<u64, TimelineStoreError> {
         let conn = self.connection();
         conn.execute_batch("BEGIN TRANSACTION;")?;
-        match self.commit_unit_body(unit, events) {
+        match self.commit_parse_job_body(unit, events) {
             Ok(n) => {
                 conn.execute_batch("COMMIT;")?;
                 Ok(n)
@@ -350,12 +350,12 @@ impl TimelineStore {
         }
     }
 
-    /// The set of `unit_id`s already flushed to completion for an evidence
+    /// The set of `parse_job_id`s already flushed to completion for an evidence
     /// source — the resume skip-list (issen #115 step 4).
     ///
     /// A restart parses the *complement* of this set: any unit not listed here
-    /// (including the one interrupted mid-parse, whose atomic [`Self::commit_unit`]
-    /// rolled back and left no `complete` row) is re-parsed, and commit_unit's
+    /// (including the one interrupted mid-parse, whose atomic [`Self::commit_parse_job`]
+    /// rolled back and left no `complete` row) is re-parsed, and commit_parse_job's
     /// delete-first clears any partial rows before re-inserting.
     pub fn completed_units(
         &self,
@@ -363,7 +363,7 @@ impl TimelineStore {
     ) -> Result<std::collections::HashSet<String>, TimelineStoreError> {
         let conn = self.connection();
         let mut stmt = conn.prepare(
-            "SELECT unit_id FROM ingest_log WHERE evidence_key = ? AND status = 'complete'",
+            "SELECT parse_job_id FROM ingest_log WHERE evidence_key = ? AND status = 'complete'",
         )?;
         let rows = stmt.query_map([evidence_key], |row| row.get::<_, String>(0))?;
         let mut out = std::collections::HashSet::new();
@@ -373,11 +373,11 @@ impl TimelineStore {
         Ok(out)
     }
 
-    /// The mutating body of [`Self::commit_unit`], run inside the caller's
+    /// The mutating body of [`Self::commit_parse_job`], run inside the caller's
     /// transaction so any error aborts the whole unit.
-    fn commit_unit_body(
+    fn commit_parse_job_body(
         &self,
-        unit: &IngestUnit,
+        unit: &ParseJobRecord,
         events: &[TimelineEvent],
     ) -> Result<u64, TimelineStoreError> {
         let conn = self.connection();
@@ -387,12 +387,12 @@ impl TimelineStore {
         if !unit.complete {
             let prior_complete: i64 = conn
                 .prepare(
-                    "SELECT count(*) FROM ingest_log WHERE unit_id = ? AND status = 'complete'",
+                    "SELECT count(*) FROM ingest_log WHERE parse_job_id = ? AND status = 'complete'",
                 )?
-                .query_row(duckdb::params![unit.unit_id], |r| r.get(0))?;
+                .query_row(duckdb::params![unit.parse_job_id], |r| r.get(0))?;
             if prior_complete > 0 {
                 tracing::warn!(
-                    unit = %unit.unit_id,
+                    unit = %unit.parse_job_id,
                     "re-parse returned incomplete for an already-complete unit — kept the prior \
                      complete data (refresh downgrade refused)"
                 );
@@ -402,8 +402,8 @@ impl TimelineStore {
         // Delete-first: a resume re-parses a unit from scratch, so drop any rows
         // a prior partial attempt left tagged with this unit id.
         conn.execute(
-            "DELETE FROM timeline WHERE ingest_unit_id = ?",
-            duckdb::params![unit.unit_id],
+            "DELETE FROM timeline WHERE parse_job_id = ?",
+            duckdb::params![unit.parse_job_id],
         )?;
         {
             let mut stmt = conn.prepare(
@@ -411,7 +411,7 @@ impl TimelineStore {
                     timestamp_ns, timestamp_display, event_type, source,
                     artifact_path, description, metadata, user_account,
                     hostname, tags, record_hash, evidence_source, entity_refs,
-                    activity_category, ingest_unit_id
+                    activity_category, parse_job_id
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             )?;
             for event in events {
@@ -436,7 +436,7 @@ impl TimelineStore {
                     event.evidence_source_id,
                     entity_refs_json,
                     event.activity_category.map(|c| c.code()),
-                    unit.unit_id,
+                    unit.parse_job_id,
                 ])?;
             }
         }
@@ -452,11 +452,11 @@ impl TimelineStore {
         };
         conn.execute(
             "INSERT OR REPLACE INTO ingest_log (
-                unit_id, evidence_key, artifact_type, parser, bytes,
+                parse_job_id, evidence_key, artifact_type, parser, bytes,
                 event_count, status, completed_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, current_timestamp)",
             duckdb::params![
-                unit.unit_id,
+                unit.parse_job_id,
                 unit.evidence_key,
                 unit.artifact_type,
                 unit.parser,
@@ -474,7 +474,7 @@ mod tests {
     use issen_core::artifacts::ArtifactType;
     use issen_core::timeline::event::{EventType, TimelineEvent};
 
-    use super::{units_to_ingest, CaseLock, IngestUnit};
+    use super::{units_to_ingest, CaseLock, ParseJobRecord};
     use crate::store::TimelineStore;
 
     fn sample_event(ts: i64, desc: &str) -> TimelineEvent {
@@ -510,13 +510,13 @@ mod tests {
     }
 
     #[test]
-    fn commit_unit_writes_events_and_completion_idempotently() {
+    fn commit_parse_job_writes_events_and_completion_idempotently() {
         // issen #115 step 2.2: a unit's events + its completion marker commit in
         // ONE transaction; re-committing the same unit deletes its prior rows
         // first (idempotent resume — no duplication).
         let store = TimelineStore::in_memory().expect("store");
-        let unit = IngestUnit {
-            unit_id: "CASE!/C/$MFT|mft".to_string(),
+        let unit = ParseJobRecord {
+            parse_job_id: "CASE!/C/$MFT|mft".to_string(),
             evidence_key: "CASE".to_string(),
             artifact_type: "Mft".to_string(),
             parser: "MFT Parser".to_string(),
@@ -525,31 +525,31 @@ mod tests {
         };
         let events = vec![sample_event(100, "a"), sample_event(200, "b")];
 
-        let n = store.commit_unit(&unit, &events).expect("commit");
+        let n = store.commit_parse_job(&unit, &events).expect("commit");
         assert_eq!(n, 2);
 
         let conn = store.connection();
         let tagged: i64 = conn
-            .prepare("SELECT count(*) FROM timeline WHERE ingest_unit_id = ?")
+            .prepare("SELECT count(*) FROM timeline WHERE parse_job_id = ?")
             .expect("prep")
-            .query_row([&unit.unit_id], |r| r.get(0))
+            .query_row([&unit.parse_job_id], |r| r.get(0))
             .expect("q");
         assert_eq!(tagged, 2, "events tagged with the unit id");
 
         let status: String = conn
-            .prepare("SELECT status FROM ingest_log WHERE unit_id = ?")
+            .prepare("SELECT status FROM ingest_log WHERE parse_job_id = ?")
             .expect("prep")
-            .query_row([&unit.unit_id], |r| r.get(0))
+            .query_row([&unit.parse_job_id], |r| r.get(0))
             .expect("q");
         assert_eq!(status, "complete", "completion marker written");
 
         // Idempotent re-commit: delete-first means no duplication.
-        let n2 = store.commit_unit(&unit, &events).expect("recommit");
+        let n2 = store.commit_parse_job(&unit, &events).expect("recommit");
         assert_eq!(n2, 2);
         let total: i64 = conn
-            .prepare("SELECT count(*) FROM timeline WHERE ingest_unit_id = ?")
+            .prepare("SELECT count(*) FROM timeline WHERE parse_job_id = ?")
             .expect("prep")
-            .query_row([&unit.unit_id], |r| r.get(0))
+            .query_row([&unit.parse_job_id], |r| r.get(0))
             .expect("q");
         assert_eq!(total, 2, "re-commit must not duplicate the unit's rows");
     }
@@ -562,10 +562,10 @@ mod tests {
         // 'incomplete', so completed_units omits it. Fixes the bug where every Ok
         // parse was marked complete regardless of ParseCompletion.
         let store = TimelineStore::in_memory().expect("store");
-        let mut unit = IngestUnit::new("CASE", "Mft", "/C/$MFT", "MFT Parser", 10);
+        let mut unit = ParseJobRecord::new("CASE", "Mft", "/C/$MFT", "MFT Parser", 10);
         unit.complete = false;
         store
-            .commit_unit(&unit, &[sample_event(1, "a")])
+            .commit_parse_job(&unit, &[sample_event(1, "a")])
             .expect("commit");
 
         assert_eq!(
@@ -575,7 +575,7 @@ mod tests {
         );
         let done = store.completed_units("CASE").expect("query");
         assert!(
-            !done.contains(&unit.unit_id),
+            !done.contains(&unit.parse_job_id),
             "an incomplete unit must NOT be in the resume skip-set — resume re-parses it"
         );
     }
@@ -587,11 +587,11 @@ mod tests {
         // complete rows or downgrade the log row. Secure-by-default: keep the good
         // data, no-op the downgrade (the CLI warns loudly).
         let store = TimelineStore::in_memory().expect("store");
-        let mut unit = IngestUnit::new("CASE", "Mft", "/C/$MFT", "MFT Parser", 10);
+        let mut unit = ParseJobRecord::new("CASE", "Mft", "/C/$MFT", "MFT Parser", 10);
 
         // 1) a clean complete parse with 3 events.
         store
-            .commit_unit(
+            .commit_parse_job(
                 &unit,
                 &[
                     sample_event(1, "a"),
@@ -604,12 +604,12 @@ mod tests {
         assert!(store
             .completed_units("CASE")
             .expect("q")
-            .contains(&unit.unit_id));
+            .contains(&unit.parse_job_id));
 
         // 2) a --refresh re-parse that REGRESSED to incomplete with fewer events.
         unit.complete = false;
         let inserted = store
-            .commit_unit(&unit, &[sample_event(1, "a")])
+            .commit_parse_job(&unit, &[sample_event(1, "a")])
             .expect("commit incomplete re-parse");
 
         // The prior complete data must SURVIVE — not be deleted/downgraded.
@@ -626,7 +626,7 @@ mod tests {
             store
                 .completed_units("CASE")
                 .expect("q")
-                .contains(&unit.unit_id),
+                .contains(&unit.parse_job_id),
             "the unit must stay 'complete' — never downgraded by a worse re-parse"
         );
     }
@@ -637,21 +637,21 @@ mod tests {
         // incomplete, then re-parsed complete, REPLACES its partial rows
         // (delete-first) and becomes complete — the guard must not block the UPgrade.
         let store = TimelineStore::in_memory().expect("store");
-        let mut unit = IngestUnit::new("CASE", "Mft", "/C/$MFT", "MFT Parser", 10);
+        let mut unit = ParseJobRecord::new("CASE", "Mft", "/C/$MFT", "MFT Parser", 10);
 
         unit.complete = false;
         store
-            .commit_unit(&unit, &[sample_event(1, "partial")])
+            .commit_parse_job(&unit, &[sample_event(1, "partial")])
             .expect("commit incomplete");
         assert_eq!(store.event_count().expect("count"), 1);
         assert!(!store
             .completed_units("CASE")
             .expect("q")
-            .contains(&unit.unit_id));
+            .contains(&unit.parse_job_id));
 
         unit.complete = true;
         let n = store
-            .commit_unit(&unit, &[sample_event(1, "a"), sample_event(2, "b")])
+            .commit_parse_job(&unit, &[sample_event(1, "a"), sample_event(2, "b")])
             .expect("commit complete");
         assert_eq!(n, 2);
         assert_eq!(
@@ -663,7 +663,7 @@ mod tests {
             store
                 .completed_units("CASE")
                 .expect("q")
-                .contains(&unit.unit_id),
+                .contains(&unit.parse_job_id),
             "an incomplete→complete re-parse must upgrade to complete"
         );
     }
@@ -672,51 +672,51 @@ mod tests {
     fn completed_units_returns_only_flushed_units_scoped_to_evidence() {
         // issen #115 step 4 — the resume query. `completed_units` is the set a
         // restart skips; everything else (including the interrupted unit, whose
-        // atomic commit_unit rolled back leaving no log row) is re-parsed. So a
-        // resume = "parse the complement of completed", and commit_unit's
+        // atomic commit_parse_job rolled back leaving no log row) is re-parsed. So a
+        // resume = "parse the complement of completed", and commit_parse_job's
         // delete-first then cleans any partial rows of the re-parsed unit.
         let store = TimelineStore::in_memory().expect("store");
-        let u1 = IngestUnit::new("CASE", "Mft", "/C/$MFT", "MFT Parser", 10);
-        let u2 = IngestUnit::new("CASE", "UsnJournal", "/C/$J", "USN Parser", 20);
-        store.commit_unit(&u1, &[sample_event(1, "a")]).expect("c1");
-        store.commit_unit(&u2, &[sample_event(2, "b")]).expect("c2");
+        let u1 = ParseJobRecord::new("CASE", "Mft", "/C/$MFT", "MFT Parser", 10);
+        let u2 = ParseJobRecord::new("CASE", "UsnJournal", "/C/$J", "USN Parser", 20);
+        store.commit_parse_job(&u1, &[sample_event(1, "a")]).expect("c1");
+        store.commit_parse_job(&u2, &[sample_event(2, "b")]).expect("c2");
 
         // A unit from a DIFFERENT evidence must not leak into CASE's resume set.
-        let other = IngestUnit::new("CASE2", "Mft", "/C/$MFT", "MFT Parser", 10);
+        let other = ParseJobRecord::new("CASE2", "Mft", "/C/$MFT", "MFT Parser", 10);
         store
-            .commit_unit(&other, &[sample_event(3, "c")])
+            .commit_parse_job(&other, &[sample_event(3, "c")])
             .expect("c3");
 
         let done = store.completed_units("CASE").expect("query");
-        assert!(done.contains(&u1.unit_id), "u1 flushed");
-        assert!(done.contains(&u2.unit_id), "u2 flushed");
+        assert!(done.contains(&u1.parse_job_id), "u1 flushed");
+        assert!(done.contains(&u2.parse_job_id), "u2 flushed");
         assert!(
-            !done.contains(&other.unit_id),
+            !done.contains(&other.parse_job_id),
             "scoped to evidence_key — CASE2 excluded"
         );
         assert_eq!(done.len(), 2);
 
         // A never-committed unit is simply absent → it will be (re)parsed.
-        let pending = IngestUnit::new("CASE", "Prefetch", "/C/pf", "PF Parser", 5);
-        assert!(!done.contains(&pending.unit_id));
+        let pending = ParseJobRecord::new("CASE", "Prefetch", "/C/pf", "PF Parser", 5);
+        assert!(!done.contains(&pending.parse_job_id));
     }
 
     #[test]
     fn units_to_ingest_skips_completed_unless_refresh() {
         // issen #115 step 6 (--refresh): the resume decision. Normally parse the
         // complement of `completed`; with refresh=true, re-parse everything.
-        let u1 = IngestUnit::new("CASE", "Mft", "/C/$MFT", "MFT Parser", 1);
-        let u2 = IngestUnit::new("CASE", "UsnJournal", "/C/$J", "USN Parser", 1);
-        let u3 = IngestUnit::new("CASE", "Prefetch", "/C/pf", "PF Parser", 1);
+        let u1 = ParseJobRecord::new("CASE", "Mft", "/C/$MFT", "MFT Parser", 1);
+        let u2 = ParseJobRecord::new("CASE", "UsnJournal", "/C/$J", "USN Parser", 1);
+        let u3 = ParseJobRecord::new("CASE", "Prefetch", "/C/pf", "PF Parser", 1);
         let units = vec![u1.clone(), u2.clone(), u3.clone()];
         let mut completed = std::collections::HashSet::new();
-        completed.insert(u1.unit_id.clone());
-        completed.insert(u2.unit_id.clone());
+        completed.insert(u1.parse_job_id.clone());
+        completed.insert(u2.parse_job_id.clone());
 
         let todo = units_to_ingest(&units, &completed, false);
         assert_eq!(
-            todo.iter().map(|u| &u.unit_id).collect::<Vec<_>>(),
-            vec![&u3.unit_id],
+            todo.iter().map(|u| &u.parse_job_id).collect::<Vec<_>>(),
+            vec![&u3.parse_job_id],
             "resume parses only the not-yet-completed unit"
         );
 
@@ -740,14 +740,14 @@ mod tests {
 
     #[test]
     fn stable_id_is_deterministic_and_collision_resistant() {
-        // issen #115 step 3: the unit_id MUST derive from the parse's structural
+        // issen #115 step 3: the parse_job_id MUST derive from the parse's structural
         // coordinates so a resume recomputes the SAME id (delete-first then
         // targets exactly the prior attempt's rows). Same coordinates -> same id;
         // any coordinate change -> a different id.
-        let id = IngestUnit::stable_id("CASE", "Mft", "/C/$MFT", "MFT Parser");
+        let id = ParseJobRecord::stable_id("CASE", "Mft", "/C/$MFT", "MFT Parser");
         assert_eq!(
             id,
-            IngestUnit::stable_id("CASE", "Mft", "/C/$MFT", "MFT Parser"),
+            ParseJobRecord::stable_id("CASE", "Mft", "/C/$MFT", "MFT Parser"),
             "deterministic across runs"
         );
         assert_eq!(id.len(), 64, "SHA-256 hex, matching record_hash convention");
@@ -756,34 +756,34 @@ mod tests {
         // Every coordinate participates — vary any one and the id changes.
         assert_ne!(
             id,
-            IngestUnit::stable_id("CASE2", "Mft", "/C/$MFT", "MFT Parser")
+            ParseJobRecord::stable_id("CASE2", "Mft", "/C/$MFT", "MFT Parser")
         );
         assert_ne!(
             id,
-            IngestUnit::stable_id("CASE", "UsnJournal", "/C/$MFT", "MFT Parser")
+            ParseJobRecord::stable_id("CASE", "UsnJournal", "/C/$MFT", "MFT Parser")
         );
         assert_ne!(
             id,
-            IngestUnit::stable_id("CASE", "Mft", "/D/$MFT", "MFT Parser")
+            ParseJobRecord::stable_id("CASE", "Mft", "/D/$MFT", "MFT Parser")
         );
-        assert_ne!(id, IngestUnit::stable_id("CASE", "Mft", "/C/$MFT", "Other"));
+        assert_ne!(id, ParseJobRecord::stable_id("CASE", "Mft", "/C/$MFT", "Other"));
 
         // No delimiter-collision: shifting a byte across a field boundary must
         // NOT alias (this fails under naive concatenation, passes with NUL-sep).
         assert_ne!(
-            IngestUnit::stable_id("a", "b", "c", "d"),
-            IngestUnit::stable_id("a", "b", "cd", ""),
+            ParseJobRecord::stable_id("a", "b", "c", "d"),
+            ParseJobRecord::stable_id("a", "b", "cd", ""),
         );
     }
 
     #[test]
-    fn new_derives_unit_id_from_coordinates() {
+    fn new_derives_parse_job_id_from_coordinates() {
         // The constructor is the secure-by-default surface: the id is ALWAYS
         // derived, never hand-set inconsistently with the coordinates.
-        let unit = IngestUnit::new("CASE", "Mft", "/C/$MFT", "MFT Parser", 1024);
+        let unit = ParseJobRecord::new("CASE", "Mft", "/C/$MFT", "MFT Parser", 1024);
         assert_eq!(
-            unit.unit_id,
-            IngestUnit::stable_id("CASE", "Mft", "/C/$MFT", "MFT Parser")
+            unit.parse_job_id,
+            ParseJobRecord::stable_id("CASE", "Mft", "/C/$MFT", "MFT Parser")
         );
         assert_eq!(unit.evidence_key, "CASE");
         assert_eq!(unit.artifact_type, "Mft");

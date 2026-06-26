@@ -261,8 +261,8 @@ mod tests {
         // Insert in REVERSE record_hash order so insertion order != sorted order
         // (without the tie-break the query returns insertion order → RED).
         events.sort_by(|a, b| b.record_hash.cmp(&a.record_hash));
-        let unit = crate::ingest::IngestUnit::new("CASE", "Mft", "/C/$MFT", "MFT Parser", 0);
-        store.commit_unit(&unit, &events).expect("commit");
+        let unit = crate::ingest::ParseJobRecord::new("CASE", "Mft", "/C/$MFT", "MFT Parser", 0);
+        store.commit_parse_job(&unit, &events).expect("commit");
 
         let rows = store.query(&TimelineQuery::new()).expect("query");
         let got: Vec<&str> = rows.iter().map(|r| r.record_hash.as_str()).collect();

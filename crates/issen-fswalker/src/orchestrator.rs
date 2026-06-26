@@ -201,7 +201,7 @@ fn read_prefix(path: &Path, n: usize) -> Vec<u8> {
 /// single place both the flat and per-unit paths compute their totals.
 fn ingest_result(
     artifacts: &[DiscoveredArtifact],
-    units: &[ParsedUnit],
+    units: &[ParseJob],
     errors: Vec<String>,
 ) -> IngestResult {
     // The "searched" set is every artifact class a registered parser declares.
@@ -217,7 +217,7 @@ fn ingest_result(
 /// that links the parser crates (issen-cli), not in this crate's own tests.
 fn ingest_result_with(
     artifacts: &[DiscoveredArtifact],
-    units: &[ParsedUnit],
+    units: &[ParseJob],
     errors: Vec<String>,
     searched: &[ArtifactType],
 ) -> IngestResult {
@@ -236,14 +236,14 @@ fn ingest_result_with(
 /// Run the pipeline on a directory: discover artifacts, parse them, return a flat
 /// event list + an [`IngestResult`].
 ///
-/// A thin flat view over the per-unit core ([`parse_units`]) — see the note below
+/// A thin flat view over the per-unit core ([`parse_into_jobs`]) — see the note below
 /// on the per-unit semantics this inherits (atomic units; actual-event counts).
 pub fn run_pipeline(
     evidence_path: &Path,
     progress: &ProgressReporter,
 ) -> Result<(Vec<TimelineEvent>, IngestResult), RtError> {
     // Flat view over the per-unit core: parse every (artifact, parser) with no
-    // resume-skip, then flatten. Sharing `parse_units` keeps the flat and per-unit
+    // resume-skip, then flatten. Sharing `parse_into_jobs` keeps the flat and per-unit
     // paths from drifting — "run every matching parser", panic-isolation, and the
     // result counts all live in ONE place now.
     //
@@ -256,7 +256,7 @@ pub fn run_pipeline(
     let artifacts = discover_artifacts(evidence_path, &detect_from_registry)?;
     progress.set_artifacts_total(artifacts.len() as u64);
     progress.set_phase(Phase::Parsing);
-    let (units, errors, _skipped) = parse_units(
+    let (units, errors, _skipped) = parse_into_jobs(
         &artifacts,
         &all_parsers(),
         progress,
@@ -311,7 +311,7 @@ pub fn run_auto(
     // The flat API is EXACTLY the sorted flattening of the per-unit core, so the
     // two can never drift (the missing sort was a symptom of the old copy-paste).
     let (units, result, _skipped) =
-        run_auto_units(path, progress, &|_, _, _| false, &ParseOptions::default())?;
+        run_auto_parse_jobs(path, progress, &|_, _, _| false, &ParseOptions::default())?;
     let mut events: Vec<TimelineEvent> = units.into_iter().flat_map(|u| u.events).collect();
     sort_timeline_events(&mut events);
     Ok((events, result))
@@ -320,18 +320,18 @@ pub fn run_auto(
 /// Per-unit, resumable variant of [`run_auto`] (issen #115).
 ///
 /// Auto-detects directory vs collection archive exactly like [`run_auto`], but
-/// returns events grouped per `(artifact, parser)` [`ParsedUnit`] instead of one
-/// flat list — so the caller can `commit_unit` each atomically and skip units
+/// returns events grouped per `(artifact, parser)` [`ParseJob`] instead of one
+/// flat list — so the caller can `commit_parse_job` each atomically and skip units
 /// already completed in a prior run.
 ///
 /// # Errors
 /// Returns an error if artifact discovery or collection extraction fails.
-pub fn run_auto_units(
+pub fn run_auto_parse_jobs(
     path: &Path,
     progress: &ProgressReporter,
     skip: &dyn Fn(&ArtifactType, &Path, &str) -> bool,
     opts: &ParseOptions,
-) -> Result<(Vec<ParsedUnit>, IngestResult, usize), RtError> {
+) -> Result<(Vec<ParseJob>, IngestResult, usize), RtError> {
     // `with_evidence` keeps the collection manifest's TempDir alive across the
     // parse (parsers open the extracted files by path).
     progress.set_phase(Phase::Extracting);
@@ -339,12 +339,12 @@ pub fn run_auto_units(
         progress.set_artifacts_total(artifacts.len() as u64);
         progress.set_phase(Phase::Parsing);
         let (mut units, errors, skipped) =
-            parse_units(artifacts, &all_parsers(), progress, skip, opts);
+            parse_into_jobs(artifacts, &all_parsers(), progress, skip, opts);
         // Cross-file $MFT/$MFTMirr integrity (not a parser — a 2-file check):
         // emit as a synthetic unit so it commits and resumes like any other.
         let mirror_events = mft_mirror_events_from_root(root);
         if !mirror_events.is_empty() {
-            units.push(ParsedUnit {
+            units.push(ParseJob {
                 artifact_type: ArtifactType::Mft,
                 path: PathBuf::from(r"\$MFTMirr"),
                 parser: "$MFTMirr Integrity".to_string(),
@@ -379,7 +379,7 @@ pub(crate) fn sort_timeline_events(events: &mut [TimelineEvent]) {
 /// One resumable ingest unit's parse result: the events a single parser produced
 /// for a single artifact. Each `(artifact, parser)` pair is one unit — the
 /// granularity the resumable ingest path commits and skips at (issen #115).
-pub struct ParsedUnit {
+pub struct ParseJob {
     /// The artifact's classified type.
     pub artifact_type: ArtifactType,
     /// The artifact's path.
@@ -395,11 +395,11 @@ pub struct ParsedUnit {
     pub completion: ParseCompletion,
 }
 
-/// Parse each `(artifact, matching-parser)` pair into its own [`ParsedUnit`].
+/// Parse each `(artifact, matching-parser)` pair into its own [`ParseJob`].
 ///
 /// Unlike [`run_pipeline`] (one shared emitter → a flat event list), this gives
 /// every unit a fresh emitter so its events are grouped — the shape the
-/// resumable ingest path needs to `commit_unit` per unit and skip completed
+/// resumable ingest path needs to `commit_parse_job` per unit and skip completed
 /// ones. Parsers are passed in (dependency injection) rather than read from the
 /// force-linked registry, so the per-unit grouping is unit-testable.
 ///
@@ -410,13 +410,13 @@ pub struct ParsedUnit {
 /// the parsed units, per-unit failure descriptions, and the count of units
 /// skipped because `skip` reported them complete.
 #[must_use]
-pub fn parse_units(
+pub fn parse_into_jobs(
     artifacts: &[DiscoveredArtifact],
     parsers: &[Box<dyn ForensicParser>],
     progress: &ProgressReporter,
     skip: &dyn Fn(&ArtifactType, &Path, &str) -> bool,
     opts: &ParseOptions,
-) -> (Vec<ParsedUnit>, Vec<String>, usize) {
+) -> (Vec<ParseJob>, Vec<String>, usize) {
     let mut units = Vec::new();
     let mut errors = Vec::new();
     let mut skipped = 0usize;
@@ -433,8 +433,8 @@ pub fn parse_units(
 }
 
 /// Parse ONE artifact: run every matching, not-skipped parser under isolation,
-/// producing a [`ParsedUnit`] per parser. The shared per-artifact core that
-/// [`parse_units`] (sequential `for`) and [`parse_units_parallel`] (rayon
+/// producing a [`ParseJob`] per parser. The shared per-artifact core that
+/// [`parse_into_jobs`] (sequential `for`) and [`parse_into_jobs_parallel`] (rayon
 /// `par_iter`) both call — so the two differ ONLY in how they iterate, never in
 /// per-artifact behavior (the duplication that previously let `*_parallel` drift).
 fn parse_one_artifact(
@@ -443,7 +443,7 @@ fn parse_one_artifact(
     progress: &ProgressReporter,
     skip: &dyn Fn(&ArtifactType, &Path, &str) -> bool,
     opts: &ParseOptions,
-) -> (Vec<ParsedUnit>, Vec<String>, usize) {
+) -> (Vec<ParseJob>, Vec<String>, usize) {
     let mut units = Vec::new();
     let mut errors = Vec::new();
     let mut skipped = 0usize;
@@ -490,7 +490,7 @@ fn parse_one_artifact(
                     continue;
                 }
             };
-        units.push(ParsedUnit {
+        units.push(ParseJob {
             artifact_type: artifact.artifact_type,
             path: artifact.path.clone(),
             parser: parser.name().to_string(),
@@ -502,26 +502,26 @@ fn parse_one_artifact(
     (units, errors, skipped)
 }
 
-/// Parallel sibling of [`parse_units`] — `par_iter` over artifacts. `collect()`
+/// Parallel sibling of [`parse_into_jobs`] — `par_iter` over artifacts. `collect()`
 /// preserves artifact order, so for **deterministic/stateless parsers and a pure
 /// read-only `skip`** the parsed units match the sequential version exactly (locked
-/// by `parse_units_parallel_equals_sequential`). It does NOT promise identical
+/// by `parse_into_jobs_parallel_equals_sequential`). It does NOT promise identical
 /// progress/log/panic-hook *timing* or fd-scheduling — a parser with interior
 /// mutability (legal under `Sync`) or a side-effecting `skip` could still diverge.
 /// `skip` must be `Sync` to cross rayon workers (a read-only `HashSet` lookup is).
 #[must_use]
-pub fn parse_units_parallel(
+pub fn parse_into_jobs_parallel(
     artifacts: &[DiscoveredArtifact],
     parsers: &[Box<dyn ForensicParser>],
     progress: &ProgressReporter,
     skip: &(dyn Fn(&ArtifactType, &Path, &str) -> bool + Sync),
     opts: &ParseOptions,
-) -> (Vec<ParsedUnit>, Vec<String>, usize) {
-    let per_artifact: Vec<(Vec<ParsedUnit>, Vec<String>, usize)> = artifacts
+) -> (Vec<ParseJob>, Vec<String>, usize) {
+    let per_artifact: Vec<(Vec<ParseJob>, Vec<String>, usize)> = artifacts
         .par_iter()
         .map(|artifact| {
             let unit = parse_one_artifact(artifact, parsers, progress, skip, opts);
-            // One completion per artifact (see parse_units) — atomic, so safe
+            // One completion per artifact (see parse_into_jobs) — atomic, so safe
             // across rayon workers.
             progress.complete_artifact();
             unit
@@ -538,7 +538,7 @@ pub fn parse_units_parallel(
     (units, errors, skipped)
 }
 
-/// Parallel sibling of [`run_pipeline`] — the flat view over [`parse_units_parallel`].
+/// Parallel sibling of [`run_pipeline`] — the flat view over [`parse_into_jobs_parallel`].
 ///
 /// Matches `run_pipeline`'s output for deterministic/stateless parsers (rayon
 /// `collect` preserves artifact order); they share `parse_one_artifact`, so
@@ -553,12 +553,12 @@ pub fn run_pipeline_parallel(
     progress: &ProgressReporter,
 ) -> Result<(Vec<TimelineEvent>, IngestResult), RtError> {
     // Flat view over the PARALLEL per-unit core — mirrors `run_pipeline` exactly,
-    // only `parse_units_parallel` instead of `parse_units`.
+    // only `parse_into_jobs_parallel` instead of `parse_into_jobs`.
     progress.set_phase(Phase::Discovering);
     let artifacts = discover_artifacts(evidence_path, &detect_from_registry)?;
     progress.set_artifacts_total(artifacts.len() as u64);
     progress.set_phase(Phase::Parsing);
-    let (units, errors, _skipped) = parse_units_parallel(
+    let (units, errors, _skipped) = parse_into_jobs_parallel(
         &artifacts,
         &all_parsers(),
         progress,
@@ -654,7 +654,7 @@ mod tests {
             path: PathBuf::from(r"\$MFT"),
             artifact_type: ArtifactType::Mft,
         }];
-        let units = vec![ParsedUnit {
+        let units = vec![ParseJob {
             artifact_type: ArtifactType::Mft,
             path: PathBuf::from(r"\$MFT"),
             parser: "MFT".to_string(),
@@ -858,9 +858,9 @@ mod tests {
     }
 
     #[test]
-    fn parse_units_groups_events_per_artifact_and_parser() {
+    fn parse_into_jobs_groups_events_per_artifact_and_parser() {
         // issen #115: the resumable path commits/skips at (artifact, parser)
-        // granularity, so parse_units must give each its own unit with a FRESH
+        // granularity, so parse_into_jobs must give each its own unit with a FRESH
         // emitter — events grouped per unit, not pooled into one flat list.
         // Parsers are injected (the force-linked registry is empty in tests).
         use issen_core::error::RtError;
@@ -939,7 +939,7 @@ mod tests {
             }),
         ];
         let progress = ProgressReporter::new();
-        let (units, errors, _) = parse_units(
+        let (units, errors, _) = parse_into_jobs(
             &artifacts,
             &parsers,
             &progress,
@@ -959,8 +959,8 @@ mod tests {
     }
 
     #[test]
-    fn parse_units_propagates_parse_completion() {
-        // ParseCompletion must reach the ParsedUnit so the commit layer marks only
+    fn parse_into_jobs_propagates_parse_completion() {
+        // ParseCompletion must reach the ParseJob so the commit layer marks only
         // terminally-complete units complete (issen #115 correctness — it used to
         // be dropped, so every Ok parse was marked complete on resume).
         use issen_core::plugin::traits::{
@@ -1007,7 +1007,7 @@ mod tests {
                 reason: "truncated".into(),
             }))];
         let progress = ProgressReporter::new();
-        let (units, _, _) = parse_units(
+        let (units, _, _) = parse_into_jobs(
             &artifacts,
             &parsers,
             &progress,
@@ -1017,12 +1017,12 @@ mod tests {
         assert_eq!(units.len(), 1);
         assert!(
             matches!(units[0].completion, ParseCompletion::Incomplete { .. }),
-            "the parser's Incomplete completion must propagate to the ParsedUnit, not be dropped"
+            "the parser's Incomplete completion must propagate to the ParseJob, not be dropped"
         );
     }
 
     #[test]
-    fn parse_units_parallel_equals_sequential() {
+    fn parse_into_jobs_parallel_equals_sequential() {
         // The parallel per-unit core must produce the SAME units as the sequential
         // one — rayon `par_iter().collect()` preserves artifact order, so the two
         // differ only in `for` vs `par_iter`, never in output.
@@ -1089,7 +1089,7 @@ mod tests {
             Box::new(EmitMock("PF".into(), ArtifactType::Prefetch, 5)),
         ];
         let p1 = ProgressReporter::new();
-        let (su, se, sk) = parse_units(
+        let (su, se, sk) = parse_into_jobs(
             &artifacts,
             &parsers,
             &p1,
@@ -1097,7 +1097,7 @@ mod tests {
             &issen_core::plugin::ParseOptions::default(),
         );
         let p2 = ProgressReporter::new();
-        let (pu, pe, pk) = parse_units_parallel(
+        let (pu, pe, pk) = parse_into_jobs_parallel(
             &artifacts,
             &parsers,
             &p2,
@@ -1107,7 +1107,7 @@ mod tests {
 
         // Compare the FULL unit identity + event contents, not just counts: parser,
         // artifact type, path, bytes, completion, and the exact record_hash sequence.
-        let proj = |us: &[ParsedUnit]| {
+        let proj = |us: &[ParseJob]| {
             us.iter()
                 .map(|u| {
                     (
@@ -1134,7 +1134,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_units_reports_parser_failures() {
+    fn parse_into_jobs_reports_parser_failures() {
         // A failing parser must surface in `errors` (fail-loud, like the flat
         // pipeline) and yield no unit — not be silently dropped (issen #115).
         use issen_core::error::RtError;
@@ -1176,7 +1176,7 @@ mod tests {
         }];
         let parsers: Vec<Box<dyn ForensicParser>> = vec![Box::new(FailMock)];
         let progress = ProgressReporter::new();
-        let (units, errors, _) = parse_units(
+        let (units, errors, _) = parse_into_jobs(
             &artifacts,
             &parsers,
             &progress,
@@ -1190,7 +1190,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_units_skips_completed_units_without_parsing() {
+    fn parse_into_jobs_skips_completed_units_without_parsing() {
         // issen #115 resume optimization: a unit the skip-predicate marks
         // complete must NOT be parsed (its parser is never invoked) and must be
         // counted as skipped — so a resume run avoids the parse cost, not just
@@ -1256,7 +1256,7 @@ mod tests {
         let progress = ProgressReporter::new();
         // Mark artifact `a` already complete; `b` still pending.
         let skip = |_at: &ArtifactType, path: &Path, _parser: &str| path == skip_path.as_path();
-        let (units, errors, skipped) = parse_units(
+        let (units, errors, skipped) = parse_into_jobs(
             &artifacts,
             &parsers,
             &progress,

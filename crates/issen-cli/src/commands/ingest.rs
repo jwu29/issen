@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use issen_core::artifacts::ArtifactType;
-use issen_fswalker::orchestrator::run_auto_units;
+use issen_fswalker::orchestrator::run_auto_parse_jobs;
 use issen_remote_io::gdrive;
 use issen_remote_io::uri::{is_remote_uri, UriScheme};
 use issen_signatures::engines::ioc_hash::HashIocStore;
@@ -161,7 +161,7 @@ pub fn run(
         // unit committed atomically; units already completed for this evidence
         // source are skipped (resume by default) unless `--refresh` forces a full
         // re-parse. Read the resume skip-list BEFORE parsing so completed units
-        // skip the parse cost entirely. `commit_unit`'s delete-first makes a
+        // skip the parse cost entirely. `commit_parse_job`'s delete-first makes a
         // re-parse idempotent.
         let completed = if refresh {
             std::collections::HashSet::new()
@@ -172,28 +172,28 @@ pub fn run(
         };
 
         // A unit is skipped when its (source, artifact-type, path, parser) identity
-        // — the same stable id `commit_unit` keys on — is already complete. The
+        // — the same stable id `commit_parse_job` keys on — is already complete. The
         // `bytes` field does not affect the id, so 0 here matches the commit path.
         let skip = |at: &ArtifactType, path: &Path, parser: &str| {
-            let unit_id = issen_timeline::ingest::IngestUnit::new(
+            let parse_job_id = issen_timeline::ingest::ParseJobRecord::new(
                 source_id,
                 &format!("{at:?}"),
                 &path.to_string_lossy(),
                 parser,
                 0,
             )
-            .unit_id;
-            completed.contains(&unit_id)
+            .parse_job_id;
+            completed.contains(&parse_job_id)
         };
         let parse_opts =
             issen_core::plugin::ParseOptions::default().with_verbose_rows(verbose_rows);
-        let (units, result, skipped) = run_auto_units(&src.path, sp.reporter(), &skip, &parse_opts)
+        let (units, result, skipped) = run_auto_parse_jobs(&src.path, sp.reporter(), &skip, &parse_opts)
             .context("Pipeline execution failed")?;
 
         // Every returned unit is pending (completed ones were skipped before
         // parse), so each is committed unconditionally.
         for pu in units {
-            let mut unit = issen_timeline::ingest::IngestUnit::new(
+            let mut unit = issen_timeline::ingest::ParseJobRecord::new(
                 source_id,
                 &format!("{:?}", pu.artifact_type),
                 &pu.path.to_string_lossy(),
@@ -214,7 +214,7 @@ pub fn run(
                 .map(|e| e.with_evidence_source(source_id))
                 .collect();
             inserted += store
-                .commit_unit(&unit, &restamped)
+                .commit_parse_job(&unit, &restamped)
                 .context("Failed to commit ingest unit")?;
             events.extend(restamped);
         }

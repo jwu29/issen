@@ -1,17 +1,17 @@
 //! DRY invariant: `run_auto` (flat) must be exactly the sorted flattening of
-//! `run_auto_units` (per-unit) for the same evidence — they are ONE orchestration
+//! `run_auto_parse_jobs` (per-unit) for the same evidence — they are ONE orchestration
 //! run two ways, not two copy-paste stacks that can drift (the sort divergence was
 //! one symptom). This locks the refactor that makes `run_auto` a thin wrapper over
-//! `run_auto_units`. It lives in `issen-cli`'s test suite because it needs the
+//! `run_auto_parse_jobs`. It lives in `issen-cli`'s test suite because it needs the
 //! force-linked parser registry (an issen-fswalker unit test would see an empty
 //! registry and compare two empty results).
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 // Force-link the issen_cli library so its parser anchors populate the inventory
-// registry in THIS in-process test (run_auto/run_auto_units read all_parsers()).
+// registry in THIS in-process test (run_auto/run_auto_parse_jobs read all_parsers()).
 extern crate issen_cli as _;
 
-use issen_fswalker::orchestrator::{run_auto, run_auto_units};
+use issen_fswalker::orchestrator::{run_auto, run_auto_parse_jobs};
 use issen_fswalker::progress::ProgressReporter;
 use tempfile::tempdir;
 
@@ -36,7 +36,7 @@ fn build_usn(filename: &str, reason: u32, file_ref: u64, parent_ref: u64, usn: i
 }
 
 #[test]
-fn run_auto_is_sorted_flatten_of_run_auto_units() {
+fn run_auto_is_sorted_flatten_of_run_auto_parse_jobs() {
     let dir = tempdir().unwrap();
     let mut j = Vec::new();
     j.extend(build_usn("malware.exe", 0x100, 1001, 500, 100));
@@ -46,7 +46,7 @@ fn run_auto_is_sorted_flatten_of_run_auto_units() {
 
     let progress = ProgressReporter::new();
     let (flat, r_flat) = run_auto(dir.path(), &progress).unwrap();
-    let (units, r_units, _) = run_auto_units(
+    let (units, r_units, _) = run_auto_parse_jobs(
         dir.path(),
         &progress,
         &|_, _, _| false,
@@ -74,7 +74,7 @@ fn run_auto_is_sorted_flatten_of_run_auto_units() {
     let unit_hashes: Vec<&str> = from_units.iter().map(|e| e.record_hash.as_str()).collect();
     assert_eq!(
         flat_hashes, unit_hashes,
-        "run_auto must equal the sorted flattening of run_auto_units — one orchestration, not two"
+        "run_auto must equal the sorted flattening of run_auto_parse_jobs — one orchestration, not two"
     );
     assert_eq!(
         r_flat.artifacts_found, r_units.artifacts_found,
