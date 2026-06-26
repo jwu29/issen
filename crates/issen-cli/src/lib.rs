@@ -475,10 +475,10 @@ pub enum Commands {
         action: PivotAction,
     },
 
-    /// Generate a self-contained HTML report from a timeline database.
     /// List the bundled detection rules ("what detections do you have?").
     Rules,
 
+    /// Generate a self-contained HTML report from a timeline database.
     Report {
         /// Path to the DuckDB database.
         #[arg(value_name = "DB_PATH")]
