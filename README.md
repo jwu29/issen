@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/SecurityRonin/issen/stargazers"><img src="https://img.shields.io/github/stars/SecurityRonin/issen?style=flat-square" alt="Stars"/></a>
+  <a href="https://github.com/SecurityRonin/issen/releases"><img src="https://img.shields.io/github/v/release/SecurityRonin/issen?style=flat-square" alt="Release"/></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License"/></a>
   <a href="https://github.com/SecurityRonin/issen/actions/workflows/ci.yml"><img src="https://github.com/SecurityRonin/issen/actions/workflows/ci.yml/badge.svg" alt="CI"/></a>
   <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/rust-1.80%2B-orange.svg" alt="Rust 1.80+"/></a>
@@ -14,21 +14,22 @@
   <a href="https://github.com/sponsors/h4x0r"><img src="https://img.shields.io/badge/sponsor-h4x0r-ff69b4.svg?logo=github-sponsors" alt="Sponsor"/></a>
 </p>
 
-**Point it at a disk image. Get a forensic timeline and an ATT&CK attack-chain report.**
+**One command turns disk + memory evidence into a correlated, ATT&CK-mapped attack narrative.**
 
 Issen is the orchestration layer of the SecurityRonin forensic fleet — a multi-crate Rust workspace and the `issen` CLI. Hand it acquired evidence, and it auto-detects the container, triages the filesystem for the artifacts that matter, parses each one, and builds a single queryable timeline you can scan and report on.
 
 ---
 
 ```bash
-# 1. Ingest evidence → a DuckDB timeline (auto-detects E01/EWF, VMDK, raw dd, …)
-issen ingest evidence.E01 -o timeline.duckdb
+# One command: ingest disk artifacts, parse memory dumps, correlate, and scan —
+# in a single resumable pass. Auto-detects E01/EWF/VMDK/raw + memory dumps.
+issen evidence.E01 memory.raw -o case.duckdb
 
-# 2. Render a self-contained HTML report (timeline + ATT&CK attack-chain when Sigma findings exist)
-issen report timeline.duckdb -o report.html
+# Read the result: the correlated attack narrative as text (or a shareable HTML report)
+issen report case.duckdb --format text
 ```
 
-Two commands take you from a raw acquisition to a shareable HTML report. No Python env, no dependency hell — one static binary.
+One command takes a raw acquisition to a correlated attack narrative. No Python env, no dependency hell — one static binary.
 
 ---
 
@@ -69,8 +70,11 @@ No Python env. No dependency hell. One static binary.
 ## Install
 
 ```bash
-# Requires Rust 1.80+
-cargo install --git https://github.com/SecurityRonin/issen issen
+# Prebuilt binaries — Windows .exe/.msi and Apple-silicon .dmg — on the Releases page:
+#   https://github.com/SecurityRonin/issen/releases
+
+# …or build from source (uses the pinned toolchain in rust-toolchain.toml)
+cargo install --git https://github.com/SecurityRonin/issen issen-cli
 
 # Verify
 issen --version
@@ -79,16 +83,17 @@ issen --version
 ## The headline workflow
 
 ```bash
-# Ingest a disk image → DuckDB timeline (E01/EWF, VMDK, raw dd, VHD/VHDX, QCOW2, ISO),
-# optionally scanning with cached Sigma / threat-intel feeds in the same pass
-issen ingest evidence.E01 -o timeline.duckdb --scan
+# The default pipeline — ingest disk artifacts, parse memory dumps, correlate
+# cross-artifact rules, and scan cached threat-intel feeds. Pass any mix of disk
+# images and memory dumps; re-run the same command to resume where it stopped.
+issen DC01.E01 DESKTOP.E01 DC01-memory.raw -o case.duckdb
 
-# Render a self-contained HTML report — timeline plus an ATT&CK attack-chain
-# section whenever Sigma findings carry ATT&CK tactic tags
-issen report timeline.duckdb -o report.html
+# Read the result: correlated findings as text, or a self-contained HTML report
+issen report case.duckdb --format text
+issen report case.duckdb -o report.html
 ```
 
-On ingest, Issen auto-detects the container via its `CollectionProvider` registry, triages the NTFS volume for the artifacts that matter, parses each one, and writes a unified timeline. From there, `issen timeline`, `issen scan`, and `issen report` all read the same database.
+Issen auto-detects each container via its `CollectionProvider` registry, triages the NTFS volume for the artifacts that matter, parses each one, walks memory dumps for process / network / injection state, and correlates everything into one super-timeline. `issen timeline`, `issen report`, and `issen info` all read the same DuckDB database.
 
 ### What it triages from a disk image
 
@@ -106,21 +111,20 @@ When the evidence is a Windows disk image, Issen walks the NTFS filesystem and e
 
 | Command | What it does |
 |---|---|
-| `issen ingest` | Ingest evidence (disk image, collection, directory, or remote URI) → parse artifacts → DuckDB timeline; `--scan` runs signatures in the same pass |
-| `issen analyse` | Rapid triage of a UAC / supported collection — rootkits, hidden processes, network |
-| `issen supertimeline` | Build a semantic supertimeline from a collection — narrative / JSONL / CSV |
+| `issen <evidence…>` | **The default pipeline** — ingest disk + memory evidence, correlate, scan, and analyse memory in one resumable pass (`-o` names the case DB) |
 | `issen timeline` | Query and export the timeline (text, JSON, CSV, bodyfile; `--flagged` for findings) |
-| `issen scan` | Scan files or indicators against YARA / Sigma / hash / network / STIX signatures |
-| `issen report` | Generate a self-contained HTML report (timeline + ATT&CK attack-chain) from a timeline DB |
+| `issen report` | Render the correlated findings as text (`--format text`) or a self-contained HTML report |
 | `issen info` | Show information about a timeline database |
-| `issen memf` | Analyse a physical memory dump (LiME, AVML, Windows crash dump, raw) |
-| `issen srum` | Parse and query SRUM (System Resource Usage Monitor) data |
-| `issen frequency` | Frequency / stacking analysis across timeline events |
-| `issen processes` | Process-centric view of the timeline |
-| `issen session` | Logon-session reconstruction and linking |
+| `issen memory` | Analyse a physical memory dump (LiME, AVML, Windows crash dump, raw) — processes, netstat, injection, creds |
+| `issen scan` | Scan files or indicators against threat-intel signatures (YARA / Sigma / hash / network) |
 | `issen remote-access` | Scan evidence for remote-access infrastructure (LOLRMM rule set) |
-| `issen pivot` | Pivot engine — sync threat-intel feeds, list rules, evaluate evidence |
+| `issen rules` | List the bundled detection rules ("what detections do you have?") |
 | `issen feed` | Manage threat-intelligence feeds (list, update, inspect) |
+| `issen srum` | Parse and query SRUM (System Resource Usage Monitor) data |
+| `issen biome` | Parse an Apple Biome `App.MenuItem` SEGB file — macOS menu-bar selections |
+| `issen frequency` | Rare-event frequency / stacking analysis across EVTX |
+| `issen processes` | Process-creation events from one or more EVTX files |
+| `issen session` | Correlate Windows logon sessions from EVTX |
 
 ```bash
 # Query the timeline; show only flagged findings at high+ severity
@@ -131,7 +135,7 @@ issen timeline timeline.duckdb --format csv
 issen timeline timeline.duckdb --format bodyfile
 
 # Analyse a physical memory dump (LiME, AVML, crash dump)
-issen memf dump.lime --command all
+issen memory dump.lime --command all
 
 # Scan files against YARA / Sigma / hash / STIX signatures
 issen scan evidence/ --auto-feeds
@@ -154,15 +158,14 @@ Issen has been run end-to-end against a real **29 GB DEF CON E01** acquisition: 
 |---|---|
 | **Collection formats** | UAC `.tar.gz`, Velociraptor, KAPE triage zip |
 | **Disk images** | E01/EWF, raw DD (split images), VMDK, VHD, VHDX, QCOW2, ISO9660 — auto-detected via a `CollectionProvider` registry |
-| **Filesystems** | ext4, NTFS [planned], APFS [planned] |
+| **Filesystems** | NTFS (the Windows disk leg — MFT/USN/hives/$I$R), ext4, APFS [planned] |
 | **Memory formats** | LiME, AVML, WinPMEM, crash dump (DMP), Hibernation (hiberfil.sys) |
 | **Log streams** | EVTX, Zeek `conn.log`, Suricata EVE, systemd journal [planned], Apple Unified Log [planned], CloudTrail [planned] |
 | **Live query** | Velociraptor VQL, WMI/WQL [planned], OSQuery SQL [planned] |
 | **Content-addressed** | git repositories, OCI image registries, IPFS [planned], Sigstore transparency log [planned] |
 | **Detection types** | YARA rules, Sigma rules, STIX 2.1 indicators, hash IOCs, Suricata rules |
-| **Artifact sources** | EVTX, registry hives, MFT, USN Journal, Prefetch, LNK shortcuts, browser history, SRUM |
+| **Artifact sources** | MFT, USN Journal, EVTX, registry hives (incl. Shimcache / UserAssist / network config), Amcache, Prefetch, LNK / Jump Lists, Recycle Bin ($I/$R content), browser history, SRUM, Apple Biome |
 | **Network analysis** | Volatility sockstat, Zeek logs, Suricata EVE, pcap |
-| **Remote evidence** | 48 URI schemes — S3, GCS, Azure, SFTP, HDFS, OneDrive, Google Drive, Redis, PostgreSQL, IPFS, and more ([full list →](https://securityronin.github.io/issen/)) |
 | **Output formats** | Terminal (colour-coded), JSON, HTML report, PDF, STIX 2.1 Attack Flow, AFB (Attack Flow Builder), DOT/PNG (Graphviz), Mermaid, CSV, bodyfile, DuckDB timeline |
 | **RAT detection** | LOLRMM rule set (400+ tools) |
 | **Attack Flow ingestion** | CTID Attack Flow v3.0.0 corpus — parse STIX bundles → correlation rules via BFS DAG traversal |
@@ -313,7 +316,7 @@ clauses:
 
 Rules are YAML files in `~/.config/issen/rules/`. Ship your own. Share with your team.
 
-The bundled rule set ships with rules covering miners, rootkits, SSH tunnels, LD_PRELOAD persistence, hidden processes, and LOLRMM RATs. Custom rules compose with the built-ins — one `issen analyse` call evaluates all of them.
+The bundled rule set ships with rules covering miners, rootkits, SSH tunnels, LD_PRELOAD persistence, hidden processes, and LOLRMM RATs. Custom rules compose with the built-ins — a single `issen <evidence>` pass evaluates all of them.
 
 ### Attack Flow STIX ingestion
 
@@ -323,8 +326,8 @@ The correlation engine also ingests CTID Attack Flow v3.0.0 corpus bundles (STIX
 # Fetch and index the Attack Flow corpus
 issen feed update
 
-# The engine will evaluate Attack Flow rules alongside your YAML rules
-issen analyse collection.tar.gz
+# The engine evaluates Attack Flow rules alongside your YAML rules in the default pass
+issen collection.tar.gz
 ```
 
 <details>
@@ -339,7 +342,7 @@ Hard-coded detections age badly. Threat actors change port numbers, rename binar
 ## Demo
 
 ```
-$ issen analyse collection-WIN10-CORP-20260401.zip
+$ issen collection-WIN10-CORP-20260401.zip
 
 +===========================================================+
 |  Issen — Collection Analysis                              |
@@ -415,24 +418,6 @@ $ issen analyse collection-WIN10-CORP-20260401.zip
 
 The correlation engine flagged AnyDesk installed under `C:\ProgramData\Temp\Support\` — not its standard `Program Files` path — with outbound connections to a Russian ASN outside AnyDesk's relay infrastructure. The timeline shows a service account logon from an internal host, followed by file drop, service install, and first C2 callback within a four-minute window: the attacker pivoted from `WIN-RUNBOOK` using `svc_backup` credentials to deploy the RAT on `WIN10-CORP`.
 
----
-
-## Remote evidence — wherever it lives
-
-Evidence doesn't wait on an FTP download. Point `issen ingest` at the source:
-
-```bash
-# Evidence uploaded to S3 after cloud acquisition
-issen ingest --source s3://dfir-bucket/cases/2026-04-19/collection.tar.gz
-
-# Analyst workstation via SFTP — no staging required
-issen ingest --source sftp://analyst@10.0.1.5/evidence/
-
-# Google Drive share from the client
-issen ingest --source gdrive://1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms
-```
-
-48 URI schemes supported: object storage (S3, GCS, Azure, B2), cloud drives (OneDrive, Dropbox, Google Drive), SFTP, HDFS, IPFS, Redis, PostgreSQL, and more. Same command regardless of backend. [Full reference →](https://securityronin.github.io/issen/issen_remote_io/)
 
 ---
 
