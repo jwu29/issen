@@ -959,6 +959,95 @@ mod tests {
     }
 
     #[test]
+    fn parse_into_jobs_parses_artifacts_concurrently() {
+        // Intra-source parallelism: many artifacts of one source must parse on
+        // MORE THAN ONE thread. A recording parser stamps the thread it ran on;
+        // a sequential parse_into_jobs touches exactly one thread (RED), a
+        // parallel one touches several (GREEN).
+        use issen_core::error::RtError;
+        use issen_core::plugin::traits::{
+            DataSource, EventEmitter, ForensicParser, ParseOptions, ParseStats, ParserCapabilities,
+        };
+        use std::collections::HashSet;
+        use std::sync::{Arc, Mutex};
+
+        // A single-core box cannot exhibit cross-thread parsing — skip cleanly.
+        if std::thread::available_parallelism()
+            .map(std::num::NonZeroUsize::get)
+            .unwrap_or(1)
+            < 2
+        {
+            return;
+        }
+
+        struct ThreadMock {
+            kind: ArtifactType,
+            seen: Arc<Mutex<HashSet<std::thread::ThreadId>>>,
+        }
+        impl ForensicParser for ThreadMock {
+            fn name(&self) -> &str {
+                "ThreadMock"
+            }
+            fn supported_artifacts(&self) -> &[ArtifactType] {
+                std::slice::from_ref(&self.kind)
+            }
+            fn parse(
+                &self,
+                _input: &dyn DataSource,
+                _emitter: &dyn EventEmitter,
+                _opts: &ParseOptions,
+            ) -> Result<ParseStats, RtError> {
+                self.seen
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .insert(std::thread::current().id());
+                // Hold the artifact briefly so siblings overlap in time.
+                std::thread::sleep(std::time::Duration::from_millis(15));
+                Ok(ParseStats::new())
+            }
+            fn capabilities(&self) -> ParserCapabilities {
+                ParserCapabilities {
+                    max_memory_bytes: None,
+                    streaming: false,
+                    deterministic: true,
+                }
+            }
+        }
+
+        let dir = tempfile::tempdir().expect("tmp");
+        let mut artifacts = Vec::new();
+        for i in 0..32 {
+            let p = dir.path().join(format!("a{i}.bin"));
+            std::fs::write(&p, b"x").expect("w");
+            artifacts.push(DiscoveredArtifact {
+                path: p,
+                artifact_type: ArtifactType::Mft,
+            });
+        }
+        let seen = Arc::new(Mutex::new(HashSet::new()));
+        let parsers: Vec<Box<dyn ForensicParser>> = vec![Box::new(ThreadMock {
+            kind: ArtifactType::Mft,
+            seen: seen.clone(),
+        })];
+        let progress = ProgressReporter::new();
+        parse_into_jobs(
+            &artifacts,
+            &parsers,
+            &progress,
+            &|_, _, _| false,
+            &issen_core::plugin::ParseOptions::default(),
+        );
+        let n_threads = seen
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .len();
+        assert!(
+            n_threads > 1,
+            "parse_into_jobs must parse artifacts concurrently; saw {n_threads} thread(s)"
+        );
+    }
+
+    #[test]
     fn parse_into_jobs_propagates_parse_completion() {
         // ParseCompletion must reach the ParseJob so the commit layer marks only
         // terminally-complete units complete (issen #115 correctness — it used to
