@@ -105,16 +105,25 @@ pub fn same_subtree(a: &str, b: &str) -> bool {
 /// sizes are present — byte-size equality.
 #[must_use]
 pub fn guards_hold(deleted: &FileFacts, created: &FileFacts) -> bool {
-    if !stems_are_token_permutations(&deleted.path, &created.path) {
+    // Order matters for performance: this runs for every candidate delete↔create
+    // pair, so the cheap, selective guards go FIRST and the allocating
+    // token-permutation check goes LAST. `stems_are_token_permutations` allocates
+    // two `BTreeSet<String>` per call; on a real MFT timeline (millions of
+    // FileCreate/Delete events) running it first made it ~100% of correlate's
+    // runtime. Extension/size are O(1) slice/Option compares that reject the vast
+    // majority of pairs before any allocation; `same_subtree` is next; the
+    // tokenization fires only for pairs that already match all three. The result
+    // is unchanged (the guards are AND-combined).
+    if extension(&deleted.path) != extension(&created.path) {
+        return false;
+    }
+    if matches!((deleted.size, created.size), (Some(x), Some(y)) if x != y) {
         return false;
     }
     if !same_subtree(&deleted.path, &created.path) {
         return false;
     }
-    if extension(&deleted.path) != extension(&created.path) {
-        return false;
-    }
-    !matches!((deleted.size, created.size), (Some(x), Some(y)) if x != y)
+    stems_are_token_permutations(&deleted.path, &created.path)
 }
 
 /// Pair `FileDelete` events with `FileCreate` events that satisfy all guards,
