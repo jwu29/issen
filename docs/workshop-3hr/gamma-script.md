@@ -1,25 +1,3 @@
-# DFIR at Machine Speed — Gamma Deck Script
-
-> **How to use this file.** Paste the content below (everything under the first `---`)
-> into Gamma → *Create new* → *Paste in text* → *Cards (one per `---`)*.
-> Each `---` is a new card; the `#` line is the card title; bullets become the card body.
-> Suggested Gamma settings: **dark theme**, **16:9**, accent = teal/amber, "punchy" text density.
-> **Tint convention:** callouts beginning 🛠️ **The hard way** are the *traditional* multi-tool
-> workflow — give them a **muted amber tint** in Gamma so they read as a distinct "before",
-> against the **teal** issen path (⚡ **The issen way**). The colour switch is the cue: amber = the
-> old grind, teal = one command.
-> **Every content card carries a Mermaid illustration** — code-fences render natively in Gamma,
-> leave them as-is. If a fence ever fails to render, the bullets above it still stand alone.
->
-> Status: **opening + fundamentals draft** (covers the front third of the 3-hour run-of-show:
-> frame → architecture → pipeline fundamentals). Modules 2–5 (the hands-on hunt) follow the
-> `DESIGN.md` run-of-show and get their own cards once the lab steps are frozen.
-> Capability claims tracked against the current command-by-command walkthrough
-> (`../szechuan-sauce-quickstart.md`) and the answer-pass log (`../tasks/STATUS.md`) — concept
-> slides teach the artifact; the hands-on cards cite what the tool produces today.
-
----
-
 # DFIR at Machine Speed
 
 ### One Rust-native toolchain, from raw image to board-ready narrative
@@ -1853,7 +1831,7 @@ flowchart LR
 
 ### Build the narrative. Present with honesty. That's the moat.
 
-![Scan for slides, toolchain & contact](https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=https%3A%2F%2Flinktr.ee%2F4n6h4x0r)
+![Scan for slides, toolchain & contact](https://quickchart.io/qr?text=https%3A%2F%2Flinktr.ee%2F4n6h4x0r&size=260&margin=2)
 
 **Author:** Albert Hui · [linktr.ee/4n6h4x0r](https://linktr.ee/4n6h4x0r)
 **IR Peer Review:** Eliza Wan · [linkedin.com/in/eliwan](https://www.linkedin.com/in/eliwan/)
@@ -1869,6 +1847,4 @@ flowchart LR
 
 - Case: **DFIR Madness Case 001** — `https://dfirmadness.com/the-stolen-szechuan-sauce/`
 - Answer key: `https://dfirmadness.com/answers-to-szechuan-case-001/`
-- Workshop design + command walkthrough: `DESIGN.md`, `ctf-yardstick.md`, `../szechuan-sauce-quickstart.md`
-- Registry-in-memory HMAP translation: issen `memf-windows/src/registry.rs` (`cell_index_to_va`).
 - Clock: victim VMs **UTC−7**; key narrates **UTC−6** → host artifacts read **+1h**.
