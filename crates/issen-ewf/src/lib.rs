@@ -41,9 +41,7 @@
 //! Issen pipeline, enabling random-access reads over Expert Witness Format
 //! forensic disk images.
 
-use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
-use std::sync::Mutex;
 
 use issen_core::error::RtError;
 use issen_core::plugin::traits::DataSource;
@@ -88,11 +86,11 @@ impl From<EwfError> for RtError {
 
 /// A [`DataSource`] backed by an EWF/E01 forensic disk image.
 ///
-/// Thread-safe random-access reads are achieved by wrapping the inner
-/// [`ewf::EwfReader`] in a [`Mutex`]. Each `read_at` call locks, seeks,
-/// reads, and unlocks.
+/// Reads go straight through [`ewf::EwfReader::read_at`], a lock-free
+/// positioned read on a shared `&self`, so concurrent reads of one image
+/// decompress in parallel instead of serializing on a mutex.
 pub struct EwfDataSource {
-    reader: Mutex<ewf::EwfReader>,
+    reader: ewf::EwfReader,
     total_size: u64,
 }
 
@@ -116,10 +114,7 @@ impl EwfDataSource {
     pub fn open(path: &Path) -> Result<Self, EwfError> {
         let reader = ewf::EwfReader::open(path)?;
         let total_size = reader.total_size();
-        Ok(Self {
-            reader: Mutex::new(reader),
-            total_size,
-        })
+        Ok(Self { reader, total_size })
     }
 
     /// Get the logical size of the forensic image in bytes.
@@ -139,23 +134,13 @@ impl DataSource for EwfDataSource {
             return Ok(0);
         }
 
-        let mut reader = self.reader.lock().map_err(|e| RtError::Parse {
-            offset,
-            message: format!("EWF mutex poisoned: {e}"),
-        })?;
-
-        reader
-            .seek(SeekFrom::Start(offset))
-            .map_err(|e| RtError::Parse {
-                offset,
-                message: format!("EWF seek error: {e}"),
-            })?;
-
         let available = (self.total_size - offset) as usize;
         let to_read = buf.len().min(available);
 
-        reader
-            .read(&mut buf[..to_read])
+        // Lock-free positioned read on a shared `&self`; concurrent callers
+        // decompress their own chunks in parallel.
+        self.reader
+            .read_at(&mut buf[..to_read], offset)
             .map_err(|e| RtError::Parse {
                 offset,
                 message: format!("EWF read error: {e}"),
