@@ -131,11 +131,14 @@ impl TimelineStore {
         }
 
         let order = if q.ascending { "ASC" } else { "DESC" };
-        // `record_hash` is a STABLE tie-break for equal timestamps — without it the
-        // order is SQL-undefined (insertion-derived), so exports/narrative would be
-        // nondeterministic and a parallel ingest could reorder the timeline.
+        // Deterministic total order: timestamp, then `record_hash`, then the
+        // unique row `id` as the FINAL tie-break. `record_hash` alone is NOT
+        // unique — cross-epoch duplicates share it (6k+ collisions on a real
+        // 1M-event DC timeline), so `LIMIT n` over the ties would otherwise pick
+        // a different n each run. `id` (the insert sequence PK) fully
+        // disambiguates, so the same query reproduces the same rows byte-for-byte.
         sql.push_str(&format!(
-            " ORDER BY timestamp_ns {order}, record_hash {order}"
+            " ORDER BY timestamp_ns {order}, record_hash {order}, id {order}"
         ));
 
         if let Some(limit) = q.limit {
