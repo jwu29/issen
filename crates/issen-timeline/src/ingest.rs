@@ -405,15 +405,25 @@ impl TimelineStore {
             "DELETE FROM timeline WHERE parse_job_id = ?",
             duckdb::params![unit.parse_job_id],
         )?;
+        // Bulk-load via DuckDB's columnar Appender into a staging temp table,
+        // then ONE `INSERT … SELECT` into `timeline` (so `id`/`epoch` take their
+        // table defaults). Row-at-a-time prepared INSERTs were the ingest's
+        // dominant cost — profiled at ~the entire ingest, all in DuckDB
+        // `RawStatement::execute` / per-statement `DataChunk` churn. The Appender
+        // is the columnar bulk path. No dedup here: distinct events that collide
+        // on the coarse `record_hash` are all kept, exactly as before.
+        conn.execute_batch(
+            "CREATE TEMP TABLE IF NOT EXISTS _commit_stage (
+                timestamp_ns BIGINT, timestamp_display VARCHAR, event_type VARCHAR,
+                source VARCHAR, artifact_path VARCHAR, description VARCHAR,
+                metadata VARCHAR, user_account VARCHAR, hostname VARCHAR,
+                tags VARCHAR, record_hash VARCHAR, evidence_source VARCHAR,
+                entity_refs VARCHAR, activity_category VARCHAR, parse_job_id VARCHAR
+            );
+            DELETE FROM _commit_stage;",
+        )?;
         {
-            let mut stmt = conn.prepare(
-                "INSERT INTO timeline (
-                    timestamp_ns, timestamp_display, event_type, source,
-                    artifact_path, description, metadata, user_account,
-                    hostname, tags, record_hash, evidence_source, entity_refs,
-                    activity_category, parse_job_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            )?;
+            let mut appender = conn.appender("_commit_stage")?;
             for event in events {
                 let metadata_json =
                     serde_json::to_string(&event.metadata).unwrap_or_else(|_| "{}".to_string());
@@ -421,7 +431,7 @@ impl TimelineStore {
                     serde_json::to_string(&event.tags).unwrap_or_else(|_| "[]".to_string());
                 let entity_refs_json =
                     serde_json::to_string(&event.entity_refs).unwrap_or_else(|_| "[]".to_string());
-                stmt.execute(duckdb::params![
+                appender.append_row(duckdb::params![
                     event.timestamp_ns,
                     event.timestamp_display,
                     format!("{:?}", event.event_type),
@@ -439,7 +449,21 @@ impl TimelineStore {
                     unit.parse_job_id,
                 ])?;
             }
+            appender.flush()?;
         }
+        conn.execute_batch(
+            "INSERT INTO timeline (
+                timestamp_ns, timestamp_display, event_type, source,
+                artifact_path, description, metadata, user_account,
+                hostname, tags, record_hash, evidence_source, entity_refs,
+                activity_category, parse_job_id
+            ) SELECT timestamp_ns, timestamp_display, event_type, source,
+                artifact_path, description, metadata, user_account,
+                hostname, tags, record_hash, evidence_source, entity_refs,
+                activity_category, parse_job_id
+            FROM _commit_stage;
+            DELETE FROM _commit_stage;",
+        )?;
         let count = events.len() as u64;
         // The completion marker lands in the SAME transaction as the events.
         // Only a terminally-complete unit gets the 'complete' status that
@@ -678,8 +702,12 @@ mod tests {
         let store = TimelineStore::in_memory().expect("store");
         let u1 = ParseJobRecord::new("CASE", "Mft", "/C/$MFT", "MFT Parser", 10);
         let u2 = ParseJobRecord::new("CASE", "UsnJournal", "/C/$J", "USN Parser", 20);
-        store.commit_parse_job(&u1, &[sample_event(1, "a")]).expect("c1");
-        store.commit_parse_job(&u2, &[sample_event(2, "b")]).expect("c2");
+        store
+            .commit_parse_job(&u1, &[sample_event(1, "a")])
+            .expect("c1");
+        store
+            .commit_parse_job(&u2, &[sample_event(2, "b")])
+            .expect("c2");
 
         // A unit from a DIFFERENT evidence must not leak into CASE's resume set.
         let other = ParseJobRecord::new("CASE2", "Mft", "/C/$MFT", "MFT Parser", 10);
@@ -766,7 +794,10 @@ mod tests {
             id,
             ParseJobRecord::stable_id("CASE", "Mft", "/D/$MFT", "MFT Parser")
         );
-        assert_ne!(id, ParseJobRecord::stable_id("CASE", "Mft", "/C/$MFT", "Other"));
+        assert_ne!(
+            id,
+            ParseJobRecord::stable_id("CASE", "Mft", "/C/$MFT", "Other")
+        );
 
         // No delimiter-collision: shifting a byte across a field boundary must
         // NOT alias (this fails under naive concatenation, passes with NUL-sep).
