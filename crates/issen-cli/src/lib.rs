@@ -389,7 +389,8 @@ pub enum Commands {
         #[arg(long)]
         max_events: Option<usize>,
 
-        /// Output format: html (default) or attack-navigator (ATT&CK Navigator layer JSON).
+        /// Output format: html (default), text (correlated-findings attack-chain
+        /// printed to the terminal), or attack-navigator (ATT&CK Navigator layer JSON).
         #[arg(long, default_value = "html")]
         format: String,
     },

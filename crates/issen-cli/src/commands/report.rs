@@ -25,8 +25,22 @@ pub fn run(
         println!("ATT&CK Navigator layer written to {}", output.display());
         return Ok(());
     }
+    // Text: print the correlated-findings attack-chain to the terminal (the
+    // inline narrative the old `correlate` command printed) — no HTML, no file.
+    if format.eq_ignore_ascii_case("text") {
+        let correlations = store
+            .load_correlations()
+            .context("loading correlations from the case DB")?;
+        print!(
+            "{}",
+            crate::commands::correlate::render_correlated_findings(&correlations)
+        );
+        return Ok(());
+    }
     if !format.eq_ignore_ascii_case("html") {
-        anyhow::bail!("unknown report format '{format}' (expected: html or attack-navigator)");
+        anyhow::bail!(
+            "unknown report format '{format}' (expected: html, text, or attack-navigator)"
+        );
     }
 
     let config = ReportConfig {

@@ -133,6 +133,28 @@ impl TimelineStore {
 
         Ok(Some(correlation))
     }
+
+    /// Load every persisted correlation (with its members), ordered by id —
+    /// used to render the correlated-findings narrative from an existing case DB.
+    pub fn load_correlations(&self) -> Result<Vec<Correlation>, TimelineStoreError> {
+        let ids: Vec<u64> = {
+            let conn = self.connection();
+            let mut stmt = conn.prepare("SELECT id FROM correlations ORDER BY id")?;
+            let rows = stmt.query_map([], |row| row.get::<_, u64>(0))?;
+            let mut ids = Vec::new();
+            for r in rows {
+                ids.push(r?);
+            }
+            ids
+        };
+        let mut out = Vec::with_capacity(ids.len());
+        for id in ids {
+            if let Some(c) = self.correlation(id)? {
+                out.push(c);
+            }
+        }
+        Ok(out)
+    }
 }
 
 #[cfg(test)]
