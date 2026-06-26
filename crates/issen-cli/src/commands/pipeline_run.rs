@@ -42,7 +42,7 @@ fn feed_snapshot() -> String {
 /// # Errors
 /// Fails if no usable evidence is given, the case DB cannot be opened, or a
 /// stage errors (a failed stage stays resumable).
-pub fn run(evidence: &[PathBuf], verbose: bool) -> anyhow::Result<()> {
+pub fn run(evidence: &[PathBuf], output: Option<&Path>, verbose: bool) -> anyhow::Result<()> {
     if evidence.is_empty() {
         anyhow::bail!(
             "no evidence given — pass disk images, a collection, or memory dumps, \
@@ -91,9 +91,12 @@ pub fn run(evidence: &[PathBuf], verbose: bool) -> anyhow::Result<()> {
     all.extend(mem_fp_in.clone());
     let full = pipeline::ingest_fingerprint(&all);
     let case_id = full.get(..12).unwrap_or(full.as_str());
-    let db_path = std::env::current_dir()
-        .context("resolving current directory for the case DB")?
-        .join(format!("issen-case-{case_id}.duckdb"));
+    let db_path = match output {
+        Some(p) => p.to_path_buf(),
+        None => std::env::current_dir()
+            .context("resolving current directory for the case DB")?
+            .join(format!("issen-case-{case_id}.duckdb")),
+    };
 
     // Stage-state lives in the case DB's pipeline_state table; the recorder opens
     // the DB only briefly per read/write, so it never holds the handle while a

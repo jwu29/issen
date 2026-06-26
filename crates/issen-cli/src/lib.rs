@@ -132,6 +132,11 @@ pub struct Cli {
     #[arg(value_name = "EVIDENCE")]
     evidence: Vec<std::path::PathBuf>,
 
+    /// Output case DB path for the default pipeline. Defaults to a deterministic
+    /// `issen-case-<id>.duckdb` (so a re-run resumes); pass `-o` to name it.
+    #[arg(short = 'o', long, value_name = "DB")]
+    output: Option<std::path::PathBuf>,
+
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -884,7 +889,7 @@ pub fn run() -> ExitCode {
         }
     } else {
         // Bare front door: `issen <evidence…>` — the resumable pipeline.
-        commands::pipeline_run::run(&cli.evidence, cli.verbose)
+        commands::pipeline_run::run(&cli.evidence, cli.output.as_deref(), cli.verbose)
     };
 
     match result {
