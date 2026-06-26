@@ -42,6 +42,9 @@ pub struct QueryArgs {
     pub last: bool,
     pub sort_desc: bool,
     pub limit: Option<u64>,
+    /// Inclusive time-window bounds (nanoseconds), parsed from `--from`/`--to`.
+    pub from_ns: Option<i64>,
+    pub to_ns: Option<i64>,
     pub format: String,
 }
 
@@ -205,6 +208,12 @@ fn build_query(args: &QueryArgs) -> Result<(TypedQuery, Vec<String>)> {
     if args.exclude_machine_accounts {
         filters_desc.push("exclude-machine-accounts".to_string());
     }
+    if let Some(from) = args.from_ns {
+        filters_desc.push(format!("from={from}ns"));
+    }
+    if let Some(to) = args.to_ns {
+        filters_desc.push(format!("to={to}ns"));
+    }
 
     let query = TypedQuery {
         event_types: args.event_types.clone(),
@@ -215,6 +224,8 @@ fn build_query(args: &QueryArgs) -> Result<(TypedQuery, Vec<String>)> {
         exclude_machine_accounts: args.exclude_machine_accounts,
         ascending: !args.sort_desc,
         limit: args.limit,
+        from_ns: args.from_ns,
+        to_ns: args.to_ns,
         mode,
     };
     Ok((query, filters_desc))
@@ -230,6 +241,38 @@ fn op_str(op: FieldOp) -> &'static str {
         FieldOp::Gt => ">",
         FieldOp::Lt => "<",
     }
+}
+
+/// Parse a `--from`/`--to` time bound into nanoseconds since the Unix epoch.
+/// Accepts RFC 3339 / ISO 8601 with a zone (`2020-09-19T03:00:00Z`), a naive
+/// datetime assumed UTC (`2020-09-19T03:00:00`), or a bare date treated as
+/// midnight UTC (`2020-09-19`). Fails loud on an unparseable value.
+pub fn parse_timestamp(s: &str) -> Result<i64> {
+    use chrono::{NaiveDate, NaiveDateTime, TimeZone, Utc};
+    let s = s.trim();
+    let oor = || anyhow::anyhow!("timestamp out of representable range: {s}");
+    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
+        return dt.timestamp_nanos_opt().ok_or_else(oor);
+    }
+    if let Ok(ndt) = NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S") {
+        return Utc
+            .from_utc_datetime(&ndt)
+            .timestamp_nanos_opt()
+            .ok_or_else(oor);
+    }
+    if let Ok(date) = NaiveDate::parse_from_str(s, "%Y-%m-%d") {
+        let ndt = date
+            .and_hms_opt(0, 0, 0)
+            .ok_or_else(|| anyhow::anyhow!("invalid date: {s}"))?;
+        return Utc
+            .from_utc_datetime(&ndt)
+            .timestamp_nanos_opt()
+            .ok_or_else(oor);
+    }
+    anyhow::bail!(
+        "could not parse timestamp '{s}' \
+         (use ISO 8601 like 2020-09-19T03:00:00Z or a date like 2020-09-19)"
+    )
 }
 
 /// Run the Tier-1 typed query and render the result. Read-only by construction.
@@ -253,6 +296,27 @@ pub fn run(db_path: &Path, args: &QueryArgs) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_timestamp_accepts_iso_date_and_fails_loud() {
+        // bare date = midnight UTC = the ISO form at 00:00:00Z
+        assert_eq!(
+            parse_timestamp("2020-09-19").expect("date"),
+            parse_timestamp("2020-09-19T00:00:00Z").expect("iso")
+        );
+        // a later time is a larger ns
+        assert!(
+            parse_timestamp("2020-09-19T03:00:00Z").expect("iso")
+                > parse_timestamp("2020-09-19").expect("date")
+        );
+        // naive datetime assumed UTC
+        assert_eq!(
+            parse_timestamp("2020-09-19T03:00:00").expect("naive"),
+            parse_timestamp("2020-09-19T03:00:00Z").expect("iso")
+        );
+        // garbage fails loud
+        assert!(parse_timestamp("not-a-timestamp").is_err());
+    }
 
     #[test]
     fn parse_field_resolves_ops() {

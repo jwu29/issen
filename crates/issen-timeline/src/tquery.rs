@@ -242,6 +242,11 @@ pub struct TypedQuery {
     pub ascending: bool,
     /// Row limit (rows mode only).
     pub limit: Option<u64>,
+    /// Inclusive lower time bound (`timestamp_ns >= from_ns`) — the incident
+    /// window start. `None` = unbounded.
+    pub from_ns: Option<i64>,
+    /// Inclusive upper time bound (`timestamp_ns <= to_ns`). `None` = unbounded.
+    pub to_ns: Option<i64>,
     /// What to project / aggregate.
     pub mode: Mode,
 }
@@ -257,6 +262,8 @@ impl Default for TypedQuery {
             exclude_machine_accounts: false,
             ascending: true,
             limit: None,
+            from_ns: None,
+            to_ns: None,
             mode: Mode::Rows {
                 show: default_columns(),
             },
@@ -404,6 +411,14 @@ impl TypedQuery {
         if let Some(ref glob) = self.path {
             clauses.push("artifact_path LIKE ? ESCAPE '\\'".to_string());
             params.push(DuckValue::Text(glob_to_like(glob)));
+        }
+        if let Some(from) = self.from_ns {
+            clauses.push("timestamp_ns >= ?".to_string());
+            params.push(DuckValue::BigInt(from));
+        }
+        if let Some(to) = self.to_ns {
+            clauses.push("timestamp_ns <= ?".to_string());
+            params.push(DuckValue::BigInt(to));
         }
         for f in &self.fields {
             let expr = field_expr();
@@ -586,7 +601,7 @@ impl TypedQuery {
         let sql = format!(
             "SELECT timestamp_ns, timestamp_display, event_type, source, artifact_path \
              FROM timeline WHERE {where_clause} \
-             ORDER BY timestamp_ns {dir}, record_hash {dir} LIMIT 1"
+             ORDER BY timestamp_ns {dir}, record_hash {dir}, id {dir} LIMIT 1"
         );
         let mut stmt = conn.prepare(&sql)?;
         let mut rows = stmt.query_map(params_slice(&params).as_slice(), |row| {
@@ -642,7 +657,7 @@ impl TypedQuery {
         let select_list = exprs.join(", ");
         let sql = format!(
             "SELECT {select_list} FROM timeline WHERE {where_clause} \
-             ORDER BY timestamp_ns {dir}, record_hash {dir}{limit}"
+             ORDER BY timestamp_ns {dir}, record_hash {dir}, id {dir}{limit}"
         );
         let n = show.len();
         let mut stmt = conn.prepare(&sql)?;
@@ -1239,6 +1254,30 @@ mod tests {
                 "LogonSuccess",
                 "SMBConnect"
             ]
+        );
+    }
+
+    #[test]
+    fn time_window_from_to_bounds_the_timeline() {
+        // seeded() has events at timestamp_ns 1000 (logon), 2000 (machine),
+        // 3000 (file). --from/--to scope to the incident window, inclusive.
+        let store = seeded();
+        let count = |from: Option<i64>, to: Option<i64>| {
+            let q = TypedQuery {
+                from_ns: from,
+                to_ns: to,
+                mode: Mode::Count,
+                ..Default::default()
+            };
+            q.run(store.connection()).expect("count").columns[0].values[0].clone()
+        };
+        assert_eq!(count(None, None), "3", "no bound = all");
+        assert_eq!(count(Some(2_000), None), "2", "from 2000 = machine + file");
+        assert_eq!(count(None, Some(2_000)), "2", "to 2000 = logon + machine");
+        assert_eq!(
+            count(Some(2_000), Some(2_000)),
+            "1",
+            "[2000,2000] = machine only"
         );
     }
 }

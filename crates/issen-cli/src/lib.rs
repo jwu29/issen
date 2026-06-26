@@ -202,6 +202,15 @@ pub enum Commands {
         #[arg(long, value_name = "GLOB")]
         path: Option<String>,
 
+        /// Incident-window start (inclusive): ISO 8601 (`2020-09-19T03:00:00Z`)
+        /// or a date (`2020-09-19`). Keeps events at/after this time.
+        #[arg(long, value_name = "TS")]
+        from: Option<String>,
+
+        /// Incident-window end (inclusive): ISO 8601 or a date.
+        #[arg(long, value_name = "TS")]
+        to: Option<String>,
+
         /// Typed metadata filter NAME<OP>VAL (OP in =,!=,~). Repeatable.
         #[arg(long = "field", value_name = "NAME<OP>VAL")]
         field: Vec<String>,
@@ -662,6 +671,8 @@ pub fn run() -> ExitCode {
                 narrative,
                 list_fields,
                 path,
+                from,
+                to,
                 field,
                 ip,
                 user,
@@ -741,6 +752,8 @@ pub fn run() -> ExitCode {
                     // set; the legacy export/flagged/narrative path keeps its own
                     // contract.
                     let typed = path.is_some()
+                        || from.is_some()
+                        || to.is_some()
                         || !field.is_empty()
                         || ip.is_some()
                         || user.is_some()
@@ -761,27 +774,47 @@ pub fn run() -> ExitCode {
                             "a DB_PATH is required (use --list-fields to list fields without one)"
                         )),
                         Some(db) if typed && export_sqlite.is_none() && !flagged && !narrative => {
-                            let args = commands::timeline_query::QueryArgs {
-                                event_types: event_type,
-                                sources: source,
-                                path,
-                                fields: field,
-                                ip,
-                                user,
-                                service,
-                                logon_type,
-                                exclude_machine_accounts,
-                                show,
-                                count,
-                                distinct,
-                                group_by,
-                                first,
-                                last,
-                                sort_desc: descending,
-                                limit: Some(limit),
-                                format,
-                            };
-                            commands::timeline_query::run(&db, &args)
+                            // Parse the --from/--to time bounds (loud on bad input). The
+                            // enclosing `run() -> ExitCode` cannot use `?`, so the bounds
+                            // are resolved here and the arm yields the Result directly.
+                            let bounds = from
+                                .as_deref()
+                                .map(commands::timeline_query::parse_timestamp)
+                                .transpose()
+                                .and_then(|f| {
+                                    to.as_deref()
+                                        .map(commands::timeline_query::parse_timestamp)
+                                        .transpose()
+                                        .map(|t| (f, t))
+                                });
+                            match bounds {
+                                Err(e) => Err(e),
+                                Ok((from_ns, to_ns)) => {
+                                    let args = commands::timeline_query::QueryArgs {
+                                        event_types: event_type,
+                                        sources: source,
+                                        path,
+                                        fields: field,
+                                        ip,
+                                        user,
+                                        service,
+                                        logon_type,
+                                        exclude_machine_accounts,
+                                        show,
+                                        count,
+                                        distinct,
+                                        group_by,
+                                        first,
+                                        last,
+                                        sort_desc: descending,
+                                        limit: Some(limit),
+                                        from_ns,
+                                        to_ns,
+                                        format,
+                                    };
+                                    commands::timeline_query::run(&db, &args)
+                                }
+                            }
                         }
                         // Legacy path (export / flagged / narrative / plain listing):
                         // the typed event_type/source vecs collapse to their first.
