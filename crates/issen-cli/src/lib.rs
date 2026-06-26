@@ -1090,6 +1090,21 @@ mod tests {
         Cli::command().debug_assert();
     }
 
+    #[test]
+    fn bare_evidence_parses_as_the_default_pipeline() {
+        // `issen <evidence…>` with no subcommand is the front door.
+        let cli = Cli::try_parse_from(["issen", "DC01.E01", "dump.mem"]).expect("parse");
+        assert!(cli.command.is_none(), "no subcommand → bare path");
+        assert_eq!(cli.evidence.len(), 2);
+    }
+
+    #[test]
+    fn explicit_subcommand_still_parses_and_takes_no_bare_evidence() {
+        let cli = Cli::try_parse_from(["issen", "info", "case.duckdb"]).expect("parse");
+        assert!(matches!(cli.command, Some(Commands::Info { .. })));
+        assert!(cli.evidence.is_empty());
+    }
+
     // ── should_use_ansi (FIX 4) ──────────────────────────────────────────
     // Never => false regardless; Always => true regardless; Auto gates on
     // (stdout is a tty) AND (the terminal actually renders ANSI). The second
