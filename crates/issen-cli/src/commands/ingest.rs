@@ -16,6 +16,15 @@ use tracing::info;
 
 use crate::scanning;
 
+/// Per-source state resolved serially before the parallel parse phase: the
+/// resolved evidence id, its display label, and the resume skip-list of units
+/// already complete.
+struct SourceSetup {
+    source_id: String,
+    source_label: String,
+    completed: std::collections::HashSet<String>,
+}
+
 /// Get the default feed cache directory (same as feed subcommand).
 pub(crate) fn default_feed_cache_dir() -> PathBuf {
     if let Ok(home) = std::env::var("HOME") {
@@ -133,8 +142,13 @@ pub fn run(
     // (an empty result is never silently indistinguishable from a clean input).
     let mut coverages: Vec<issen_core::coverage::CoverageManifest> = Vec::new();
 
+    // ── Phase A (serial): per-source store setup + resume state ──────────────
+    // Touches the single-writer DuckDB store, so it runs BEFORE the parallel
+    // parse: register each evidence source and read its resume skip-list.
+    let parse_opts = issen_core::plugin::ParseOptions::default().with_verbose_rows(verbose_rows);
+    let mut setups: Vec<SourceSetup> = Vec::with_capacity(sources.len());
     for src in &sources {
-        let source_id = src.source_id.as_str();
+        let source_id = src.source_id.clone();
         let source_label = src.path.display().to_string();
         if !render {
             if sources.len() > 1 {
@@ -143,37 +157,53 @@ pub fn run(
                 println!("Ingesting evidence from: {source_label}");
             }
         }
-        let sp = crate::ingest_progress::SourceProgress::start(&mp, &source_label, render);
         // Record source provenance (chain-of-custody): SHA-256 + size for a loose
         // evidence file, size only for a container (its acquisition hash is a
         // follow-up — needs an MD5/SHA1 schema field + ewf::stored_hashes).
         let (sha256, size) = issen_fswalker::sources::source_provenance(&src.path);
         store
             .register_evidence_source(
-                source_id,
+                &source_id,
                 &src.path.to_string_lossy(),
                 sha256.as_deref(),
                 size,
             )
             .context("Failed to register evidence source")?;
-
-        // Resumable, per-unit ingestion (issen #115). Each (artifact, parser) is a
-        // unit committed atomically; units already completed for this evidence
-        // source are skipped (resume by default) unless `--refresh` forces a full
-        // re-parse. Read the resume skip-list BEFORE parsing so completed units
-        // skip the parse cost entirely. `commit_parse_job`'s delete-first makes a
+        // Resumable, per-unit ingestion (issen #115): read the skip-list BEFORE
+        // parsing so completed units skip the parse cost entirely. `--refresh`
+        // forces a full re-parse; `commit_parse_job`'s delete-first makes a
         // re-parse idempotent.
         let completed = if refresh {
             std::collections::HashSet::new()
         } else {
             store
-                .completed_units(source_id)
+                .completed_units(&source_id)
                 .context("Failed to read resume state")?
         };
+        setups.push(SourceSetup {
+            source_id,
+            source_label,
+            completed,
+        });
+    }
 
+    // ── Phase B (parallel): CPU-bound per-source parse, lock-free ────────────
+    // Each source parses independently (no store access). Cap in-flight parses
+    // — and thus peak memory — at cores-2 (min 1). The output is in INPUT order,
+    // so the serial commit below assigns deterministic timeline ids regardless
+    // of which parse finishes first. Cross-source events differ in
+    // evidence_source_id (hence record_hash), so the timeline sort is stable
+    // across runs no matter the commit interleaving.
+    let max_par = std::thread::available_parallelism()
+        .map(|n| n.get().saturating_sub(2).max(1))
+        .unwrap_or(1);
+    let parsed = crate::parallel_sources::parse_sources_parallel(&sources, max_par, |i, src| {
+        let setup = &setups[i];
+        let sp = crate::ingest_progress::SourceProgress::start(&mp, &setup.source_label, render);
+        let source_id = setup.source_id.as_str();
+        let completed = &setup.completed;
         // A unit is skipped when its (source, artifact-type, path, parser) identity
-        // — the same stable id `commit_parse_job` keys on — is already complete. The
-        // `bytes` field does not affect the id, so 0 here matches the commit path.
+        // — the same stable id `commit_parse_job` keys on — is already complete.
         let skip = |at: &ArtifactType, path: &Path, parser: &str| {
             let parse_job_id = issen_timeline::ingest::ParseJobRecord::new(
                 source_id,
@@ -185,11 +215,29 @@ pub fn run(
             .parse_job_id;
             completed.contains(&parse_job_id)
         };
-        let parse_opts =
-            issen_core::plugin::ParseOptions::default().with_verbose_rows(verbose_rows);
-        let (units, result, skipped) = run_auto_parse_jobs(&src.path, sp.reporter(), &skip, &parse_opts)
-            .context("Pipeline execution failed")?;
+        let out = run_auto_parse_jobs(&src.path, sp.reporter(), &skip, &parse_opts);
+        match &out {
+            Ok((_, result, _)) => {
+                let n_errors = result.errors.len();
+                let err_suffix = if n_errors > 0 {
+                    format!(" · {n_errors} errors")
+                } else {
+                    String::new()
+                };
+                sp.finish(&format!(
+                    "✓ {} artifacts · {} events{err_suffix}",
+                    result.artifacts_parsed, result.total_events
+                ));
+            }
+            Err(e) => sp.finish(&format!("✗ parse failed: {e}")),
+        }
+        out
+    });
 
+    // ── Phase C (serial, input order): commit + merge run totals ─────────────
+    for (i, out) in parsed.into_iter().enumerate() {
+        let source_id = setups[i].source_id.as_str();
+        let (units, result, skipped) = out.context("Pipeline execution failed")?;
         // Every returned unit is pending (completed ones were skipped before
         // parse), so each is committed unconditionally.
         for pu in units {
@@ -200,14 +248,9 @@ pub fn run(
                 &pu.parser,
                 i64::try_from(pu.bytes).unwrap_or(i64::MAX),
             );
-            // Only mark the unit complete for resume if the parse terminally
-            // completed; an Undeclared/Incomplete/Unsupported/CorruptFatal parse
-            // keeps its events but stays re-parseable (issen #115 correctness).
             unit.complete = pu.completion.marks_complete();
             // Re-stamp each event's evidence_source_id with the resolved per-source
-            // id (parsers hardcode a placeholder, e.g. "evtx-evidence"). Without
-            // this, two hosts' identical events share a record_hash and one is
-            // dropped as a duplicate — the cross-host attribution would be lost.
+            // id so two hosts' identical events keep distinct record_hashes.
             let restamped: Vec<_> = pu
                 .events
                 .into_iter()
@@ -225,20 +268,7 @@ pub fn run(
         t_bytes += result.total_bytes;
         t_skipped += skipped;
         coverages.push(result.coverage.clone());
-        let (n_parsed, n_events, n_errors) = (
-            result.artifacts_parsed,
-            result.total_events,
-            result.errors.len(),
-        );
         all_errors.extend(result.errors);
-        let err_suffix = if n_errors > 0 {
-            format!(" · {n_errors} errors")
-        } else {
-            String::new()
-        };
-        sp.finish(&format!(
-            "✓ {n_parsed} artifacts · {n_events} events{err_suffix}"
-        ));
     }
 
     if sources.len() > 1 {
