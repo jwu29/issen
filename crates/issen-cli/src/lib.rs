@@ -476,6 +476,9 @@ pub enum Commands {
     },
 
     /// Generate a self-contained HTML report from a timeline database.
+    /// List the bundled detection rules ("what detections do you have?").
+    Rules,
+
     Report {
         /// Path to the DuckDB database.
         #[arg(value_name = "DB_PATH")]
@@ -971,6 +974,7 @@ pub fn run() -> ExitCode {
                 pid,
                 cr3,
             } => commands::memf::run(&dump_path, profile.as_deref(), &command, &format, pid, cr3),
+            Commands::Rules => commands::rules::run(),
             Commands::Report {
                 db_path,
                 output,

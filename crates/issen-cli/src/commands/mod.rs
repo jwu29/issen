@@ -14,6 +14,7 @@ pub mod pivot_cmd;
 pub mod processes;
 pub mod remote_access;
 pub mod report;
+pub mod rules;
 pub mod scan;
 pub mod session;
 pub mod srum;
