@@ -3,8 +3,8 @@ name: Release
 on:
   push:
     tags: ["v*"]
-  # Manual trigger to test-build all targets (incl. the heavy Windows MSI)
-  # without publishing — the release job below only runs on tag pushes.
+  # Manual trigger to test-build the priority targets (incl. the heavy Windows
+  # MSI) without publishing — the release job below only runs on tag pushes.
   workflow_dispatch:
 
 permissions:
@@ -13,19 +13,16 @@ permissions:
 jobs:
   build:
     strategy:
-      # Do not cancel sibling targets if one fails: the Windows MSI must be
-      # able to ship even if a macOS/Linux target has a transient issue.
+      # Do not cancel sibling targets if one fails: the Windows installer must
+      # ship even if the macOS target has a transient issue, and vice-versa.
       fail-fast: false
       matrix:
         include:
+          # Priority targets: Apple-silicon .dmg + Windows .exe/.msi. (Intel mac
+          # and Linux are a follow-up — DuckDB's C++ build needs a g++ cross
+          # toolchain on musl that this minimal matrix deliberately skips.)
           - target: aarch64-apple-darwin
             os: macos-latest
-          - target: x86_64-apple-darwin
-            os: macos-15
-          - target: x86_64-unknown-linux-musl
-            os: ubuntu-latest
-          - target: aarch64-unknown-linux-musl
-            os: ubuntu-latest
           - target: x86_64-pc-windows-msvc
             os: windows-latest
     runs-on: ${{ matrix.os }}
@@ -40,28 +37,18 @@ jobs:
       # rust-toolchain.toml pins 1.96.0, which overrides whatever the action
       # installs; the cross-target must be added to THAT pinned toolchain (not
       # the action's default `stable`), or cargo builds with 1.96.0 minus the
-      # target -> E0463 "can't find crate for core".
+      # target -> E0463 "can't find crate for core". (Mirrors sqlite-forensic.)
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
           toolchain: 1.96.0
           targets: ${{ matrix.target }}
 
-      # Cache ~/.cargo + target/ per matrix target so the ~800-crate / bundled-
-      # DuckDB compile is only paid in full once. cache-on-failure keeps the
-      # warm compile even when a later step (MSI packaging) fails.
+      # Cache ~/.cargo + target/ per matrix target so the bundled-DuckDB compile
+      # is only paid in full once. cache-on-failure keeps the warm compile even
+      # when a later step (MSI packaging) fails.
       - uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
         with:
           cache-on-failure: true
-
-      - name: Install musl tools (Linux)
-        if: contains(matrix.target, 'musl')
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y musl-tools
-          if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-musl" ]]; then
-            sudo apt-get install -y gcc-aarch64-linux-gnu
-            echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
-          fi
 
       # etcd-client's build script invokes protoc to compile its .proto files;
       # it is not preinstalled on the runners, so every target needs it.
@@ -70,19 +57,27 @@ jobs:
         run: |
           case "${{ runner.os }}" in
             macOS)   brew install protobuf ;;
-            Linux)   sudo apt-get update && sudo apt-get install -y protobuf-compiler ;;
             Windows) choco install protoc ;;
           esac
 
       - name: Build issen
         run: cargo build --release -p issen-cli --target ${{ matrix.target }}
 
-      - name: Package (Unix)
-        if: runner.os != 'Windows'
+      # macOS: ship both a tar.gz (for CLI users) and a .dmg (the expected
+      # double-click download). The .dmg is a compressed UDZO image holding the
+      # bare `issen` binary; it is unsigned, so first launch needs a
+      # right-click -> Open past Gatekeeper.
+      - name: Package (macOS) tar.gz + dmg
+        if: runner.os == 'macOS'
         run: |
-          cd target/${{ matrix.target }}/release
-          tar czf ../../../issen-${{ steps.version.outputs.version }}-${{ matrix.target }}.tar.gz issen
-          cd ../../..
+          V=${{ steps.version.outputs.version }}
+          T=${{ matrix.target }}
+          cd target/$T/release
+          tar czf "$GITHUB_WORKSPACE/issen-$V-$T.tar.gz" issen
+          cd "$GITHUB_WORKSPACE"
+          mkdir -p dmgroot
+          cp target/$T/release/issen dmgroot/
+          hdiutil create -volname "issen $V" -srcfolder dmgroot -ov -format UDZO "issen-$V-$T.dmg"
 
       # Standalone .exe (zipped) in addition to the MSI installer, so users can
       # grab the bare executable without running the installer.
@@ -102,8 +97,8 @@ jobs:
         if: runner.os == 'Windows'
         run: cargo wix --no-build --package issen-cli --include wix/main.wxs --target ${{ matrix.target }} --output issen-${{ steps.version.outputs.version }}-${{ matrix.target }}.msi
 
-      # always(): upload whatever artifacts exist (the .exe zip, the tar, the MSI)
-      # even if a later step in this job failed — so a good binary still ships.
+      # always(): upload whatever artifacts exist (the .exe zip, the tar/dmg, the
+      # MSI) even if a later step in this job failed — so a good binary ships.
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
@@ -113,9 +108,9 @@ jobs:
 
   release:
     needs: build
-    # Tag pushes only (a workflow_dispatch test run must not publish). Runs
-    # even if a build target failed, so a successful MSI (and any other
-    # successful target) still ships; uploads whatever artifacts were produced.
+    # Tag pushes only (a workflow_dispatch test run must not publish). Runs even
+    # if a build target failed, so a successful target still ships; uploads
+    # whatever artifacts were produced.
     if: always() && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
