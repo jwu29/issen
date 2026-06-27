@@ -224,7 +224,7 @@ mod tests {
     fn populated_store() -> TimelineStore {
         let store = TimelineStore::in_memory().expect("store");
         for event in &sample_events() {
-            store.inseissen_event(event).expect("insert");
+            store.insert_event(event).expect("insert");
         }
         store
     }

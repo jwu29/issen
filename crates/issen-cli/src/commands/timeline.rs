@@ -286,7 +286,7 @@ mod tests {
             "evil.exe created (4688)".to_string(),
             "CASE-001".to_string(),
         );
-        store.inseissen_batch(&[exec]).expect("ingest");
+        store.insert_batch(&[exec]).expect("ingest");
 
         let (events, findings) = collect_narrative_findings(&store).expect("narrative");
         assert_eq!(events.len(), 1, "one event ingested");

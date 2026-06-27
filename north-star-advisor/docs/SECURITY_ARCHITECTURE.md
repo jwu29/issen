@@ -189,7 +189,7 @@ This security blueprint addresses the **OWASP Top 10 for Agentic Applications**,
 **Attack Vector**: An examiner processes a full disk image that includes attorney-client communications. Issen indexes these in the timeline and includes them in report output without privilege screening.
 **Example**: "A corporate investigation disk image contains Outlook PST files with emails between the custodian and their personal attorney. Issen parses and indexes these emails. The generated report includes quotes from privileged communications, causing a privilege waiver and potential malpractice claims."
 **Impact**: Privilege waiver, case sanctions, malpractice liability, potential disqualification of counsel.
-**Mitigation**: Privilege review workflow -- mark artifacts as potentially privileged, quarantine from report generation. Keyword-based privilege screening (configurable attorney name lists, domain lists). Privileged items excluded from AI analysis and report output. Audit trail of all privilege decisions. Expoissen-blocking for quarantined items.
+**Mitigation**: Privilege review workflow -- mark artifacts as potentially privileged, quarantine from report generation. Keyword-based privilege screening (configurable attorney name lists, domain lists). Privileged items excluded from AI analysis and report output. Audit trail of all privilege decisions. Export-blocking for quarantined items.
 
 ---
 
@@ -756,7 +756,7 @@ Rate limiting applies to the web frontend (issen-web) only. CLI/TUI/GUI are sing
 5. **Post-Incident** (24-72 hours)
    - Root cause analysis with timeline
    - Impact assessment: which cases were affected, were any reports submitted to court?
-   - Notify opposing counsel if couissen-submitted reports were affected (ethical obligation)
+   - Notify opposing counsel if court-submitted reports were affected (ethical obligation)
    - Lessons learned document
    - Preventive measures (new fuzz inputs, additional tests, process changes)
 

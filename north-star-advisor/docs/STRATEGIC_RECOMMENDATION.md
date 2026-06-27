@@ -80,7 +80,7 @@ Every strategic decision in this document is evaluated against its impact on TAR
 
 **Weaknesses:**
 
-- **Zero TARR improvement for 9+ months.** Parsers without report generation produce faster analysis but the manual repoissen-writing bottleneck remains unchanged.
+- **Zero TARR improvement for 9+ months.** Parsers without report generation produce faster analysis but the manual report-writing bottleneck remains unchanged.
 - **No revenue path until Q1 2027.** Open-source parsers are the free tier; the paid product (reports) doesn't exist yet.
 - **Competitor window exposure.** 9 months is long enough for Magnet to add AI-assisted reporting or for Belkasoft to improve BelkaGPT's output quality.
 - **Community without conversion funnel.** Users adopt parsers, build workflows around raw output, and never need the proprietary layer.
@@ -332,7 +332,7 @@ These items are explicitly out of scope for the recommended path. They align wit
 | **Solution Fit** | **High** | Attorney-ready report generation is validated as genuine market whitespace. No competitor occupies this position. The "Full Workflow + Practitioner-Friendly" quadrant is empty. Consulting clients have confirmed they would pay for this capability. |
 | **Execution Feasibility** | **Medium** | Solo founder is both the strength (no coordination overhead, practitioner expertise) and the constraint (limited bandwidth, no redundancy). Rust expertise maximizes velocity, and existing crates provide a head start. However, the scope is large: 3 parsers + report engine + AI narrative + dual-format output in 12 weeks is aggressive. The architecture (hexagonal, port/adapter) is well-suited but unproven at this scale for this domain. |
 | **Market Timing** | **High** | Three converging windows: (1) Post-PE pricing frustration driving AXIOM practitioners to seek alternatives, (2) AI reporting feasibility reaching the threshold where local LLMs can generate useful narrative, (3) KAPE/Velociraptor standardization creating a stable ingestion layer that Issen can build on. All three windows are open now and estimated to narrow within 12--18 months. |
-| **Team Capability** | **Medium** | Solo founder with deep Rust expertise and forensic domain knowledge --- an unusual and valuable combination. However, the solo founder ceiling is real: no UI/UX specialist, no sales/marketing capacity, no redundancy for illness or burnout. Consulting income provides runway but also competes for time. Phase 2+ will require at least one additional contributor (likely a community member or paissen-time hire). |
+| **Team Capability** | **Medium** | Solo founder with deep Rust expertise and forensic domain knowledge --- an unusual and valuable combination. However, the solo founder ceiling is real: no UI/UX specialist, no sales/marketing capacity, no redundancy for illness or burnout. Consulting income provides runway but also competes for time. Phase 2+ will require at least one additional contributor (likely a community member or part-time hire). |
 
 ### 5.2 What Could Prove Us Wrong
 
@@ -344,7 +344,7 @@ These are the specific scenarios that would invalidate the recommendation. Each 
 | **Practitioners don't pay for reports** | Low | Alpha users complete the pipeline but revert to manual workflows. Conversion from free tier to paid report features < 5% after 3 months. | Investigate whether the free HTML export is "good enough." Consider alternative monetization (training, templates, consulting integration). |
 | **Local LLM narrative quality is insufficient** | Medium | Attorney feedback consistently rejects AI-generated narratives. > 50% of narrative sections require manual rewriting. | Fall back to structured template-based reports (fill-in-the-blank) without AI narrative. Still faster than manual, just less polished. AI narrative becomes Phase 2 feature when models improve. |
 | **3-parser coverage is too narrow** | Medium | > 40% of real engagements require artifacts outside USN/MFT/EVTX. Users consistently report "I can't use this for my cases." | Accelerate Registry and Prefetch parsers. Re-evaluate whether Path C (balanced) would have been more appropriate. |
-| **Solo founder burnout / bandwidth collapse** | Medium | Development velocity drops below 1 meaningful feature per 2 weeks for 4+ consecutive weeks. Consulting revenue commitments consume > 70% of working time. | Reduce scope to absolute minimum viable report (HTML only, no AI narrative). Seek community contributor for parser development. Consider paissen-time contractor for report template work. |
+| **Solo founder burnout / bandwidth collapse** | Medium | Development velocity drops below 1 meaningful feature per 2 weeks for 4+ consecutive weeks. Consulting revenue commitments consume > 70% of working time. | Reduce scope to absolute minimum viable report (HTML only, no AI narrative). Seek community contributor for parser development. Consider part-time contractor for report template work. |
 
 ### 5.3 Review Triggers
 

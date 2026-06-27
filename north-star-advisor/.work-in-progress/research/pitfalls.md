@@ -412,7 +412,7 @@
 - [Open Source Forensic Tools Strengths/Weaknesses - SubRosa](https://www.subrosacyber.com/en/blog/open-source-forensic-tools)
 - [Plaso/Log2Timeline Documentation](https://plaso.readthedocs.io/)
 - [Plaso Deep Dive - CyberEngage](https://www.cyberengage.org/post/a-deep-dive-into-plaso-log2timeline-forensic-tools)
-- [Instant Forensics with Plaso in Docker - DFIR Insights](https://dfirinsights.com/2024/11/08/instant-forensics-with-plaso-and-psoissen-in-docker/)
+- [Instant Forensics with Plaso in Docker - DFIR Insights](https://dfirinsights.com/2024/11/08/instant-forensics-with-plaso-and-psort-in-docker/)
 - [Timeline2GUI - ScienceDirect](https://www.sciencedirect.com/science/article/abs/pii/S1742287618303232)
 - [Eric Zimmerman's Tools](https://ericzimmerman.github.io/)
 - [EZ Tools - SANS](https://www.sans.org/tools/ez-tools/)
@@ -456,7 +456,7 @@
 - [Forensic Workstation Challenges - ACE Computers](https://acecomputers.com/forensic-workstation-challenges/)
 
 ### Report Writing & Cross-Examination
-- [Best Practices for Forensic Expert Report Writing - Expert Institute](https://www.expertinstitute.com/resources/insights/writing-a-forensic-engineering-expeissen-repoissen-best-practices/)
-- [Cross-Examining Expert Witnesses - Expert Institute](https://www.expertinstitute.com/resources/insights/ultimate-guide-cross-examining-expeissen-witnesses/)
-- [77 Cross-Examination Questions for Experts - SEAK](https://blog.seakexperts.com/77-cross-examination-questions-expeissen-witnesses/)
-- [NIJ Expert Witness Tips](https://nij.ojp.gov/nij-hosted-online-training-courses/law-101-legal-guide-forensic-expert/general-testifying-tips/tips-expeissen-witness-direct-and-cross-examination)
+- [Best Practices for Forensic Expert Report Writing - Expert Institute](https://www.expertinstitute.com/resources/insights/writing-a-forensic-engineering-expert-report-best-practices/)
+- [Cross-Examining Expert Witnesses - Expert Institute](https://www.expertinstitute.com/resources/insights/ultimate-guide-cross-examining-expert-witnesses/)
+- [77 Cross-Examination Questions for Experts - SEAK](https://blog.seakexperts.com/77-cross-examination-questions-expert-witnesses/)
+- [NIJ Expert Witness Tips](https://nij.ojp.gov/nij-hosted-online-training-courses/law-101-legal-guide-forensic-expert/general-testifying-tips/tips-expert-witness-direct-and-cross-examination)

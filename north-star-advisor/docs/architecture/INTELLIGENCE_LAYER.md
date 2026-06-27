@@ -938,7 +938,7 @@ All AI features are behind a global toggle (`config.ai.enabled = false`). When d
 - [Anomaly Detection in a Forensic Timeline with Deep Autoencoders](https://www.sciencedirect.com/science/article/abs/pii/S2214212621002076)
 - [SoK: Timeline-Based Event Reconstruction for Digital Forensics (2025)](https://www.sciencedirect.com/science/article/pii/S266628172500071X)
 - [Effective Near-Duplicate Image Detection Using Perceptual Hashing and Deep Learning (2025)](https://www.sciencedirect.com/science/article/abs/pii/S0306457325000287)
-- [Using Local LLMs for Criminal Intelligence Report Generation](https://alessandro-negro.medium.com/using-local-deployment-of-open-source-llms-for-criminal-intelligence-repoissen-generation-ddb8db944620)
+- [Using Local LLMs for Criminal Intelligence Report Generation](https://alessandro-negro.medium.com/using-local-deployment-of-open-source-llms-for-criminal-intelligence-report-generation-ddb8db944620)
 - [CASE: Cyber-investigation Analysis Standard Expression](https://caseontology.org/)
 - [UCO: Unified Cybersecurity Ontology](https://unifiedcyberontology.org/)
 - [MalChela: Rust-based MITRE ATT&CK toolkit](https://github.com/target/malchela)

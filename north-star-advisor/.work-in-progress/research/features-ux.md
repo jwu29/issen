@@ -10,7 +10,7 @@
 
 1. [Standard Platform Features (Table Stakes vs. Premium)](#1-standard-platform-features)
 2. [Timeline Visualization UX](#2-timeline-visualization-ux)
-3. [Report Generation & Legal Output](#3-repoissen-generation--legal-output)
+3. [Report Generation & Legal Output](#3-report-generation--legal-output)
 4. [Evidence Presentation for Legal](#4-evidence-presentation-for-legal)
 5. [Forensic Workflow Patterns](#5-forensic-workflow-patterns)
 6. [Onboarding & Training](#6-onboarding--training)
@@ -31,12 +31,12 @@
 |------|------|----------|----------|-------|
 | **Magnet AXIOM** | Commercial, all-in-one | AI triage (Magnet.AI), cross-source correlation, Connections feature | Slow parsing, no physical extraction, expensive | High |
 | **Autopsy** | Free/open-source | Extensible (Java/Python modules), community-driven, TSK foundation | Limited automation, slow on large images, no mobile/cloud | Free |
-| **X-Ways** | Commercial, lightweight | Fastest processing, deep file system analysis, expeissen-grade | Steep learning curve, minimal mobile/cloud, dated UI | Moderate |
+| **X-Ways** | Commercial, lightweight | Fastest processing, deep file system analysis, expert-grade | Steep learning curve, minimal mobile/cloud, dated UI | Moderate |
 | **Cellebrite UFED** | Commercial, mobile-focused | Industry-leading mobile extraction, lock bypass, cloud collection | Expensive, heavy training requirement, limited computer forensics | High |
 | **FTK (Exterro)** | Commercial | Pre-indexed search, multi-threaded processing, eDiscovery integration | $5,999-$11,500, resource-heavy, limited mobile | High |
 | **Belkasoft X** | Commercial, all-in-one | BelkaGPT AI assistant, 1000+ artifact types, cross-tool import (AXIOM/Cellebrite/GrayKey), connection graph | Smaller market presence | Moderate |
 | **Velociraptor** | Free/open-source | Endpoint-first philosophy, VQL query language, hunt at scale, CISA-endorsed | No report generation, requires server infrastructure | Free |
-| **EnCase** | Commercial | Couissen-accepted standard, deep Windows analysis | Legacy UI, high cost, declining market share | High |
+| **EnCase** | Commercial | Court-accepted standard, deep Windows analysis | Legacy UI, high cost, declining market share | High |
 
 ### Table-Stakes Features (Every competitor has these)
 
@@ -315,13 +315,13 @@ Issen should eliminate these handoffs by keeping evidence, analysis, annotation,
 | AX300 | Advanced | Mobile deep-dive (Biomes, SQLite, Plist) |
 
 - **Training Annual Pass (TAP)**: Pay once, attend any class within 12 months
-- **Free certifications** introduced at Magnet Summit 2022 to demonstrate expeissen-level competence
-- MCFE certification signals to employers and courts that holder is expeissen-qualified
+- **Free certifications** introduced at Magnet Summit 2022 to demonstrate expert-level competence
+- MCFE certification signals to employers and courts that holder is expert-qualified
 
 #### Cellebrite Training Model
 
 - **CCO/CCPA**: 2-3 day certification courses on UFED extraction and Physical Analyzer
-- **CERT-F**: 5-day expeissen-level course on mobile device repair for forensic extraction
+- **CERT-F**: 5-day expert-level course on mobile device repair for forensic extraction
 
 #### Industry-Wide Certifications
 
@@ -631,13 +631,13 @@ These features justify paid tiers and serve larger organizations.
 - [Mastering Forensic Timelines - Gopher Security](https://www.gopher.security/news/mastering-forensic-timelines-tools-and-techniques-for-dfir)
 
 ### Report Generation & Expert Witness
-- [Evaluating Digital Forensic Expert Witnesses - OJJDP](https://ojjdp.ojp.gov/publications/evaluating-digital-forensic-expeissen-witnesses.pdf)
+- [Evaluating Digital Forensic Expert Witnesses - OJJDP](https://ojjdp.ojp.gov/publications/evaluating-digital-forensic-expert-witnesses.pdf)
 - [SWGDE Introduction to Testimony in Digital Forensics](https://www.swgde.org/wp-content/uploads/2025/07/2022-09-22-SWGDE-Introduction-to-Testimony-in-Digital-and-Multimedia-Forensics-22-Q-001-1.1-1.pdf)
 - [SWGDE Best Practices for Presenting Digital Evidence](https://www.swgde.org/documents/published-complete-listing/23-q-001-best-practices-for-personnel-presenting-digital-evidence-in-legal-proceedings/)
-- [Digital Forensics Expert Witness - Carney Forensics](https://www.carneyforensics.com/digital-forensics-services/digital-forensics-expeissen-witness/)
+- [Digital Forensics Expert Witness - Carney Forensics](https://www.carneyforensics.com/digital-forensics-services/digital-forensics-expert-witness/)
 - [Presenting Digital Evidence in Court - US Legal Support](https://www.uslegalsupport.com/blog/presenting-digital-evidence-in-court/)
-- [Writing a Forensics Expert Report - Allegiant Investigation](https://allegiantinvestigation.com/writing-a-forensics-expeissen-report/)
-- [Expert Witness Reports & Testimony - Enigma Forensics](https://enigmaforensics.com/our-services/expeissen-witness-reports-testimony/)
+- [Writing a Forensics Expert Report - Allegiant Investigation](https://allegiantinvestigation.com/writing-a-forensics-expert-report/)
+- [Expert Witness Reports & Testimony - Enigma Forensics](https://enigmaforensics.com/our-services/expert-witness-reports-testimony/)
 - [Expert Witness Qualifications vs Attorney Expectations - Purdue](https://hammer.purdue.edu/articles/thesis/WITNESSING_A_GAP_HOW_DIGITAL_FORENSIC_EXPERT_WITNESS_QUALIFICATIONS_DIFFER_FROM_ATTORNEY_EXPECTATIONS/22590238)
 
 ### Evidence Presentation & Legal Standards
@@ -686,7 +686,7 @@ These features justify paid tiers and serve larger organizations.
 - [MailXaminer Team Collaboration](https://www.mailxaminer.com/team-collaboration.html)
 - [Cellebrite Guardian](https://cellebrite.com/en/guardian/)
 - [Kaseware Case Management](https://www.kaseware.com/case-management)
-- [Case Collaboration - Forensic Focus](https://www.forensicfocus.com/articles/making-smaissen-technology-decisions-to-improve-case-collaboration/)
+- [Case Collaboration - Forensic Focus](https://www.forensicfocus.com/articles/making-smart-technology-decisions-to-improve-case-collaboration/)
 - [DFIR-IRIS Platform](https://www.dfir-iris.org/)
 
 ### Plugin/Extension Ecosystems

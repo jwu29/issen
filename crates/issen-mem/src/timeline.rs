@@ -338,7 +338,7 @@ mod tests {
     fn memory_events_round_trip_to_event_source_memory() {
         let events = memory_events(STEM, ACQ_NS, &[proc_row()], &[tcp_row()], &[malfind_row()]);
         let store = TimelineStore::in_memory().expect("store");
-        store.inseissen_batch(&events).expect("ingest");
+        store.insert_batch(&events).expect("ingest");
 
         let back = store
             .fetch_events(&EventQuery::within(0, i64::MAX))

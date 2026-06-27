@@ -809,7 +809,7 @@ Target: Team-based case management with concurrent analysis, shared annotations,
 | 2026-03-20 | Three-tier plugin system | Tier 1 (traits) for performance. Tier 2 (WASM) for safety. Tier 3 (gRPC) for enterprise. Research shows over-engineering plugins early is a pitfall -- start with Tier 1 only. | WASM-only (too much overhead for first-party), dylib/FFI (unsafe), single-tier (insufficient flexibility) |
 | 2026-03-20 | Hybrid public/private repo | Grafana/GitLab precedent. Open parsers build trust. Private integration captures value. Crate-level boundary is clean in Rust. | Single private repo (no community), single public repo (cannot monetize), AGPL (deters enterprise adoption) |
 | 2026-03-20 | Local-first AI via Ollama | Forensic data sovereignty. Evidence cannot leave examiner's machine. Cost predictability. Air-gapped lab support. | Cloud-only (data sovereignty violation), hybrid-default (complexity), no AI (leaves value on table) |
-| 2026-03-20 | Dual report output (HTML + DOCX) | Attorneys need both: interactive exploration (HTML) and couissen-ready filing (DOCX/PDF). No competitor does both well. | HTML-only (court needs formal docs), PDF-only (no interactivity), proprietary format (vendor lock-in) |
+| 2026-03-20 | Dual report output (HTML + DOCX) | Attorneys need both: interactive exploration (HTML) and court-ready filing (DOCX/PDF). No competitor does both well. | HTML-only (court needs formal docs), PDF-only (no interactivity), proprietary format (vendor lock-in) |
 
 ---
 

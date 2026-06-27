@@ -112,7 +112,7 @@ mod tests {
             ),
         ];
         for event in &events {
-            store.inseissen_event(event).expect("insert");
+            store.insert_event(event).expect("insert");
         }
 
         let stats = store.stats().expect("stats");

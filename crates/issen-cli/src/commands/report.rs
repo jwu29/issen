@@ -63,7 +63,7 @@ pub fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use issen_timeline::findings::{create_findings_table, inseissen_findings, FindingRow};
+    use issen_timeline::findings::{create_findings_table, insert_findings, FindingRow};
 
     #[test]
     fn attack_navigator_format_writes_layer_with_technique() {
@@ -72,7 +72,7 @@ mod tests {
         {
             let store = TimelineStore::open(&db).expect("open store");
             create_findings_table(store.connection()).expect("create findings table");
-            inseissen_findings(
+            insert_findings(
                 store.connection(),
                 &[FindingRow {
                     evidence_source_id: "case-001".into(),

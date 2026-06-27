@@ -54,7 +54,7 @@ mod tests {
     };
 
     #[test]
-    fn enriches_command_and_poissen_evidence_from_forensic_indicators() {
+    fn enriches_command_and_port_evidence_from_forensic_indicators() {
         let command = Evidence::new(
             "cmd-1",
             EvidenceSource::Artifact,
@@ -479,7 +479,7 @@ clauses:
     // ── FeedTransport / ArchiveFormat ─────────────────────────────────────────
 
     #[test]
-    fn feed_transpoissen_variants_are_defined() {
+    fn feed_transport_variants_are_defined() {
         use crate::feeds::{ArchiveFormat, AuthConfig, FeedTransport};
         let _git = FeedTransport::Git {
             repo_url: "https://github.com/SigmaHQ/sigma".into(),

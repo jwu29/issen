@@ -434,7 +434,7 @@ Findings + Context  -->  Template Engine (Askama)  -->  Output Formats
 - Chain-of-custody metadata and hash verification throughout
 - Bates numbering for all exhibit pages
 - FRE 901/902 authentication language
-- Daubeissen-defensible methodology documentation
+- Daubert-defensible methodology documentation
 - No CDN dependencies in HTML (air-gapped environments)
 
 ### Dependencies

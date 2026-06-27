@@ -60,7 +60,7 @@ DevHandoffRequest:
     - timeline-agent
     - analysis-agent
     - intel-agent
-    - repoissen-agent
+    - report-agent
     - frontend-agent
     - infra-agent
   sourceCrate: string          # e.g., "issen-pipeline"
@@ -205,9 +205,9 @@ These are the sanctioned transitions between development agents. Each has a spec
 |---|-------------|-------------|---------|----------|
 | 1 | pipeline-agent | timeline-agent | New event types defined in issen-core | Target implements DuckDB column mappings for new types; migration SQL provided |
 | 2 | pipeline-agent | analysis-agent | New parser emits events that need correlation rules | Target adds correlation patterns in issen-correlation for the new artifact type |
-| 3 | timeline-agent | repoissen-agent | New query/view added to timeline | Target updates report templates to include new timeline view |
+| 3 | timeline-agent | report-agent | New query/view added to timeline | Target updates report templates to include new timeline view |
 | 4 | analysis-agent | intel-agent | New finding type needs RAG context or LLM narrative | Target adds prompt template and retrieval strategy for finding type |
-| 5 | intel-agent | repoissen-agent | New narrative section generated | Target integrates narrative into report layout with proper citation format |
+| 5 | intel-agent | report-agent | New narrative section generated | Target integrates narrative into report layout with proper citation format |
 | 6 | Any agent | infra-agent | CI/CD change needed (new benchmark, dependency update) | Target updates GitHub Actions, Cargo workspace config, or Nix flake |
 | 7 | Any agent | frontend-agent | New CLI command or TUI/GUI view needed | Target implements UI for new pipeline capability |
 | 8 | community-contributor | community-reviewer | Plugin PR submitted | Reviewer runs plugin test harness, checks WIT conformance, reviews security |
@@ -230,7 +230,7 @@ Data flows strictly downward through pipeline layers. Feedback flows upward only
 
 | Invalid Path | Why Prohibited |
 |--------------|----------------|
-| repoissen-agent -> pipeline-agent | Reports never trigger re-ingestion; examiner re-runs pipeline manually |
+| report-agent -> pipeline-agent | Reports never trigger re-ingestion; examiner re-runs pipeline manually |
 | intel-agent -> pipeline-agent | Intelligence layer never modifies raw evidence processing |
 | timeline-agent -> pipeline-agent (runtime) | Timeline queries never cause re-parsing; immutable append-only events |
 | Any proprietary -> Any open-source (runtime dependency) | Open-source crates NEVER depend on proprietary crates at compile time |

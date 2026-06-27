@@ -7,7 +7,7 @@
 
 ## Table of Contents
 
-1. [AI-Assisted Forensic Report Generation](#1-ai-assisted-forensic-repoissen-generation)
+1. [AI-Assisted Forensic Report Generation](#1-ai-assisted-forensic-report-generation)
 2. [Forensic Intelligence / CTI Integration](#2-forensic-intelligence--cti-integration)
 3. [Embedding & RAG for Forensic Data](#3-embedding--rag-for-forensic-data)
 4. [Correlation & Pattern Detection](#4-correlation--pattern-detection)
@@ -801,7 +801,7 @@ Layer 5: LLM-assisted analysis (natural language pattern description)
 
 ### Local LLM Deployment
 - [Local LLM Deployment: Privacy-First AI Guide (DigitalApplied)](https://www.digitalapplied.com/blog/local-llm-deployment-privacy-guide-2025)
-- [Using Local LLMs for Criminal Intelligence Report Generation (Medium)](https://alessandro-negro.medium.com/using-local-deployment-of-open-source-llms-for-criminal-intelligence-repoissen-generation-ddb8db944620)
+- [Using Local LLMs for Criminal Intelligence Report Generation (Medium)](https://alessandro-negro.medium.com/using-local-deployment-of-open-source-llms-for-criminal-intelligence-report-generation-ddb8db944620)
 - [Self-hosted Llama Deployments for Regulated Industries (Meta)](https://www.llama.com/docs/deployment/regulated-industry-self-hosting/)
 - [Run LLMs Locally with Ollama (Cohorte)](https://www.cohorte.co/blog/run-llms-locally-with-ollama-privacy-first-ai-for-developers-in-2025)
 - [Self-Hosted LLM Guide: Setup, Tools & Cost Comparison 2026 (PremAI)](https://blog.premai.io/self-hosted-llm-guide-setup-tools-cost-comparison-2026/)

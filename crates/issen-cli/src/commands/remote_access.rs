@@ -82,7 +82,7 @@ pub fn run(
         issen_remote_access::store::initialize_findings_schema(&store)
             .context("Failed to create findings schema")?;
         for finding in &result.findings {
-            issen_remote_access::store::inseissen_finding(&store, finding, "cli-scan")
+            issen_remote_access::store::insert_finding(&store, finding, "cli-scan")
                 .context("Failed to insert finding")?;
             issen_remote_access::store::emit_cross_reference_event(&store, finding, "cli-scan")
                 .context("Failed to emit cross-reference")?;

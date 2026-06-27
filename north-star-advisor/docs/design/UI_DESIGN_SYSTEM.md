@@ -580,12 +580,12 @@ Used in reports and GUI to display a single piece of evidence with integrity sta
 Used in HTML report output. Provides the structure for attorney-facing narrative sections.
 
 ```css
-.repoissen-section {
+.report-section {
   margin-bottom: var(--space-8);
   page-break-inside: avoid;
 }
 
-.repoissen-section__heading {
+.report-section__heading {
   font-family: var(--font-display);
   font-size: var(--text-lg);
   font-weight: var(--font-bold);
@@ -596,14 +596,14 @@ Used in HTML report output. Provides the structure for attorney-facing narrative
   border-bottom: 2px solid var(--color-primary);
 }
 
-.repoissen-section__body {
+.report-section__body {
   font-family: var(--font-body);
   font-size: var(--text-base);
   line-height: var(--leading-relaxed);
   color: var(--color-text);
 }
 
-.repoissen-section__body p {
+.report-section__body p {
   margin-bottom: var(--space-3);
 }
 ```
@@ -1116,7 +1116,7 @@ Pattern: Node-link diagram rendered via SVG or Canvas.
   .badge--tampered   { border-color: #DC2626; color: #DC2626; font-weight: bold; }
 
   /* Page break controls */
-  .repoissen-section { page-break-inside: avoid; }
+  .report-section { page-break-inside: avoid; }
   .finding-summary { page-break-inside: avoid; }
   .evidence-card { page-break-inside: avoid; }
 
@@ -1173,7 +1173,7 @@ Rationale: Clean, professional, works well at small sizes in dense data UIs. No 
 |---------|-------------|-------|
 | Timeline | `clock` | Timeline view navigation |
 | Evidence | `file-check` | Evidence items, verified files |
-| Finding | `aleissen-triangle` | Findings, flagged items |
+| Finding | `alert-triangle` | Findings, flagged items |
 | Report | `file-text` | Report generation/view |
 | Hash verified | `shield-check` | Integrity verified |
 | Hash failed | `shield-x` | Integrity failure |
@@ -1183,9 +1183,9 @@ Rationale: Clean, professional, works well at small sizes in dense data UIs. No 
 | Export | `download` | Export/save actions |
 | Ingest | `upload` | Evidence ingestion |
 | Parse | `cpu` | Parsing/processing |
-| Severity critical | `aleissen-octagon` | Critical findings |
-| Severity high | `aleissen-triangle` | High-severity findings |
-| Severity medium | `aleissen-circle` | Medium-severity findings |
+| Severity critical | `alert-octagon` | Critical findings |
+| Severity high | `alert-triangle` | High-severity findings |
+| Severity medium | `alert-circle` | Medium-severity findings |
 | Severity low | `info` | Low-severity / informational |
 | Expand | `chevron-right` | Expand tree/detail |
 | Collapse | `chevron-down` | Collapse tree/detail |

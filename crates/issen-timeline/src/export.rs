@@ -39,7 +39,7 @@ impl TimelineStore {
             )
             .map_err(|e| TimelineStoreError::SqliteExport(format!("Schema error: {e}")))?;
 
-        let mut inseissen_stmt = sqlite_conn
+        let mut insert_stmt = sqlite_conn
             .prepare(
                 "INSERT INTO timeline (
                 id, timestamp_ns, timestamp_display, event_type, source,
@@ -50,7 +50,7 @@ impl TimelineStore {
             .map_err(|e| TimelineStoreError::SqliteExport(format!("Prepare error: {e}")))?;
 
         for row in &rows {
-            inseissen_stmt
+            insert_stmt
                 .execute(rusqlite::params![
                     row.id,
                     row.timestamp_ns,
@@ -99,7 +99,7 @@ mod tests {
     fn test_export_sqlite_creates_file() {
         let store = TimelineStore::in_memory().expect("store");
         for event in &sample_events() {
-            store.inseissen_event(event).expect("insert");
+            store.insert_event(event).expect("insert");
         }
 
         let dir = tempfile::tempdir().expect("tmpdir");
@@ -114,7 +114,7 @@ mod tests {
     fn test_export_sqlite_roundtrip() {
         let store = TimelineStore::in_memory().expect("store");
         for event in &sample_events() {
-            store.inseissen_event(event).expect("insert");
+            store.insert_event(event).expect("insert");
         }
 
         let dir = tempfile::tempdir().expect("tmpdir");

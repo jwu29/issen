@@ -442,7 +442,7 @@ mod tests {
         let sha256 = crate::engines::ioc_hash::sha256_hex(data);
 
         let mut store = HashIocStore::new("test-feed");
-        store.inseissen_bad(&sha256).unwrap();
+        store.insert_bad(&sha256).unwrap();
 
         let engine = ScanEngine::new().with_hash_store(store);
         let report = engine.scan_bytes("sample.bin", data).unwrap();
@@ -458,7 +458,7 @@ mod tests {
     fn test_scan_bytes_hash_no_match() {
         let mut store = HashIocStore::new("test-feed");
         store
-            .inseissen_bad("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+            .insert_bad("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
             .unwrap();
 
         let engine = ScanEngine::new().with_hash_store(store);
@@ -476,8 +476,8 @@ mod tests {
         let sha256 = crate::engines::ioc_hash::sha256_hex(data);
 
         let mut store = HashIocStore::new("test-feed");
-        store.inseissen_bad(&sha256).unwrap();
-        store.inseissen_good(&sha256).unwrap(); // Also in known good list (NSRL).
+        store.insert_bad(&sha256).unwrap();
+        store.insert_good(&sha256).unwrap(); // Also in known good list (NSRL).
 
         let engine = ScanEngine::new().with_hash_store(store);
         let report = engine.scan_bytes("system.dll", data).unwrap();
@@ -559,7 +559,7 @@ detection:
     #[test]
     fn test_check_ip_match() {
         let mut store = NetworkIocStore::new("c2-tracker");
-        store.inseissen_ip("10.0.0.1").unwrap();
+        store.insert_ip("10.0.0.1").unwrap();
 
         let engine = ScanEngine::new().with_network_store(store);
         let findings = engine.check_ip("10.0.0.1");
@@ -572,7 +572,7 @@ detection:
     #[test]
     fn test_check_ip_cidr_match() {
         let mut store = NetworkIocStore::new("bogon-list");
-        store.inseissen_cidr("192.168.0.0/16").unwrap();
+        store.insert_cidr("192.168.0.0/16").unwrap();
 
         let engine = ScanEngine::new().with_network_store(store);
         let findings = engine.check_ip("192.168.1.100");
@@ -583,7 +583,7 @@ detection:
     #[test]
     fn test_check_ip_no_match() {
         let mut store = NetworkIocStore::new("c2-tracker");
-        store.inseissen_ip("10.0.0.1").unwrap();
+        store.insert_ip("10.0.0.1").unwrap();
 
         let engine = ScanEngine::new().with_network_store(store);
         let findings = engine.check_ip("10.0.0.2");
@@ -593,7 +593,7 @@ detection:
     #[test]
     fn test_check_domain_match() {
         let mut store = NetworkIocStore::new("urlhaus");
-        store.inseissen_domain("evil.com");
+        store.insert_domain("evil.com");
 
         let engine = ScanEngine::new().with_network_store(store);
         let findings = engine.check_domain("evil.com");
@@ -605,7 +605,7 @@ detection:
     #[test]
     fn test_check_domain_subdomain_match() {
         let mut store = NetworkIocStore::new("urlhaus");
-        store.inseissen_domain("evil.com");
+        store.insert_domain("evil.com");
 
         let engine = ScanEngine::new().with_network_store(store);
         let findings = engine.check_domain("malware.evil.com");
@@ -615,7 +615,7 @@ detection:
     #[test]
     fn test_check_domain_no_match() {
         let mut store = NetworkIocStore::new("urlhaus");
-        store.inseissen_domain("evil.com");
+        store.insert_domain("evil.com");
 
         let engine = ScanEngine::new().with_network_store(store);
         let findings = engine.check_domain("good.com");
@@ -636,7 +636,7 @@ detection:
         .unwrap();
 
         let mut hash_store = HashIocStore::new("bazaar");
-        hash_store.inseissen_bad(&sha256).unwrap();
+        hash_store.insert_bad(&sha256).unwrap();
 
         let engine = ScanEngine::new()
             .with_yara(yara)
@@ -657,10 +657,10 @@ detection:
         let sha256 = crate::engines::ioc_hash::sha256_hex(data);
 
         let mut store_a = HashIocStore::new("feed-a");
-        store_a.inseissen_bad(&sha256).unwrap();
+        store_a.insert_bad(&sha256).unwrap();
 
         let mut store_b = HashIocStore::new("feed-b");
-        store_b.inseissen_bad(&sha256).unwrap();
+        store_b.insert_bad(&sha256).unwrap();
 
         let engine = ScanEngine::new()
             .with_hash_store(store_a)
@@ -676,10 +676,10 @@ detection:
     #[test]
     fn test_multiple_network_stores() {
         let mut store_a = NetworkIocStore::new("feed-a");
-        store_a.inseissen_ip("10.0.0.1").unwrap();
+        store_a.insert_ip("10.0.0.1").unwrap();
 
         let mut store_b = NetworkIocStore::new("feed-b");
-        store_b.inseissen_ip("10.0.0.1").unwrap();
+        store_b.insert_ip("10.0.0.1").unwrap();
 
         let engine = ScanEngine::new()
             .with_network_store(store_a)
@@ -715,7 +715,7 @@ detection:
 
         let mut hash_store = HashIocStore::new("test");
         hash_store
-            .inseissen_bad("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+            .insert_bad("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
             .unwrap();
 
         let engine = ScanEngine::new()

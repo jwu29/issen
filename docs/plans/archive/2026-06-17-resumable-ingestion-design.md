@@ -8,7 +8,7 @@ work, and the analyst needs per-artifact-type progress + an ingestion log.
 ## Executive Summary
 
 Today `run_auto` buffers **every event in RAM** (`CollectingEmitter` = `Mutex<Vec<TimelineEvent>>`)
-and the CLI persists once at the end (`inseissen_batch(&events)`). There is no per-artifact
+and the CLI persists once at the end (`insert_batch(&events)`). There is no per-artifact
 durability, no streaming, and progress is a single global counter. So: (a) huge artifacts risk OOM,
 and (b) nothing is resumable. The fix is a **streaming, unit-checkpointed ingestion**:
 

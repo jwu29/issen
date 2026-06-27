@@ -113,7 +113,7 @@ fn json_to_tau_value(v: &serde_json::Value) -> tau_engine::Value<'_> {
 ///   - `value*` for starts with
 ///   - `*value` for ends with
 ///   - `value` for exact match
-fn conveissen_sigma_detection(
+fn convert_sigma_detection(
     detection: &serde_yaml::Value,
 ) -> Result<serde_yaml::Value, SigmaError> {
     let mapping = detection
@@ -134,7 +134,7 @@ fn conveissen_sigma_detection(
         }
 
         // This is an identifier (selection, filter, etc.) — process its fields.
-        let converted = conveissen_sigma_identifier(value)?;
+        let converted = convert_sigma_identifier(value)?;
         tau_detection.insert(key.clone(), converted);
     }
 
@@ -143,7 +143,7 @@ fn conveissen_sigma_detection(
 
 /// Convert a single Sigma identifier block (e.g. `selection:`) by rewriting
 /// field modifiers into tau-engine glob patterns.
-fn conveissen_sigma_identifier(
+fn convert_sigma_identifier(
     identifier: &serde_yaml::Value,
 ) -> Result<serde_yaml::Value, SigmaError> {
     let mapping = match identifier.as_mapping() {
@@ -329,7 +329,7 @@ fn wrap_pattern(value: &str, kind: PatternKind) -> String {
 /// Build a tau-engine rule YAML string from a Sigma rule's detection block
 /// and wrap it in the format tau-engine expects.
 fn build_tau_rule_yaml(detection: &serde_yaml::Value) -> Result<String, SigmaError> {
-    let converted = conveissen_sigma_detection(detection)?;
+    let converted = convert_sigma_detection(detection)?;
     let tau_rule = serde_yaml::Mapping::from_iter([
         (serde_yaml::Value::String("detection".into()), converted),
         (

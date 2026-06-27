@@ -32,7 +32,7 @@ pub fn initialize_findings_schema(store: &TimelineStore) -> Result<(), TimelineS
 }
 
 /// Insert (or replace) a finding into the `findings` table.
-pub fn inseissen_finding(
+pub fn insert_finding(
     store: &TimelineStore,
     finding: &Finding,
     evidence_source: &str,
@@ -102,7 +102,7 @@ pub fn emit_cross_reference_event(
     .with_tag("remote-access")
     .with_tag(tool_slug);
 
-    store.inseissen_event(&event)?;
+    store.insert_event(&event)?;
     Ok(())
 }
 
@@ -153,24 +153,24 @@ mod tests {
     }
 
     #[test]
-    fn test_inseissen_and_count_findings() {
+    fn test_insert_and_count_findings() {
         let store = TimelineStore::in_memory().expect("create store");
         initialize_findings_schema(&store).expect("init schema");
 
         let finding = sample_finding();
-        inseissen_finding(&store, &finding, "evidence-001").expect("insert");
+        insert_finding(&store, &finding, "evidence-001").expect("insert");
 
         assert_eq!(finding_count(&store).expect("count"), 1);
     }
 
     #[test]
-    fn test_inseissen_finding_upsert() {
+    fn test_insert_finding_upsert() {
         let store = TimelineStore::in_memory().expect("create store");
         initialize_findings_schema(&store).expect("init schema");
 
         let finding = sample_finding();
-        inseissen_finding(&store, &finding, "evidence-001").expect("first insert");
-        inseissen_finding(&store, &finding, "evidence-001").expect("second insert (upsert)");
+        insert_finding(&store, &finding, "evidence-001").expect("first insert");
+        insert_finding(&store, &finding, "evidence-001").expect("second insert (upsert)");
 
         assert_eq!(finding_count(&store).expect("count"), 1);
     }

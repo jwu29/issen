@@ -330,7 +330,7 @@ pub fn scan_persisted(
 
     issen_timeline::findings::create_findings_table(store.connection())
         .context("creating scan_findings table")?;
-    issen_timeline::findings::inseissen_findings(store.connection(), &findings)
+    issen_timeline::findings::insert_findings(store.connection(), &findings)
         .context("persisting scan findings")?;
 
     Ok(summary)
@@ -722,7 +722,7 @@ detection:
         let sha256 = issen_signatures::engines::ioc_hash::sha256_hex(data);
 
         let mut hash_store = HashIocStore::new("malware-hashes");
-        hash_store.inseissen_bad(&sha256).unwrap();
+        hash_store.insert_bad(&sha256).unwrap();
 
         let engine = ScanEngine::new().with_hash_store(hash_store);
         let dir = tempfile::tempdir().unwrap();
@@ -1002,7 +1002,7 @@ detection:
     #[test]
     fn test_network_ioc_extraction_ip_match() {
         let mut net_store = NetworkIocStore::new("c2-tracker");
-        net_store.inseissen_ip("10.0.0.99").unwrap();
+        net_store.insert_ip("10.0.0.99").unwrap();
 
         let engine = ScanEngine::new().with_network_store(net_store);
         let dir = tempfile::tempdir().unwrap();
@@ -1022,7 +1022,7 @@ detection:
     #[test]
     fn test_network_ioc_extraction_domain_match() {
         let mut net_store = NetworkIocStore::new("malware-domains");
-        net_store.inseissen_domain("evil.com");
+        net_store.insert_domain("evil.com");
 
         let engine = ScanEngine::new().with_network_store(net_store);
         let dir = tempfile::tempdir().unwrap();
@@ -1040,7 +1040,7 @@ detection:
     #[test]
     fn test_network_ioc_extraction_no_match() {
         let mut net_store = NetworkIocStore::new("c2-tracker");
-        net_store.inseissen_ip("10.0.0.99").unwrap();
+        net_store.insert_ip("10.0.0.99").unwrap();
 
         let engine = ScanEngine::new().with_network_store(net_store);
         let dir = tempfile::tempdir().unwrap();
@@ -1058,8 +1058,8 @@ detection:
     #[test]
     fn test_network_ioc_extraction_multiple_fields() {
         let mut net_store = NetworkIocStore::new("c2-tracker");
-        net_store.inseissen_ip("10.0.0.1").unwrap();
-        net_store.inseissen_ip("10.0.0.2").unwrap();
+        net_store.insert_ip("10.0.0.1").unwrap();
+        net_store.insert_ip("10.0.0.2").unwrap();
 
         let engine = ScanEngine::new().with_network_store(net_store);
         let dir = tempfile::tempdir().unwrap();
@@ -1078,7 +1078,7 @@ detection:
     #[test]
     fn test_network_ioc_extraction_non_string_metadata_ignored() {
         let mut net_store = NetworkIocStore::new("c2-tracker");
-        net_store.inseissen_ip("10.0.0.1").unwrap();
+        net_store.insert_ip("10.0.0.1").unwrap();
 
         let engine = ScanEngine::new().with_network_store(net_store);
         let dir = tempfile::tempdir().unwrap();
@@ -1110,7 +1110,7 @@ detection:
             .unwrap();
 
         let mut net_store = NetworkIocStore::new("c2-list");
-        net_store.inseissen_ip("10.0.0.99").unwrap();
+        net_store.insert_ip("10.0.0.99").unwrap();
 
         let engine = ScanEngine::new()
             .with_sigma(sigma)
@@ -1197,7 +1197,7 @@ detection:
         // zero timestomp findings on the real Szechuan DC ingest.
         let store = TimelineStore::in_memory().expect("store");
         store
-            .inseissen_batch(&[timestomped_file_create()])
+            .insert_batch(&[timestomped_file_create()])
             .expect("ingest");
         let engine = ScanEngine::new();
         let dir = tempfile::tempdir().unwrap();

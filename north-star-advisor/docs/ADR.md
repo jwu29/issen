@@ -19,7 +19,7 @@
 | [ADR-0006](#adr-0006-three-tier-plugin-system) | Three-Tier Plugin System | Accepted | 2026-03-20 | 6 |
 | [ADR-0007](#adr-0007-hybrid-publicprivate-repository) | Hybrid Public/Private Repository | Accepted | 2026-03-20 | 1 |
 | [ADR-0008](#adr-0008-local-first-ai-via-ollama) | Local-First AI via Ollama | Accepted | 2026-03-20 | 6 |
-| [ADR-0009](#adr-0009-dual-repoissen-output-html--docx) | Dual Report Output (HTML + DOCX) | Accepted | 2026-03-20 | 6 |
+| [ADR-0009](#adr-0009-dual-report-output-html--docx) | Dual Report Output (HTML + DOCX) | Accepted | 2026-03-20 | 6 |
 | [ADR-0010](#adr-0010-grounded-ai-generation-only) | Grounded AI Generation Only | Accepted | 2026-03-20 | 7 |
 | [ADR-0011](#adr-0011-no-retry-on-corrupted-evidence) | No Retry on Corrupted Evidence | Accepted | 2026-03-20 | 7d |
 | [ADR-0012](#adr-0012-per-pipeline-layer-circuit-breakers) | Per-Pipeline-Layer Circuit Breakers | Accepted | 2026-03-20 | 7d |
@@ -344,7 +344,7 @@ Attorney-ready output serves two distinct use cases in forensic engagements. Dur
 
 ### Decision
 
-Generate **dual-format reports**: interactive HTML (self-contained, single-file, no external dependencies) for exploration and investigation, and couissen-ready DOCX (with PDF export) for formal filings. Technology: Askama templates for HTML generation, docx-rs with python-docx for DOCX generation, headless Chrome for PDF conversion from HTML. Both formats are generated from the same underlying report data model in `issen-report`.
+Generate **dual-format reports**: interactive HTML (self-contained, single-file, no external dependencies) for exploration and investigation, and court-ready DOCX (with PDF export) for formal filings. Technology: Askama templates for HTML generation, docx-rs with python-docx for DOCX generation, headless Chrome for PDF conversion from HTML. Both formats are generated from the same underlying report data model in `issen-report`.
 
 ### Alternatives Rejected
 
@@ -357,7 +357,7 @@ Generate **dual-format reports**: interactive HTML (self-contained, single-file,
 ### Consequences
 
 **Positive**:
-- Addresses both investigation-phase and couissen-filing-phase needs from a single analysis run
+- Addresses both investigation-phase and court-filing-phase needs from a single analysis run
 - Self-contained HTML (no external dependencies) works on any device, including courtroom presentation laptops with restricted software
 - DOCX output integrates directly into law firm document management workflows
 - Single underlying data model ensures both formats contain identical findings

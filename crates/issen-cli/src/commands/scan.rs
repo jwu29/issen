@@ -141,18 +141,18 @@ pub fn run(
                 for ioc in &indicator.iocs {
                     match ioc {
                         ExtractedIoc::Sha256(h) | ExtractedIoc::Sha1(h) | ExtractedIoc::Md5(h) => {
-                            let _ = hash_store.inseissen_bad(h);
+                            let _ = hash_store.insert_bad(h);
                         }
                         ExtractedIoc::Ipv4(ip) | ExtractedIoc::Ipv6(ip) => {
-                            let _ = net_store.inseissen_ip(ip);
+                            let _ = net_store.insert_ip(ip);
                         }
                         ExtractedIoc::Domain(d) => {
-                            net_store.inseissen_domain(d);
+                            net_store.insert_domain(d);
                         }
                         ExtractedIoc::Url(u) => {
                             // Extract domain from URL.
                             if let Some(host) = extract_host(u) {
-                                net_store.inseissen_domain(&host);
+                                net_store.insert_domain(&host);
                             }
                         }
                     }

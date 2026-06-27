@@ -154,7 +154,7 @@ pub fn load_uac_collection(
     manifest_meta: Option<&issen_unpack::CollectionMetadata>,
 ) -> InvestigationData {
     let mut metadata = if let Some(m) = manifest_meta {
-        conveissen_manifest_metadata(m)
+        convert_manifest_metadata(m)
     } else {
         parse_uac_metadata(extracted_root)
     };
@@ -184,7 +184,7 @@ pub fn load_uac_collection(
 
     // ----- Run alert detection -----
 
-    let aleissen_input = AlertInput {
+    let alert_input = AlertInput {
         bodyfile: &bodyfile_entries,
         network: &network_conns,
         processes: &processes,
@@ -199,7 +199,7 @@ pub fn load_uac_collection(
         mft_entries: &[],    // UAC collections don't contain MFT
         connection_log: &[], // UAC live-response captures socket state only
     };
-    let alerts = detect_alerts(&aleissen_input);
+    let alerts = detect_alerts(&alert_input);
 
     InvestigationData {
         metadata,
@@ -239,7 +239,7 @@ pub fn load_velociraptor_collection(
     artifacts: &[issen_unpack::ManifestEntry],
     manifest_meta: &issen_unpack::CollectionMetadata,
 ) -> InvestigationData {
-    let metadata = conveissen_manifest_metadata(manifest_meta);
+    let metadata = convert_manifest_metadata(manifest_meta);
 
     // Build artifact type inventory from manifest entries
     let mut artifact_counts: HashMap<String, usize> = HashMap::new();
@@ -274,7 +274,7 @@ pub fn load_velociraptor_collection(
 // ---------------------------------------------------------------------------
 
 /// Convert `issen_unpack::CollectionMetadata` to our local `CollectionMetadata`.
-fn conveissen_manifest_metadata(m: &issen_unpack::CollectionMetadata) -> CollectionMetadata {
+fn convert_manifest_metadata(m: &issen_unpack::CollectionMetadata) -> CollectionMetadata {
     let os = match m.os_type {
         issen_unpack::OsType::Linux => "Linux",
         issen_unpack::OsType::MacOS => "macOS",
@@ -518,7 +518,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_uac_metadata_multi_paissen_hostname() {
+    fn parse_uac_metadata_multi_part_hostname() {
         let path = Path::new("/evidence/uac-vbox-linux-20260101120000");
         let meta = parse_uac_metadata(path);
         assert_eq!(meta.hostname, "vbox-linux");

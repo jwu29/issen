@@ -409,7 +409,7 @@ mod tests {
     }
 
     #[test]
-    fn env_dyld_inseissen_libraries_critical() {
+    fn env_dyld_insert_libraries_critical() {
         let configs = vec![cfg(
             "system/env_vars.txt",
             "PATH=/usr/bin:/usr/local/bin\n\

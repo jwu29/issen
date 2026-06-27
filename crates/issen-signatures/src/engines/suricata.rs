@@ -203,10 +203,10 @@ impl SuricataParser {
         for rule in rules {
             for ioc in &rule.iocs {
                 let ok = match ioc {
-                    SuricataIoc::Ip(ip) => store.inseissen_ip(ip).is_ok(),
-                    SuricataIoc::Network(cidr) => store.inseissen_cidr(cidr).is_ok(),
+                    SuricataIoc::Ip(ip) => store.insert_ip(ip).is_ok(),
+                    SuricataIoc::Network(cidr) => store.insert_cidr(cidr).is_ok(),
                     SuricataIoc::Domain(domain) => {
-                        store.inseissen_domain(domain);
+                        store.insert_domain(domain);
                         true
                     }
                 };

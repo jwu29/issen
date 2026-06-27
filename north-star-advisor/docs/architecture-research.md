@@ -41,7 +41,7 @@ github.com/h4x0r/issen          # Public monorepo (Apache 2.0 / MIT)
 private-repo/issen-enterprise     # Private repo (Proprietary)
 ├── Cargo.toml                          # Workspace, depends on public crates via git deps
 ├── crates/
-│   ├── issen-repoissen-engine/              # Attorney-ready report generation
+│   ├── issen-report-engine/              # Attorney-ready report generation
 │   ├── issen-correlation/                # Cross-artifact correlation engine
 │   ├── issen-gui/                        # Desktop GUI (Tauri/Dioxus)
 │   ├── issen-web/                        # Web UI + API server
@@ -332,7 +332,7 @@ Open-source crates never `use` or `depend on` proprietary crates. This is enforc
 # In issen-core/Cargo.toml (open source)
 [features]
 default = []
-repoissen-hooks = []  # Enables hook points for report engine, no proprietary code included
+report-hooks = []  # Enables hook points for report engine, no proprietary code included
 correlation-hooks = []  # Enables hook points for correlation engine
 ```
 
@@ -428,7 +428,7 @@ Phase 5: Enterprise (multi-user, team features)
 │     ┌───────────────────┼───────────────────┐            │
 │     │                   │                   │            │
 │  ┌──▼───────┐  ┌───────▼──────┐  ┌────────▼────────┐   │
-│  │issen-pipeline│  │ issen-timeline  │  │ issen-repoissen-engine│   │
+│  │issen-pipeline│  │ issen-timeline  │  │ issen-report-engine│   │
 │  │(ingest)   │  │ (DuckDB)     │  │ (docx/html/pdf) │   │
 │  └───────────┘  └──────────────┘  └─────────────────┘   │
 │                                                          │

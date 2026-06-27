@@ -108,7 +108,7 @@ impl HashIocStore {
     }
 
     /// Insert a known-bad hash. The algorithm is auto-detected from length.
-    pub fn inseissen_bad(&mut self, hash: &str) -> Result<(), HashIocError> {
+    pub fn insert_bad(&mut self, hash: &str) -> Result<(), HashIocError> {
         let normalized = hash.trim().to_lowercase();
         let algo = HashAlgorithm::from_hex_len(normalized.len()).ok_or_else(|| {
             HashIocError::InvalidHash {
@@ -133,7 +133,7 @@ impl HashIocStore {
     }
 
     /// Insert a known-good hash. The algorithm is auto-detected from length.
-    pub fn inseissen_good(&mut self, hash: &str) -> Result<(), HashIocError> {
+    pub fn insert_good(&mut self, hash: &str) -> Result<(), HashIocError> {
         let normalized = hash.trim().to_lowercase();
         let algo = HashAlgorithm::from_hex_len(normalized.len()).ok_or_else(|| {
             HashIocError::InvalidHash {
@@ -210,7 +210,7 @@ impl HashIocStore {
             }
             // Take just the first field (handles CSV-like lines with extra columns).
             let hash = trimmed.split([',', '\t', ' ']).next().unwrap_or(trimmed);
-            if let Ok(()) = self.inseissen_bad(hash) {
+            if let Ok(()) = self.insert_bad(hash) {
                 count += 1;
             }
         }
@@ -231,7 +231,7 @@ impl HashIocStore {
                 continue;
             }
             let hash = trimmed.split([',', '\t', ' ']).next().unwrap_or(trimmed);
-            if let Ok(()) = self.inseissen_good(hash) {
+            if let Ok(()) = self.insert_good(hash) {
                 count += 1;
             }
         }
@@ -283,10 +283,10 @@ mod tests {
     }
 
     #[test]
-    fn test_inseissen_and_lookup_bad_sha256() {
+    fn test_insert_and_lookup_bad_sha256() {
         let mut store = HashIocStore::new("test");
         let hash = "a".repeat(64);
-        store.inseissen_bad(&hash).expect("insert");
+        store.insert_bad(&hash).expect("insert");
 
         let m = store.lookup_bad(&hash).expect("should match");
         assert_eq!(m.algorithm, HashAlgorithm::Sha256);
@@ -294,10 +294,10 @@ mod tests {
     }
 
     #[test]
-    fn test_inseissen_and_lookup_bad_md5() {
+    fn test_insert_and_lookup_bad_md5() {
         let mut store = HashIocStore::new("malware-hashes");
         let hash = "d41d8cd98f00b204e9800998ecf8427e"; // empty string MD5
-        store.inseissen_bad(hash).expect("insert");
+        store.insert_bad(hash).expect("insert");
 
         let m = store.lookup_bad(hash).expect("should match");
         assert_eq!(m.algorithm, HashAlgorithm::Md5);
@@ -315,7 +315,7 @@ mod tests {
     fn test_case_insensitive_lookup() {
         let mut store = HashIocStore::new("test");
         store
-            .inseissen_bad("AABBCCDD11223344AABBCCDD11223344")
+            .insert_bad("AABBCCDD11223344AABBCCDD11223344")
             .expect("insert uppercase");
 
         // Lookup with lowercase should match.
@@ -329,7 +329,7 @@ mod tests {
     fn test_known_good_filtering() {
         let mut store = HashIocStore::new("test");
         let hash = "b".repeat(64);
-        store.inseissen_good(&hash).expect("insert good");
+        store.insert_good(&hash).expect("insert good");
 
         assert!(store.is_known_good(&hash));
         assert!(!store.is_known_good(&"c".repeat(64)));
@@ -338,7 +338,7 @@ mod tests {
     #[test]
     fn test_invalid_hash_length() {
         let mut store = HashIocStore::new("test");
-        let result = store.inseissen_bad("tooshort");
+        let result = store.insert_bad("tooshort");
         assert!(result.is_err());
     }
 
@@ -346,7 +346,7 @@ mod tests {
     fn test_invalid_hash_characters() {
         let mut store = HashIocStore::new("test");
         let bad = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"; // 32 chars but not hex
-        let result = store.inseissen_bad(bad);
+        let result = store.insert_bad(bad);
         assert!(result.is_err());
     }
 
@@ -423,9 +423,9 @@ mod tests {
         let mut store = HashIocStore::new("test");
         assert_eq!(store.bad_count(), 0);
 
-        store.inseissen_bad(&"a".repeat(32)).expect("md5");
-        store.inseissen_bad(&"b".repeat(40)).expect("sha1");
-        store.inseissen_bad(&"c".repeat(64)).expect("sha256");
+        store.insert_bad(&"a".repeat(32)).expect("md5");
+        store.insert_bad(&"b".repeat(40)).expect("sha1");
+        store.insert_bad(&"c".repeat(64)).expect("sha256");
 
         assert_eq!(store.bad_count(), 3);
     }
@@ -435,7 +435,7 @@ mod tests {
         let mut store = HashIocStore::new("test");
         assert_eq!(store.good_count(), 0);
 
-        store.inseissen_good(&"a".repeat(64)).expect("sha256");
+        store.insert_good(&"a".repeat(64)).expect("sha256");
         assert_eq!(store.good_count(), 1);
     }
 
@@ -445,8 +445,8 @@ mod tests {
         let hash = "a".repeat(64);
 
         // Same hash in both sets
-        store.inseissen_bad(&hash).expect("insert bad");
-        store.inseissen_good(&hash).expect("insert good");
+        store.insert_bad(&hash).expect("insert bad");
+        store.insert_good(&hash).expect("insert good");
 
         assert!(store.lookup_bad(&hash).is_some());
         assert!(store.is_known_good(&hash));

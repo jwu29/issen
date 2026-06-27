@@ -149,7 +149,7 @@ impl Drop for CaseLock {
 
 impl TimelineStore {
     /// Insert a single event into the timeline.
-    pub fn inseissen_event(&self, event: &TimelineEvent) -> Result<(), TimelineStoreError> {
+    pub fn insert_event(&self, event: &TimelineEvent) -> Result<(), TimelineStoreError> {
         let metadata_json =
             serde_json::to_string(&event.metadata).unwrap_or_else(|_| "{}".to_string());
         let tags_json = serde_json::to_string(&event.tags).unwrap_or_else(|_| "[]".to_string());
@@ -188,7 +188,7 @@ impl TimelineStore {
     /// Wrapped in a single transaction with one prepared `INSERT … ON CONFLICT
     /// DO NOTHING` reused across the batch — no per-event `SELECT`, no per-row
     /// commit. Returns the number of events actually inserted (after dedup).
-    pub fn inseissen_batch(&self, events: &[TimelineEvent]) -> Result<u64, TimelineStoreError> {
+    pub fn insert_batch(&self, events: &[TimelineEvent]) -> Result<u64, TimelineStoreError> {
         self.insert_batch_at_epoch(events, "live")
     }
 
@@ -514,21 +514,21 @@ mod tests {
     }
 
     #[test]
-    fn test_inseissen_single_event() {
+    fn test_insert_single_event() {
         let store = TimelineStore::in_memory().expect("store");
         let event = sample_event(1000, "File created");
-        store.inseissen_event(&event).expect("insert");
+        store.insert_event(&event).expect("insert");
         assert_eq!(store.event_count().expect("count"), 1);
     }
 
     #[test]
-    fn test_inseissen_batch() {
+    fn test_insert_batch() {
         let store = TimelineStore::in_memory().expect("store");
         let events: Vec<TimelineEvent> = (0..10)
             .map(|i| sample_event(i * 1_000_000_000, &format!("Event {i}")))
             .collect();
 
-        let inserted = store.inseissen_batch(&events).expect("batch");
+        let inserted = store.insert_batch(&events).expect("batch");
         assert_eq!(inserted, 10);
         assert_eq!(store.event_count().expect("count"), 10);
     }
@@ -827,11 +827,11 @@ mod tests {
         let store = TimelineStore::in_memory().expect("store");
         let event = sample_event(1000, "Duplicate event");
 
-        store.inseissen_event(&event).expect("first insert");
+        store.insert_event(&event).expect("first insert");
         assert_eq!(store.event_count().expect("count"), 1);
 
-        // inseissen_batch should skip the duplicate.
-        let inserted = store.inseissen_batch(&[event]).expect("batch");
+        // insert_batch should skip the duplicate.
+        let inserted = store.insert_batch(&[event]).expect("batch");
         assert_eq!(inserted, 0, "Duplicate should be skipped");
         assert_eq!(store.event_count().expect("count"), 1);
     }
@@ -842,12 +842,12 @@ mod tests {
         let event = sample_event(1000, "Test hash");
 
         assert!(!store.hash_exists(&event.record_hash).expect("check"));
-        store.inseissen_event(&event).expect("insert");
+        store.insert_event(&event).expect("insert");
         assert!(store.hash_exists(&event.record_hash).expect("check"));
     }
 
     #[test]
-    fn test_inseissen_event_with_metadata_and_tags() {
+    fn test_insert_event_with_metadata_and_tags() {
         let store = TimelineStore::in_memory().expect("store");
         let event = sample_event(1000, "Rich event")
             .with_user("S-1-5-21-123-1001")
@@ -855,7 +855,7 @@ mod tests {
             .with_tag("suspicious")
             .with_metadata("reason", serde_json::json!("FILE_CREATE"));
 
-        store.inseissen_event(&event).expect("insert");
+        store.insert_event(&event).expect("insert");
         assert_eq!(store.event_count().expect("count"), 1);
     }
 
@@ -863,7 +863,7 @@ mod tests {
     fn test_update_tags_enriches_existing_events() {
         let store = TimelineStore::in_memory().expect("store");
         let event = sample_event(1000, "File created");
-        store.inseissen_event(&event).expect("insert");
+        store.insert_event(&event).expect("insert");
 
         // Enrich the event with sig: tags.
         let mut enriched = event.clone();
@@ -889,7 +889,7 @@ mod tests {
     fn test_update_tags_skips_empty_tags() {
         let store = TimelineStore::in_memory().expect("store");
         let event = sample_event(1000, "File created");
-        store.inseissen_event(&event).expect("insert");
+        store.insert_event(&event).expect("insert");
 
         // Event with no tags — should be skipped.
         let updated = store.update_tags(&[event]).expect("update_tags");
@@ -930,7 +930,7 @@ mod tests {
             .collect();
 
         let started = std::time::Instant::now();
-        let inserted = store.inseissen_batch(&events).expect("batch");
+        let inserted = store.insert_batch(&events).expect("batch");
         let elapsed = started.elapsed();
 
         assert_eq!(inserted, 50_000);
@@ -941,7 +941,7 @@ mod tests {
         );
 
         // Re-inserting the identical batch must dedup to zero new rows.
-        let again = store.inseissen_batch(&events).expect("batch 2");
+        let again = store.insert_batch(&events).expect("batch 2");
         assert_eq!(again, 0, "duplicate batch must be fully deduped");
         assert_eq!(store.event_count().expect("count"), 50_000);
     }
@@ -979,9 +979,9 @@ mod tests {
         epochs.sort();
         assert_eq!(epochs, vec!["snap-T1".to_string(), "snap-T2".to_string()]);
 
-        // The plain inseissen_batch path tags events with the default "live" epoch.
+        // The plain insert_batch path tags events with the default "live" epoch.
         let live: Vec<TimelineEvent> = vec![sample_event(9_000, "live-event")];
-        store.inseissen_batch(&live).expect("live");
+        store.insert_batch(&live).expect("live");
         assert_eq!(store.event_count_at_epoch("live").expect("live-count"), 1);
     }
 
@@ -1035,7 +1035,7 @@ mod tests {
             .with_entity_ref(EntityRef::Process("coreupdater.exe".to_string()))
             .with_entity_ref(EntityRef::Ip("203.78.103.109".to_string()));
         store
-            .inseissen_batch(std::slice::from_ref(&event))
+            .insert_batch(std::slice::from_ref(&event))
             .expect("batch insert");
 
         let mut stmt = store
@@ -1059,7 +1059,7 @@ mod tests {
         let store = TimelineStore::in_memory().expect("store");
         let event = sample_event(2000, "plain event");
         store
-            .inseissen_batch(std::slice::from_ref(&event))
+            .insert_batch(std::slice::from_ref(&event))
             .expect("batch insert");
         let mut stmt = store
             .connection()

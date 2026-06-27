@@ -85,7 +85,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_eve_skips_non_aleissen_events() {
+    fn parse_eve_skips_non_alert_events() {
         let result = parse_eve_json(SAMPLE_EVE_DNS);
         assert!(
             result.is_empty(),
@@ -95,7 +95,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_eve_extracts_aleissen_fields() {
+    fn parse_eve_extracts_alert_fields() {
         let result = parse_eve_json(SAMPLE_EVE_ALERT);
         assert_eq!(result.len(), 1, "expected exactly one alert");
         let alert = &result[0];

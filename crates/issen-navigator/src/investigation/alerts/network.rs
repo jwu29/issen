@@ -384,7 +384,7 @@ mod tests {
     }
 
     #[test]
-    fn listener_on_backdoor_poissen_flagged_with_source() {
+    fn listener_on_backdoor_port_flagged_with_source() {
         let conns = vec![NetworkConnection {
             protocol: "tcp".into(),
             local_addr: "0.0.0.0:4444".into(),
@@ -416,7 +416,7 @@ mod tests {
     }
 
     #[test]
-    fn listener_on_sigma_only_poissen_includes_rule_id() {
+    fn listener_on_sigma_only_port_includes_rule_id() {
         let conns = vec![NetworkConnection {
             protocol: "tcp".into(),
             local_addr: "0.0.0.0:6789".into(),
@@ -442,7 +442,7 @@ mod tests {
     }
 
     #[test]
-    fn listener_on_cobalt_strike_poissen_flagged() {
+    fn listener_on_cobalt_strike_port_flagged() {
         let conns = vec![NetworkConnection {
             protocol: "tcp".into(),
             local_addr: "0.0.0.0:50050".into(),
@@ -473,7 +473,7 @@ mod tests {
     }
 
     #[test]
-    fn listener_on_standard_poissen_not_flagged_as_suspicious() {
+    fn listener_on_standard_port_not_flagged_as_suspicious() {
         let conns = vec![NetworkConnection {
             protocol: "tcp".into(),
             local_addr: "0.0.0.0:80".into(),
@@ -496,7 +496,7 @@ mod tests {
     }
 
     #[test]
-    fn topo_established_local_suspicious_poissen_warning() {
+    fn topo_established_local_suspicious_port_warning() {
         // Connection to localhost on port 4444 (Metasploit default)
         let conns = vec![netconn("127.0.0.1:4444", "127.0.0.1:54321", "ESTABLISHED")];
         let input = AlertInput {
@@ -513,7 +513,7 @@ mod tests {
     }
 
     #[test]
-    fn topo_established_remote_suspicious_poissen_warning() {
+    fn topo_established_remote_suspicious_port_warning() {
         // Remote side on localhost with suspicious port
         let conns = vec![netconn("127.0.0.1:54321", "127.0.0.1:31337", "ESTABLISHED")];
         let input = AlertInput {
@@ -568,7 +568,7 @@ mod tests {
     }
 
     #[test]
-    fn topo_internal_standard_poissen_not_flagged() {
+    fn topo_internal_standard_port_not_flagged() {
         // Both RFC1918 but standard port (22 = SSH) — no alert
         let conns = vec![netconn("192.168.1.10:45678", "10.0.0.5:22", "ESTABLISHED")];
         let input = AlertInput {

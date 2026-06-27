@@ -919,7 +919,7 @@ fn test_info_help() {
 // ── Report subcommand tests ──────────────────────────────────────
 
 #[test]
-fn test_repoissen_help() {
+fn test_report_help() {
     issen_cmd()
         .args(["report", "--help"])
         .assert()
@@ -932,7 +932,7 @@ fn test_repoissen_help() {
 }
 
 #[test]
-fn test_repoissen_missing_db() {
+fn test_report_missing_db() {
     issen_cmd()
         .args(["report", "/nonexistent/db.duckdb"])
         .assert()
@@ -941,11 +941,11 @@ fn test_repoissen_missing_db() {
 }
 
 #[test]
-fn test_repoissen_empty_db() {
+fn test_report_empty_db() {
     let dir = TempDir::new().unwrap();
     let evidence_dir = TempDir::new().unwrap();
     let db_path = dir.path().join("test.duckdb");
-    let repoissen_path = dir.path().join("report.html");
+    let report_path = dir.path().join("report.html");
 
     // Ingest empty dir to create DB.
     issen_cmd()
@@ -964,26 +964,26 @@ fn test_repoissen_empty_db() {
             "report",
             &db_path.to_string_lossy(),
             "-o",
-            &repoissen_path.to_string_lossy(),
+            &report_path.to_string_lossy(),
         ])
         .assert()
         .success()
         .stdout(predicate::str::contains("Report written to"));
 
     // Verify HTML file was created.
-    assert!(repoissen_path.exists(), "HTML report file should exist");
-    let html = std::fs::read_to_string(&repoissen_path).expect("read report");
+    assert!(report_path.exists(), "HTML report file should exist");
+    let html = std::fs::read_to_string(&report_path).expect("read report");
     assert!(html.contains("<!DOCTYPE html>"));
     assert!(html.contains("Issen Report"));
     assert!(html.contains("Total Events"));
 }
 
 #[test]
-fn test_repoissen_with_events() {
+fn test_report_with_events() {
     let dir = TempDir::new().unwrap();
     let db_dir = TempDir::new().unwrap();
     let db_path = db_dir.path().join("test.duckdb");
-    let repoissen_path = db_dir.path().join("report.html");
+    let report_path = db_dir.path().join("report.html");
 
     // Create evidence with a USN record.
     let record = build_usn_v2_record("evidence.docx", 0x100, 42, 100, 0);
@@ -1006,12 +1006,12 @@ fn test_repoissen_with_events() {
             "report",
             &db_path.to_string_lossy(),
             "-o",
-            &repoissen_path.to_string_lossy(),
+            &report_path.to_string_lossy(),
         ])
         .assert()
         .success();
 
-    let html = std::fs::read_to_string(&repoissen_path).expect("read report");
+    let html = std::fs::read_to_string(&report_path).expect("read report");
     assert!(
         html.contains("evidence.docx"),
         "report should contain event data"
@@ -1027,11 +1027,11 @@ fn test_repoissen_with_events() {
 }
 
 #[test]
-fn test_repoissen_with_case_id_and_examiner() {
+fn test_report_with_case_id_and_examiner() {
     let dir = TempDir::new().unwrap();
     let evidence_dir = TempDir::new().unwrap();
     let db_path = dir.path().join("test.duckdb");
-    let repoissen_path = dir.path().join("report.html");
+    let report_path = dir.path().join("report.html");
 
     // Create DB via ingest.
     issen_cmd()
@@ -1050,7 +1050,7 @@ fn test_repoissen_with_case_id_and_examiner() {
             "report",
             &db_path.to_string_lossy(),
             "-o",
-            &repoissen_path.to_string_lossy(),
+            &report_path.to_string_lossy(),
             "--case-id",
             "CASE-2024-042",
             "--examiner",
@@ -1059,7 +1059,7 @@ fn test_repoissen_with_case_id_and_examiner() {
         .assert()
         .success();
 
-    let html = std::fs::read_to_string(&repoissen_path).expect("read report");
+    let html = std::fs::read_to_string(&report_path).expect("read report");
     assert!(
         html.contains("CASE-2024-042"),
         "report should contain case ID"
@@ -1071,11 +1071,11 @@ fn test_repoissen_with_case_id_and_examiner() {
 }
 
 #[test]
-fn test_repoissen_with_max_events() {
+fn test_report_with_max_events() {
     let dir = TempDir::new().unwrap();
     let db_dir = TempDir::new().unwrap();
     let db_path = db_dir.path().join("test.duckdb");
-    let repoissen_path = db_dir.path().join("report.html");
+    let report_path = db_dir.path().join("report.html");
 
     // Create evidence with multiple USN records.
     let mut data = Vec::new();
@@ -1107,7 +1107,7 @@ fn test_repoissen_with_max_events() {
             "report",
             &db_path.to_string_lossy(),
             "-o",
-            &repoissen_path.to_string_lossy(),
+            &report_path.to_string_lossy(),
             "--max-events",
             "2",
         ])
@@ -1115,7 +1115,7 @@ fn test_repoissen_with_max_events() {
         .success();
 
     // The report should exist and contain events (limited by max-events).
-    let html = std::fs::read_to_string(&repoissen_path).expect("read report");
+    let html = std::fs::read_to_string(&report_path).expect("read report");
     assert!(html.contains("<!DOCTYPE html>"));
     // Total Events stat should still reflect all 5.
     assert!(
@@ -1125,17 +1125,17 @@ fn test_repoissen_with_max_events() {
 }
 
 #[test]
-fn test_repoissen_with_findings() {
+fn test_report_with_findings() {
     let dir = TempDir::new().unwrap();
     let db_dir = TempDir::new().unwrap();
     let db_path = db_dir.path().join("test.duckdb");
-    let repoissen_path = db_dir.path().join("report.html");
+    let report_path = db_dir.path().join("report.html");
 
     // Write YARA rule.
     let rule_path = dir.path().join("detect.yar");
     std::fs::write(
         &rule_path,
-        r#"rule repoissen_detect { strings: $s = "MALICIOUS_MARKER" condition: $s }"#,
+        r#"rule report_detect { strings: $s = "MALICIOUS_MARKER" condition: $s }"#,
     )
     .unwrap();
 
@@ -1169,18 +1169,18 @@ fn test_repoissen_with_findings() {
             "report",
             db_path.to_str().unwrap(),
             "-o",
-            repoissen_path.to_str().unwrap(),
+            report_path.to_str().unwrap(),
         ])
         .assert()
         .success();
 
-    let html = std::fs::read_to_string(&repoissen_path).expect("read report");
+    let html = std::fs::read_to_string(&report_path).expect("read report");
     assert!(
         html.contains("Scan Findings"),
         "report should contain findings section"
     );
     assert!(
-        html.contains("repoissen_detect"),
+        html.contains("report_detect"),
         "report should contain YARA rule name"
     );
     assert!(
@@ -1358,7 +1358,7 @@ fn remote_access_nonexistent_path_shows_error_message() {
 }
 
 #[test]
-fn repoissen_nonexistent_db_shows_error_message() {
+fn report_nonexistent_db_shows_error_message() {
     issen_cmd()
         .args(["report", "/nonexistent/db/12345.duckdb"])
         .assert()
@@ -1483,11 +1483,11 @@ fn ingest_multi_flag_output_and_source() {
 }
 
 #[test]
-fn repoissen_multi_flag_case_id_examiner_max_events() {
+fn report_multi_flag_case_id_examiner_max_events() {
     let dir = TempDir::new().expect("tmpdir");
     let evidence_dir = TempDir::new().expect("tmpdir");
     let db_path = dir.path().join("test.duckdb");
-    let repoissen_path = dir.path().join("report.html");
+    let report_path = dir.path().join("report.html");
 
     issen_cmd()
         .args([
@@ -1504,7 +1504,7 @@ fn repoissen_multi_flag_case_id_examiner_max_events() {
             "report",
             &db_path.to_string_lossy(),
             "-o",
-            &repoissen_path.to_string_lossy(),
+            &report_path.to_string_lossy(),
             "--case-id",
             "MULTI-CASE",
             "--examiner",
@@ -1630,7 +1630,7 @@ fn full_pipeline_ingest_timeline_report() {
     let dir = TempDir::new().expect("tmpdir");
     let evidence_dir = TempDir::new().expect("tmpdir");
     let db_path = dir.path().join("pipeline.duckdb");
-    let repoissen_path = dir.path().join("pipeline.html");
+    let report_path = dir.path().join("pipeline.html");
 
     // Write a minimal USN record as evidence.
     let record = build_usn_v2_record("pipeline_file.txt", 0x100, 42, 100, 0);
@@ -1670,14 +1670,14 @@ fn full_pipeline_ingest_timeline_report() {
             "report",
             &db_path.to_string_lossy(),
             "-o",
-            &repoissen_path.to_string_lossy(),
+            &report_path.to_string_lossy(),
             "--case-id",
             "PIPELINE-CASE-001",
         ])
         .assert()
         .success();
 
-    let html = std::fs::read_to_string(&repoissen_path).expect("read pipeline report");
+    let html = std::fs::read_to_string(&report_path).expect("read pipeline report");
     assert!(html.contains("<!DOCTYPE html>"), "report must be HTML");
     assert!(
         html.contains("PIPELINE-CASE-001"),

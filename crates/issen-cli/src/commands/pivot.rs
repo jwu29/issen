@@ -111,8 +111,8 @@ pub fn build_evidence(
         // Connections attributed to this hidden process → Network evidence
         let mut seen_ports = std::collections::HashSet::new();
         for conn in &finding.connections {
-            let poissen_key = (conn.src_port, conn.dst_port);
-            if !seen_ports.insert(poissen_key) {
+            let port_key = (conn.src_port, conn.dst_port);
+            if !seen_ports.insert(port_key) {
                 continue;
             }
             let mut nev = Evidence::new(
@@ -298,7 +298,7 @@ mod tests {
     }
 
     #[test]
-    fn connection_to_stratum_poissen_gets_mining_pool_tag() {
+    fn connection_to_stratum_port_gets_mining_pool_tag() {
         let hidden = HiddenProcessAnalysis {
             hidden_pids: vec![977],
             findings: vec![HiddenProcessFinding {

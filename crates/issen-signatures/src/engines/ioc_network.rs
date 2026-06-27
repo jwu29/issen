@@ -79,7 +79,7 @@ impl NetworkIocStore {
     }
 
     /// Parse and add an IP address (IPv4 or IPv6).
-    pub fn inseissen_ip(&mut self, ip_str: &str) -> Result<(), NetworkIocError> {
+    pub fn insert_ip(&mut self, ip_str: &str) -> Result<(), NetworkIocError> {
         let ip: IpAddr = ip_str
             .trim()
             .parse()
@@ -89,7 +89,7 @@ impl NetworkIocStore {
     }
 
     /// Parse and add a CIDR range (e.g., "192.168.1.0/24").
-    pub fn inseissen_cidr(&mut self, cidr_str: &str) -> Result<(), NetworkIocError> {
+    pub fn insert_cidr(&mut self, cidr_str: &str) -> Result<(), NetworkIocError> {
         let net: IpNet = cidr_str
             .trim()
             .parse()
@@ -99,7 +99,7 @@ impl NetworkIocStore {
     }
 
     /// Add a domain name (stored lowercased for case-insensitive matching).
-    pub fn inseissen_domain(&mut self, domain: &str) {
+    pub fn insert_domain(&mut self, domain: &str) {
         let normalized = domain.trim().to_lowercase();
         if !normalized.is_empty() {
             self.domains.insert(normalized);
@@ -217,17 +217,17 @@ impl NetworkIocStore {
 
             if trimmed.contains('/') {
                 // CIDR notation.
-                if self.inseissen_cidr(trimmed).is_ok() {
+                if self.insert_cidr(trimmed).is_ok() {
                     count += 1;
                 }
             } else if trimmed.parse::<IpAddr>().is_ok() {
                 // IP address.
-                if self.inseissen_ip(trimmed).is_ok() {
+                if self.insert_ip(trimmed).is_ok() {
                     count += 1;
                 }
             } else {
                 // Domain name.
-                self.inseissen_domain(trimmed);
+                self.insert_domain(trimmed);
                 count += 1;
             }
         }
@@ -312,7 +312,7 @@ mod tests {
     #[test]
     fn test_ip_exact_match_hit() {
         let mut store = NetworkIocStore::new("test");
-        store.inseissen_ip("10.0.0.1").unwrap();
+        store.insert_ip("10.0.0.1").unwrap();
 
         let m = store.lookup_ip("10.0.0.1").expect("should match");
         assert_eq!(m.indicator_type, IndicatorType::Ip);
@@ -323,7 +323,7 @@ mod tests {
     #[test]
     fn test_ip_exact_match_miss() {
         let mut store = NetworkIocStore::new("test");
-        store.inseissen_ip("10.0.0.1").unwrap();
+        store.insert_ip("10.0.0.1").unwrap();
 
         assert!(store.lookup_ip("10.0.0.2").is_none());
     }
@@ -333,7 +333,7 @@ mod tests {
     #[test]
     fn test_cidr_containment_hit() {
         let mut store = NetworkIocStore::new("test");
-        store.inseissen_cidr("192.168.1.0/24").unwrap();
+        store.insert_cidr("192.168.1.0/24").unwrap();
 
         let m = store.lookup_ip("192.168.1.100").expect("should match CIDR");
         assert_eq!(m.indicator_type, IndicatorType::Cidr);
@@ -343,7 +343,7 @@ mod tests {
     #[test]
     fn test_cidr_containment_miss() {
         let mut store = NetworkIocStore::new("test");
-        store.inseissen_cidr("192.168.1.0/24").unwrap();
+        store.insert_cidr("192.168.1.0/24").unwrap();
 
         assert!(store.lookup_ip("192.168.2.1").is_none());
     }
@@ -351,7 +351,7 @@ mod tests {
     #[test]
     fn test_cidr_boundary() {
         let mut store = NetworkIocStore::new("test");
-        store.inseissen_cidr("10.0.0.0/30").unwrap(); // 10.0.0.0 - 10.0.0.3
+        store.insert_cidr("10.0.0.0/30").unwrap(); // 10.0.0.0 - 10.0.0.3
 
         assert!(store.lookup_ip("10.0.0.0").is_some());
         assert!(store.lookup_ip("10.0.0.3").is_some());
@@ -363,7 +363,7 @@ mod tests {
     #[test]
     fn test_domain_exact_match() {
         let mut store = NetworkIocStore::new("test");
-        store.inseissen_domain("evil.com");
+        store.insert_domain("evil.com");
 
         let m = store.lookup_domain("evil.com").expect("should match");
         assert_eq!(m.indicator_type, IndicatorType::Domain);
@@ -373,7 +373,7 @@ mod tests {
     #[test]
     fn test_domain_miss() {
         let mut store = NetworkIocStore::new("test");
-        store.inseissen_domain("evil.com");
+        store.insert_domain("evil.com");
 
         assert!(store.lookup_domain("good.com").is_none());
     }
@@ -383,7 +383,7 @@ mod tests {
     #[test]
     fn test_subdomain_matches_parent() {
         let mut store = NetworkIocStore::new("test");
-        store.inseissen_domain("evil.com");
+        store.insert_domain("evil.com");
 
         let m = store
             .lookup_domain("sub.evil.com")
@@ -395,7 +395,7 @@ mod tests {
     #[test]
     fn test_subdomain_deep_nesting() {
         let mut store = NetworkIocStore::new("test");
-        store.inseissen_domain("evil.com");
+        store.insert_domain("evil.com");
 
         let m = store
             .lookup_domain("a.b.c.evil.com")
@@ -406,7 +406,7 @@ mod tests {
     #[test]
     fn test_subdomain_non_match() {
         let mut store = NetworkIocStore::new("test");
-        store.inseissen_domain("evil.com");
+        store.insert_domain("evil.com");
 
         // "notevil.com" should NOT match "evil.com".
         assert!(store.lookup_domain("notevil.com").is_none());
@@ -417,7 +417,7 @@ mod tests {
     #[test]
     fn test_url_domain_extraction_and_match() {
         let mut store = NetworkIocStore::new("test");
-        store.inseissen_domain("evil.com");
+        store.insert_domain("evil.com");
 
         let m = store
             .lookup_url("http://evil.com/malware/payload.exe")
@@ -429,7 +429,7 @@ mod tests {
     #[test]
     fn test_url_with_port() {
         let mut store = NetworkIocStore::new("test");
-        store.inseissen_domain("evil.com");
+        store.insert_domain("evil.com");
 
         let m = store
             .lookup_url("https://evil.com:8443/path")
@@ -440,7 +440,7 @@ mod tests {
     #[test]
     fn test_url_subdomain_match() {
         let mut store = NetworkIocStore::new("test");
-        store.inseissen_domain("evil.com");
+        store.insert_domain("evil.com");
 
         let m = store
             .lookup_url("https://cdn.evil.com/script.js")
@@ -453,7 +453,7 @@ mod tests {
     #[test]
     fn test_domain_case_insensitive() {
         let mut store = NetworkIocStore::new("test");
-        store.inseissen_domain("Evil.COM");
+        store.insert_domain("Evil.COM");
 
         let m = store
             .lookup_domain("evil.com")
@@ -469,7 +469,7 @@ mod tests {
     #[test]
     fn test_ipv6_exact_match() {
         let mut store = NetworkIocStore::new("test");
-        store.inseissen_ip("::1").unwrap();
+        store.insert_ip("::1").unwrap();
 
         let m = store.lookup_ip("::1").expect("IPv6 loopback should match");
         assert_eq!(m.indicator_type, IndicatorType::Ip);
@@ -478,7 +478,7 @@ mod tests {
     #[test]
     fn test_ipv6_cidr() {
         let mut store = NetworkIocStore::new("test");
-        store.inseissen_cidr("fd00::/8").unwrap();
+        store.insert_cidr("fd00::/8").unwrap();
 
         let m = store
             .lookup_ip("fd12:3456:789a::1")
@@ -491,13 +491,13 @@ mod tests {
     #[test]
     fn test_invalid_ip() {
         let mut store = NetworkIocStore::new("test");
-        assert!(store.inseissen_ip("not-an-ip").is_err());
+        assert!(store.insert_ip("not-an-ip").is_err());
     }
 
     #[test]
     fn test_invalid_cidr() {
         let mut store = NetworkIocStore::new("test");
-        assert!(store.inseissen_cidr("not-a-cidr").is_err());
+        assert!(store.insert_cidr("not-a-cidr").is_err());
     }
 
     #[test]
@@ -558,12 +558,12 @@ mod tests {
         assert_eq!(store.cidr_count(), 0);
         assert_eq!(store.domain_count(), 0);
 
-        store.inseissen_ip("1.2.3.4").unwrap();
-        store.inseissen_ip("5.6.7.8").unwrap();
-        store.inseissen_cidr("10.0.0.0/8").unwrap();
-        store.inseissen_domain("example.com");
-        store.inseissen_domain("test.org");
-        store.inseissen_domain("foo.bar");
+        store.insert_ip("1.2.3.4").unwrap();
+        store.insert_ip("5.6.7.8").unwrap();
+        store.insert_cidr("10.0.0.0/8").unwrap();
+        store.insert_domain("example.com");
+        store.insert_domain("test.org");
+        store.insert_domain("foo.bar");
 
         assert_eq!(store.ip_count(), 2);
         assert_eq!(store.cidr_count(), 1);
@@ -621,8 +621,8 @@ mod tests {
     #[test]
     fn test_ip_exact_preferred_over_cidr() {
         let mut store = NetworkIocStore::new("test");
-        store.inseissen_ip("192.168.1.1").unwrap();
-        store.inseissen_cidr("192.168.1.0/24").unwrap();
+        store.insert_ip("192.168.1.1").unwrap();
+        store.insert_cidr("192.168.1.0/24").unwrap();
 
         // Should prefer exact IP match.
         let m = store.lookup_ip("192.168.1.1").expect("should match");

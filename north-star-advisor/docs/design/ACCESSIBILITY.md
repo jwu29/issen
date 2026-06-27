@@ -19,7 +19,7 @@ This document defines **accessibility as a first-class citizen** in Issen. It pr
 4. Focus management during evidence parsing and report generation
 5. Cognitive load mitigation for 12-16 hour IR sessions
 6. Terminal accessibility patterns for TUI and CLI
-7. Print/PDF accessibility for couissen-ready deliverables
+7. Print/PDF accessibility for court-ready deliverables
 8. Testing protocols and tooling per surface
 
 **Design Principle**: Accessibility is not a feature -- it is the foundation. Every pattern here enables users to accomplish their goals regardless of ability. No forensic tool advertises WCAG compliance today; Issen treats this as unoccupied differentiation.

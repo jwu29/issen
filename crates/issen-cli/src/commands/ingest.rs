@@ -465,7 +465,7 @@ pub fn run(
         // Store findings in DuckDB.
         findings::create_findings_table(store.connection())
             .context("Failed to create findings table")?;
-        let findings_inserted = findings::inseissen_findings(store.connection(), &finding_rows)
+        let findings_inserted = findings::insert_findings(store.connection(), &finding_rows)
             .context("Failed to insert findings")?;
 
         println!("Events evaluated:  {}", scan_summary.events_evaluated);

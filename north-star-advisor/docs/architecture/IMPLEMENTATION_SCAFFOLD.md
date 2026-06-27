@@ -335,7 +335,7 @@ Feature flags control optional capabilities without pulling in proprietary code.
 # crates/issen-core/Cargo.toml
 [features]
 default = []
-repoissen-hooks = []       # Enables trait extension points for report engine
+report-hooks = []       # Enables trait extension points for report engine
 correlation-hooks = []  # Enables trait extension points for correlation engine
 intel-hooks = []        # Enables trait extension points for intelligence layer
 simd = ["dep:packed_simd"]  # SIMD-accelerated parsing (opt-in)
@@ -1016,7 +1016,7 @@ jobs:
           tool: 'cargo'
           output-file-path: output.txt
           fail-on-alert: true
-          aleissen-threshold: '120%'     # Fail if 20% regression
+          alert-threshold: '120%'     # Fail if 20% regression
           comment-on-alert: true
           github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
@@ -1363,7 +1363,7 @@ issen-license (standalone)
 
 | Crate | Feature | Default | Description |
 |-------|---------|---------|-------------|
-| `issen-core` | `repoissen-hooks` | No | Extension points for report engine |
+| `issen-core` | `report-hooks` | No | Extension points for report engine |
 | `issen-core` | `correlation-hooks` | No | Extension points for correlation engine |
 | `issen-core` | `intel-hooks` | No | Extension points for intelligence layer |
 | `issen-core` | `simd` | No | SIMD-accelerated parsing |

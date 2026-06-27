@@ -476,7 +476,7 @@ mod tests {
 
     fn store_with(events: &[TimelineEvent]) -> TimelineStore {
         let store = TimelineStore::in_memory().expect("store");
-        store.inseissen_batch(events).expect("ingest");
+        store.insert_batch(events).expect("ingest");
         store
     }
 
@@ -505,7 +505,7 @@ mod tests {
             "net usage row".to_string(),
             "DC01".to_string(),
         );
-        store.inseissen_batch(&[exec, other]).expect("ingest");
+        store.insert_batch(&[exec, other]).expect("ingest");
 
         let mut events = store.load_timeline_events().expect("load");
         events.sort_by_key(|e| e.timestamp_ns);
@@ -555,7 +555,7 @@ mod tests {
             "si_created",
             serde_json::json!(1_600_000_000_000_000_000_i64),
         );
-        store.inseissen_batch(&[stomped]).expect("ingest");
+        store.insert_batch(&[stomped]).expect("ingest");
 
         let events = store.load_timeline_events().expect("load");
         let e = events
@@ -598,7 +598,7 @@ mod tests {
             "some config".to_string(),
             "DC01".to_string(),
         );
-        store.inseissen_batch(&[tagged, untagged]).expect("ingest");
+        store.insert_batch(&[tagged, untagged]).expect("ingest");
 
         let mut events = store.load_timeline_events().expect("load");
         events.sort_by_key(|e| e.timestamp_ns);

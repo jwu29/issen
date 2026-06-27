@@ -177,7 +177,7 @@ Forensic examiners are trained to scan large datasets. Hiding data behind clicks
 Issen output may be projected in a courtroom, printed as an exhibit, or attached to a declaration. Every visual choice must survive the question: "Would this look professional and credible to a judge?" Flashy gradients, dark themes with neon accents, and playful illustrations fail this test.
 
 **Rust-native CLI aesthetic:**
-The brand reflects its technical foundation. Clean terminal output, structured logging, and composable CLI tools are the interface philosophy. A GUI may come later, but the soul of the tool is `issen parse --source /evidence/kape-output --report expeissen-witness.docx`.
+The brand reflects its technical foundation. Clean terminal output, structured logging, and composable CLI tools are the interface philosophy. A GUI may come later, but the soul of the tool is `issen parse --source /evidence/kape-output --report expert-witness.docx`.
 
 ---
 

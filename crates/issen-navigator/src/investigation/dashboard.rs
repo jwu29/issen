@@ -284,7 +284,7 @@ fn draw_right_panel(frame: &mut Frame, app: &WorkbenchApp, area: Rect) {
 
     let title = format!(" Alerts ({critical_count} critical, {warning_count} warning) ");
 
-    let aleissen_items: Vec<ListItem<'_>> = app
+    let alert_items: Vec<ListItem<'_>> = app
         .data
         .alerts
         .iter()
@@ -305,7 +305,7 @@ fn draw_right_panel(frame: &mut Frame, app: &WorkbenchApp, area: Rect) {
         .collect();
 
     let alerts_list =
-        List::new(aleissen_items).block(Block::default().borders(Borders::ALL).title(title));
+        List::new(alert_items).block(Block::default().borders(Borders::ALL).title(title));
 
     frame.render_widget(alerts_list, chunks[1]);
 }

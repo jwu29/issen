@@ -130,7 +130,7 @@
 - [Tera + Askama comparison](https://leapcell.io/blog/seamless-server-side-templating-in-rust-web-applications-with-askama-and-tera)
 - [Rust HTML to PDF comparison](https://docraptor.com/rust-html-to-pdf)
 - [Production HTML-to-PDF service in Rust](https://lpfy.medium.com/building-a-production-ready-html-to-pdf-service-why-browser-pooling-matters-8d26ede62252)
-- [INNOQ Report Generator in Rust](https://www.innoq.com/en/blog/rust-repoissen-generator/)
+- [INNOQ Report Generator in Rust](https://www.innoq.com/en/blog/rust-report-generator/)
 - [docx-rs by bokuweb](https://github.com/bokuweb/docx-rs)
 - [rdocx on lib.rs](https://lib.rs/crates/rdocx)
 - [Charming on GitHub](https://github.com/yuankunzhang/charming)
@@ -259,7 +259,7 @@ CREATE INDEX idx_artifact ON events(artifact_type, timestamp_utc);
 |---------|----------|
 | **Build targets** | `x86_64-unknown-linux-musl` (static), `x86_64-pc-windows-msvc`, `x86_64-apple-darwin`, `aarch64-apple-darwin` |
 | **Platform-specific artifacts** | `#[cfg(target_os = "windows")]` for Registry, Prefetch, NTFS-specific; `#[cfg(target_os = "macos")]` for plist, Unified Log |
-| **Static linking** | `musl` on Linux, `+cissen-static` on Windows -- critical for IR deployment on target systems |
+| **Static linking** | `musl` on Linux, `+crt-static` on Windows -- critical for IR deployment on target systems |
 | **CI** | GitHub Actions matrix across OS runners; use `cross` tool for Linux ARM targets |
 | **Filesystem abstraction** | Trait-based I/O layer (as forensic-rs does) so parsers work on live FS, disk images, or ZIP triage packages |
 

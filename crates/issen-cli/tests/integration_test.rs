@@ -111,7 +111,7 @@ fn test_full_pipeline_usnjrnl_to_duckdb() {
 
     // Step 3: Store in DuckDB.
     let store = TimelineStore::in_memory().expect("duckdb");
-    let inserted = store.inseissen_batch(&events).expect("insert");
+    let inserted = store.insert_batch(&events).expect("insert");
     assert_eq!(inserted, 3);
 
     // Step 4: Query back.
@@ -139,7 +139,7 @@ fn test_full_pipeline_usnjrnl_to_duckdb() {
     assert_eq!(ordered.len(), 3);
 
     // Step 5: Deduplication — re-insert same events.
-    let inserted_again = store.inseissen_batch(&events).expect("re-insert");
+    let inserted_again = store.insert_batch(&events).expect("re-insert");
     assert_eq!(inserted_again, 0, "Dedup should prevent re-insertion");
     assert_eq!(store.event_count().expect("count"), 3);
 
@@ -200,7 +200,7 @@ fn test_pipeline_stats_after_ingest() {
     let (events, _) = run_pipeline(evidence_dir.path(), &progress).expect("pipeline");
 
     let store = TimelineStore::in_memory().expect("duckdb");
-    store.inseissen_batch(&events).expect("insert");
+    store.insert_batch(&events).expect("insert");
 
     let stats = store.stats().expect("stats");
     assert_eq!(stats.total_events, 2);

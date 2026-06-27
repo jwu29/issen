@@ -926,9 +926,9 @@ mod tests {
             "file".into(),
             "CASE".into(),
         );
-        store.inseissen_event(&logon).expect("insert");
-        store.inseissen_event(&machine).expect("insert");
-        store.inseissen_event(&file).expect("insert");
+        store.insert_event(&logon).expect("insert");
+        store.insert_event(&machine).expect("insert");
+        store.insert_event(&file).expect("insert");
         store
     }
 

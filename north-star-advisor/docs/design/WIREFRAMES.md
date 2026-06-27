@@ -35,7 +35,7 @@ This document provides **visual wireframe specifications** that synthesize:
 
 | Gap | Issue | Solution | Applied In |
 |-----|-------|----------|------------|
-| Report as afterthought | Competitors treat reports as expoissen-only; no in-tool preview | Dedicated HTML Report wireframe with interactive timeline and live preview in TUI report panel | HTML Report, TUI Report Generation |
+| Report as afterthought | Competitors treat reports as export-only; no in-tool preview | Dedicated HTML Report wireframe with interactive timeline and live preview in TUI report panel | HTML Report, TUI Report Generation |
 | Information overload | 50K+ timeline events overwhelm examiners without visual density cues | Timeline density heatmap with anomaly highlighting; progressive disclosure via expandable rows | TUI Dashboard, HTML Report Timeline |
 | No artifact-source visual language | Other tools use plain text lists with no color coding by source type | 12-color artifact-source palette with icon + text prefix for color independence | All surfaces |
 | CLI as second-class citizen | Forensic tools assume GUI; CLI output is unstructured dump | Structured CLI output with progress bars, columnar alignment, and `--json`/`--plain` modes | CLI Output screens |
@@ -67,7 +67,7 @@ Beyond the base palette defined in UI_DESIGN_SYSTEM.md, these semantic colors ar
 | `--color-hash-mismatch` | `#DC2626` (red-600) | `#F87171` (red-400) | Hash verification failed |
 | `--color-cli-heading` | N/A | `#F59E0B` (amber-500) | CLI section headings (ANSI bold + color) |
 | `--color-cli-progress` | N/A | `#475569` (slate-600) | CLI progress bar fill |
-| `--color-repoissen-cover-bg` | `#F8FAFC` (slate-50) | N/A | HTML report cover page background (always light) |
+| `--color-report-cover-bg` | `#F8FAFC` (slate-50) | N/A | HTML report cover page background (always light) |
 
 ---
 
@@ -464,7 +464,7 @@ $ rt ingest ./evidence/case-2024-0042/
 | Element | Token/Size | Notes |
 |---------|------------|-------|
 | Report title | `--font-display`, `--text-2xl` (33.2px), `--font-bold` | Centered, light mode always for reports |
-| Case metadata | `--font-body`, `--text-base`, `--color-text-primary` on `--color-repoissen-cover-bg` | Card with subtle border |
+| Case metadata | `--font-body`, `--text-base`, `--color-text-primary` on `--color-report-cover-bg` | Card with subtle border |
 | Integrity badge | `--font-mono` for hash, `--color-hash-verified` accent | Prominent placement below metadata |
 | Skip links | `--font-body`, `--text-sm`, `--color-primary` underlined | 6 targets: summary, timeline, findings, methodology, appendices, glossary |
 | Executive summary | `--font-body`, `--text-base`, `--leading-relaxed` (1.625) | Narrative paragraph style |

@@ -187,7 +187,7 @@ mod tests {
         let anchor = sample_event(1_000, "failed logon burst");
         let consequent = sample_event(2_000, "successful logon");
         store
-            .inseissen_batch(&[anchor.clone(), consequent.clone()])
+            .insert_batch(&[anchor.clone(), consequent.clone()])
             .expect("ingest");
         let anchor_id = store
             .timeline_id_for_hash(&anchor.record_hash)

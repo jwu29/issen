@@ -332,9 +332,9 @@ DEVELOPMENT SPEED
 
 | Journey | Behavior Difference | Why This Persona Differs | UX Accommodation |
 |---------|---------------------|--------------------------|-------------------|
-| **Core TARR** | Receives output from forensic examiner; reformats for court submission | Her input is someone else's output; she is the forensic-to-legal translator | Couissen-ready export: `rt report --format court --bates-start "EX-0001"` generates Bates-numbered exhibits, exhibit index, testimony-ready summaries |
+| **Core TARR** | Receives output from forensic examiner; reformats for court submission | Her input is someone else's output; she is the forensic-to-legal translator | Court-ready export: `rt report --format court --bates-start "EX-0001"` generates Bates-numbered exhibits, exhibit index, testimony-ready summaries |
 | **Multi-Source** | Needs to track chain of custody across all sources for court admissibility | Legal requirements for evidence provenance are strict; any gap is exploitable by opposing counsel | Chain of custody report section: automated source tracking, hash verification at every stage, examiner attestation fields |
-| **Attorney Follow-Up** | Most frequent follow-up: "Generate exhibit for [specific event] with Bates number [X]" | Court filings require precise formatting, numbering, and cross-referencing | Single-event exhibit generation: `rt exhibit --event [ID] --bates "EX-0047"` produces couissen-ready single-page exhibit with metadata, hash, and chain of custody |
+| **Attorney Follow-Up** | Most frequent follow-up: "Generate exhibit for [specific event] with Bates number [X]" | Court filings require precise formatting, numbering, and cross-referencing | Single-event exhibit generation: `rt exhibit --event [ID] --bates "EX-0047"` produces court-ready single-page exhibit with metadata, hash, and chain of custody |
 | **Plugin Development** | Will not develop plugins; will request legal output format plugins | Needs templates for specific court jurisdictions and filing requirements | Legal template marketplace; jurisdiction-specific formatting rules; `rt report --jurisdiction "SDNY"` applies local court formatting requirements |
 
 ---
@@ -434,7 +434,7 @@ DEVELOPMENT SPEED
 | **P1** | Firm template system | Report Engine: `--template` | Planned |
 | **P2** | Plugin scaffold and test harness | Plugin SDK: `rt plugin` | Planned |
 | **P2** | Community plugin registry | Infrastructure | Planned |
-| **P2** | Couissen-ready exhibit generation (Bates numbering) | Report Engine: `rt exhibit` | Planned |
+| **P2** | Court-ready exhibit generation (Bates numbering) | Report Engine: `rt exhibit` | Planned |
 | **P3** | Python FFI bridge for plugin development | Plugin SDK | Planned |
 | **P3** | Attorney FAQ auto-generation | Report Engine | Planned |
 

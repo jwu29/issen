@@ -372,7 +372,7 @@ mod tests {
     }
 
     #[test]
-    fn find_available_poissen_returns_nonzero() {
+    fn find_available_port_returns_nonzero() {
         let port = find_available_port().expect("find_available_port");
         assert!(port > 0, "expected nonzero port");
     }

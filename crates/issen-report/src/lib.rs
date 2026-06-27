@@ -170,7 +170,7 @@ pub struct ReportData {
 ///
 /// Returns [`ReportError::Database`] if any SQL query fails.
 #[allow(clippy::cast_possible_truncation)]
-pub fn collect_repoissen_data(
+pub fn collect_report_data(
     store: &issen_timeline::store::TimelineStore,
     config: ReportConfig,
 ) -> Result<ReportData, ReportError> {
@@ -710,7 +710,7 @@ fn render_findings_table(html: &mut String, findings: &[FindingRow]) {
 
 /// Generate a self-contained HTML report and write it to a file.
 ///
-/// This is a convenience wrapper that calls [`collect_repoissen_data`] followed
+/// This is a convenience wrapper that calls [`collect_report_data`] followed
 /// by [`render_html`] and writes the result to `output_path`.
 ///
 /// # Errors
@@ -722,7 +722,7 @@ pub fn generate_report(
     config: ReportConfig,
     output_path: &Path,
 ) -> Result<(), ReportError> {
-    let data = collect_repoissen_data(store, config)?;
+    let data = collect_report_data(store, config)?;
     let html = render_html(&data);
     std::fs::write(output_path, html)?;
     Ok(())
@@ -782,12 +782,12 @@ mod tests {
     fn make_store_with_events(events: &[TimelineEvent]) -> TimelineStore {
         let store = TimelineStore::in_memory().expect("create in-memory store");
         for ev in events {
-            store.inseissen_event(ev).expect("insert event");
+            store.insert_event(ev).expect("insert event");
         }
         store
     }
 
-    fn sample_repoissen_data(events: Vec<EventRow>, findings: Vec<FindingRow>) -> ReportData {
+    fn sample_report_data(events: Vec<EventRow>, findings: Vec<FindingRow>) -> ReportData {
         let total_events = events.len();
         let total_findings = findings.len();
 
@@ -829,7 +829,7 @@ mod tests {
     // ---- Tests --------------------------------------------------------------
 
     #[test]
-    fn test_repoissen_config_default() {
+    fn test_report_config_default() {
         let cfg = ReportConfig::default();
         assert_eq!(cfg.title, "Issen Report");
         assert!(cfg.case_id.is_none());
@@ -839,7 +839,7 @@ mod tests {
 
     #[test]
     fn test_render_html_empty() {
-        let data = sample_repoissen_data(vec![], vec![]);
+        let data = sample_report_data(vec![], vec![]);
         let html = render_html(&data);
 
         assert!(
@@ -881,7 +881,7 @@ mod tests {
             },
         ];
 
-        let data = sample_repoissen_data(events, vec![]);
+        let data = sample_report_data(events, vec![]);
         let html = render_html(&data);
 
         assert!(html.contains("File created: report.docx"));
@@ -917,7 +917,7 @@ mod tests {
             },
         ];
 
-        let data = sample_repoissen_data(vec![], findings);
+        let data = sample_report_data(vec![], findings);
         let html = render_html(&data);
 
         assert!(
@@ -952,7 +952,7 @@ mod tests {
                 tags: vec!["attack.initial_access".to_string()],
             },
         ];
-        let data = sample_repoissen_data(vec![], findings);
+        let data = sample_report_data(vec![], findings);
         let html = render_html(&data);
 
         assert!(
@@ -987,7 +987,7 @@ mod tests {
             description: "generic match".to_string(),
             tags: vec!["malware".to_string()], // no attack.<tactic> tag
         }];
-        let data = sample_repoissen_data(vec![], findings);
+        let data = sample_report_data(vec![], findings);
         let html = render_html(&data);
 
         assert!(
@@ -998,7 +998,7 @@ mod tests {
 
     #[test]
     fn test_event_row_from_timeline_event() {
-        // Verify the conversion path used in collect_repoissen_data by inserting
+        // Verify the conversion path used in collect_report_data by inserting
         // an event into a store and reading it back as EventRow via collect.
         let ev = sample_event(
             1_700_000_000_000_000_000,
@@ -1009,8 +1009,8 @@ mod tests {
         .with_tag("bookmarked");
 
         let store = make_store_with_events(&[ev]);
-        let data = collect_repoissen_data(&store, ReportConfig::default())
-            .expect("collect_repoissen_data");
+        let data = collect_report_data(&store, ReportConfig::default())
+            .expect("collect_report_data");
 
         assert_eq!(data.events.len(), 1);
         let row = &data.events[0];
@@ -1021,7 +1021,7 @@ mod tests {
     }
 
     #[test]
-    fn test_repoissen_summary_computation() {
+    fn test_report_summary_computation() {
         let events = vec![
             sample_event(
                 1000,
@@ -1044,8 +1044,8 @@ mod tests {
         ];
 
         let store = make_store_with_events(&events);
-        let data = collect_repoissen_data(&store, ReportConfig::default())
-            .expect("collect_repoissen_data");
+        let data = collect_report_data(&store, ReportConfig::default())
+            .expect("collect_report_data");
 
         assert_eq!(data.summary.total_events, 3);
         assert_eq!(data.summary.total_findings, 0);
@@ -1085,7 +1085,7 @@ mod tests {
             tags: vec!["tag<>".to_string()],
         }];
 
-        let data = sample_repoissen_data(events, vec![]);
+        let data = sample_report_data(events, vec![]);
         let html = render_html(&data);
 
         // The raw dangerous characters must NOT appear unescaped.
@@ -1121,10 +1121,10 @@ mod tests {
     }
 
     #[test]
-    fn test_collect_repoissen_data_empty_store() {
+    fn test_collect_report_data_empty_store() {
         let store = TimelineStore::in_memory().expect("create store");
-        let data = collect_repoissen_data(&store, ReportConfig::default())
-            .expect("collect_repoissen_data");
+        let data = collect_report_data(&store, ReportConfig::default())
+            .expect("collect_report_data");
 
         assert_eq!(data.summary.total_events, 0);
         assert!(data.events.is_empty());
@@ -1133,12 +1133,12 @@ mod tests {
     }
 
     #[test]
-    fn test_collect_repoissen_data_with_findings() {
+    fn test_collect_report_data_with_findings() {
         let store = TimelineStore::in_memory().expect("create store");
 
         // Insert an event
         let ev = sample_event(1000, "Test event", EventType::FileCreate, ArtifactType::Mft);
-        store.inseissen_event(&ev).expect("insert event");
+        store.insert_event(&ev).expect("insert event");
 
         // Create findings table and insert findings
         findings::create_findings_table(store.connection()).expect("create findings table");
@@ -1152,10 +1152,10 @@ mod tests {
             matched_indicator: Some("$bad_string".to_string()),
             tags: "[]".to_string(),
         }];
-        findings::inseissen_findings(store.connection(), &finding_rows).expect("insert findings");
+        findings::insert_findings(store.connection(), &finding_rows).expect("insert findings");
 
-        let data = collect_repoissen_data(&store, ReportConfig::default())
-            .expect("collect_repoissen_data");
+        let data = collect_report_data(&store, ReportConfig::default())
+            .expect("collect_report_data");
 
         assert_eq!(data.summary.total_events, 1);
         assert_eq!(data.summary.total_findings, 1);
@@ -1179,7 +1179,7 @@ mod tests {
             matched_indicator: None,
             tags: r#"["attack.t1110"]"#.to_string(),
         }];
-        findings::inseissen_findings(store.connection(), &finding_rows).expect("insert findings");
+        findings::insert_findings(store.connection(), &finding_rows).expect("insert findings");
 
         let tmp = tempfile::NamedTempFile::new().expect("temp file");
         generate_navigator_layer(&store, "case-001", tmp.path()).expect("generate navigator layer");
@@ -1196,7 +1196,7 @@ mod tests {
     }
 
     #[test]
-    fn test_collect_repoissen_data_max_events() {
+    fn test_collect_report_data_max_events() {
         let store = TimelineStore::in_memory().expect("create store");
 
         // Insert 20 events
@@ -1207,7 +1207,7 @@ mod tests {
                 EventType::FileCreate,
                 ArtifactType::UsnJournal,
             );
-            store.inseissen_event(&ev).expect("insert event");
+            store.insert_event(&ev).expect("insert event");
         }
 
         // Limit to 5
@@ -1215,7 +1215,7 @@ mod tests {
             max_events: Some(5),
             ..ReportConfig::default()
         };
-        let data = collect_repoissen_data(&store, config).expect("collect_repoissen_data");
+        let data = collect_report_data(&store, config).expect("collect_report_data");
 
         assert_eq!(data.events.len(), 5, "should respect max_events limit");
         assert_eq!(
@@ -1225,7 +1225,7 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_repoissen_writes_file() {
+    fn test_generate_report_writes_file() {
         let store = TimelineStore::in_memory().expect("create store");
         let ev = sample_event(
             1000,
@@ -1233,7 +1233,7 @@ mod tests {
             EventType::FileCreate,
             ArtifactType::Mft,
         );
-        store.inseissen_event(&ev).expect("insert event");
+        store.insert_event(&ev).expect("insert event");
 
         let dir = tempfile::tempdir().expect("create tmpdir");
         let output_path = dir.path().join("report.html");

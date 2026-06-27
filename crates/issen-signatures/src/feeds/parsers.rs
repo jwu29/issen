@@ -41,7 +41,7 @@ pub fn parse_plaintext_hashes(
         }
         // Take first whitespace-separated field (some feeds have trailing comments).
         let hash = trimmed.split_whitespace().next().unwrap_or(trimmed);
-        if store.inseissen_bad(hash).is_ok() {
+        if store.insert_bad(hash).is_ok() {
             count += 1;
         }
     }
@@ -64,15 +64,15 @@ pub fn parse_plaintext_network(
         let indicator = trimmed.split_whitespace().next().unwrap_or(trimmed);
 
         if indicator.contains('/') {
-            if store.inseissen_cidr(indicator).is_ok() {
+            if store.insert_cidr(indicator).is_ok() {
                 count += 1;
             }
         } else if indicator.parse::<std::net::IpAddr>().is_ok() {
-            if store.inseissen_ip(indicator).is_ok() {
+            if store.insert_ip(indicator).is_ok() {
                 count += 1;
             }
         } else {
-            store.inseissen_domain(indicator);
+            store.insert_domain(indicator);
             count += 1;
         }
     }
@@ -114,37 +114,37 @@ pub fn parse_threatfox_csv(
 
         match ioc_type {
             "sha256_hash" => {
-                if hash_store.inseissen_bad(ioc_value).is_ok() {
+                if hash_store.insert_bad(ioc_value).is_ok() {
                     count += 1;
                 }
             }
             "md5_hash" => {
-                if hash_store.inseissen_bad(ioc_value).is_ok() {
+                if hash_store.insert_bad(ioc_value).is_ok() {
                     count += 1;
                 }
             }
             "ip:port" => {
                 // Extract IP from "ip:port" format.
                 let ip = ioc_value.split(':').next().unwrap_or(ioc_value);
-                if network_store.inseissen_ip(ip).is_ok() {
+                if network_store.insert_ip(ip).is_ok() {
                     count += 1;
                 }
             }
             "domain" => {
-                network_store.inseissen_domain(ioc_value);
+                network_store.insert_domain(ioc_value);
                 count += 1;
             }
             "url" => {
                 // Extract domain from URL and add it.
                 let domain = extract_domain_from_url(ioc_value);
                 if !domain.is_empty() {
-                    network_store.inseissen_domain(&domain);
+                    network_store.insert_domain(&domain);
                     count += 1;
                 }
             }
             _ => {
                 // Unknown IOC type — try as hash or network indicator.
-                if hash_store.inseissen_bad(ioc_value).is_ok() {
+                if hash_store.insert_bad(ioc_value).is_ok() {
                     count += 1;
                 }
             }

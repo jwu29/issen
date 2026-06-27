@@ -386,7 +386,7 @@ mod tests {
 
     fn store_with(events: &[TimelineEvent]) -> TimelineStore {
         let store = TimelineStore::in_memory().expect("store");
-        store.inseissen_batch(events).expect("ingest");
+        store.insert_batch(events).expect("ingest");
         store
     }
 
@@ -526,7 +526,7 @@ mod tests {
             "Administrator",
             "194.61.24.102",
         ));
-        store.inseissen_batch(&events).expect("ingest");
+        store.insert_batch(&events).expect("ingest");
 
         let fired = store.run_and_persist().expect("run");
         assert!(
@@ -551,7 +551,7 @@ mod tests {
             .map(|i| logon_success(i * 1_000_000_000, "fe80::2dcf:e660:be73:d220"))
             .collect();
         events.push(logon_success(200_000_000_000, "fe80::2dcf:e660:be73:d220"));
-        store.inseissen_batch(&events).expect("ingest");
+        store.insert_batch(&events).expect("ingest");
 
         let fired = store.run_and_persist().expect("run");
         assert!(

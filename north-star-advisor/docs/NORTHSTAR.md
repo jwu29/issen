@@ -112,7 +112,7 @@ The North Star decomposes into input metrics that teams can directly influence:
 | User Need | Current Pain | Our Solution |
 |-----------|--------------|--------------|
 | Get from evidence to deliverable fast | Analysis takes 20% of time; report writing, reformatting, and attorney back-and-forth takes 80% | Integrated pipeline: parse, triage, narrate, deliver --- one tool, one workflow |
-| Produce couissen-admissible reports | Manual copy-paste between tools breaks chain-of-custody documentation; attorneys question methodology | Automated chain-of-custody tracking, standardized methodology documentation, exhibit-ready formatting |
+| Produce court-admissible reports | Manual copy-paste between tools breaks chain-of-custody documentation; attorneys question methodology | Automated chain-of-custody tracking, standardized methodology documentation, exhibit-ready formatting |
 | Handle multiple concurrent cases | Each case requires rebuilding analysis environment, finding templates, remembering tool workflows | Case-centric workspace with persistent state, reusable templates, and consistent methodology across engagements |
 
 ---
@@ -209,7 +209,7 @@ Demographics: 31, litigation support analyst at an Am Law 200 firm,
   paralegal background with forensic technology training. Manages the
   evidence-to-courtroom pipeline for 10-15 matters at a time.
 Current State: Receives forensic reports from internal examiners or
-  outside consultants. Reformats findings into couissen-filing format,
+  outside consultants. Reformats findings into court-filing format,
   creates exhibit lists, ensures Bates numbering, and prepares
   deposition binders. Uses Relativity for document review but
   forensic artifacts arrive as raw CSVs or poorly formatted PDFs.
@@ -318,7 +318,7 @@ Understanding what drives users toward Issen and what holds them back.
 | **USN Journal parsing (usnjrnl-forensic)** | Parses $UsnJrnl:$J with full record type support; matches or exceeds MFTECmd accuracy | USN Journal is the single most valuable Windows triage artifact for timeline reconstruction |
 | **Unified timeline generation (tl)** | Merges parsed artifacts into a single, sortable, filterable timeline view | Timeline is the core analytical view; everything flows from temporal ordering |
 | **Interactive HTML report** | Navigable HTML report with timeline visualization, artifact drill-down, and executive summary | The "wow" deliverable --- attorneys can explore evidence without examiner hand-holding |
-| **Word/PDF expert witness report** | Formatted .docx with methodology section, findings narrative, exhibit references, and chain-of-custody appendix | The couissen-filing deliverable --- what the attorney actually submits |
+| **Word/PDF expert witness report** | Formatted .docx with methodology section, findings narrative, exhibit references, and chain-of-custody appendix | The court-filing deliverable --- what the attorney actually submits |
 | **E01/raw disk image support (ewf)** | Reads EnCase E01 format and raw disk images directly | E01 is the de facto standard evidence container in DFIR; not supporting it is a non-starter |
 | **Chain-of-custody documentation** | Automated hash verification at ingestion; documented methodology in every report | Courtroom credibility requires documented chain-of-custody from evidence receipt through analysis |
 
@@ -332,7 +332,7 @@ Understanding what drives users toward Issen and what holds them back.
 | **GUI/desktop application** | CLI + report output first. GUI is Phase 2. Practitioners are comfortable with CLI. |
 | **Cloud/SaaS deployment** | Forensic evidence cannot leave examiner's machine in most engagements. Local-first is both simpler and required. |
 | **Mobile artifact support** | Different evidence domain (Cellebrite territory). Windows-first strategy. |
-| **AI/LLM-assisted narrative generation** | Tempting but risky for couissen-admissible work. Must nail deterministic report generation first. |
+| **AI/LLM-assisted narrative generation** | Tempting but risky for court-admissible work. Must nail deterministic report generation first. |
 
 **Phase 1 Success Criteria**:
 
@@ -415,7 +415,7 @@ These features are explicitly out of scope regardless of phase. They represent s
 | **eDiscovery / document review platform** | Different problem, different users, different regulatory requirements. Issen produces evidence for Relativity/Nuix; it does not replace them. (Brand: "Not an eDiscovery platform") |
 | **Real-time detection / SIEM functionality** | Post-incident forensic analysis, not real-time monitoring. Alert fatigue and detection engineering are entirely different domains. (Brand: "Not a SIEM/SOC tool") |
 | **Enterprise-first feature prioritization** | Solo examiner and small IR team first. Enterprise features come in Phase 3 after product-market fit is proven with practitioners. (Brand: "Not enterprise-first") |
-| **AI-generated expert opinions** | The examiner provides expert opinion; the tool eliminates translation work. Generating forensic conclusions via LLM is ethically and legally dangerous for couissen-admissible work. (Brand: "Not a competitor to the examiner") |
+| **AI-generated expert opinions** | The examiner provides expert opinion; the tool eliminates translation work. Generating forensic conclusions via LLM is ethically and legally dangerous for court-admissible work. (Brand: "Not a competitor to the examiner") |
 | **Mobile device forensics** | Cellebrite and MSAB own this market with hardware-level extraction. Mobile is a different evidence domain requiring different parsers, different legal frameworks, and different expertise. |
 | **Memory forensics** | Volatility/Rekall are excellent and open-source. Memory analysis is a specialized skill; integrating it adds massive complexity without improving the deliverable pipeline. |
 | **Malware analysis / sandboxing** | Separate discipline with dedicated tools (Cuckoo, ANY.RUN, Joe Sandbox). Issen may reference malware findings but does not perform dynamic analysis. |
@@ -581,7 +581,7 @@ EVIDENCE INPUT (E01 / Raw / KAPE output / Velociraptor output)
 
 | Constraint | Requirement | Rationale |
 |------------|-------------|-----------|
-| **Correctness** | 100% parse accuracy vs. reference tools (EZ Tools, AXIOM) | Couissen-admissible work has zero tolerance for parsing errors. One wrong timestamp destroys credibility. |
+| **Correctness** | 100% parse accuracy vs. reference tools (EZ Tools, AXIOM) | Court-admissible work has zero tolerance for parsing errors. One wrong timestamp destroys credibility. |
 | **Single binary** | No runtime dependencies (no Python, Java, .NET, Docker) | Examiners work on locked-down forensic workstations. Complex installs are adoption killers. |
 | **Local-first** | Evidence never transmitted over network by default | Forensic evidence is legally sensitive. Many engagements prohibit cloud processing. Client trust requires local processing. |
 | **Cross-platform** | Windows primary, macOS/Linux secondary | Forensic workstations are predominantly Windows. Rust enables cross-platform from single codebase. |
@@ -628,7 +628,7 @@ EVIDENCE INPUT (E01 / Raw / KAPE output / Velociraptor output)
 
 | Risk | Monitoring | Threshold | Action |
 |------|------------|-----------|--------|
-| Solo founder burnout / bus factor | Weekly development velocity tracking; community contributor pipeline | 2+ consecutive weeks of zero commits; no community contributors after 6 months | Prioritize contributor onboarding documentation; consider paissen-time contract help funded by consulting revenue |
+| Solo founder burnout / bus factor | Weekly development velocity tracking; community contributor pipeline | 2+ consecutive weeks of zero commits; no community contributors after 6 months | Prioritize contributor onboarding documentation; consider part-time contract help funded by consulting revenue |
 | Rust ecosystem gaps (docx generation, complex formatting) | Track blocking issues in rust-docx and alternative libraries | Word report generation requires > 50% Python subprocess calls | Invest in Rust docx library contribution or accept Python dependency for report generation |
 | Evidence format incompatibility | Beta user evidence ingestion success rate | > 10% of beta evidence sets fail to ingest | Prioritize format support; add specific error messages guiding workarounds |
 | Performance regression on large evidence sets | Benchmark suite on 10GB, 50GB, 100GB evidence sets | P95 pipeline time exceeds 2x target | Profile and optimize; consider streaming/incremental processing |
