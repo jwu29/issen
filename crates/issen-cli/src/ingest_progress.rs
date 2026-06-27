@@ -48,6 +48,8 @@ impl SourceProgress {
     /// bounds this source's worker-bar count so the *combined* stack stays readable.
     #[must_use]
     pub fn start(mp: &MultiProgress, label: &str, render: bool, num_sources: usize) -> Self {
+        // Bound the COMBINED multi-source worker-bar stack (short-terminal safe).
+        const MAX_TOTAL_WORKER_BARS: usize = 12;
         let stop = Arc::new(AtomicBool::new(false));
         if !render {
             return Self {
@@ -62,7 +64,6 @@ impl SourceProgress {
         // One worker slot/bar per parsing thread, but bounded so the COMBINED
         // multi-source stack stays readable on a short terminal (the reporter's
         // slot count must match the bar count).
-        const MAX_TOTAL_WORKER_BARS: usize = 12;
         let cores = std::thread::available_parallelism()
             .map(std::num::NonZeroUsize::get)
             .unwrap_or(1);

@@ -610,7 +610,7 @@ impl TypedQuery {
         let dir = if self.ascending { "ASC" } else { "DESC" };
         let limit = self.limit.map_or(String::new(), |l| format!(" LIMIT {l}"));
 
-        // Rank the whole timeline chronologically, then keep any row within ±N
+        // Rank the whole timeline chronologically, then keep any row within +/-N
         // ranks of a match. Params appear in TEXT order: the matches-CTE WHERE
         // first, then the outer projection list. `n` is a validated u64 (safe to
         // inline); all analyst values stay bound parameters.

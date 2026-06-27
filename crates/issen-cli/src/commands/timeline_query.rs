@@ -307,7 +307,7 @@ pub fn parse_window(s: &str) -> Result<i64> {
         .ok_or_else(|| anyhow::anyhow!("window '{s}' is too large to represent"))
 }
 
-/// The half-open `[from, to]` ns bounds centered on `pivot_ns`, ± `window_ns`,
+/// The half-open `[from, to]` ns bounds centered on `pivot_ns`, +/- `window_ns`,
 /// saturating at `i64` limits so an extreme pivot/window can never overflow.
 pub fn around_bounds(pivot_ns: i64, window_ns: i64) -> (i64, i64) {
     (
