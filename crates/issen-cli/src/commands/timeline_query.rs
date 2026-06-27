@@ -275,6 +275,25 @@ pub fn parse_timestamp(s: &str) -> Result<i64> {
     )
 }
 
+/// Parse a duration window like `30s`, `5m`, `2h`, `1d` into nanoseconds.
+///
+/// A bare number is rejected — the unit must be explicit so `--around 03:47
+/// --window 5` can never silently mean 5 nanoseconds. Used by `--around` to
+/// build a symmetric `[pivot-window, pivot+window]` slice.
+pub fn parse_window(s: &str) -> Result<i64> {
+    // STUB (RED).
+    let _ = s;
+    Ok(0)
+}
+
+/// The half-open `[from, to]` ns bounds centered on `pivot_ns`, ± `window_ns`,
+/// saturating at `i64` limits so an extreme pivot/window can never overflow.
+pub fn around_bounds(pivot_ns: i64, window_ns: i64) -> (i64, i64) {
+    // STUB (RED).
+    let _ = (pivot_ns, window_ns);
+    (0, 0)
+}
+
 /// Run the Tier-1 typed query and render the result. Read-only by construction.
 pub fn run(db_path: &Path, args: &QueryArgs) -> Result<()> {
     let (query, filters_desc) = build_query(args)?;
@@ -373,5 +392,33 @@ mod tests {
         };
         let err = build_query(&args).expect_err("must fail loud").to_string();
         assert!(err.contains("logon"), "{err}");
+    }
+
+    #[test]
+    fn parse_window_requires_an_explicit_unit() {
+        assert_eq!(parse_window("30s").expect("s"), 30 * 1_000_000_000);
+        assert_eq!(parse_window("5m").expect("m"), 5 * 60 * 1_000_000_000);
+        assert_eq!(parse_window("2h").expect("h"), 2 * 3_600 * 1_000_000_000);
+        assert_eq!(parse_window("1d").expect("d"), 24 * 3_600 * 1_000_000_000);
+        // A bare number must be rejected — never silently mean nanoseconds.
+        assert!(parse_window("5").is_err(), "bare number rejected");
+        assert!(parse_window("5x").is_err(), "unknown unit rejected");
+        assert!(parse_window("").is_err(), "empty rejected");
+        assert!(parse_window("m").is_err(), "missing magnitude rejected");
+    }
+
+    #[test]
+    fn around_bounds_is_symmetric_and_saturates() {
+        assert_eq!(around_bounds(1_000, 300), (700, 1_300));
+        assert_eq!(
+            around_bounds(i64::MAX, 1_000),
+            (i64::MAX - 1_000, i64::MAX),
+            "near-max pivot must not overflow"
+        );
+        assert_eq!(
+            around_bounds(i64::MIN, 1_000),
+            (i64::MIN, i64::MIN + 1_000),
+            "near-min pivot must not underflow"
+        );
     }
 }
