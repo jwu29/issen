@@ -297,6 +297,7 @@ pub fn extract_7z_capped(
 
 #[cfg(test)]
 mod unit {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     #[test]
@@ -332,5 +333,87 @@ mod unit {
     fn safe_join_empty_is_none() {
         assert!(safe_join(Path::new("/x"), Path::new("")).is_none());
         assert!(safe_join(Path::new("/x"), Path::new(".")).is_none());
+    }
+
+    /// Write a zip at `path` containing the given `(name, contents)` file
+    /// entries plus the given directory entries, stored (no compression).
+    fn mint_zip(path: &Path, files: &[(&str, &[u8])], dirs: &[&str]) {
+        let file = std::fs::File::create(path).unwrap();
+        let mut zw = zip::ZipWriter::new(file);
+        let opts = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+        for dir in dirs {
+            zw.add_directory(*dir, opts).unwrap();
+        }
+        for (name, contents) in files {
+            zw.start_file(*name, opts).unwrap();
+            zw.write_all(contents).unwrap();
+        }
+        zw.finish().unwrap();
+    }
+
+    #[test]
+    fn extract_zip_capped_multi_entry() {
+        let tmp = tempfile::tempdir().unwrap();
+        let zip_path = tmp.path().join("multi.zip");
+        mint_zip(
+            &zip_path,
+            &[
+                ("a.txt", b"alpha"),
+                ("sub/b.txt", b"bravo-bravo"),
+                ("c.bin", &[0u8, 1, 2, 3, 4, 5]),
+            ],
+            &[],
+        );
+
+        let dest = tmp.path().join("out");
+        let report = extract_zip_capped(&zip_path, &dest, 1024).unwrap();
+
+        assert_eq!(report.written, 3);
+        assert!(report.refused.is_empty());
+        assert_eq!(std::fs::read(dest.join("a.txt")).unwrap(), b"alpha");
+        assert_eq!(
+            std::fs::read(dest.join("sub/b.txt")).unwrap(),
+            b"bravo-bravo"
+        );
+        assert_eq!(
+            std::fs::read(dest.join("c.bin")).unwrap(),
+            vec![0u8, 1, 2, 3, 4, 5]
+        );
+    }
+
+    #[test]
+    fn extract_zip_capped_bomb_cap_trips() {
+        let tmp = tempfile::tempdir().unwrap();
+        let zip_path = tmp.path().join("bomb.zip");
+        // Two entries whose combined uncompressed size (200 bytes) exceeds a
+        // tiny cap of 64 bytes -> must Err (bomb defense), nothing escapes.
+        mint_zip(
+            &zip_path,
+            &[("big1.bin", &[0u8; 100]), ("big2.bin", &[0u8; 100])],
+            &[],
+        );
+
+        let dest = tmp.path().join("out");
+        let err = extract_zip_capped(&zip_path, &dest, 64);
+        assert!(err.is_err(), "expected bomb-cap Err, got {err:?}");
+    }
+
+    #[test]
+    fn extract_zip_capped_dir_and_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let zip_path = tmp.path().join("dir.zip");
+        mint_zip(&zip_path, &[("data/payload.txt", b"payload")], &["data/"]);
+
+        let dest = tmp.path().join("out");
+        let report = extract_zip_capped(&zip_path, &dest, 1024).unwrap();
+
+        assert_eq!(report.written, 1);
+        assert!(report.refused.is_empty());
+        assert!(dest.join("data").is_dir());
+        assert_eq!(
+            std::fs::read(dest.join("data/payload.txt")).unwrap(),
+            b"payload"
+        );
     }
 }
