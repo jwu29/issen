@@ -151,3 +151,33 @@ impl SourceProgress {
         }
     }
 }
+
+/// Worker slots (child bars) to show for ONE source so the *total* across all
+/// sources stays readable on a short terminal: each source keeps >= 1 slot, slots
+/// are capped at 6, and the global total (sources x slots) is bounded by
+/// `max_total`. Pure decision (Humble Object) — unit-tested apart from the draw
+/// shell, which is why the multi-source bar stack no longer clips.
+fn workers_per_source(cores: usize, num_sources: usize, max_total: usize) -> usize {
+    // STUB (RED): ignores the per-source budget.
+    let _ = (num_sources, max_total);
+    cores.clamp(1, 6)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::workers_per_source;
+
+    #[test]
+    fn workers_per_source_bounds_the_global_total() {
+        // One source on an 8-core box: the per-source cap (6) applies.
+        assert_eq!(workers_per_source(8, 1, 12), 6);
+        // Four sources sharing a 12-bar budget: 3 each (4 x 3 = 12).
+        assert_eq!(workers_per_source(8, 4, 12), 3);
+        // Many sources never drop below one slot apiece.
+        assert_eq!(workers_per_source(8, 100, 12), 1);
+        // Few cores still bound the per-source count.
+        assert_eq!(workers_per_source(2, 1, 12), 2);
+        // Zero/unknown cores floor at one.
+        assert_eq!(workers_per_source(0, 1, 12), 1);
+    }
+}
