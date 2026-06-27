@@ -43,6 +43,19 @@ fn feed_snapshot() -> String {
     "v0".to_string()
 }
 
+/// Classify evidence by CONTENT, not just the path's own extension.
+///
+/// A raw file is classified by its extension ([`pipeline::classify`]). An
+/// *archive* is classified by what it HOLDS: each member name is run through the
+/// same pure rule, and the archive routes to the memory leg if it contains a
+/// memory dump, else the disk leg. So a zipped `.mem` reaches the memory leg by
+/// its content — never by a filename special case — and the raw evidence
+/// archives "just work" without a manual extract.
+fn classify_evidence(path: &Path) -> Option<EvidenceKind> {
+    // STUB (RED): extension-only; ignores archive contents.
+    pipeline::classify(&path.to_string_lossy())
+}
+
 /// Run the resumable pipeline over `evidence`.
 ///
 /// # Errors
@@ -323,5 +336,53 @@ fn short_label(stage: Stage) -> &'static str {
         Stage::Memory => "memory",
         Stage::Correlate => "correlate",
         Stage::Scan => "scan",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write as _;
+
+    fn zip_with(dir: &Path, name: &str, members: &[&str]) -> PathBuf {
+        let path = dir.join(name);
+        let f = std::fs::File::create(&path).unwrap();
+        let mut zw = zip::ZipWriter::new(f);
+        let opts = zip::write::SimpleFileOptions::default();
+        for m in members {
+            zw.start_file(*m, opts).unwrap();
+            zw.write_all(b"x").unwrap();
+        }
+        zw.finish().unwrap();
+        path
+    }
+
+    #[test]
+    fn classify_evidence_routes_archives_by_content_not_extension() {
+        let dir = tempfile::tempdir().unwrap();
+        // A zip holding a .mem must reach the MEMORY leg by its content — even
+        // though its own extension (.zip) maps to Disk.
+        let memzip = zip_with(dir.path(), "DC01-memory.zip", &["citadeldc01.mem"]);
+        assert_eq!(classify_evidence(&memzip), Some(EvidenceKind::Memory));
+        // A zip holding E01 segments routes to the DISK leg.
+        let diskzip = zip_with(
+            dir.path(),
+            "DC01-E01.zip",
+            &[
+                "E01-DC01/CDrive.E01",
+                "E01-DC01/CDrive.E02",
+                "E01-DC01/CDrive.E01.txt",
+            ],
+        );
+        assert_eq!(classify_evidence(&diskzip), Some(EvidenceKind::Disk));
+        // Raw (non-archive) files still route by their own extension.
+        assert_eq!(
+            classify_evidence(Path::new("/x/citadeldc01.mem")),
+            Some(EvidenceKind::Memory)
+        );
+        assert_eq!(
+            classify_evidence(Path::new("/x/CDrive.E01")),
+            Some(EvidenceKind::Disk)
+        );
     }
 }

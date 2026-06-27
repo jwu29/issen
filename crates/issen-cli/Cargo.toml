@@ -55,6 +55,9 @@ issen-parser-uac = { workspace = true }
 issen-parser-biome = { workspace = true }
 issen-correlation = { workspace = true, features = ["remote"] }
 issen-unpack = { workspace = true }
+issen-archive = { workspace = true }
+zip = { workspace = true }
+tempfile = { workspace = true }
 issen-mem    = { workspace = true }
 issen-evtx   = { workspace = true }
 winevt-core = { workspace = true }
