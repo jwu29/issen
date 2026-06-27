@@ -5246,6 +5246,7 @@ dependencies = [
  "insta",
  "issen-core",
  "issen-correlation",
+ "rayon",
  "rusqlite",
  "serde",
  "serde_json",

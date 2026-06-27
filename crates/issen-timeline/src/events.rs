@@ -9,6 +9,8 @@
 
 use std::time::Duration;
 
+use rayon::prelude::*;
+
 use issen_core::artifacts::ArtifactType;
 use issen_core::timeline::event::{EntityRef, EventType, TimelineEvent};
 
@@ -317,35 +319,46 @@ impl TimelineStore {
 
         let param_refs: Vec<&dyn duckdb::ToSql> = params.iter().map(|p| p.as_ref()).collect();
         let mut stmt = self.connection().prepare(&sql)?;
-        let rows = stmt.query_map(param_refs.as_slice(), |row| {
-            let entity_refs_json: String = row.get(6)?;
-            let entity_refs: Vec<EntityRef> =
-                serde_json::from_str(&entity_refs_json).unwrap_or_default();
-            Ok(StoredEvent {
+        // Read raw (entity_refs unparsed) on the serial DuckDB cursor, then parse
+        // the JSON + build StoredEvents in parallel batches — the per-row JSON
+        // parse is the cost, independent per row, and `collect` preserves order.
+        // Same single-threaded tax that scan's load_timeline_events paid; this is
+        // the correlate side. The entity filter is exact-matched in Rust (the SQL
+        // LIKE is a cheap prefilter; a substring hit is not an entity-equality hit).
+        let raw_rows = stmt.query_map(param_refs.as_slice(), |row| {
+            Ok(RawStoredRow {
                 id: row.get(0)?,
                 timestamp_ns: row.get(1)?,
                 event_type: row.get(2)?,
                 source: row.get(3)?,
                 artifact_path: row.get(4)?,
                 metadata: row.get(5)?,
-                entity_refs,
+                entity_refs_json: row.get(6)?,
                 hostname: row.get(7)?,
                 evidence_source: row.get(8)?,
             })
         })?;
 
-        let mut results = Vec::new();
-        for row in rows {
-            let event = row?;
-            // Exact-match the entity filter in Rust — the SQL LIKE is only a
-            // cheap prefilter; a substring hit is not an entity-equality hit.
-            if let Some(entity) = q.entity.as_ref() {
-                if !event.has_entity(entity) {
-                    continue;
-                }
+        let entity = q.entity.as_ref();
+        let mut results: Vec<StoredEvent> = Vec::new();
+        let mut batch: Vec<RawStoredRow> = Vec::with_capacity(RECONSTRUCT_BATCH);
+        for raw in raw_rows {
+            batch.push(raw?);
+            if batch.len() >= RECONSTRUCT_BATCH {
+                let done: Vec<StoredEvent> = std::mem::take(&mut batch)
+                    .into_par_iter()
+                    .map(reconstruct_stored_event)
+                    .filter(|e| entity.is_none_or(|ent| e.has_entity(ent)))
+                    .collect();
+                results.extend(done);
             }
-            results.push(event);
         }
+        let done: Vec<StoredEvent> = batch
+            .into_par_iter()
+            .map(reconstruct_stored_event)
+            .filter(|e| entity.is_none_or(|ent| e.has_entity(ent)))
+            .collect();
+        results.extend(done);
         Ok(results)
     }
 
@@ -389,49 +402,122 @@ impl TimelineStore {
             })
         })?;
 
-        let mut events = Vec::new();
+        // The DuckDB read above is a serial cursor (cheap — just moves strings).
+        // The per-row RECONSTRUCTION (enum decode + 3 serde_json parses for
+        // entity_refs/tags/metadata) is the bulk of the cost on a multi-million
+        // event timeline, and it is independent per row — so reconstruct on
+        // rayon. Batched so peak memory stays bounded (one batch of raw rows at a
+        // time, not 2x the whole timeline); batches run in order and `collect`
+        // preserves row order, so the timeline stays sorted. `ISSEN_PROFILE_LOAD`
+        // splits the read vs reconstruct time.
+        let profile = std::env::var_os("ISSEN_PROFILE_LOAD").is_some();
+        let (mut read_s, mut rec_s) = (0.0f64, 0.0f64);
+        let mut events: Vec<TimelineEvent> = Vec::new();
+        let mut batch: Vec<RawTimelineRow> = Vec::with_capacity(RECONSTRUCT_BATCH);
+        let mut t = std::time::Instant::now();
         for raw in raw_rows {
-            let r = raw?;
-            let source = ArtifactType::from_debug_str(&r.source).ok_or_else(|| {
-                TimelineStoreError::Query(format!(
-                    "timeline row {}: unknown source token {:?}; cannot reconstruct event",
-                    r.id, r.source
-                ))
-            })?;
-            let entity_refs: Vec<EntityRef> =
-                serde_json::from_str(&r.entity_refs).unwrap_or_default();
-            let tags: Vec<String> =
-                serde_json::from_str(r.tags.as_deref().unwrap_or("[]")).unwrap_or_default();
-            let mut event = TimelineEvent::new(
-                r.timestamp_ns,
-                r.timestamp_display,
-                EventType::from_debug_str(&r.event_type),
-                source,
-                r.artifact_path,
-                r.description,
-                r.evidence_source,
-            );
-            event.user = r.user_account;
-            event.hostname = r.hostname;
-            event.tags = tags;
-            event.entity_refs = entity_refs;
-            event.activity_category = r
-                .activity_category
-                .as_deref()
-                .and_then(issen_core::ActivityCategory::from_code);
-            // Reconstruct the structured metadata map (artifact-specific fields
-            // such as the $FN/$SI timestamps the timestomp detector reads). A
-            // malformed/absent blob degrades to empty rather than dropping the
-            // event.
-            event.metadata = r
-                .metadata
-                .as_deref()
-                .and_then(|s| serde_json::from_str(s).ok())
-                .unwrap_or_default();
-            events.push(event);
+            batch.push(raw?);
+            if batch.len() >= RECONSTRUCT_BATCH {
+                read_s += t.elapsed().as_secs_f64();
+                let t2 = std::time::Instant::now();
+                let done = std::mem::take(&mut batch)
+                    .into_par_iter()
+                    .map(reconstruct_event)
+                    .collect::<Result<Vec<_>, _>>()?;
+                events.extend(done);
+                rec_s += t2.elapsed().as_secs_f64();
+                t = std::time::Instant::now();
+            }
+        }
+        read_s += t.elapsed().as_secs_f64();
+        if !batch.is_empty() {
+            let t2 = std::time::Instant::now();
+            let done = batch
+                .into_par_iter()
+                .map(reconstruct_event)
+                .collect::<Result<Vec<_>, _>>()?;
+            events.extend(done);
+            rec_s += t2.elapsed().as_secs_f64();
+        }
+        if profile {
+            eprintln!("  [load] DuckDB read {read_s:.2}s · parallel reconstruct {rec_s:.2}s");
         }
         Ok(events)
     }
+}
+
+/// Raw rows are reconstructed in batches of this size so peak memory stays
+/// bounded (one batch at a time, not 2x the whole timeline).
+const RECONSTRUCT_BATCH: usize = 65_536;
+
+/// Rebuild one [`TimelineEvent`] from a raw DuckDB row: decode the source/event
+/// enums and parse the `entity_refs`/`tags`/`metadata` JSON. Pure and
+/// independent per row, so the load path runs it across rayon workers.
+fn reconstruct_event(r: RawTimelineRow) -> Result<TimelineEvent, TimelineStoreError> {
+    let source = ArtifactType::from_debug_str(&r.source).ok_or_else(|| {
+        TimelineStoreError::Query(format!(
+            "timeline row {}: unknown source token {:?}; cannot reconstruct event",
+            r.id, r.source
+        ))
+    })?;
+    let entity_refs: Vec<EntityRef> = serde_json::from_str(&r.entity_refs).unwrap_or_default();
+    let tags: Vec<String> =
+        serde_json::from_str(r.tags.as_deref().unwrap_or("[]")).unwrap_or_default();
+    let mut event = TimelineEvent::new(
+        r.timestamp_ns,
+        r.timestamp_display,
+        EventType::from_debug_str(&r.event_type),
+        source,
+        r.artifact_path,
+        r.description,
+        r.evidence_source,
+    );
+    event.user = r.user_account;
+    event.hostname = r.hostname;
+    event.tags = tags;
+    event.entity_refs = entity_refs;
+    event.activity_category = r
+        .activity_category
+        .as_deref()
+        .and_then(issen_core::ActivityCategory::from_code);
+    // Reconstruct the structured metadata map (artifact-specific fields such as
+    // the $FN/$SI timestamps the timestomp detector reads). A malformed/absent
+    // blob degrades to empty rather than dropping the event.
+    event.metadata = r
+        .metadata
+        .as_deref()
+        .and_then(|s| serde_json::from_str(s).ok())
+        .unwrap_or_default();
+    Ok(event)
+}
+
+/// Build a [`StoredEvent`] from a raw fetch row: parse the `entity_refs` JSON.
+/// Pure and independent per row, so `fetch_events` runs it across rayon workers.
+fn reconstruct_stored_event(r: RawStoredRow) -> StoredEvent {
+    StoredEvent {
+        id: r.id,
+        timestamp_ns: r.timestamp_ns,
+        event_type: r.event_type,
+        source: r.source,
+        artifact_path: r.artifact_path,
+        metadata: r.metadata,
+        entity_refs: serde_json::from_str(&r.entity_refs_json).unwrap_or_default(),
+        hostname: r.hostname,
+        evidence_source: r.evidence_source,
+    }
+}
+
+/// A raw fetch row (entity_refs still JSON), before parallel reconstruction.
+struct RawStoredRow {
+    id: u64,
+    timestamp_ns: i64,
+    event_type: String,
+    source: String,
+    artifact_path: String,
+    metadata: Option<String>,
+    entity_refs_json: String,
+    hostname: Option<String>,
+    evidence_source: String,
 }
 
 /// A raw timeline row as read from DuckDB, before enum reconstruction.
