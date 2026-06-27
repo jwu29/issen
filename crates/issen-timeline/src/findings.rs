@@ -41,7 +41,7 @@ pub fn create_findings_table(conn: &Connection) -> Result<(), TimelineStoreError
 }
 
 /// Insert a batch of findings. Returns the number inserted.
-pub fn inseissen_findings(
+pub fn insert_findings(
     conn: &Connection,
     findings: &[FindingRow],
 ) -> Result<usize, TimelineStoreError> {
@@ -49,28 +49,53 @@ pub fn inseissen_findings(
         return Ok(0);
     }
 
-    let mut stmt = conn.prepare(
+    // Bulk-load via DuckDB's columnar Appender into a staging temp table, then
+    // one INSERT…SELECT into scan_findings (so the `id` sequence DEFAULT still
+    // applies). A row-at-a-time prepared INSERT loop was the scan stage's
+    // bottleneck — inserting ~160k findings one statement at a time is the same
+    // per-statement DuckDB overhead the ingest stage hit (Appender = ~11x there),
+    // and it shows as neither a CPU nor a disk spike (single-threaded statement
+    // dispatch), matching what was observed.
+    conn.execute_batch(
+        "DROP TABLE IF EXISTS _findings_stage;
+         CREATE TEMP TABLE _findings_stage (
+            evidence_source_id  VARCHAR,
+            artifact_path       VARCHAR,
+            engine              VARCHAR,
+            severity            VARCHAR,
+            rule_name           VARCHAR,
+            description         VARCHAR,
+            matched_indicator   VARCHAR,
+            tags                VARCHAR
+         )",
+    )?;
+    {
+        let mut appender = conn.appender("_findings_stage")?;
+        for f in findings {
+            appender.append_row(duckdb::params![
+                f.evidence_source_id,
+                f.artifact_path,
+                f.engine,
+                f.severity,
+                f.rule_name,
+                f.description,
+                f.matched_indicator,
+                f.tags,
+            ])?;
+        }
+        appender.flush()?;
+    }
+    conn.execute_batch(
         "INSERT INTO scan_findings (
             evidence_source_id, artifact_path, engine, severity,
             rule_name, description, matched_indicator, tags
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+         )
+         SELECT evidence_source_id, artifact_path, engine, severity,
+                rule_name, description, matched_indicator, tags
+         FROM _findings_stage;
+         DROP TABLE _findings_stage;",
     )?;
-
-    let mut count = 0;
-    for f in findings {
-        stmt.execute(duckdb::params![
-            f.evidence_source_id,
-            f.artifact_path,
-            f.engine,
-            f.severity,
-            f.rule_name,
-            f.description,
-            f.matched_indicator,
-            f.tags,
-        ])?;
-        count += 1;
-    }
-    Ok(count)
+    Ok(findings.len())
 }
 
 /// Query findings, optionally filtered by minimum severity.
@@ -209,14 +234,14 @@ mod tests {
     }
 
     #[test]
-    fn test_inseissen_and_query_roundtrip() {
+    fn test_insert_and_query_roundtrip() {
         let conn = setup();
         let findings = vec![
             sample_finding("high", "detect_malware"),
             sample_finding("critical", "known_ransomware"),
         ];
 
-        let count = inseissen_findings(&conn, &findings).expect("insert");
+        let count = insert_findings(&conn, &findings).expect("insert");
         assert_eq!(count, 2);
 
         let rows = query_findings(&conn, None).expect("query");
@@ -228,9 +253,9 @@ mod tests {
     }
 
     #[test]
-    fn test_inseissen_empty_batch() {
+    fn test_insert_empty_batch() {
         let conn = setup();
-        let count = inseissen_findings(&conn, &[]).expect("insert");
+        let count = insert_findings(&conn, &[]).expect("insert");
         assert_eq!(count, 0);
     }
 
@@ -244,7 +269,7 @@ mod tests {
             sample_finding("high", "high_rule"),
             sample_finding("critical", "critical_rule"),
         ];
-        inseissen_findings(&conn, &findings).expect("insert");
+        insert_findings(&conn, &findings).expect("insert");
 
         // Filter high+critical only.
         let high_plus = query_findings(&conn, Some("high")).expect("query");
@@ -266,7 +291,7 @@ mod tests {
             sample_finding("critical", "rule_c"),
             sample_finding("low", "rule_d"),
         ];
-        inseissen_findings(&conn, &findings).expect("insert");
+        insert_findings(&conn, &findings).expect("insert");
 
         let counts = count_by_severity(&conn).expect("count");
         // Sorted desc: critical(1), high(2), low(1).
@@ -285,7 +310,7 @@ mod tests {
             sample_finding("high", "rule_1"),
             sample_finding("low", "rule_2"),
         ];
-        inseissen_findings(&conn, &findings).expect("insert");
+        insert_findings(&conn, &findings).expect("insert");
         assert_eq!(total_findings(&conn).expect("count"), 2);
     }
 
@@ -312,7 +337,7 @@ mod tests {
             matched_indicator: None,
             tags: "[\"attack.initial_access\"]".to_string(),
         };
-        inseissen_findings(&conn, &[finding]).expect("insert");
+        insert_findings(&conn, &[finding]).expect("insert");
 
         let rows = query_findings(&conn, None).expect("query");
         assert_eq!(rows.len(), 1);
@@ -330,7 +355,7 @@ mod tests {
             sample_finding("high", "r4"),
             sample_finding("critical", "r5"),
         ];
-        inseissen_findings(&conn, &findings).expect("insert");
+        insert_findings(&conn, &findings).expect("insert");
 
         let all = query_findings(&conn, Some("informational")).expect("query");
         assert_eq!(all.len(), 5);
