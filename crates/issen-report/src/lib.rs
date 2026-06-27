@@ -277,6 +277,12 @@ pub fn collect_report_data(
     // --- Findings (if table exists) ------------------------------------------
     let (findings, total_findings) = collect_findings(conn)?;
 
+    // --- Correlations + their member events ----------------------------------
+    let correlations = store
+        .load_correlations()
+        .map_err(|e| ReportError::Database(e.to_string()))?;
+    let member_events = collect_member_events(conn, &correlations)?;
+
     // --- Assemble ------------------------------------------------------------
     let summary = ReportSummary {
         total_events,
@@ -292,9 +298,64 @@ pub fn collect_report_data(
         events,
         summary,
         findings,
-        correlations: Vec::new(),
-        member_events: std::collections::HashMap::new(),
+        correlations,
+        member_events,
     })
+}
+
+/// Resolve the `timeline.id`s referenced by the *rendered* correlation
+/// instances to their event detail, for member-event drill-down.
+///
+/// Only the members of the instances the report will actually show are needed,
+/// but bounding here is cheap: we fetch every distinct member id across all
+/// correlations in chunked `IN (...)` queries (one map shared by the renderer).
+#[allow(clippy::cast_possible_truncation)]
+fn collect_member_events(
+    conn: &duckdb::Connection,
+    correlations: &[Correlation],
+) -> Result<std::collections::HashMap<u64, CorrEventRow>, ReportError> {
+    use std::collections::HashMap;
+
+    // Distinct ids only (members repeat across instances).
+    let mut ids: Vec<u64> = correlations
+        .iter()
+        .flat_map(|c| c.members.iter().map(|m| m.timeline_id))
+        .collect();
+    ids.sort_unstable();
+    ids.dedup();
+
+    let mut out: HashMap<u64, CorrEventRow> = HashMap::new();
+    if ids.is_empty() {
+        return Ok(out);
+    }
+
+    // Chunk the IN-list to keep the query bounded.
+    for chunk in ids.chunks(500) {
+        let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let sql = format!(
+            "SELECT id, timestamp_display, event_type, source, artifact_path, description \
+             FROM timeline WHERE id IN ({placeholders})"
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let params: Vec<&dyn duckdb::ToSql> =
+            chunk.iter().map(|id| id as &dyn duckdb::ToSql).collect();
+        let rows = stmt.query_map(params.as_slice(), |row| {
+            Ok(CorrEventRow {
+                id: row.get(0)?,
+                timestamp: row.get(1)?,
+                event_type: row.get(2)?,
+                source: row.get(3)?,
+                artifact_path: row.get(4)?,
+                description: row.get(5)?,
+            })
+        })?;
+        for r in rows {
+            let ev = r?;
+            out.insert(ev.id, ev);
+        }
+    }
+
+    Ok(out)
 }
 
 /// Attempt to read findings from the `scan_findings` table.
@@ -400,8 +461,17 @@ pub struct RuleGroup {
 
 /// Total ordering rank for a severity (`Info` lowest, `Critical` highest).
 #[must_use]
-fn severity_rank(_s: Severity) -> u8 {
-    0 // RED stub
+fn severity_rank(s: Severity) -> u8 {
+    match s {
+        Severity::Info => 0,
+        Severity::Low => 1,
+        Severity::Medium => 2,
+        Severity::High => 3,
+        Severity::Critical => 4,
+        // `Severity` is `#[non_exhaustive]`; an unknown future variant ranks
+        // above the known set rather than masquerading as Info.
+        _ => 5, // cov:unreachable: Severity has exactly five known variants today
+    }
 }
 
 /// Lowercase severity token for CSS classes / display.
@@ -413,20 +483,37 @@ fn severity_token(s: Severity) -> &'static str {
         Severity::Medium => "medium",
         Severity::High => "high",
         Severity::Critical => "critical",
-        _ => "info", // cov:unreachable: Severity has exactly five known variants today
+        // `Severity` is `#[non_exhaustive]`; an unknown future variant gets a
+        // distinct sentinel rather than masquerading as a known severity.
+        _ => "unknown", // cov:unreachable: Severity has exactly five known variants today
     }
 }
 
 /// Parse a `scan_findings.severity` token into a [`Severity`].
 #[must_use]
-fn severity_from_finding_str(_s: &str) -> Option<Severity> {
-    None // RED stub
+fn severity_from_finding_str(s: &str) -> Option<Severity> {
+    match s.to_ascii_lowercase().as_str() {
+        "critical" => Some(Severity::Critical),
+        "high" => Some(Severity::High),
+        "medium" => Some(Severity::Medium),
+        "low" => Some(Severity::Low),
+        "info" | "informational" => Some(Severity::Info),
+        _ => None,
+    }
 }
 
 /// Format a nanoseconds-since-epoch instant as a readable UTC string.
+///
+/// Out-of-range / nonsensical values degrade to a stable sentinel rather than
+/// panicking (the input is attacker-influenced timeline data).
 #[must_use]
-fn format_ns(_ns: i64) -> String {
-    String::new() // RED stub
+fn format_ns(ns: i64) -> String {
+    let secs = ns.div_euclid(1_000_000_000);
+    let nanos = ns.rem_euclid(1_000_000_000);
+    Utc.timestamp_opt(secs, nanos as u32).single().map_or_else(
+        || format!("ns:{ns}"),
+        |dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+    )
 }
 
 /// Map a MITRE technique id (e.g. `T1543.003`, `T1110`) to the kill-chain
@@ -456,7 +543,7 @@ fn technique_to_tactic(id: &str) -> AttackTactic {
 
 /// Kill-chain order for a tactic (lower = earlier). Mirrors `attack_chain.rs`.
 #[must_use]
-fn tactic_kill_chain_order(t: AttackTactic) -> usize {
+fn tactic_kill_chain_order(t: &AttackTactic) -> usize {
     match t {
         AttackTactic::InitialAccess => 0,
         AttackTactic::Execution => 1,
@@ -468,17 +555,17 @@ fn tactic_kill_chain_order(t: AttackTactic) -> usize {
     }
 }
 
-/// Human-readable tactic label.
+/// Human-readable tactic label, keyed on the kill-chain order index.
 #[must_use]
-fn tactic_overview_label(t: AttackTactic) -> &'static str {
-    match t {
-        AttackTactic::InitialAccess => "Initial Access",
-        AttackTactic::Execution => "Execution",
-        AttackTactic::Persistence => "Persistence",
-        AttackTactic::DefenseEvasion => "Defense Evasion",
-        AttackTactic::CommandAndControl => "Command & Control",
-        AttackTactic::Impact => "Impact",
-        AttackTactic::Unknown => "Other",
+fn tactic_label_by_order(order: usize) -> &'static str {
+    match order {
+        0 => "Initial Access",
+        1 => "Execution",
+        2 => "Persistence",
+        3 => "Defense Evasion",
+        4 => "Command & Control",
+        5 => "Impact",
+        _ => "Other",
     }
 }
 
@@ -508,21 +595,175 @@ fn finding_tag_technique(tag: &str) -> Option<String> {
 /// findings' `attack.tXXXX` tags), every technique graded by its worst
 /// severity with a hit count.
 #[must_use]
-fn attack_overview(_correlations: &[Correlation], _findings: &[FindingRow]) -> Vec<TacticColumn> {
-    Vec::new() // RED stub
+fn attack_overview(correlations: &[Correlation], findings: &[FindingRow]) -> Vec<TacticColumn> {
+    use std::collections::HashMap;
+
+    // technique id -> (max severity, count)
+    let mut techniques: HashMap<String, (Severity, usize)> = HashMap::new();
+
+    let mut bump = |id: String, sev: Severity| {
+        let entry = techniques.entry(id).or_insert((sev, 0));
+        if severity_rank(sev) > severity_rank(entry.0) {
+            entry.0 = sev;
+        }
+        entry.1 += 1;
+    };
+
+    for c in correlations {
+        if let Some(t) = &c.attack_technique {
+            bump(t.to_ascii_uppercase(), c.severity);
+        }
+    }
+    for f in findings {
+        let sev = severity_from_finding_str(&f.severity).unwrap_or(Severity::Info);
+        for tag in &f.tags {
+            if let Some(id) = finding_tag_technique(tag) {
+                bump(id, sev);
+            }
+        }
+    }
+
+    // Bucket techniques by tactic, keyed on the kill-chain order index (so the
+    // tactic enum need not be `Hash`/`Copy`).
+    let mut by_order: HashMap<usize, Vec<TechniqueCell>> = HashMap::new();
+    for (id, (max_severity, count)) in techniques {
+        let order = tactic_kill_chain_order(&technique_to_tactic(&id));
+        by_order.entry(order).or_default().push(TechniqueCell {
+            id,
+            max_severity,
+            count,
+        });
+    }
+
+    let mut columns: Vec<(usize, Vec<TechniqueCell>)> = by_order.into_iter().collect();
+    columns.sort_by_key(|(order, _)| *order);
+    columns
+        .into_iter()
+        .map(|(order, mut cells)| {
+            // Most-severe technique first, then by id for determinism.
+            cells.sort_by(|a, b| {
+                severity_rank(b.max_severity)
+                    .cmp(&severity_rank(a.max_severity))
+                    .then_with(|| a.id.cmp(&b.id))
+            });
+            TacticColumn {
+                tactic_label: tactic_label_by_order(order),
+                techniques: cells,
+            }
+        })
+        .collect()
 }
 
 /// Group correlations by rule `code`, ordered by worst severity descending.
 #[must_use]
-fn group_rules(_correlations: &[Correlation]) -> Vec<RuleGroup> {
-    Vec::new() // RED stub
+fn group_rules(correlations: &[Correlation]) -> Vec<RuleGroup> {
+    use std::collections::HashMap;
+
+    let mut order: Vec<String> = Vec::new();
+    let mut groups: HashMap<String, RuleGroup> = HashMap::new();
+
+    for c in correlations {
+        let g = groups.entry(c.code.clone()).or_insert_with(|| {
+            order.push(c.code.clone());
+            RuleGroup {
+                code: c.code.clone(),
+                attack_technique: c.attack_technique.clone(),
+                max_severity: c.severity,
+                note: c.note.clone(),
+                hit_count: 0,
+                instances: Vec::new(),
+            }
+        });
+        if severity_rank(c.severity) > severity_rank(g.max_severity) {
+            g.max_severity = c.severity;
+        }
+        // Keep the first non-empty note / technique seen.
+        if g.note.is_empty() && !c.note.is_empty() {
+            g.note.clone_from(&c.note);
+        }
+        if g.attack_technique.is_none() {
+            g.attack_technique.clone_from(&c.attack_technique);
+        }
+        g.hit_count += 1;
+        g.instances.push(c.clone());
+    }
+
+    let mut out: Vec<RuleGroup> = order
+        .into_iter()
+        .filter_map(|code| groups.remove(&code))
+        .collect();
+    // Most-severe rule first; tie-break by hit count then code for determinism.
+    out.sort_by(|a, b| {
+        severity_rank(b.max_severity)
+            .cmp(&severity_rank(a.max_severity))
+            .then_with(|| b.hit_count.cmp(&a.hit_count))
+            .then_with(|| a.code.cmp(&b.code))
+    });
+    // Each rule's instances: earliest first.
+    for g in &mut out {
+        g.instances.sort_by_key(|c| c.first_ts);
+    }
+    out
 }
 
 /// Derive the page-one key judgment (BLUF) from the correlations. Uses
 /// "consistent with" framing and never asserts a verdict.
 #[must_use]
-fn key_judgment(_correlations: &[Correlation]) -> String {
-    String::new() // RED stub
+fn key_judgment(correlations: &[Correlation]) -> String {
+    if correlations.is_empty() {
+        return "No cross-artifact correlations were produced for this case. The \
+                appendix lists the individual scan findings; the analyst draws \
+                the conclusions."
+            .to_string();
+    }
+
+    let groups = group_rules(correlations);
+    let total: usize = groups.iter().map(|g| g.hit_count).sum();
+
+    // Distinct techniques across all correlations.
+    let mut techniques: Vec<String> = correlations
+        .iter()
+        .filter_map(|c| c.attack_technique.clone())
+        .map(|t| t.to_ascii_uppercase())
+        .collect();
+    techniques.sort();
+    techniques.dedup();
+
+    let max_sev = groups
+        .iter()
+        .map(|g| g.max_severity)
+        .max_by_key(|s| severity_rank(*s))
+        .unwrap_or(Severity::Info);
+
+    // The dominant pattern: the highest-severity, highest-volume rule's note.
+    let pattern = groups.first().map_or_else(String::new, |g| {
+        // Use the note if it carries "consistent with"; otherwise fall back to
+        // a neutral phrasing built from the code + technique.
+        if g.note.to_lowercase().contains("consistent with") {
+            g.note.clone()
+        } else {
+            let tech = g
+                .attack_technique
+                .as_deref()
+                .map_or_else(String::new, |t| format!(" ({t})"));
+            format!("activity consistent with {}{tech}", g.code)
+        }
+    });
+
+    let tech_list = if techniques.is_empty() {
+        String::new()
+    } else {
+        format!(
+            " across {} ATT&CK technique(s) ({})",
+            techniques.len(),
+            techniques.join(", ")
+        )
+    };
+
+    format!(
+        "Evidence is {pattern} {total} correlated finding(s){tech_list}; highest severity {}.",
+        severity_token(max_sev),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -624,6 +865,53 @@ td {{ font-family: "SF Mono", "Fira Code", "Consolas", monospace; word-break: br
 .breakdown-item .count {{ font-weight: bold; color: var(--heading); }}
 footer {{ text-align: center; color: #556; font-size: 0.75rem; padding: 16px; }}
 #filter {{ width: 100%; padding: 8px 12px; margin-bottom: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-size: 0.85rem; }}
+/* --- Executive Summary (BLUF) --- */
+.key-judgment {{ background: var(--bg); border-left: 4px solid var(--heading); border-radius: 4px; padding: 16px 18px; margin-bottom: 16px; font-size: 1.02rem; line-height: 1.55; }}
+.key-judgment .lead {{ color: var(--heading); font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; font-size: 0.72rem; display: block; margin-bottom: 6px; }}
+.tiles {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }}
+.tile {{ background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 14px; text-align: center; }}
+.tile .value {{ font-size: 1.7rem; font-weight: bold; color: var(--heading); }}
+.tile .label {{ font-size: 0.72rem; color: #8899aa; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; }}
+/* --- ATT&CK Overview grid --- */
+.attack-overview {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }}
+.tactic-col {{ background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 10px; }}
+.tactic-col h3 {{ color: var(--text); font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border); padding-bottom: 6px; margin-bottom: 8px; }}
+.tech-cell {{ display: flex; justify-content: space-between; align-items: center; gap: 8px; border-radius: 4px; padding: 5px 8px; margin-bottom: 5px; font-size: 0.78rem; font-family: "SF Mono", "Fira Code", "Consolas", monospace; color: #fff; }}
+.tech-cell .hits {{ background: rgba(0,0,0,0.35); border-radius: 10px; padding: 0 7px; font-size: 0.7rem; }}
+.sev-cell-critical {{ background: var(--severity-critical); }}
+.sev-cell-high {{ background: var(--severity-high); }}
+.sev-cell-medium {{ background: var(--severity-medium); color: #1a1a2e; }}
+.sev-cell-low {{ background: var(--severity-low); color: #1a1a2e; }}
+.sev-cell-info {{ background: var(--severity-info); color: #1a1a2e; }}
+.overview-legend {{ color: #8899aa; font-size: 0.74rem; margin-top: 10px; }}
+.overview-legend span {{ display: inline-block; padding: 1px 7px; border-radius: 3px; margin-right: 6px; color: #1a1a2e; }}
+/* --- Severity badges --- */
+.sev-badge {{ display: inline-block; padding: 2px 9px; border-radius: 10px; font-size: 0.72rem; font-weight: bold; text-transform: uppercase; letter-spacing: 0.4px; }}
+.sev-badge-critical {{ background: var(--severity-critical); color: #fff; }}
+.sev-badge-high {{ background: var(--severity-high); color: #fff; }}
+.sev-badge-medium {{ background: var(--severity-medium); color: #1a1a2e; }}
+.sev-badge-low {{ background: var(--severity-low); color: #1a1a2e; }}
+.sev-badge-info {{ background: var(--severity-info); color: #1a1a2e; }}
+/* --- Correlated-findings rule cards --- */
+.rule-card {{ border: 1px solid var(--border); border-radius: 6px; margin-bottom: 12px; background: var(--bg); }}
+.rule-card > summary {{ cursor: pointer; padding: 12px 14px; list-style: none; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }}
+.rule-card > summary::-webkit-details-marker {{ display: none; }}
+.rule-card > summary .code {{ font-family: "SF Mono", "Fira Code", "Consolas", monospace; font-weight: bold; color: var(--link); }}
+.rule-card > summary .tech {{ color: #8899aa; font-size: 0.8rem; }}
+.rule-card > summary .hit {{ margin-left: auto; color: #8899aa; font-size: 0.8rem; }}
+.rule-card .note {{ padding: 0 14px 10px; color: #c8d2dc; font-size: 0.86rem; }}
+.rule-body {{ padding: 0 14px 12px; }}
+.instance {{ border: 1px solid var(--border); border-radius: 4px; margin-bottom: 8px; }}
+.instance > summary {{ cursor: pointer; padding: 8px 12px; font-size: 0.82rem; font-family: "SF Mono", "Fira Code", "Consolas", monospace; color: #c8d2dc; }}
+.member {{ display: grid; grid-template-columns: 80px 1fr; gap: 8px; padding: 6px 12px; font-size: 0.78rem; font-family: "SF Mono", "Fira Code", "Consolas", monospace; border-top: 1px solid var(--border); }}
+.member .meta {{ color: #c8d2dc; word-break: break-all; }}
+.role-badge {{ display: inline-block; padding: 1px 7px; border-radius: 3px; font-size: 0.68rem; font-weight: bold; text-transform: uppercase; }}
+.role-anchor {{ background: #1a5276; color: #fff; }}
+.role-consequent {{ background: #7d3c98; color: #fff; }}
+.role-supporting {{ background: #5d6d7e; color: #fff; }}
+.appendix-note {{ color: #8899aa; font-size: 0.8rem; margin-bottom: 10px; }}
+details.appendix-sub {{ margin-bottom: 12px; }}
+details.appendix-sub > summary {{ cursor: pointer; color: var(--link); font-size: 0.9rem; padding: 6px 0; }}
 </style>
 </head>
 <body>
@@ -646,59 +934,49 @@ footer {{ text-align: center; color: #556; font-size: 0.75rem; padding: 16px; }}
     if let Some(ref examiner) = data.config.examiner {
         let _ = write!(html, "Examiner: {} &middot; ", html_escape(examiner));
     }
-    let _ = write!(
+    let _ = writeln!(
         html,
-        "Generated: {}</div>\n</header>\n<div class=\"container\">\n",
+        "Generated: {}</div>\n</header>\n<div class=\"container\">",
         html_escape(&data.generated_at),
     );
 
-    // --- Summary section -----------------------------------------------------
-    render_summary(&mut html, &data.summary);
+    // === 1. Executive Summary (BLUF) — page one, stands alone ================
+    render_executive_summary(&mut html, data);
 
-    // --- ATT&CK attack-chain (only if findings carry recognized tactics) ------
+    // === 2. ATT&CK Overview — the one-glance overlay =========================
+    let overview = attack_overview(&data.correlations, &data.findings);
+    if !overview.is_empty() {
+        render_attack_overview(&mut html, &overview);
+    }
+    // Kill-chain tactic row from finding tactic tags (complements the overview).
     let chain = attack_chain::findings_to_attack_chain(&data.findings);
     if !chain.nodes.is_empty() {
         render_attack_chain_section(&mut html, &chain);
     }
 
-    // --- Events table --------------------------------------------------------
-    render_events_table(&mut html, &data.events);
-
-    // --- Findings section (only if findings exist) ---------------------------
-    if !data.findings.is_empty() {
-        render_findings_table(&mut html, &data.findings);
+    // === 3. Correlated Findings — grouped by rule, progressive disclosure ====
+    if !data.correlations.is_empty() {
+        render_correlated_findings(&mut html, data);
     }
+
+    // === 4. Appendix — the verifiable substrate (collapsed) ==================
+    render_appendix(&mut html, data);
 
     // --- Footer --------------------------------------------------------------
     let _ = write!(
         html,
         r"</div>
 <footer>
-Generated by Issen &middot; {generated}
+Generated by Issen &middot; {generated} &middot; Findings are observations \
+(consistent with), never verdicts &mdash; the analyst draws the conclusions.
 </footer>
 ",
         generated = html_escape(&data.generated_at),
     );
 
-    // --- Sort script ---------------------------------------------------------
+    // --- Filter script (only the appendix events sample is filterable) -------
     html.push_str(
         r"<script>
-document.querySelectorAll('th[data-col]').forEach(th => {
-    th.addEventListener('click', () => {
-        const table = th.closest('table');
-        const tbody = table.querySelector('tbody');
-        const rows = Array.from(tbody.querySelectorAll('tr'));
-        const col = parseInt(th.dataset.col, 10);
-        const asc = th.dataset.dir !== 'asc';
-        th.dataset.dir = asc ? 'asc' : 'desc';
-        rows.sort((a, b) => {
-            const at = a.children[col].textContent;
-            const bt = b.children[col].textContent;
-            return asc ? at.localeCompare(bt) : bt.localeCompare(at);
-        });
-        rows.forEach(r => tbody.appendChild(r));
-    });
-});
 const filterInput = document.getElementById('filter');
 if (filterInput) {
     filterInput.addEventListener('input', () => {
@@ -715,6 +993,364 @@ if (filterInput) {
     );
 
     html
+}
+
+/// Severity-badge CSS class suffix for a canonical [`Severity`].
+fn sev_class(s: Severity) -> &'static str {
+    severity_token(s)
+}
+
+/// Render the Executive Summary (BLUF): the key judgment plus decision tiles.
+fn render_executive_summary(html: &mut String, data: &ReportData) {
+    html.push_str("<section>\n<h2>Executive Summary</h2>\n");
+
+    // --- Key judgment (BLUF) ---
+    let judgment = key_judgment(&data.correlations);
+    let _ = writeln!(
+        html,
+        "<div class=\"key-judgment\"><span class=\"lead\">Key Judgment</span>{}</div>",
+        html_escape(&judgment),
+    );
+
+    // --- Decision tiles ---
+    let groups = group_rules(&data.correlations);
+    let high_plus: usize = data
+        .correlations
+        .iter()
+        .filter(|c| severity_rank(c.severity) >= severity_rank(Severity::High))
+        .count();
+    let mut techniques: Vec<String> = data
+        .correlations
+        .iter()
+        .filter_map(|c| c.attack_technique.clone())
+        .map(|t| t.to_ascii_uppercase())
+        .collect();
+    techniques.sort();
+    techniques.dedup();
+    let mut scopes: Vec<&'static str> =
+        data.correlations.iter().map(|c| c.scope.as_str()).collect();
+    scopes.sort_unstable();
+    scopes.dedup();
+    let max_sev = groups
+        .iter()
+        .map(|g| g.max_severity)
+        .max_by_key(|s| severity_rank(*s));
+
+    // Time span across all correlations.
+    let span = {
+        let firsts = data.correlations.iter().map(|c| c.first_ts).min();
+        let lasts = data.correlations.iter().map(|c| c.last_ts).max();
+        match (firsts, lasts) {
+            (Some(a), Some(b)) => format!(
+                "{} &mdash; {}",
+                html_escape(&format_ns(a)),
+                html_escape(&format_ns(b))
+            ),
+            _ => "&mdash;".to_string(),
+        }
+    };
+
+    html.push_str("<div class=\"tiles\">\n");
+    let _ = writeln!(
+        html,
+        "<div class=\"tile\"><div class=\"value\">{high_plus}</div><div class=\"label\">High+ Correlated</div></div>"
+    );
+    let _ = writeln!(
+        html,
+        "<div class=\"tile\"><div class=\"value\">{}</div><div class=\"label\">ATT&amp;CK Techniques</div></div>",
+        techniques.len(),
+    );
+    let _ = writeln!(
+        html,
+        "<div class=\"tile\"><div class=\"value\">{}</div><div class=\"label\">Scopes</div></div>",
+        scopes.len(),
+    );
+    if let Some(s) = max_sev {
+        let _ = writeln!(
+            html,
+            "<div class=\"tile\"><div class=\"value\"><span class=\"sev-badge sev-badge-{cls}\">{tok}</span></div><div class=\"label\">Max Severity</div></div>",
+            cls = sev_class(s),
+            tok = severity_token(s),
+        );
+    }
+    let _ = writeln!(
+        html,
+        "<div class=\"tile\"><div class=\"value\" style=\"font-size:0.8rem\">{span}</div><div class=\"label\">Time Span (UTC)</div></div>"
+    );
+    html.push_str("</div>\n</section>\n");
+}
+
+/// Render the ATT&CK Overview: kill-chain tactics as columns, techniques under
+/// each coloured by their worst observed severity with a hit count.
+fn render_attack_overview(html: &mut String, columns: &[TacticColumn]) {
+    html.push_str("<section>\n<h2>ATT&amp;CK Overview</h2>\n");
+    html.push_str(
+        "<p class=\"appendix-note\">Techniques observed across correlations and scan \
+         findings, grouped by kill-chain tactic and coloured by worst severity. An \
+         overlay of what was seen and how bad &mdash; not a proven causal sequence.</p>\n",
+    );
+    html.push_str("<div class=\"attack-overview\">\n");
+    for col in columns {
+        let _ = writeln!(
+            html,
+            "<div class=\"tactic-col\"><h3>{}</h3>",
+            html_escape(col.tactic_label),
+        );
+        for cell in &col.techniques {
+            let _ = writeln!(
+                html,
+                "<div class=\"tech-cell sev-cell-{cls}\"><span>{id}</span><span class=\"hits\">{n}</span></div>",
+                cls = sev_class(cell.max_severity),
+                id = html_escape(&cell.id),
+                n = cell.count,
+            );
+        }
+        html.push_str("</div>\n");
+    }
+    html.push_str("</div>\n");
+    html.push_str(
+        "<div class=\"overview-legend\">Severity: \
+         <span class=\"sev-cell-critical\" style=\"color:#fff\">critical</span>\
+         <span class=\"sev-cell-high\" style=\"color:#fff\">high</span>\
+         <span class=\"sev-cell-medium\">medium</span>\
+         <span class=\"sev-cell-low\">low</span>\
+         <span class=\"sev-cell-info\">info</span></div>\n",
+    );
+    html.push_str("</section>\n");
+}
+
+/// Render the Correlated Findings section: one collapsible card per rule
+/// `code` (grouped), drilling down to instances and member events with roles.
+fn render_correlated_findings(html: &mut String, data: &ReportData) {
+    const MAX_INSTANCES: usize = 10;
+
+    html.push_str("<section>\n<h2>Correlated Findings</h2>\n");
+    html.push_str(
+        "<p class=\"appendix-note\">Cross-artifact correlations grouped by rule. Each \
+         observation is <em>consistent with</em> a named behaviour &mdash; expand a rule \
+         to verify the member events and their roles.</p>\n",
+    );
+
+    for group in group_rules(&data.correlations) {
+        let tech = group
+            .attack_technique
+            .as_deref()
+            .map_or_else(String::new, |t| {
+                format!("<span class=\"tech\">{}</span>", html_escape(t))
+            });
+        let _ = writeln!(
+            html,
+            "<details class=\"rule-card\"><summary>\
+             <span class=\"sev-badge sev-badge-{cls}\">{tok}</span>\
+             <span class=\"code\">{code}</span>{tech}\
+             <span class=\"hit\">{hits} instance(s)</span></summary>",
+            cls = sev_class(group.max_severity),
+            tok = severity_token(group.max_severity),
+            code = html_escape(&group.code),
+            hits = group.hit_count,
+        );
+        let _ = writeln!(
+            html,
+            "<div class=\"note\">{}</div>",
+            html_escape(&group.note)
+        );
+
+        html.push_str("<div class=\"rule-body\">\n");
+        let shown = group.instances.len().min(MAX_INSTANCES);
+        for inst in group.instances.iter().take(MAX_INSTANCES) {
+            let _ = writeln!(
+                html,
+                "<details class=\"instance\"><summary>{first} &mdash; {last} &middot; scope: {scope}</summary>",
+                first = html_escape(&format_ns(inst.first_ts)),
+                last = html_escape(&format_ns(inst.last_ts)),
+                scope = html_escape(inst.scope.as_str()),
+            );
+            for m in &inst.members {
+                let role = m.role.as_str();
+                if let Some(ev) = data.member_events.get(&m.timeline_id) {
+                    let _ = writeln!(
+                        html,
+                        "<div class=\"member\"><span class=\"role-badge role-{role}\">{role}</span>\
+                         <span class=\"meta\">{ts} &middot; {et} &middot; {src}<br>{path}<br>{desc}</span></div>",
+                        ts = html_escape(&ev.timestamp),
+                        et = html_escape(&ev.event_type),
+                        src = html_escape(&ev.source),
+                        path = html_escape(&ev.artifact_path),
+                        desc = html_escape(&ev.description),
+                    );
+                } else {
+                    let _ = writeln!(
+                        html,
+                        "<div class=\"member\"><span class=\"role-badge role-{role}\">{role}</span>\
+                         <span class=\"meta\">timeline id {id} (event detail not loaded)</span></div>",
+                        id = m.timeline_id,
+                    );
+                }
+            }
+            html.push_str("</details>\n");
+        }
+        if group.hit_count > shown {
+            let _ = writeln!(
+                html,
+                "<p class=\"appendix-note\">&hellip; and {} more instance(s) of this rule (not shown).</p>",
+                group.hit_count - shown,
+            );
+        }
+        html.push_str("</div>\n</details>\n");
+    }
+
+    html.push_str("</section>\n");
+}
+
+/// Render the Appendix: scan-findings summary (high/medium surfaced, Info/Low
+/// collapsed behind a count), a bounded events sample, and provenance.
+fn render_appendix(html: &mut String, data: &ReportData) {
+    const MAX_EVENTS_SAMPLE: usize = 200;
+
+    html.push_str("<section>\n<h2>Appendix</h2>\n");
+    html.push_str(
+        "<p class=\"appendix-note\">The verifiable substrate behind the summary above: \
+         individual scan findings and a bounded sample of timeline events.</p>\n",
+    );
+
+    // --- Scan findings: surface high+medium, collapse info/low ---
+    if !data.findings.is_empty() {
+        let mut surfaced: Vec<&FindingRow> = Vec::new();
+        let mut leads = 0usize;
+        for f in &data.findings {
+            let rank = severity_from_finding_str(&f.severity).map_or(0, severity_rank);
+            if rank >= severity_rank(Severity::Medium) {
+                surfaced.push(f);
+            } else {
+                leads += 1;
+            }
+        }
+
+        let _ = writeln!(
+            html,
+            "<h3 style=\"color:#e0e0e0;font-size:0.95rem;margin-bottom:8px\">Scan Findings &mdash; {} medium+ surfaced, {} Info/Low lead(s) collapsed</h3>",
+            surfaced.len(),
+            leads,
+        );
+
+        if surfaced.is_empty() {
+            html.push_str("<p class=\"appendix-note\">No medium-or-higher scan findings.</p>\n");
+        } else {
+            render_findings_rows(html, &surfaced);
+        }
+
+        if leads > 0 {
+            let _ = writeln!(
+                html,
+                "<details class=\"appendix-sub\"><summary>{leads} Info/Low lead(s) (collapsed)</summary>"
+            );
+            let lead_rows: Vec<&FindingRow> = data
+                .findings
+                .iter()
+                .filter(|f| {
+                    severity_from_finding_str(&f.severity).map_or(0, severity_rank)
+                        < severity_rank(Severity::Medium)
+                })
+                .take(MAX_EVENTS_SAMPLE)
+                .collect();
+            render_findings_rows(html, &lead_rows);
+            if leads > lead_rows.len() {
+                let _ = writeln!(
+                    html,
+                    "<p class=\"appendix-note\">&hellip; and {} more lead(s) (not shown).</p>",
+                    leads - lead_rows.len(),
+                );
+            }
+            html.push_str("</details>\n");
+        }
+    }
+
+    // --- Bounded events sample ---
+    if !data.events.is_empty() {
+        let sample = data.events.len().min(MAX_EVENTS_SAMPLE);
+        let _ = writeln!(
+            html,
+            "<details class=\"appendix-sub\"><summary>Timeline events sample ({sample} of {total} shown)</summary>",
+            total = data.summary.total_events,
+        );
+        render_events_sample(html, &data.events[..sample]);
+        html.push_str("</details>\n");
+    }
+
+    // --- Provenance / methodology ---
+    html.push_str("<details class=\"appendix-sub\"><summary>Provenance &amp; methodology</summary>\n<div class=\"appendix-note\">\n");
+    if let Some(ref case_id) = data.config.case_id {
+        let _ = writeln!(html, "Case: {}<br>", html_escape(case_id));
+    }
+    if let Some(ref examiner) = data.config.examiner {
+        let _ = writeln!(html, "Examiner: {}<br>", html_escape(examiner));
+    }
+    let _ = writeln!(
+        html,
+        "Generated: {}<br>\nTotal timeline events: {}<br>\nTotal scan findings: {}<br>",
+        html_escape(&data.generated_at),
+        data.summary.total_events,
+        data.summary.total_findings,
+    );
+    html.push_str(
+        "Findings are observations &mdash; <em>consistent with</em> a behaviour, never a \
+         verdict. The analyst and the tribunal draw the conclusions.\n</div>\n</details>\n",
+    );
+
+    html.push_str("</section>\n");
+}
+
+/// Render a bounded set of finding rows as a table (no inline dump of the full set).
+fn render_findings_rows(html: &mut String, findings: &[&FindingRow]) {
+    html.push_str("<div class=\"table-wrapper\">\n<table>\n<thead><tr>");
+    for hdr in ["Engine", "Rule", "Severity", "Target", "Description"] {
+        let _ = write!(html, "<th>{hdr}</th>");
+    }
+    html.push_str("</tr></thead>\n<tbody>\n");
+    for f in findings {
+        let cls = severity_from_finding_str(&f.severity).map_or("info", sev_class);
+        // Legacy `severity-<token>` class kept alongside the badge so existing
+        // consumers/tests that key on it continue to work.
+        let _ = writeln!(
+            html,
+            "<tr><td>{}</td><td>{}</td><td class=\"severity-{cls}\"><span class=\"sev-badge sev-badge-{cls}\">{}</span></td><td>{}</td><td>{}</td></tr>",
+            html_escape(&f.engine),
+            html_escape(&f.rule_name),
+            html_escape(&f.severity),
+            html_escape(&f.target),
+            html_escape(&f.description),
+        );
+    }
+    html.push_str("</tbody>\n</table>\n</div>\n");
+}
+
+/// Render the bounded events sample table (filterable via the page script).
+fn render_events_sample(html: &mut String, events: &[EventRow]) {
+    html.push_str("<input type=\"text\" id=\"filter\" placeholder=\"Filter events...\">\n");
+    html.push_str("<div class=\"table-wrapper\">\n<table>\n<thead><tr>");
+    for hdr in ["Timestamp", "Type", "Source", "Path", "Description", "Tags"] {
+        let _ = write!(html, "<th>{hdr}</th>");
+    }
+    html.push_str("</tr></thead>\n<tbody id=\"events-tbody\">\n");
+    for ev in events {
+        let tags_html: String = ev
+            .tags
+            .iter()
+            .map(|t| format!("<span class=\"tag\">{}</span>", html_escape(t)))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let _ = writeln!(
+            html,
+            "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+            html_escape(&ev.timestamp),
+            html_escape(&ev.event_type),
+            html_escape(&ev.source),
+            html_escape(&ev.artifact_path),
+            html_escape(&ev.description),
+            tags_html,
+        );
+    }
+    html.push_str("</tbody>\n</table>\n</div>\n");
 }
 
 /// CSS class for a tactic's coloured attack-chain node.
@@ -761,144 +1397,13 @@ fn render_attack_chain_section(html: &mut String, chain: &AttackChainInput) {
     // Embed the Mermaid source (proves the shared renderer is wired in and gives
     // analysts a copy-pastable diagram). Escaped so it is inert in the page.
     let mermaid = render_attack_chain(chain);
-    let _ = write!(
+    let _ = writeln!(
         html,
-        "<details class=\"attack-mermaid\">\n<summary>Mermaid source</summary>\n<pre>{}</pre>\n</details>\n",
+        "<details class=\"attack-mermaid\">\n<summary>Mermaid source</summary>\n<pre>{}</pre>\n</details>",
         html_escape(&mermaid),
     );
 
     html.push_str("</section>\n");
-}
-
-/// Render the summary section into the HTML buffer.
-fn render_summary(html: &mut String, summary: &ReportSummary) {
-    html.push_str("<section>\n<h2>Summary</h2>\n<div class=\"stat-grid\">\n");
-
-    // Total events card
-    let _ = writeln!(
-        html,
-        "<div class=\"stat-card\"><div class=\"value\">{}</div><div class=\"label\">Total Events</div></div>",
-        summary.total_events,
-    );
-
-    // Total findings card
-    let _ = writeln!(
-        html,
-        "<div class=\"stat-card\"><div class=\"value\">{}</div><div class=\"label\">Findings</div></div>",
-        summary.total_findings,
-    );
-
-    // Time range card
-    if let Some((ref start, ref end)) = summary.time_range {
-        let _ = writeln!(
-            html,
-            "<div class=\"stat-card\"><div class=\"value\" style=\"font-size:0.9rem\">{} &mdash; {}</div><div class=\"label\">Time Range</div></div>",
-            html_escape(start),
-            html_escape(end),
-        );
-    }
-
-    html.push_str("</div>\n");
-
-    // Events by source breakdown
-    if !summary.events_by_source.is_empty() {
-        html.push_str("<h3 style=\"margin-top:14px;color:#e0e0e0;font-size:0.95rem\">Events by Source</h3>\n<div class=\"breakdown\">\n");
-        for (source, count) in &summary.events_by_source {
-            let _ = writeln!(
-                html,
-                "<div class=\"breakdown-item\">{} <span class=\"count\">{}</span></div>",
-                html_escape(source),
-                count,
-            );
-        }
-        html.push_str("</div>\n");
-    }
-
-    // Events by type breakdown
-    if !summary.events_by_type.is_empty() {
-        html.push_str("<h3 style=\"margin-top:14px;color:#e0e0e0;font-size:0.95rem\">Events by Type</h3>\n<div class=\"breakdown\">\n");
-        for (event_type, count) in &summary.events_by_type {
-            let _ = writeln!(
-                html,
-                "<div class=\"breakdown-item\">{} <span class=\"count\">{}</span></div>",
-                html_escape(event_type),
-                count,
-            );
-        }
-        html.push_str("</div>\n");
-    }
-
-    html.push_str("</section>\n");
-}
-
-/// Render the events table into the HTML buffer.
-fn render_events_table(html: &mut String, events: &[EventRow]) {
-    html.push_str("<section>\n<h2>Timeline Events</h2>\n");
-    html.push_str("<input type=\"text\" id=\"filter\" placeholder=\"Filter events...\">\n");
-    html.push_str("<div class=\"table-wrapper\">\n<table>\n<thead><tr>");
-
-    let headers = ["Timestamp", "Type", "Source", "Path", "Description", "Tags"];
-    for (i, hdr) in headers.iter().enumerate() {
-        let _ = write!(html, "<th data-col=\"{i}\">{hdr}</th>");
-    }
-    html.push_str("</tr></thead>\n<tbody id=\"events-tbody\">\n");
-
-    for ev in events {
-        let tags_html: String = ev
-            .tags
-            .iter()
-            .map(|t| format!("<span class=\"tag\">{}</span>", html_escape(t)))
-            .collect::<Vec<_>>()
-            .join(" ");
-
-        let _ = writeln!(
-            html,
-            "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
-            html_escape(&ev.timestamp),
-            html_escape(&ev.event_type),
-            html_escape(&ev.source),
-            html_escape(&ev.artifact_path),
-            html_escape(&ev.description),
-            tags_html,
-        );
-    }
-
-    html.push_str("</tbody>\n</table>\n</div>\n</section>\n");
-}
-
-/// Render the findings table into the HTML buffer.
-fn render_findings_table(html: &mut String, findings: &[FindingRow]) {
-    html.push_str("<section>\n<h2>Scan Findings</h2>\n");
-    html.push_str("<div class=\"table-wrapper\">\n<table>\n<thead><tr>");
-
-    let headers = ["Engine", "Rule", "Severity", "Target", "Description"];
-    for (i, hdr) in headers.iter().enumerate() {
-        let _ = write!(html, "<th data-col=\"{i}\">{hdr}</th>");
-    }
-    html.push_str("</tr></thead>\n<tbody>\n");
-
-    for f in findings {
-        let sev_class = match f.severity.as_str() {
-            "critical" => "severity-critical",
-            "high" => "severity-high",
-            "medium" => "severity-medium",
-            "low" => "severity-low",
-            _ => "severity-informational",
-        };
-
-        let _ = writeln!(
-            html,
-            "<tr><td>{}</td><td>{}</td><td class=\"{}\">{}</td><td>{}</td><td>{}</td></tr>",
-            html_escape(&f.engine),
-            html_escape(&f.rule_name),
-            sev_class,
-            html_escape(&f.severity),
-            html_escape(&f.target),
-            html_escape(&f.description),
-        );
-    }
-
-    html.push_str("</tbody>\n</table>\n</div>\n</section>\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -1048,11 +1553,17 @@ mod tests {
         assert!(html.contains("</html>"), "should end with closing html tag");
         assert!(html.contains("Issen Report"), "should contain the title");
         assert!(html.contains("Generated by Issen"), "should contain footer");
+        // BLUF redesign: the report always opens with the Executive Summary and
+        // ends with the Appendix, even when empty.
         assert!(
-            html.contains("Timeline Events"),
-            "should contain events section header"
+            html.contains("Executive Summary"),
+            "should contain the executive summary header"
         );
-        // With no findings, findings section should NOT appear
+        assert!(
+            html.contains("Appendix"),
+            "should contain the appendix header"
+        );
+        // With no findings, the scan-findings sub-block should NOT appear.
         assert!(
             !html.contains("Scan Findings"),
             "should not contain findings section when empty"
@@ -1815,11 +2326,7 @@ mod tests {
         );
         assert!(html.contains("T1543.003"), "technique id rendered");
         // technique cell carries a severity class.
-        assert!(
-            html.contains("sev-cell-high"),
-            "severity-colored cell: {}",
-            &html[..0.max(0)]
-        );
+        assert!(html.contains("sev-cell-high"), "severity-colored cell");
     }
 
     #[test]
@@ -1888,7 +2395,7 @@ mod tests {
         let card_count = html.matches("rule-card").count();
         assert!(card_count >= 1, "at least one rule card");
         // The rule must report its 2-instance hit count.
-        assert!(html.contains("2"), "hit count rendered");
+        assert!(html.contains("2 instance(s)"), "hit count rendered");
     }
 
     #[test]
