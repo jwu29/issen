@@ -221,6 +221,9 @@ pub enum Mode {
         /// `true` = first (min ts), `false` = last (max ts).
         first: bool,
     },
+    /// `--stats`: a one-shot summary of the matched set — total, time span, and
+    /// the top event-type / source breakdowns — as a `(metric, value)` table.
+    Stats,
 }
 
 /// A typed, read-only timeline query (the design's Tier-1 engine).
@@ -489,6 +492,7 @@ impl TypedQuery {
             Mode::Distinct { target } => self.run_distinct(conn, target),
             Mode::GroupBy { target } => self.run_group_by(conn, target),
             Mode::Extreme { first } => self.run_extreme(conn, *first),
+            Mode::Stats => self.run_stats(conn),
             Mode::Rows { show } => self.run_rows(conn, show),
         }
     }
@@ -509,6 +513,16 @@ impl TypedQuery {
             out.push((inf.field.name.to_string(), populated));
         }
         Ok(out)
+    }
+
+    fn run_stats(&self, conn: &Connection) -> Result<QueryResult, QueryError> {
+        // STUB (RED).
+        let _ = conn;
+        Ok(QueryResult {
+            columns: Vec::new(),
+            row_count: 0,
+            field_populated: Vec::new(),
+        })
     }
 
     fn run_count(&self, conn: &Connection) -> Result<QueryResult, QueryError> {
@@ -1016,6 +1030,40 @@ mod tests {
             .query_row("SELECT count(*) FROM timeline", [], |r| r.get(0))
             .expect("table survives");
         assert_eq!(n, 3);
+    }
+
+    #[test]
+    fn stats_summarizes_total_span_and_top_breakdowns() {
+        // seeded() = 3 events: 2 LogonSuccess (EventLog), 1 FileCreate (Mft),
+        // spanning 2020-09-19T03:24..03:26.
+        let store = seeded();
+        let q = TypedQuery {
+            mode: Mode::Stats,
+            ..Default::default()
+        };
+        let r = q.run(store.connection()).expect("stats");
+        assert_eq!(r.columns.len(), 2, "a (metric, value) table");
+        let rows: Vec<(&str, &str)> = r.columns[0]
+            .values
+            .iter()
+            .zip(&r.columns[1].values)
+            .map(|(m, v)| (m.as_str(), v.as_str()))
+            .collect();
+        let get = |k: &str| rows.iter().find(|(m, _)| *m == k).map(|(_, v)| *v);
+        assert_eq!(get("total"), Some("3"), "total respects the matched set");
+        assert!(get("earliest").is_some(), "earliest present: {rows:?}");
+        assert!(get("latest").is_some(), "latest present");
+        // Top event-type breakdown: LogonSuccess (2) outranks FileCreate (1).
+        let lt = rows
+            .iter()
+            .find(|(m, _)| m.contains("LogonSuccess"))
+            .expect("top event_type listed");
+        assert_eq!(lt.1, "2", "LogonSuccess count");
+        // Top source breakdown present (EventLog appears twice).
+        assert!(
+            rows.iter().any(|(m, _)| m.contains("EventLog")),
+            "top source listed: {rows:?}"
+        );
     }
 
     #[test]
