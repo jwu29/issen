@@ -41,6 +41,8 @@ pub struct QueryArgs {
     pub first: bool,
     pub last: bool,
     pub stats: bool,
+    /// `--context N`: rows before/after each match (row output only).
+    pub context: Option<u64>,
     pub sort_desc: bool,
     pub limit: Option<u64>,
     /// Inclusive time-window bounds (nanoseconds), parsed from `--from`/`--to`.
@@ -163,6 +165,9 @@ fn build_query(args: &QueryArgs) -> Result<(TypedQuery, Vec<String>)> {
     if agg_count > 1 {
         bail!("--count, --distinct, --group-by, --first, --last, --stats are mutually exclusive");
     }
+    if args.context.is_some() && agg_count > 0 {
+        bail!("--context applies to row output; it cannot be combined with an aggregation");
+    }
     if args.first && args.last {
         bail!("--first and --last are mutually exclusive");
     }
@@ -231,6 +236,7 @@ fn build_query(args: &QueryArgs) -> Result<(TypedQuery, Vec<String>)> {
         from_ns: args.from_ns,
         to_ns: args.to_ns,
         mode,
+        context: args.context,
     };
     Ok((query, filters_desc))
 }

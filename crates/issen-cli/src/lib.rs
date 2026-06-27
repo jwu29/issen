@@ -275,6 +275,10 @@ pub enum Commands {
         #[arg(long)]
         stats: bool,
 
+        /// Show N rows before and after each match (grep -C). Row output only.
+        #[arg(long, value_name = "N")]
+        context: Option<u64>,
+
         /// Run a guarded read-only raw SQL query (SELECT/WITH only). Mutating
         /// keywords are refused; the handle is read-only regardless.
         #[arg(long, value_name = "QUERY")]
@@ -704,6 +708,7 @@ pub fn run() -> ExitCode {
                 first,
                 last,
                 stats,
+                context,
                 sql,
                 view,
             } => {
@@ -787,6 +792,7 @@ pub fn run() -> ExitCode {
                         || first
                         || last
                         || stats
+                        || context.is_some()
                         || !event_type.is_empty()
                         || !source.is_empty();
 
@@ -841,6 +847,7 @@ pub fn run() -> ExitCode {
                                         first,
                                         last,
                                         stats,
+                                        context,
                                         sort_desc: descending,
                                         limit: Some(limit),
                                         from_ns,

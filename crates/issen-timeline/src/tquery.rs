@@ -596,12 +596,78 @@ impl TypedQuery {
         show: &[String],
         n: u64,
     ) -> Result<QueryResult, QueryError> {
-        // STUB (RED): ignores context entirely.
-        let _ = (conn, show, n);
+        // Projection exprs (may bind params for JSON-metadata fields).
+        let mut select_params: Vec<DuckValue> = Vec::new();
+        let mut exprs: Vec<String> = Vec::new();
+        for col in show {
+            exprs.push(self.target_expr(col, &mut select_params)?);
+        }
+        // The filter selects the `matches`; neighbors come from the UNFILTERED set.
+        let mut where_params: Vec<DuckValue> = Vec::new();
+        let where_clause = self.build_where(&mut where_params);
+
+        let select_list = exprs.join(", ");
+        let dir = if self.ascending { "ASC" } else { "DESC" };
+        let limit = self.limit.map_or(String::new(), |l| format!(" LIMIT {l}"));
+
+        // Rank the whole timeline chronologically, then keep any row within ±N
+        // ranks of a match. Params appear in TEXT order: the matches-CTE WHERE
+        // first, then the outer projection list. `n` is a validated u64 (safe to
+        // inline); all analyst values stay bound parameters.
+        let mut params: Vec<DuckValue> = where_params;
+        params.extend(select_params);
+        let sql = format!(
+            "WITH ordered AS (\
+                 SELECT *, row_number() OVER (ORDER BY timestamp_ns, record_hash, id) AS __rn \
+                 FROM timeline\
+             ), matches AS (SELECT __rn FROM ordered WHERE {where_clause}) \
+             SELECT CASE WHEN o.__rn IN (SELECT __rn FROM matches) THEN 1 ELSE 0 END AS __is_match, \
+                    {select_list} \
+             FROM ordered o \
+             WHERE EXISTS (SELECT 1 FROM matches m WHERE o.__rn BETWEEN m.__rn - {n} AND m.__rn + {n}) \
+             ORDER BY o.__rn {dir}{limit}"
+        );
+
+        let ncols = show.len();
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params_slice(&params).as_slice(), |row| {
+            let is_match: i64 = row.get(0)?;
+            let mut vals = Vec::with_capacity(ncols);
+            for i in 0..ncols {
+                let v: Option<String> = row.get(i + 1)?;
+                vals.push(v.unwrap_or_default());
+            }
+            Ok((is_match != 0, vals))
+        })?;
+
+        // A leading "match" marker column (`>` = match, blank = context), then
+        // the requested projections.
+        let mut columns: Vec<Column> = std::iter::once(Column {
+            name: "match".to_string(),
+            values: Vec::new(),
+        })
+        .chain(show.iter().map(|c| Column {
+            name: c.clone(),
+            values: Vec::new(),
+        }))
+        .collect();
+        let mut row_count = 0;
+        for r in rows {
+            let (is_match, vals) = r?;
+            columns[0].values.push(if is_match {
+                ">".to_string()
+            } else {
+                String::new()
+            });
+            for (i, v) in vals.into_iter().enumerate() {
+                columns[i + 1].values.push(v);
+            }
+            row_count += 1;
+        }
         Ok(QueryResult {
-            columns: Vec::new(),
-            row_count: 0,
-            field_populated: Vec::new(),
+            columns,
+            row_count,
+            field_populated: self.field_populated_report(conn)?,
         })
     }
 
