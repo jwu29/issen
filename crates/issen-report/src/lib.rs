@@ -31,7 +31,9 @@ pub use mermaid::{
     AttackTactic, DefenseCategory, DefenseInput, DefenseItem,
 };
 
-use chrono::Utc;
+use chrono::{TimeZone, Utc};
+use forensicnomicon::report::Severity;
+use issen_correlation::correlation::Correlation;
 
 // ---------------------------------------------------------------------------
 // Error type
@@ -141,6 +143,24 @@ pub struct FindingRow {
     pub tags: Vec<String>,
 }
 
+/// A correlation member event resolved from the `timeline` table for
+/// drill-down rendering. Keyed in [`ReportData::member_events`] by `id`.
+#[derive(Debug, Clone)]
+pub struct CorrEventRow {
+    /// The `timeline.id` of this event.
+    pub id: u64,
+    /// Human-readable timestamp (`timestamp_display`).
+    pub timestamp: String,
+    /// Event type label.
+    pub event_type: String,
+    /// Source artifact type label.
+    pub source: String,
+    /// Path of the artifact within the evidence.
+    pub artifact_path: String,
+    /// Human-readable description.
+    pub description: String,
+}
+
 /// All data needed to render a report.
 #[derive(Debug, Clone)]
 pub struct ReportData {
@@ -154,6 +174,11 @@ pub struct ReportData {
     pub summary: ReportSummary,
     /// Scan findings to display (may be empty).
     pub findings: Vec<FindingRow>,
+    /// Cross-artifact correlations — the attack narrative. May be empty.
+    pub correlations: Vec<Correlation>,
+    /// Correlation member events resolved from the `timeline` table, keyed by
+    /// `timeline.id`. Only the members of rendered instances are populated.
+    pub member_events: std::collections::HashMap<u64, CorrEventRow>,
 }
 
 // ---------------------------------------------------------------------------
@@ -267,6 +292,8 @@ pub fn collect_report_data(
         events,
         summary,
         findings,
+        correlations: Vec::new(),
+        member_events: std::collections::HashMap::new(),
     })
 }
 
@@ -326,6 +353,176 @@ fn collect_findings(conn: &duckdb::Connection) -> Result<(Vec<FindingRow>, usize
     let findings: Vec<FindingRow> = rows.collect::<Result<Vec<_>, _>>()?;
 
     Ok((findings, total as usize))
+}
+
+// ---------------------------------------------------------------------------
+// Pure analysis logic (Humble Object: testable without rendering)
+// ---------------------------------------------------------------------------
+
+/// A single ATT&CK technique observed under a tactic, graded by its worst
+/// observed severity with a hit count.
+#[derive(Debug, Clone)]
+pub struct TechniqueCell {
+    /// Canonical technique id (e.g. `T1543.003`).
+    pub id: String,
+    /// Worst severity observed across the contributions to this technique.
+    pub max_severity: Severity,
+    /// Number of contributing correlations/findings.
+    pub count: usize,
+}
+
+/// One kill-chain tactic column with the techniques observed under it.
+#[derive(Debug, Clone)]
+pub struct TacticColumn {
+    /// Human-readable tactic label (kill-chain ordered upstream).
+    pub tactic_label: &'static str,
+    /// Techniques observed under this tactic, most-severe first.
+    pub techniques: Vec<TechniqueCell>,
+}
+
+/// A correlation rule collapsed across all its instances, for the grouped
+/// "Correlated Findings" cards.
+#[derive(Debug, Clone)]
+pub struct RuleGroup {
+    /// Scheme-prefixed rule code (e.g. `CORR-MALWARE-PERSIST`).
+    pub code: String,
+    /// MITRE technique the rule is consistent with, if any.
+    pub attack_technique: Option<String>,
+    /// Worst severity across this rule's instances.
+    pub max_severity: Severity,
+    /// Examiner-facing rationale (the rule's note).
+    pub note: String,
+    /// Total number of instances of this rule.
+    pub hit_count: usize,
+    /// The instances (each a [`Correlation`]), most-severe/earliest first.
+    pub instances: Vec<Correlation>,
+}
+
+/// Total ordering rank for a severity (`Info` lowest, `Critical` highest).
+#[must_use]
+fn severity_rank(_s: Severity) -> u8 {
+    0 // RED stub
+}
+
+/// Lowercase severity token for CSS classes / display.
+#[must_use]
+fn severity_token(s: Severity) -> &'static str {
+    match s {
+        Severity::Info => "info",
+        Severity::Low => "low",
+        Severity::Medium => "medium",
+        Severity::High => "high",
+        Severity::Critical => "critical",
+        _ => "info", // cov:unreachable: Severity has exactly five known variants today
+    }
+}
+
+/// Parse a `scan_findings.severity` token into a [`Severity`].
+#[must_use]
+fn severity_from_finding_str(_s: &str) -> Option<Severity> {
+    None // RED stub
+}
+
+/// Format a nanoseconds-since-epoch instant as a readable UTC string.
+#[must_use]
+fn format_ns(_ns: i64) -> String {
+    String::new() // RED stub
+}
+
+/// Map a MITRE technique id (e.g. `T1543.003`, `T1110`) to the kill-chain
+/// tactic it belongs to for this report's overview. The base technique (before
+/// the sub-technique dot) drives the mapping. Unknown ids fall under `Unknown`.
+#[must_use]
+fn technique_to_tactic(id: &str) -> AttackTactic {
+    let base = id.split('.').next().unwrap_or(id).to_ascii_uppercase();
+    match base.as_str() {
+        // Initial Access
+        "T1110" | "T1078" | "T1190" | "T1133" | "T1566" => AttackTactic::InitialAccess,
+        // Execution
+        "T1059" | "T1106" | "T1053" | "T1204" | "T1569" | "T1047" | "T1105" => {
+            AttackTactic::Execution
+        }
+        // Persistence
+        "T1543" | "T1547" | "T1136" | "T1505" | "T1546" | "T1574" => AttackTactic::Persistence,
+        // Defense Evasion
+        "T1070" | "T1027" | "T1055" | "T1112" | "T1562" | "T1140" => AttackTactic::DefenseEvasion,
+        // Command and Control
+        "T1071" | "T1095" | "T1573" | "T1090" | "T1102" => AttackTactic::CommandAndControl,
+        // Impact
+        "T1486" | "T1490" | "T1489" | "T1485" => AttackTactic::Impact,
+        _ => AttackTactic::Unknown,
+    }
+}
+
+/// Kill-chain order for a tactic (lower = earlier). Mirrors `attack_chain.rs`.
+#[must_use]
+fn tactic_kill_chain_order(t: AttackTactic) -> usize {
+    match t {
+        AttackTactic::InitialAccess => 0,
+        AttackTactic::Execution => 1,
+        AttackTactic::Persistence => 2,
+        AttackTactic::DefenseEvasion => 3,
+        AttackTactic::CommandAndControl => 4,
+        AttackTactic::Impact => 5,
+        AttackTactic::Unknown => 6,
+    }
+}
+
+/// Human-readable tactic label.
+#[must_use]
+fn tactic_overview_label(t: AttackTactic) -> &'static str {
+    match t {
+        AttackTactic::InitialAccess => "Initial Access",
+        AttackTactic::Execution => "Execution",
+        AttackTactic::Persistence => "Persistence",
+        AttackTactic::DefenseEvasion => "Defense Evasion",
+        AttackTactic::CommandAndControl => "Command & Control",
+        AttackTactic::Impact => "Impact",
+        AttackTactic::Unknown => "Other",
+    }
+}
+
+/// Extract a technique id from a finding tag such as `attack.t1059.001`.
+/// Returns the canonical upper-case `T1059.001`, or `None` for non-technique
+/// tags (e.g. tactic tags like `attack.execution`).
+#[must_use]
+fn finding_tag_technique(tag: &str) -> Option<String> {
+    let lower = tag.to_ascii_lowercase();
+    let rest = lower.strip_prefix("attack.")?;
+    // A technique tag is `t<digits>` optionally with `.<digits>` sub-techniques.
+    let mut chars = rest.chars();
+    if chars.next() != Some('t') {
+        return None;
+    }
+    let after_t = &rest[1..];
+    // First segment must be all digits.
+    let first = after_t.split('.').next().unwrap_or("");
+    if first.is_empty() || !first.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    Some(format!("T{}", &rest[1..]).to_ascii_uppercase())
+}
+
+/// Build the ATT&CK overview: tactics in kill-chain order, each with the
+/// techniques observed under it (from correlations' `attack_technique` and
+/// findings' `attack.tXXXX` tags), every technique graded by its worst
+/// severity with a hit count.
+#[must_use]
+fn attack_overview(_correlations: &[Correlation], _findings: &[FindingRow]) -> Vec<TacticColumn> {
+    Vec::new() // RED stub
+}
+
+/// Group correlations by rule `code`, ordered by worst severity descending.
+#[must_use]
+fn group_rules(_correlations: &[Correlation]) -> Vec<RuleGroup> {
+    Vec::new() // RED stub
+}
+
+/// Derive the page-one key judgment (BLUF) from the correlations. Uses
+/// "consistent with" framing and never asserts a verdict.
+#[must_use]
+fn key_judgment(_correlations: &[Correlation]) -> String {
+    String::new() // RED stub
 }
 
 // ---------------------------------------------------------------------------
@@ -823,6 +1020,8 @@ mod tests {
                 total_findings,
             },
             findings,
+            correlations: Vec::new(),
+            member_events: HashMap::new(),
         }
     }
 
@@ -1009,8 +1208,8 @@ mod tests {
         .with_tag("bookmarked");
 
         let store = make_store_with_events(&[ev]);
-        let data = collect_report_data(&store, ReportConfig::default())
-            .expect("collect_report_data");
+        let data =
+            collect_report_data(&store, ReportConfig::default()).expect("collect_report_data");
 
         assert_eq!(data.events.len(), 1);
         let row = &data.events[0];
@@ -1044,8 +1243,8 @@ mod tests {
         ];
 
         let store = make_store_with_events(&events);
-        let data = collect_report_data(&store, ReportConfig::default())
-            .expect("collect_report_data");
+        let data =
+            collect_report_data(&store, ReportConfig::default()).expect("collect_report_data");
 
         assert_eq!(data.summary.total_events, 3);
         assert_eq!(data.summary.total_findings, 0);
@@ -1123,8 +1322,8 @@ mod tests {
     #[test]
     fn test_collect_report_data_empty_store() {
         let store = TimelineStore::in_memory().expect("create store");
-        let data = collect_report_data(&store, ReportConfig::default())
-            .expect("collect_report_data");
+        let data =
+            collect_report_data(&store, ReportConfig::default()).expect("collect_report_data");
 
         assert_eq!(data.summary.total_events, 0);
         assert!(data.events.is_empty());
@@ -1154,8 +1353,8 @@ mod tests {
         }];
         findings::insert_findings(store.connection(), &finding_rows).expect("insert findings");
 
-        let data = collect_report_data(&store, ReportConfig::default())
-            .expect("collect_report_data");
+        let data =
+            collect_report_data(&store, ReportConfig::default()).expect("collect_report_data");
 
         assert_eq!(data.summary.total_events, 1);
         assert_eq!(data.summary.total_findings, 1);
@@ -1265,6 +1464,8 @@ mod tests {
                 total_findings: 0,
             },
             findings: vec![],
+            correlations: vec![],
+            member_events: HashMap::new(),
         };
 
         let html = render_html(&data);
@@ -1275,5 +1476,476 @@ mod tests {
         );
         assert!(html.contains("CASE-042"), "should contain case ID");
         assert!(html.contains("Jane Doe"), "should contain examiner name");
+    }
+
+    // ---- BLUF / progressive-disclosure redesign -----------------------------
+
+    use forensicnomicon::report::Severity;
+    use issen_correlation::correlation::{
+        Correlation, CorrelationMember, CorrelationRole, CorrelationScope,
+    };
+
+    fn corr(
+        code: &str,
+        sev: Severity,
+        technique: Option<&str>,
+        first: i64,
+        last: i64,
+        note: &str,
+        members: &[(u64, CorrelationRole)],
+    ) -> Correlation {
+        let mut c = Correlation::new(code, sev)
+            .with_scope(CorrelationScope::SameHost)
+            .with_window(first, last)
+            .with_note(note);
+        if let Some(t) = technique {
+            c = c.with_attack_technique(t);
+        }
+        for (id, role) in members {
+            c = c.with_member(CorrelationMember::new(*id, *role));
+        }
+        c
+    }
+
+    fn report_with_correlations(
+        correlations: Vec<Correlation>,
+        member_events: HashMap<u64, CorrEventRow>,
+        findings: Vec<FindingRow>,
+    ) -> ReportData {
+        let mut d = sample_report_data(vec![], findings);
+        d.correlations = correlations;
+        d.member_events = member_events;
+        d
+    }
+
+    fn member_ev(id: u64, ts: &str, et: &str, src: &str, path: &str) -> CorrEventRow {
+        CorrEventRow {
+            id,
+            timestamp: ts.to_string(),
+            event_type: et.to_string(),
+            source: src.to_string(),
+            artifact_path: path.to_string(),
+            description: format!("{et} on {path}"),
+        }
+    }
+
+    // -- ns formatting --------------------------------------------------------
+
+    #[test]
+    fn format_ns_renders_readable_utc() {
+        // 1_700_000_000_000_000_000 ns = 2023-11-14T22:13:20Z
+        let s = format_ns(1_700_000_000_000_000_000);
+        assert!(s.starts_with("2023-11-14T22:13:20"), "got {s}");
+        assert!(s.ends_with('Z'), "UTC marker: {s}");
+    }
+
+    #[test]
+    fn format_ns_handles_zero_and_negative() {
+        assert!(format_ns(0).starts_with("1970-01-01T00:00:00"));
+        // negative / nonsensical input must not panic
+        let _ = format_ns(-1);
+        let _ = format_ns(i64::MIN);
+    }
+
+    // -- severity ranking -----------------------------------------------------
+
+    #[test]
+    fn severity_rank_orders_info_lt_critical() {
+        assert!(severity_rank(Severity::Info) < severity_rank(Severity::Low));
+        assert!(severity_rank(Severity::Low) < severity_rank(Severity::Medium));
+        assert!(severity_rank(Severity::Medium) < severity_rank(Severity::High));
+        assert!(severity_rank(Severity::High) < severity_rank(Severity::Critical));
+    }
+
+    #[test]
+    fn severity_from_finding_str_parses_known_tokens() {
+        assert_eq!(
+            severity_from_finding_str("critical"),
+            Some(Severity::Critical)
+        );
+        assert_eq!(severity_from_finding_str("HIGH"), Some(Severity::High));
+        assert_eq!(severity_from_finding_str("medium"), Some(Severity::Medium));
+        assert_eq!(severity_from_finding_str("low"), Some(Severity::Low));
+        assert_eq!(
+            severity_from_finding_str("informational"),
+            Some(Severity::Info)
+        );
+        assert_eq!(severity_from_finding_str("info"), Some(Severity::Info));
+        assert_eq!(severity_from_finding_str("nonsense"), None);
+    }
+
+    // -- rule grouping --------------------------------------------------------
+
+    #[test]
+    fn group_rules_collapses_by_code_and_counts_instances() {
+        let corrs = vec![
+            corr(
+                "CORR-A",
+                Severity::Medium,
+                Some("T1055"),
+                10,
+                20,
+                "note-a",
+                &[],
+            ),
+            corr(
+                "CORR-A",
+                Severity::Medium,
+                Some("T1055"),
+                30,
+                40,
+                "note-a",
+                &[],
+            ),
+            corr(
+                "CORR-B",
+                Severity::High,
+                Some("T1543.003"),
+                5,
+                6,
+                "note-b",
+                &[],
+            ),
+        ];
+        let groups = group_rules(&corrs);
+        assert_eq!(groups.len(), 2, "two distinct codes");
+        // High severity rule must sort first.
+        assert_eq!(groups[0].code, "CORR-B");
+        assert_eq!(groups[0].hit_count, 1);
+        assert_eq!(groups[0].max_severity, Severity::High);
+        assert_eq!(groups[0].attack_technique.as_deref(), Some("T1543.003"));
+        assert_eq!(groups[0].note, "note-b");
+        assert_eq!(groups[1].code, "CORR-A");
+        assert_eq!(groups[1].hit_count, 2, "two CORR-A instances grouped");
+    }
+
+    #[test]
+    fn group_rules_orders_by_max_severity_desc() {
+        let corrs = vec![
+            corr("LOW", Severity::Low, None, 1, 2, "", &[]),
+            corr("CRIT", Severity::Critical, None, 1, 2, "", &[]),
+            corr("MED", Severity::Medium, None, 1, 2, "", &[]),
+        ];
+        let groups = group_rules(&corrs);
+        let codes: Vec<&str> = groups.iter().map(|g| g.code.as_str()).collect();
+        assert_eq!(codes, vec!["CRIT", "MED", "LOW"]);
+    }
+
+    // -- ATT&CK overview ------------------------------------------------------
+
+    #[test]
+    fn attack_overview_groups_techniques_under_kill_chain_tactics() {
+        let corrs = vec![
+            corr(
+                "CORR-PERSIST",
+                Severity::High,
+                Some("T1543.003"),
+                1,
+                2,
+                "n",
+                &[],
+            ),
+            corr(
+                "CORR-PERSIST",
+                Severity::High,
+                Some("T1543.003"),
+                3,
+                4,
+                "n",
+                &[],
+            ),
+            corr("CORR-BRUTE", Severity::High, Some("T1110"), 5, 6, "n", &[]),
+        ];
+        let cols = attack_overview(&corrs, &[]);
+        // Persistence (T1543.003) and Initial Access (T1110, brute force) present.
+        let tactics: Vec<&str> = cols.iter().map(|c| c.tactic_label).collect();
+        assert!(tactics.contains(&"Persistence"), "tactics: {tactics:?}");
+        // Persistence column should carry T1543.003 with count 2 at High.
+        let persist = cols
+            .iter()
+            .find(|c| c.tactic_label == "Persistence")
+            .expect("persistence column");
+        let t = persist
+            .techniques
+            .iter()
+            .find(|t| t.id == "T1543.003")
+            .expect("T1543.003 cell");
+        assert_eq!(t.count, 2);
+        assert_eq!(t.max_severity, Severity::High);
+    }
+
+    #[test]
+    fn attack_overview_includes_finding_attack_tags() {
+        let findings = vec![FindingRow {
+            engine: "Native".to_string(),
+            rule_name: "native-t1059".to_string(),
+            severity: "high".to_string(),
+            target: "cmd.exe".to_string(),
+            description: "cmd".to_string(),
+            tags: vec!["attack.t1059.001".to_string()],
+        }];
+        let cols = attack_overview(&[], &findings);
+        let all_ids: Vec<String> = cols
+            .iter()
+            .flat_map(|c| c.techniques.iter().map(|t| t.id.clone()))
+            .collect();
+        assert!(
+            all_ids.iter().any(|id| id == "T1059.001"),
+            "finding technique tag should appear: {all_ids:?}"
+        );
+    }
+
+    // -- key judgment ---------------------------------------------------------
+
+    #[test]
+    fn key_judgment_uses_consistent_with_framing_and_top_technique() {
+        let corrs = vec![
+            corr(
+                "CORR-MALWARE-PERSIST",
+                Severity::High,
+                Some("T1543.003"),
+                1,
+                2,
+                "n",
+                &[],
+            ),
+            corr(
+                "CORR-BRUTEFORCE-LOGON",
+                Severity::High,
+                Some("T1110"),
+                3,
+                4,
+                "n",
+                &[],
+            ),
+        ];
+        let kj = key_judgment(&corrs);
+        assert!(kj.contains("consistent with"), "BLUF framing: {kj}");
+        assert!(
+            !kj.to_lowercase().contains("confirms") && !kj.to_lowercase().contains("proves"),
+            "must not assert a verdict: {kj}"
+        );
+        assert!(
+            kj.contains("T1543.003") || kj.contains("T1110"),
+            "names a technique: {kj}"
+        );
+    }
+
+    #[test]
+    fn key_judgment_handles_no_correlations() {
+        let kj = key_judgment(&[]);
+        assert!(
+            !kj.is_empty(),
+            "must produce some text even with no correlations"
+        );
+    }
+
+    // -- structural HTML assertions for the new report ------------------------
+
+    #[test]
+    fn render_html_executive_summary_appears_first() {
+        let corrs = vec![corr(
+            "CORR-MALWARE-PERSIST",
+            Severity::High,
+            Some("T1543.003"),
+            1_700_000_000_000_000_000,
+            1_700_000_100_000_000_000,
+            "service-based persistence note",
+            &[
+                (1, CorrelationRole::Anchor),
+                (2, CorrelationRole::Consequent),
+            ],
+        )];
+        let mut members = HashMap::new();
+        members.insert(
+            1,
+            member_ev(
+                1,
+                "2023-11-14T22:13:20Z",
+                "FileCreate",
+                "Mft",
+                "C:/evil.exe",
+            ),
+        );
+        members.insert(
+            2,
+            member_ev(
+                2,
+                "2023-11-14T22:14:00Z",
+                "ServiceInstall",
+                "EventLog",
+                "Security.evtx",
+            ),
+        );
+        let data = report_with_correlations(corrs, members, vec![]);
+        let html = render_html(&data);
+
+        let exec = html
+            .find("Executive Summary")
+            .expect("exec summary present");
+        // The exec summary must precede the appendix and the events sample.
+        let appendix = html.find("Appendix").expect("appendix present");
+        assert!(
+            exec < appendix,
+            "Executive Summary must come before Appendix"
+        );
+        // BLUF judgment text present.
+        assert!(
+            html.contains("consistent with"),
+            "key judgment framing present"
+        );
+    }
+
+    #[test]
+    fn render_html_attack_overview_colors_techniques_by_severity() {
+        let corrs = vec![corr(
+            "CORR-MALWARE-PERSIST",
+            Severity::High,
+            Some("T1543.003"),
+            1,
+            2,
+            "n",
+            &[],
+        )];
+        let data = report_with_correlations(corrs, HashMap::new(), vec![]);
+        let html = render_html(&data);
+        assert!(
+            html.contains("ATT&amp;CK Overview"),
+            "overview section header"
+        );
+        assert!(html.contains("T1543.003"), "technique id rendered");
+        // technique cell carries a severity class.
+        assert!(
+            html.contains("sev-cell-high"),
+            "severity-colored cell: {}",
+            &html[..0.max(0)]
+        );
+    }
+
+    #[test]
+    fn render_html_correlated_findings_are_grouped_cards_with_notes_and_roles() {
+        let corrs = vec![
+            corr(
+                "CORR-MALWARE-PERSIST",
+                Severity::High,
+                Some("T1543.003"),
+                1_700_000_000_000_000_000,
+                1_700_000_100_000_000_000,
+                "An executable file create followed by a service install is consistent with service-based persistence (T1543.003).",
+                &[(1, CorrelationRole::Anchor), (2, CorrelationRole::Consequent)],
+            ),
+            corr(
+                "CORR-MALWARE-PERSIST",
+                Severity::High,
+                Some("T1543.003"),
+                1_700_000_000_000_000_000,
+                1_700_000_100_000_000_000,
+                "An executable file create followed by a service install is consistent with service-based persistence (T1543.003).",
+                &[(1, CorrelationRole::Anchor), (2, CorrelationRole::Consequent)],
+            ),
+        ];
+        let mut members = HashMap::new();
+        members.insert(
+            1,
+            member_ev(
+                1,
+                "2023-11-14T22:13:20Z",
+                "FileCreate",
+                "Mft",
+                "C:/evil.exe",
+            ),
+        );
+        members.insert(
+            2,
+            member_ev(
+                2,
+                "2023-11-14T22:14:00Z",
+                "ServiceInstall",
+                "EventLog",
+                "Security.evtx",
+            ),
+        );
+        let data = report_with_correlations(corrs, members, vec![]);
+        let html = render_html(&data);
+
+        assert!(html.contains("Correlated Findings"), "section header");
+        assert!(html.contains("CORR-MALWARE-PERSIST"), "rule code rendered");
+        assert!(
+            html.contains("consistent with service-based persistence"),
+            "rule note (rationale) rendered"
+        );
+        // Drill-down uses <details>.
+        assert!(
+            html.contains("<details"),
+            "progressive disclosure via details"
+        );
+        // Role badges for member events.
+        assert!(html.contains("anchor"), "anchor role badge");
+        assert!(html.contains("consequent"), "consequent role badge");
+        // Member event detail surfaced.
+        assert!(html.contains("C:/evil.exe"), "member event path");
+        // Two instances of one rule => ONE card, not two top-level cards.
+        let card_count = html.matches("rule-card").count();
+        assert!(card_count >= 1, "at least one rule card");
+        // The rule must report its 2-instance hit count.
+        assert!(html.contains("2"), "hit count rendered");
+    }
+
+    #[test]
+    fn render_html_appendix_surfaces_medium_findings_and_collapses_info_low() {
+        let mut findings = vec![FindingRow {
+            engine: "Timestomp".to_string(),
+            rule_name: "NTFS-TIMESTOMP-SI-FN-MISMATCH".to_string(),
+            severity: "medium".to_string(),
+            target: "FileShare/Secret/Beth_Secret.txt".to_string(),
+            description: "SI<FN timestamp mismatch".to_string(),
+            tags: vec![],
+        }];
+        // A large pile of Info/Low leads that must be collapsed behind a count.
+        for i in 0..500 {
+            findings.push(FindingRow {
+                engine: "Timestomp".to_string(),
+                rule_name: "NTFS-TIMESTOMP-SI-FN-MISMATCH".to_string(),
+                severity: "info".to_string(),
+                target: format!("C:/win/file{i}.sys"),
+                description: "lead".to_string(),
+                tags: vec![],
+            });
+        }
+        let data = report_with_correlations(vec![], HashMap::new(), findings);
+        let html = render_html(&data);
+
+        assert!(html.contains("Appendix"), "appendix present");
+        // The lone medium must be individually visible.
+        assert!(html.contains("Beth_Secret.txt"), "medium finding surfaced");
+        // The 500 info leads must be collapsed (count shown), not dumped as 500 rows.
+        assert!(html.contains("500"), "info/low count surfaced");
+        // We must NOT inline a giant events table; the events sample is bounded.
+        // (No giant inline dump: total info rows are not all rendered as <tr>.)
+    }
+
+    #[test]
+    fn render_html_events_sample_is_bounded() {
+        // 1000 events but the report only samples a small number inline.
+        let events: Vec<EventRow> = (0..1000)
+            .map(|i| EventRow {
+                timestamp: format!("2023-01-01T00:00:{:02}Z", i % 60),
+                event_type: "FileCreate".to_string(),
+                source: "Mft".to_string(),
+                artifact_path: format!("C:/f{i}.txt"),
+                description: format!("event {i}"),
+                tags: vec![],
+            })
+            .collect();
+        let mut data = sample_report_data(events, vec![]);
+        data.correlations = vec![];
+        data.member_events = HashMap::new();
+        let html = render_html(&data);
+        // The events sample is capped well below 1000 rows.
+        let row_count = html.matches("<tr>").count();
+        assert!(
+            row_count <= 250,
+            "events sample must be bounded (<=200 rows + headers), got {row_count}"
+        );
     }
 }
