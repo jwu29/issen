@@ -52,8 +52,62 @@ fn feed_snapshot() -> String {
 /// its content — never by a filename special case — and the raw evidence
 /// archives "just work" without a manual extract.
 fn classify_evidence(path: &Path) -> Option<EvidenceKind> {
-    // STUB (RED): extension-only; ignores archive contents.
-    pipeline::classify(&path.to_string_lossy())
+    let by_ext = pipeline::classify(&path.to_string_lossy());
+    // Only an archive needs a content peek; a raw file (incl. a real .E01/.mem)
+    // is already decided by its own extension.
+    if by_ext != Some(EvidenceKind::Disk) || !is_archive(path) {
+        return by_ext;
+    }
+    match archive_member_kinds(path) {
+        // A memory dump inside wins (a .mem means memory analysis is wanted);
+        // otherwise disk; an unreadable/peekless archive defaults to disk, where
+        // issen-unpack cracks it.
+        Some(kinds) if kinds.contains(&EvidenceKind::Memory) => Some(EvidenceKind::Memory),
+        Some(kinds) if kinds.contains(&EvidenceKind::Disk) => Some(EvidenceKind::Disk),
+        _ => by_ext,
+    }
+}
+
+/// `true` if `path`'s extension is an evidence-archive type (as opposed to a raw
+/// disk image like `.E01`, which `classify` also maps to Disk).
+fn is_archive(path: &Path) -> bool {
+    matches!(
+        path.extension()
+            .and_then(|e| e.to_str())
+            .map(str::to_ascii_lowercase)
+            .as_deref(),
+        Some("zip" | "7z" | "tar" | "gz" | "tgz" | "bz2" | "tbz2" | "xz" | "txz" | "zst")
+    )
+}
+
+/// The distinct [`EvidenceKind`]s among a zip's member names — the pure
+/// [`pipeline::classify`] rule applied to each entry. Cheap: reads only the
+/// central directory, never decompresses. Non-zip archives have no cheap peek
+/// wired (returns `None` → the caller defaults them to the disk leg).
+fn archive_member_kinds(path: &Path) -> Option<Vec<EvidenceKind>> {
+    if path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+        != Some("zip")
+    {
+        return None;
+    }
+    let file = std::fs::File::open(path).ok()?;
+    let mut archive = zip::ZipArchive::new(file).ok()?;
+    let mut kinds = Vec::new();
+    for i in 0..archive.len() {
+        let Ok(entry) = archive.by_index(i) else {
+            continue; // cov:unreachable: index in 0..len is always valid
+        };
+        if let Some(k) = pipeline::classify(entry.name()) {
+            if !kinds.contains(&k) {
+                kinds.push(k);
+            }
+        }
+    }
+    Some(kinds)
 }
 
 /// Run the resumable pipeline over `evidence`.
