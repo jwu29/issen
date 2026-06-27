@@ -44,9 +44,10 @@ pub struct SourceProgress {
 
 impl SourceProgress {
     /// Start a source's display. When `render`, adds a bar to `mp` and spawns the
-    /// render thread; otherwise it's an inert holder of the reporter.
+    /// render thread; otherwise it's an inert holder of the reporter. `num_sources`
+    /// bounds this source's worker-bar count so the *combined* stack stays readable.
     #[must_use]
-    pub fn start(mp: &MultiProgress, label: &str, render: bool) -> Self {
+    pub fn start(mp: &MultiProgress, label: &str, render: bool, num_sources: usize) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
         if !render {
             return Self {
@@ -58,12 +59,14 @@ impl SourceProgress {
             };
         }
 
-        // One worker slot/bar per parsing thread (capped so the display stays
-        // readable). The reporter's slot count must match the bar count.
-        let workers = std::thread::available_parallelism()
+        // One worker slot/bar per parsing thread, but bounded so the COMBINED
+        // multi-source stack stays readable on a short terminal (the reporter's
+        // slot count must match the bar count).
+        const MAX_TOTAL_WORKER_BARS: usize = 12;
+        let cores = std::thread::available_parallelism()
             .map(std::num::NonZeroUsize::get)
-            .unwrap_or(1)
-            .clamp(1, 6);
+            .unwrap_or(1);
+        let workers = workers_per_source(cores, num_sources, MAX_TOTAL_WORKER_BARS);
         let reporter = ProgressReporter::with_workers(workers);
 
         let bar = mp.add(ProgressBar::new_spinner());
@@ -158,9 +161,8 @@ impl SourceProgress {
 /// `max_total`. Pure decision (Humble Object) — unit-tested apart from the draw
 /// shell, which is why the multi-source bar stack no longer clips.
 fn workers_per_source(cores: usize, num_sources: usize, max_total: usize) -> usize {
-    // STUB (RED): ignores the per-source budget.
-    let _ = (num_sources, max_total);
-    cores.clamp(1, 6)
+    let per_source_budget = (max_total / num_sources.max(1)).max(1);
+    cores.clamp(1, 6).min(per_source_budget)
 }
 
 #[cfg(test)]

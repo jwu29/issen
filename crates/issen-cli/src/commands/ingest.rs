@@ -197,9 +197,15 @@ pub fn run(
     let max_par = std::thread::available_parallelism()
         .map(|n| n.get().saturating_sub(2).max(1))
         .unwrap_or(1);
+    let num_sources = sources.len();
     let parsed = crate::parallel_sources::parse_sources_parallel(&sources, max_par, |i, src| {
         let setup = &setups[i];
-        let sp = crate::ingest_progress::SourceProgress::start(&mp, &setup.source_label, render);
+        let sp = crate::ingest_progress::SourceProgress::start(
+            &mp,
+            &setup.source_label,
+            render,
+            num_sources,
+        );
         let source_id = setup.source_id.as_str();
         let completed = &setup.completed;
         // A unit is skipped when its (source, artifact-type, path, parser) identity
