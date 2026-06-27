@@ -270,6 +270,11 @@ pub enum Commands {
         #[arg(long)]
         last: bool,
 
+        /// Aggregation: one-shot summary — total, time span, and the top
+        /// event-type / source breakdowns of the matched set.
+        #[arg(long)]
+        stats: bool,
+
         /// Run a guarded read-only raw SQL query (SELECT/WITH only). Mutating
         /// keywords are refused; the handle is read-only regardless.
         #[arg(long, value_name = "QUERY")]
@@ -698,6 +703,7 @@ pub fn run() -> ExitCode {
                 group_by,
                 first,
                 last,
+                stats,
                 sql,
                 view,
             } => {
@@ -780,6 +786,7 @@ pub fn run() -> ExitCode {
                         || group_by.is_some()
                         || first
                         || last
+                        || stats
                         || !event_type.is_empty()
                         || !source.is_empty();
 
@@ -833,6 +840,7 @@ pub fn run() -> ExitCode {
                                         group_by,
                                         first,
                                         last,
+                                        stats,
                                         sort_desc: descending,
                                         limit: Some(limit),
                                         from_ns,

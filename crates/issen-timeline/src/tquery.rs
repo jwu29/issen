@@ -516,12 +516,72 @@ impl TypedQuery {
     }
 
     fn run_stats(&self, conn: &Connection) -> Result<QueryResult, QueryError> {
-        // STUB (RED).
-        let _ = conn;
+        let mut params: Vec<DuckValue> = Vec::new();
+        let where_clause = self.build_where(&mut params);
+
+        let mut metric: Vec<String> = Vec::new();
+        let mut value: Vec<String> = Vec::new();
+
+        // Total matching the same filter set as every other mode.
+        let total: i64 = conn.query_row(
+            &format!("SELECT count(*) FROM timeline WHERE {where_clause}"),
+            params_slice(&params).as_slice(),
+            |r| r.get(0),
+        )?;
+        metric.push("total".to_string());
+        value.push(total.to_string());
+
+        // Time span (min/max display; NULL when the matched set is empty).
+        let (earliest, latest): (Option<String>, Option<String>) = conn.query_row(
+            &format!(
+                "SELECT min(timestamp_display), max(timestamp_display) \
+                 FROM timeline WHERE {where_clause}"
+            ),
+            params_slice(&params).as_slice(),
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        if let Some(e) = earliest {
+            metric.push("earliest".to_string());
+            value.push(e);
+        }
+        if let Some(l) = latest {
+            metric.push("latest".to_string());
+            value.push(l);
+        }
+
+        // Top event-type and source breakdowns (top 5 each by count).
+        for (label, col) in [("event_type", "event_type"), ("source", "source")] {
+            let sql = format!(
+                "SELECT {col} AS v, count(*) AS c FROM timeline WHERE {where_clause} \
+                 GROUP BY 1 ORDER BY c DESC, v ASC LIMIT 5"
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map(params_slice(&params).as_slice(), |row| {
+                let v: Option<String> = row.get(0)?;
+                let c: i64 = row.get(1)?;
+                Ok((v.unwrap_or_default(), c))
+            })?;
+            for r in rows {
+                let (v, c) = r?;
+                metric.push(format!("{label}: {v}"));
+                value.push(c.to_string());
+            }
+        }
+
+        let row_count = metric.len();
         Ok(QueryResult {
-            columns: Vec::new(),
-            row_count: 0,
-            field_populated: Vec::new(),
+            columns: vec![
+                Column {
+                    name: "metric".to_string(),
+                    values: metric,
+                },
+                Column {
+                    name: "value".to_string(),
+                    values: value,
+                },
+            ],
+            row_count,
+            field_populated: self.field_populated_report(conn)?,
         })
     }
 

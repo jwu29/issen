@@ -40,6 +40,7 @@ pub struct QueryArgs {
     pub group_by: Option<String>,
     pub first: bool,
     pub last: bool,
+    pub stats: bool,
     pub sort_desc: bool,
     pub limit: Option<u64>,
     /// Inclusive time-window bounds (nanoseconds), parsed from `--from`/`--to`.
@@ -154,12 +155,13 @@ fn build_query(args: &QueryArgs) -> Result<(TypedQuery, Vec<String>)> {
         args.group_by.is_some(),
         args.first,
         args.last,
+        args.stats,
     ]
     .iter()
     .filter(|b| **b)
     .count();
     if agg_count > 1 {
-        bail!("--count, --distinct, --group-by, --first, --last are mutually exclusive");
+        bail!("--count, --distinct, --group-by, --first, --last, --stats are mutually exclusive");
     }
     if args.first && args.last {
         bail!("--first and --last are mutually exclusive");
@@ -179,6 +181,8 @@ fn build_query(args: &QueryArgs) -> Result<(TypedQuery, Vec<String>)> {
         Mode::Extreme { first: true }
     } else if args.last {
         Mode::Extreme { first: false }
+    } else if args.stats {
+        Mode::Stats
     } else {
         let show = args.show.as_ref().map_or_else(
             || {
