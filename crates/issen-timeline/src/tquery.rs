@@ -252,6 +252,10 @@ pub struct TypedQuery {
     pub to_ns: Option<i64>,
     /// What to project / aggregate.
     pub mode: Mode,
+    /// `--context N`: also surface the N rows before and after each match (from
+    /// the *unfiltered* timeline), grep `-C` style. `None` = matches only.
+    /// Rows mode only.
+    pub context: Option<u64>,
 }
 
 impl Default for TypedQuery {
@@ -270,6 +274,7 @@ impl Default for TypedQuery {
             mode: Mode::Rows {
                 show: default_columns(),
             },
+            context: None,
         }
     }
 }
@@ -585,6 +590,21 @@ impl TypedQuery {
         })
     }
 
+    fn run_rows_context(
+        &self,
+        conn: &Connection,
+        show: &[String],
+        n: u64,
+    ) -> Result<QueryResult, QueryError> {
+        // STUB (RED): ignores context entirely.
+        let _ = (conn, show, n);
+        Ok(QueryResult {
+            columns: Vec::new(),
+            row_count: 0,
+            field_populated: Vec::new(),
+        })
+    }
+
     fn run_count(&self, conn: &Connection) -> Result<QueryResult, QueryError> {
         let mut params: Vec<DuckValue> = Vec::new();
         let where_clause = self.build_where(&mut params);
@@ -717,6 +737,9 @@ impl TypedQuery {
     }
 
     fn run_rows(&self, conn: &Connection, show: &[String]) -> Result<QueryResult, QueryError> {
+        if let Some(n) = self.context {
+            return self.run_rows_context(conn, show, n);
+        }
         // Build each projection expression (binding field keys), then WHERE.
         let mut select_params: Vec<DuckValue> = Vec::new();
         let mut exprs: Vec<String> = Vec::new();
@@ -1090,6 +1113,35 @@ mod tests {
             .query_row("SELECT count(*) FROM timeline", [], |r| r.get(0))
             .expect("table survives");
         assert_eq!(n, 3);
+    }
+
+    #[test]
+    fn context_surfaces_neighbors_around_each_match() {
+        // seeded() in time order: logon(1000), machine(2000), file/coreupdater(3000).
+        // Match only the file, ask for 1 neighbor each side -> file + its
+        // predecessor machine = 2 rows; the file is flagged, machine is context.
+        let store = seeded();
+        let q = TypedQuery {
+            path: Some("*coreupdater*".into()),
+            context: Some(1),
+            mode: Mode::Rows {
+                show: vec!["event_type".into()],
+            },
+            ..Default::default()
+        };
+        let r = q.run(store.connection()).expect("context query");
+        assert_eq!(r.row_count, 2, "the match plus its one predecessor");
+        let marker = r
+            .columns
+            .iter()
+            .find(|c| c.name == "match")
+            .expect("a leading match-marker column");
+        assert_eq!(marker.values.len(), 2);
+        assert_eq!(
+            marker.values.iter().filter(|m| m.as_str() == ">").count(),
+            1,
+            "exactly one row is the match; the other is context"
+        );
     }
 
     #[test]
