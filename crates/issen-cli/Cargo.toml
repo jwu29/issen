@@ -6,6 +6,13 @@ rust-version.workspace = true
 license = "Apache-2.0"
 description = "Command-line interface for Issen"
 repository.workspace = true
+# Required by cargo-deb (it errors without a copyright/authors property).
+authors = ["Albert Hui <albert@securityronin.com>"]
+
+# cargo-deb: name the .deb after the binary (`issen`), not the crate
+# (`issen-cli`), so the package and the Cloudsmith/apt name are `issen`.
+[package.metadata.deb]
+name = "issen"
 
 [[bin]]
 name = "issen"

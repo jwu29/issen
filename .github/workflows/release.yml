@@ -3,8 +3,8 @@ name: Release
 on:
   push:
     tags: ["v*"]
-  # Manual trigger to test-build the priority targets (incl. the heavy Windows
-  # MSI) without publishing — the release job below only runs on tag pushes.
+  # Manual trigger to test-build the binaries (incl. the heavy Windows MSI)
+  # without publishing — the publish jobs below only run on tag pushes.
   workflow_dispatch:
 
 permissions:
@@ -13,16 +13,19 @@ permissions:
 jobs:
   build:
     strategy:
-      # Do not cancel sibling targets if one fails: the Windows installer must
-      # ship even if the macOS target has a transient issue, and vice-versa.
+      # Do not cancel sibling targets if one fails: a good binary must ship even
+      # if another target has a transient issue.
       fail-fast: false
       matrix:
         include:
-          # Priority targets: Apple-silicon .dmg + Windows .exe/.msi. (Intel mac
-          # and Linux are a follow-up — DuckDB's C++ build needs a g++ cross
-          # toolchain on musl that this minimal matrix deliberately skips.)
+          # macOS ships tar.gz binaries for Homebrew (Apple-silicon + Intel);
+          # Windows ships an MSI. Linux is NOT a binary target here — issen bundles
+          # DuckDB's C++, which needs a real g++ that musl cross-builds lack, so
+          # Linux is delivered as a NATIVE-built .deb (the `deb` job below).
           - target: aarch64-apple-darwin
             os: macos-latest
+          - target: x86_64-apple-darwin
+            os: macos-15
           - target: x86_64-pc-windows-msvc
             os: windows-latest
     runs-on: ${{ matrix.os }}
@@ -35,23 +38,21 @@ jobs:
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
       # rust-toolchain.toml pins 1.96.0, which overrides whatever the action
-      # installs; the cross-target must be added to THAT pinned toolchain (not
-      # the action's default `stable`), or cargo builds with 1.96.0 minus the
-      # target -> E0463 "can't find crate for core". (Mirrors sqlite-forensic.)
+      # installs; the cross-target must be added to THAT pinned toolchain (not the
+      # action's default `stable`), or cargo builds with 1.96.0 minus the target
+      # -> E0463 "can't find crate for core".
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
           toolchain: 1.96.0
           targets: ${{ matrix.target }}
 
       # Cache ~/.cargo + target/ per matrix target so the bundled-DuckDB compile
-      # is only paid in full once. cache-on-failure keeps the warm compile even
-      # when a later step (MSI packaging) fails.
+      # is only paid in full once.
       - uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
         with:
           cache-on-failure: true
 
-      # etcd-client's build script invokes protoc to compile its .proto files;
-      # it is not preinstalled on the runners, so every target needs it.
+      # etcd-client's build script invokes protoc to compile its .proto files.
       - name: Install protoc
         shell: bash
         run: |
@@ -63,42 +64,24 @@ jobs:
       - name: Build issen
         run: cargo build --release -p issen-cli --target ${{ matrix.target }}
 
-      # macOS: ship both a tar.gz (for CLI users) and a .dmg (the expected
-      # double-click download). The .dmg is a compressed UDZO image holding the
-      # bare `issen` binary; it is unsigned, so first launch needs a
-      # right-click -> Open past Gatekeeper.
-      - name: Package (macOS) tar.gz + dmg
+      # macOS: tar.gz only. issen is a CLI — macOS distribution is Homebrew
+      # (`brew install securityronin/tap/issen`), not a double-click .dmg.
+      - name: Package (macOS) tar.gz
         if: runner.os == 'macOS'
         run: |
-          V=${{ steps.version.outputs.version }}
-          T=${{ matrix.target }}
-          cd target/$T/release
-          tar czf "$GITHUB_WORKSPACE/issen-$V-$T.tar.gz" issen
-          cd "$GITHUB_WORKSPACE"
-          mkdir -p dmgroot
-          cp target/$T/release/issen dmgroot/
-          hdiutil create -volname "issen $V" -srcfolder dmgroot -ov -format UDZO "issen-$V-$T.dmg"
-
-      # Standalone .exe (zipped) in addition to the MSI installer, so users can
-      # grab the bare executable without running the installer.
-      - name: Package exe (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: Compress-Archive -Path target/${{ matrix.target }}/release/issen.exe -DestinationPath issen-${{ steps.version.outputs.version }}-${{ matrix.target }}.zip
+          cd target/${{ matrix.target }}/release
+          tar czf "$GITHUB_WORKSPACE/issen-${{ steps.version.outputs.version }}-${{ matrix.target }}.tar.gz" issen
 
       - name: Install cargo-wix (Windows)
         if: runner.os == 'Windows'
         run: cargo install cargo-wix --version 0.3.9 --locked
 
-      # Virtual workspace: cargo-wix needs --package plus the repo-root wxs
-      # (whose Source= paths are repo-root-relative); --no-build reuses the
-      # binary from the Build step above.
+      # Virtual workspace: cargo-wix needs --package plus the repo-root wxs (whose
+      # Source= paths are repo-root-relative); --no-build reuses the Build step.
       - name: Build MSI (Windows)
         if: runner.os == 'Windows'
         run: cargo wix --no-build --package issen-cli --include wix/main.wxs --target ${{ matrix.target }} --output issen-${{ steps.version.outputs.version }}-${{ matrix.target }}.msi
 
-      # always(): upload whatever artifacts exist (the .exe zip, the tar/dmg, the
-      # MSI) even if a later step in this job failed — so a good binary ships.
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
@@ -109,8 +92,7 @@ jobs:
   release:
     needs: build
     # Tag pushes only (a workflow_dispatch test run must not publish). Runs even
-    # if a build target failed, so a successful target still ships; uploads
-    # whatever artifacts were produced.
+    # if a build target failed, so a successful target still ships.
     if: always() && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
@@ -133,3 +115,113 @@ jobs:
             artifacts/issen-*
             artifacts/checksums.txt
           generate_release_notes: true
+
+      # Homebrew (macOS): dispatch the per-project event so the tap's
+      # update-issen.yml handler bumps Formula/issen.rb from this release's
+      # checksums.txt. continue-on-error until the tap handler is seeded.
+      - name: Dispatch to homebrew tap
+        continue-on-error: true
+        uses: peter-evans/repository-dispatch@ff45666b9427631e3450c54a1bcbee4d9ff4d7c0 # v3.0.0
+        with:
+          token: ${{ secrets.TAP_GITHUB_TOKEN }}
+          repository: SecurityRonin/homebrew-tap
+          event-type: update-issen
+          client-payload: '{"version": "${{ github.ref_name }}"}'
+
+  deb:
+    # Linux .deb, built NATIVELY on Ubuntu so DuckDB's bundled C++ gets a real
+    # g++ (the reason the binary matrix skips musl). amd64 is fully native; arm64
+    # needs the gcc/g++ aarch64 cross toolchains for the C++ portions.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            arch: amd64
+          - target: aarch64-unknown-linux-gnu
+            arch: arm64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: 1.96.0
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
+        with:
+          cache-on-failure: true
+
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      # arm64: DuckDB's C++ needs the aarch64 g++ cross-compiler (not just gcc),
+      # plus the matching cargo linker + CC/CXX for any C/C++ build scripts.
+      - name: Install aarch64 cross toolchain
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+          {
+            echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc"
+            echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc"
+            echo "CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++"
+          } >> "$GITHUB_ENV"
+
+      - name: Install cargo-deb
+        run: cargo install cargo-deb --version 2.11.2 --locked
+
+      - name: Build .deb package
+        run: cargo deb -p issen-cli --target ${{ matrix.target }}
+
+      - name: Find .deb file
+        id: find_deb
+        run: echo "deb_path=$(find target/${{ matrix.target }}/debian -name '*.deb' | head -1)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: issen-${{ matrix.arch }}.deb
+          path: ${{ steps.find_deb.outputs.deb_path }}
+
+  release-deb:
+    needs: [release, deb]
+    if: always() && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: issen-*.deb
+          path: debs
+          merge-multiple: true
+
+      - name: Upload .deb to release
+        uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2.6.1
+        with:
+          files: debs/*.deb
+
+  cloudsmith:
+    needs: release-deb
+    if: always() && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: issen-*.deb
+          path: debs
+          merge-multiple: true
+
+      - name: Install Cloudsmith CLI
+        run: |
+          pip install --user cloudsmith-cli==1.16.0
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      # The securityronin/issen Cloudsmith repo MUST exist first or the push 404s.
+      - name: Push amd64 to Cloudsmith
+        env:
+          CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
+        run: cloudsmith push deb securityronin/issen/any-distro/any-version debs/issen_*_amd64.deb
+
+      - name: Push arm64 to Cloudsmith
+        env:
+          CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
+        run: cloudsmith push deb securityronin/issen/any-distro/any-version debs/issen_*_arm64.deb
