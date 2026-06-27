@@ -159,10 +159,77 @@ where
 #[must_use]
 pub fn run_correlations_with_memory<E>(events: &[E], memory: &[MemEvent]) -> Vec<Correlation>
 where
-    E: EventView,
+    E: EventView + Sync,
 {
-    let mut out = run_correlations(events);
-    out.extend(run_memory_rules(memory, events));
+    // Delegate to the progress-aware path with a no-op start_rule, so the
+    // sequencing (and its determinism) lives in exactly one place.
+    run_correlations_with_memory_progress(events, memory, &|_| ())
+}
+
+/// The disk-leg rules in their canonical evaluation order, each paired with the
+/// short name reported to `start_rule`. Collecting their outputs in this fixed
+/// order keeps the findings deterministic even though the rules run in parallel.
+#[allow(clippy::type_complexity)]
+fn disk_rules<E: EventView + Sync>() -> [(&'static str, fn(&[E]) -> Vec<Correlation>); 8] {
+    [
+        ("relocate", run_relocate::<E>),
+        ("persist", run_persist::<E>),
+        ("copy-delete", run_copy_delete::<E>),
+        ("bruteforce", run_bruteforce::<E>),
+        ("logon-malware", run_logon_malware::<E>),
+        ("exfil-stage", run_exfil_stage::<E>),
+        ("regconfirm", run_regconfirm::<E>),
+        ("lateral-move", run_lateral_move::<E>),
+    ]
+}
+
+/// Run every disk-leg and memory-leg rule, reporting each rule to `start_rule`
+/// for the lifetime of its evaluation, and returning all firings in one vector.
+///
+/// `start_rule(name)` returns an opaque guard held only while that rule runs;
+/// dropping it signals the rule is done. The guard type is generic (`G`), so
+/// this crate stays UI-free — the CLI passes a closure that claims a progress
+/// worker slot, while the library and tests pass a no-op. The rules run in
+/// parallel (rayon), but their outputs are reassembled in the fixed
+/// [`disk_rules`] order, so the findings set is identical to the sequential
+/// [`run_correlations_with_memory`].
+#[must_use]
+pub fn run_correlations_with_memory_progress<E, F, G>(
+    events: &[E],
+    memory: &[MemEvent],
+    start_rule: &F,
+) -> Vec<Correlation>
+where
+    E: EventView + Sync,
+    F: Fn(&str) -> G + Sync,
+    G: Send,
+{
+    use rayon::prelude::*;
+
+    // Disk-leg rules in parallel; carry each rule's fixed index so the firings
+    // can be re-laid in canonical order regardless of completion order.
+    let rules = disk_rules::<E>();
+    let mut indexed: Vec<(usize, Vec<Correlation>)> = rules
+        .par_iter()
+        .enumerate()
+        .map(|(i, (name, rule))| {
+            let _guard = start_rule(name);
+            (i, rule(events))
+        })
+        .collect();
+    indexed.sort_by_key(|(i, _)| *i);
+
+    let mut out = Vec::new();
+    for (_, firings) in indexed {
+        out.extend(firings);
+    }
+
+    // Memory-leg rules, announced as one "memory" unit (run_memory_rules itself
+    // sequences the three Tier-C/C′ matchers; the guard is held for the group).
+    {
+        let _guard = start_rule("memory");
+        out.extend(run_memory_rules(memory, events));
+    }
     out
 }
 
