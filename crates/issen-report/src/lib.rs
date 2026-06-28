@@ -796,6 +796,24 @@ fn html_escape(s: &str) -> String {
 ///
 /// The output includes inline CSS and JavaScript; no external resources are
 /// referenced so the report can be viewed offline.
+/// The Issen icon mark (light palette, for dark surfaces), compiled into the
+/// binary so every report is a single self-contained file. The icon alone is
+/// used rather than the full banner because the banner bakes in the "Issen"
+/// wordmark, which would duplicate the "浪人一閃 Ronin Issen" text beside it.
+/// This SVG is self-contained (its fills live in an internal `<style>`; no
+/// external `<image>`/`href`), so it renders correctly inside a data URI.
+const LOGO_SVG: &[u8] = include_bytes!("../../../assets/issen-icon-light.svg");
+
+/// The icon mark as a `data:` URI, ready to drop into an `<img src>` so the
+/// logo travels with the report (no external file dependency).
+fn logo_data_uri() -> String {
+    use base64::Engine as _;
+    format!(
+        "data:image/svg+xml;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(LOGO_SVG)
+    )
+}
+
 #[must_use]
 #[allow(clippy::too_many_lines)]
 pub fn render_html(data: &ReportData) -> String {
@@ -842,7 +860,7 @@ header {{
 header h1 {{ color: var(--heading); font-size: 1.6rem; }}
 header .meta {{ color: #8899aa; font-size: 0.85rem; margin-top: 6px; }}
 .brand {{ display: flex; align-items: center; gap: 16px; margin-bottom: 16px; }}
-.brand-kanji {{ font-size: 2.3rem; font-weight: 700; letter-spacing: 3px; color: var(--severity-critical); line-height: 1; }}
+.brand-logo {{ height: 60px; width: auto; display: block; }}
 .brand-words {{ display: flex; flex-direction: column; gap: 2px; }}
 .brand-name {{ font-size: 1.05rem; font-weight: 700; color: var(--heading); letter-spacing: 0.5px; }}
 .brand-tag {{ font-size: 0.78rem; color: #8899aa; }}
@@ -945,15 +963,16 @@ details.appendix-sub > summary {{ cursor: pointer; color: var(--link); font-size
         html,
         r#"<header>
 <div class="brand">
-<span class="brand-kanji">浪人一閃</span>
+<img class="brand-logo" src="{logo}" alt="Issen — a Security Ronin product" />
 <div class="brand-words">
-<span class="brand-name">Ronin Issen</span>
+<span class="brand-name">浪人一閃 Ronin Issen</span>
 <span class="brand-tag">One command. One output. The full attack narrative.</span>
 <span class="brand-ronin">A <a href="https://www.securityronin.com/" target="_blank" rel="noopener">Security Ronin</a> product &middot; securityronin.com</span>
 </div>
 </div>
 <h1>{title}</h1>
 <div class="meta">"#,
+        logo = logo_data_uri(),
         title = html_escape(&data.config.title),
     );
 
@@ -1619,6 +1638,35 @@ mod tests {
         assert!(
             !html.contains("Scan Findings"),
             "should not contain findings section when empty"
+        );
+    }
+
+    #[test]
+    fn render_html_embeds_the_issen_logo() {
+        // Regression: the header carried only a text wordmark; the actual icon
+        // asset was never embedded. The logo must travel inside the self-contained
+        // report as a base64 SVG data URI, on a <img class="brand-logo"> — the
+        // icon mark only (not the banner, whose wordmark would duplicate the text).
+        let data = sample_report_data(vec![], vec![]);
+        let html = render_html(&data);
+        assert!(
+            html.contains("class=\"brand-logo\""),
+            "header should carry the logo <img>"
+        );
+        assert!(
+            html.contains("src=\"data:image/svg+xml;base64,"),
+            "the logo must be an embedded data URI, not an external path"
+        );
+        // The encoded icon is non-trivial (the real asset, not an empty src).
+        let uri = logo_data_uri();
+        assert!(
+            uri.len() > 10_000,
+            "embedded logo looks empty/too small: {} bytes",
+            uri.len()
+        );
+        assert!(
+            html.contains(&uri),
+            "the rendered <img> must carry that URI"
         );
     }
 
