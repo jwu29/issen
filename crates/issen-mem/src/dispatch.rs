@@ -7,7 +7,7 @@ use std::path::Path;
 use anyhow::anyhow;
 use memf_core::object_reader::ObjectReader;
 use memf_core::vas::{TranslationMode, VirtualAddressSpace};
-use memf_format::{open_dump_with_raw_fallback, PhysicalMemoryProvider};
+use memf_format::PhysicalMemoryProvider;
 use memf_symbols::isf::IsfResolver;
 
 use crate::open::DumpFormat;
@@ -37,11 +37,10 @@ pub fn build_reader(
     profile: Option<&str>,
     cr3_override: Option<u64>,
 ) -> anyhow::Result<(DumpFormat, ObjectReader<Box<dyn PhysicalMemoryProvider>>)> {
-    let provider: Box<dyn PhysicalMemoryProvider> =
-        open_dump_with_raw_fallback(path).map_err(|e| anyhow!("failed to open dump: {e}"))?;
-
-    // Detect format for the caller.
-    let fmt = crate::open::detect_format(path).unwrap_or(DumpFormat::Raw);
+    // Open the dump — transparently reading it straight out of a .zip when the
+    // path is an archive (no temp-file extraction); a plain dump file opens as
+    // before. Returns the detected format and a provider over the dump bytes.
+    let (fmt, provider) = crate::dump_source::open_dump_source(path)?;
 
     let metadata = provider.metadata();
     let embedded_cr3 = metadata.as_ref().and_then(|m| m.cr3);

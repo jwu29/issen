@@ -8,7 +8,8 @@ use crate::dispatch::{
     dispatch_windows_check, dispatch_windows_creds, dispatch_windows_modules,
     dispatch_windows_netstat, dispatch_windows_ps, dispatch_windows_scan,
 };
-use crate::open::{detect_format, DumpFormat};
+use crate::dump_source::detect_format_any;
+use crate::open::DumpFormat;
 use crate::output::{print_table, OutputFormat};
 
 /// Operating system heuristic derived from dump format.
@@ -200,7 +201,7 @@ pub fn run_memf_command(args: &MemfArgs) -> anyhow::Result<()> {
         anyhow::bail!("dump file not found: {}", args.dump_path.display());
     }
 
-    let fmt = detect_format(&args.dump_path)
+    let fmt = detect_format_any(&args.dump_path)
         .with_context(|| format!("detecting format of {}", args.dump_path.display()))?;
 
     eprintln!(
