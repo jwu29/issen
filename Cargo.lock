@@ -5301,6 +5301,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "vhd",
+ "zip 2.4.2",
 ]
 
 [[package]]
@@ -10932,9 +10933,9 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vhd"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "964d16cac8aa5a06d00144f76a8d54ea067baae75e4abddbf3d0d67f0fd22324"
+checksum = "5596fc97f0653c8588af6d4eb379de3daa35f9b3ae81b326704e8dde3d32f43b"
 dependencies = [
  "thiserror 2.0.18",
 ]

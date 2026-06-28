@@ -65,6 +65,19 @@ impl VhdDataSource {
             size,
         })
     }
+
+    /// Open a VHD whose `.vhd` file lives INSIDE a `.zip` — directly, without
+    /// extracting it to a temp directory first. A `Stored` entry is read in
+    /// place (a positioned sub-range of the zip); a `Deflated` entry is inflated
+    /// once into RAM and read from a `Cursor`. Either backing feeds
+    /// `VhdReader::open_reader`.
+    ///
+    /// # Errors
+    /// [`VhdError`] if the zip cannot be read or holds no `.vhd` entry.
+    pub fn open_zip(zip_path: &Path) -> Result<Self, VhdError> {
+        let _ = zip_path;
+        Err(VhdError::Vhd("open_zip not implemented".into())) // RED stub
+    }
 }
 
 impl DataSource for VhdDataSource {
@@ -187,6 +200,59 @@ mod tests {
     fn vhd_data_source_is_send_and_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<VhdDataSource>();
+    }
+
+    /// Write `data` into a single-entry zip with the given compression method.
+    fn make_zip(
+        name: &str,
+        data: &[u8],
+        method: zip::CompressionMethod,
+    ) -> tempfile::NamedTempFile {
+        use zip::write::SimpleFileOptions;
+        let mut cursor = std::io::Cursor::new(Vec::<u8>::new());
+        {
+            let mut zw = zip::ZipWriter::new(&mut cursor);
+            let opts = SimpleFileOptions::default().compression_method(method);
+            zw.start_file(name, opts).expect("start_file");
+            zw.write_all(data).expect("write entry");
+            zw.finish().expect("finish zip");
+        }
+        let mut f = tempfile::Builder::new()
+            .suffix(".zip")
+            .tempfile()
+            .expect("tempfile");
+        f.write_all(cursor.get_ref()).expect("write zip");
+        f.flush().expect("flush");
+        f
+    }
+
+    /// The oracle: open_zip over a zipped VHD (BOTH Stored and Deflated) reads
+    /// byte-identically to opening the loose `.vhd` directly.
+    #[test]
+    fn open_zip_matches_open_loose_stored_and_deflated() {
+        let mut sector = vec![0u8; 1024];
+        sector[10] = 0xCA;
+        sector[11] = 0xFE;
+        sector[600] = 0x42;
+        let img = fixed_vhd(&sector);
+
+        let loose = write_tmp(&img);
+        let oracle = VhdDataSource::open(loose.path()).expect("open loose");
+        let size = oracle.len();
+        let mut want = vec![0u8; size as usize];
+        oracle.read_at(0, &mut want).expect("read loose");
+
+        for method in [
+            zip::CompressionMethod::Stored,
+            zip::CompressionMethod::Deflated,
+        ] {
+            let zip = make_zip("disk.vhd", &img, method);
+            let via_zip = VhdDataSource::open_zip(zip.path()).expect("open_zip");
+            assert_eq!(via_zip.len(), size, "size mismatch for {method:?}");
+            let mut got = vec![0u8; size as usize];
+            via_zip.read_at(0, &mut got).expect("read via zip");
+            assert_eq!(got, want, "byte mismatch for {method:?}");
+        }
     }
 
     #[test]
