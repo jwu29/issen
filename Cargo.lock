@@ -45,9 +45,9 @@ dependencies = [
 
 [[package]]
 name = "aff4"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15c89a05083da00cc0a1ecdf9a9420e53101712dc148b190222097321c53336e"
+checksum = "ced8935c6dfc83e2fe779efc349ce160be524529f3a9a5ea6c7fc2dbb8cc0add"
 dependencies = [
  "flate2",
  "lz4_flex",
@@ -4402,9 +4402,12 @@ name = "issen-aff4"
 version = "0.1.0"
 dependencies = [
  "aff4",
+ "inventory",
  "issen-core",
+ "issen-unpack",
  "tempfile",
  "thiserror 2.0.18",
+ "zip 2.4.2",
 ]
 
 [[package]]
@@ -5148,6 +5151,7 @@ dependencies = [
 name = "issen-providers"
 version = "0.1.0"
 dependencies = [
+ "issen-aff4",
  "issen-archive",
  "issen-dd",
  "issen-ewf",
