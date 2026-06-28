@@ -33,18 +33,10 @@ impl std::fmt::Display for DumpFormat {
 pub fn detect_format(path: &Path) -> std::io::Result<DumpFormat> {
     let mut f = std::fs::File::open(path)?;
     let mut magic = [0u8; 8];
-    // A valid dump must supply at least 8 bytes; truncated files fall through
-    // to Raw rather than returning an error.
-    let _ = f.read(&mut magic)?;
-    Ok(match &magic[..4] {
-        // LiME: "EMiL" (0x45 0x4D 0x69 0x4C)
-        [0x45, 0x4D, 0x69, 0x4C] => DumpFormat::Lime,
-        // AVML: "avml" (0x61 0x76 0x6D 0x6C)
-        [0x61, 0x76, 0x6D, 0x6C] => DumpFormat::Avml,
-        // Windows crash dump: "PAGE" (0x50 0x41 0x47 0x45)
-        [0x50, 0x41, 0x47, 0x45] => DumpFormat::WindowsCrashDump,
-        _ => DumpFormat::Raw,
-    })
+    // A short read is fine — a truncated file simply matches no header and
+    // falls through to Raw (via the shared byte classifier).
+    let n = f.read(&mut magic)?;
+    Ok(detect_format_bytes(&magic[..n]))
 }
 
 /// Detect a dump format from its leading bytes — the magic-only core shared by
@@ -53,9 +45,16 @@ pub fn detect_format(path: &Path) -> std::io::Result<DumpFormat> {
 /// [`DumpFormat::Raw`].
 #[must_use]
 pub fn detect_format_bytes(magic: &[u8]) -> DumpFormat {
-    // RED stub — always Raw until implemented.
-    let _ = magic;
-    DumpFormat::Raw
+    match magic {
+        // LiME: "EMiL"
+        [0x45, 0x4D, 0x69, 0x4C, ..] => DumpFormat::Lime,
+        // AVML: "avml"
+        [0x61, 0x76, 0x6D, 0x6C, ..] => DumpFormat::Avml,
+        // Windows crash dump: "PAGE"
+        [0x50, 0x41, 0x47, 0x45, ..] => DumpFormat::WindowsCrashDump,
+        // Fewer than 4 bytes, or no recognised header → headerless raw.
+        _ => DumpFormat::Raw,
+    }
 }
 
 #[cfg(test)]

@@ -34,28 +34,104 @@ const DUMP_EXTS: &[&str] = &[
 /// True if `path` is a zip archive — by magic bytes, never by extension.
 #[must_use]
 pub fn is_zip(path: &Path) -> bool {
-    let _ = path;
-    false // RED stub
+    let mut magic = [0u8; 4];
+    File::open(path)
+        .and_then(|mut f| f.read_exact(&mut magic).map(|()| magic))
+        .map(|m| m == ZIP_MAGIC)
+        .unwrap_or(false)
+}
+
+/// Choose the zip entry that holds the memory dump: an entry whose extension is
+/// a known dump extension, else the largest file entry (a memory dump dominates
+/// the archive). Fails loud when the archive has no file entry.
+fn find_dump_entry(archive: &mut zip::ZipArchive<File>) -> anyhow::Result<usize> {
+    let mut by_ext: Option<usize> = None;
+    let mut largest: Option<(usize, u64)> = None;
+    for i in 0..archive.len() {
+        let entry = archive
+            .by_index(i)
+            .map_err(|e| anyhow!("zip entry {i}: {e}"))?;
+        if entry.is_dir() {
+            continue;
+        }
+        let size = entry.size();
+        if by_ext.is_none() {
+            let is_dump_ext = Path::new(entry.name())
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(str::to_ascii_lowercase)
+                .is_some_and(|e| DUMP_EXTS.contains(&e.as_str()));
+            if is_dump_ext {
+                by_ext = Some(i);
+            }
+        }
+        if largest.is_none_or(|(_, s)| size > s) {
+            largest = Some((i, size));
+        }
+    }
+    by_ext
+        .or(largest.map(|(i, _)| i))
+        .ok_or_else(|| anyhow!("zip contains no file entry to read a memory dump from"))
+}
+
+/// Read up to `buf.len()` bytes, tolerating short reads (the zip reader inflates
+/// in chunks). Returns the number of bytes filled.
+fn read_up_to(r: &mut impl Read, buf: &mut [u8]) -> std::io::Result<usize> {
+    let mut total = 0;
+    while total < buf.len() {
+        match r.read(&mut buf[total..])? {
+            0 => break,
+            k => total += k,
+        }
+    }
+    Ok(total)
 }
 
 /// Read the memory-dump bytes out of a zip and detect the format from them.
 ///
 /// The dump entry is chosen by extension when one matches, else the largest
 /// entry (a memory dump dominates the archive). Both `Stored` and `Deflated`
-/// entries are read transparently into RAM.
+/// entries are read transparently into RAM — no temp file is written.
 pub fn read_dump_from_zip(zip_path: &Path) -> anyhow::Result<(DumpFormat, Vec<u8>)> {
-    let _ = zip_path;
-    Err(anyhow!("read_dump_from_zip: not implemented")) // RED stub
+    let file =
+        File::open(zip_path).with_context(|| format!("opening zip {}", zip_path.display()))?;
+    let mut archive = zip::ZipArchive::new(file)
+        .with_context(|| format!("reading zip central directory of {}", zip_path.display()))?;
+    let idx = find_dump_entry(&mut archive)?;
+    let mut entry = archive
+        .by_index(idx)
+        .map_err(|e| anyhow!("zip entry {idx}: {e}"))?;
+    let name = entry.name().to_string();
+    let mut buf = Vec::with_capacity(usize::try_from(entry.size()).unwrap_or(0));
+    entry
+        .read_to_end(&mut buf)
+        .with_context(|| format!("reading dump entry '{name}' from zip"))?;
+    let fmt = detect_format_bytes(&buf);
+    Ok((fmt, buf))
 }
 
 /// Build a [`PhysicalMemoryProvider`] from already-read dump bytes, dispatched
 /// on the detected format.
 pub fn provider_from_bytes(
     fmt: DumpFormat,
-    bytes: Vec<u8>,
+    bytes: &[u8],
 ) -> anyhow::Result<Box<dyn PhysicalMemoryProvider>> {
-    let _ = (fmt, bytes);
-    Err(anyhow!("provider_from_bytes: not implemented")) // RED stub
+    let provider: Box<dyn PhysicalMemoryProvider> = match fmt {
+        DumpFormat::Lime => Box::new(
+            memf_format::lime::LimeProvider::from_bytes(bytes)
+                .map_err(|e| anyhow!("LiME decode: {e}"))?,
+        ),
+        DumpFormat::Avml => Box::new(
+            memf_format::avml::AvmlProvider::from_bytes(bytes)
+                .map_err(|e| anyhow!("AVML decode: {e}"))?,
+        ),
+        DumpFormat::WindowsCrashDump => Box::new(
+            memf_format::win_crashdump::CrashDumpProvider::from_bytes(bytes)
+                .map_err(|e| anyhow!("crash dump decode: {e}"))?,
+        ),
+        DumpFormat::Raw => Box::new(memf_format::raw::RawProvider::from_bytes(bytes)),
+    };
+    Ok(provider)
 }
 
 /// Open a memory dump from `path`, transparently handling a `.zip` that wraps a
@@ -63,15 +139,36 @@ pub fn provider_from_bytes(
 pub fn open_dump_source(
     path: &Path,
 ) -> anyhow::Result<(DumpFormat, Box<dyn PhysicalMemoryProvider>)> {
-    let _ = path;
-    Err(anyhow!("open_dump_source: not implemented")) // RED stub
+    if is_zip(path) {
+        let (fmt, bytes) = read_dump_from_zip(path)?;
+        let provider = provider_from_bytes(fmt, &bytes)?;
+        Ok((fmt, provider))
+    } else {
+        let provider = memf_format::open_dump_with_raw_fallback(path)
+            .map_err(|e| anyhow!("failed to open dump {}: {e}", path.display()))?;
+        let fmt = crate::open::detect_format(path).unwrap_or(DumpFormat::Raw);
+        Ok((fmt, provider))
+    }
 }
 
 /// Detect the dump format of `path`, transparently handling a `.zip` wrapper by
 /// peeking the dump entry's header (reads only the first bytes, not the whole
 /// dump).
 pub fn detect_format_any(path: &Path) -> std::io::Result<DumpFormat> {
-    crate::open::detect_format(path) // RED stub — no zip awareness yet
+    if !is_zip(path) {
+        return crate::open::detect_format(path);
+    }
+    let file = File::open(path)?;
+    let mut archive = zip::ZipArchive::new(file)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    let idx = find_dump_entry(&mut archive)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
+    let mut entry = archive
+        .by_index(idx)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    let mut head = vec![0u8; PEEK_LEN];
+    let n = read_up_to(&mut entry, &mut head)?;
+    Ok(detect_format_bytes(&head[..n]))
 }
 
 #[cfg(test)]
@@ -151,7 +248,7 @@ mod tests {
     #[test]
     fn provider_from_bytes_raw_total_size_matches() {
         let bytes: Vec<u8> = (0u8..=255).collect();
-        let provider = provider_from_bytes(DumpFormat::Raw, bytes.clone()).expect("provider");
+        let provider = provider_from_bytes(DumpFormat::Raw, &bytes).expect("provider");
         assert_eq!(provider.total_size(), bytes.len() as u64);
     }
 
