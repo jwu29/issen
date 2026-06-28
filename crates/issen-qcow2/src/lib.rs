@@ -4,9 +4,10 @@
 //! Wraps the [`qcow2`] crate to provide a [`DataSource`] implementation for
 //! QCOW2 v2/v3 images (QEMU/KVM / libvirt).
 
-use std::io::{Read, Seek, SeekFrom};
+use std::fs::File;
+use std::io::{Cursor, Read, Seek, SeekFrom};
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use issen_core::error::RtError;
 use issen_core::plugin::traits::DataSource;
@@ -75,8 +76,127 @@ impl Qcow2DataSource {
     /// # Errors
     /// [`Qcow2Error`] if the zip cannot be read or holds no `.qcow2` entry.
     pub fn open_zip(zip_path: &Path) -> Result<Self, Qcow2Error> {
-        let _ = zip_path;
-        Err(Qcow2Error::Qcow2("open_zip not implemented".into())) // RED stub
+        // One handle backs the in-place `Sub` reads; a second drives the zip's
+        // central-directory walk + on-demand inflation.
+        let backing = Arc::new(File::open(zip_path)?);
+        let mut archive = zip::ZipArchive::new(File::open(zip_path)?)
+            .map_err(|e| Qcow2Error::Qcow2(format!("zip open: {e}")))?;
+
+        let idx = find_qcow2_entry(&mut archive).ok_or_else(|| {
+            Qcow2Error::Qcow2(format!("no .qcow2 entry found in {}", zip_path.display()))
+        })?;
+        let mut entry = archive
+            .by_index(idx)
+            .map_err(|e| Qcow2Error::Qcow2(format!("zip entry {idx}: {e}")))?;
+
+        let src: Box<dyn qcow2::ReadSeekSend> =
+            if entry.compression() == zip::CompressionMethod::Stored {
+                // Uncompressed & contiguous → read straight from the zip at its
+                // data offset. Zero extraction, zero inflate, true random access.
+                Box::new(SubRangeReader::new(
+                    Arc::clone(&backing),
+                    entry.data_start(),
+                    entry.size(),
+                ))
+            } else {
+                // Deflated → inflate the whole image once into RAM (sequential,
+                // which deflate supports), then random-access it from a Cursor.
+                let mut buf = Vec::with_capacity(usize::try_from(entry.size()).unwrap_or(0));
+                entry
+                    .read_to_end(&mut buf)
+                    .map_err(|e| Qcow2Error::Qcow2(format!("inflate qcow2 entry: {e}")))?;
+                Box::new(Cursor::new(buf))
+            };
+
+        let reader = qcow2::Qcow2Reader::open_reader(src)?;
+        let size = reader.virtual_disk_size();
+        Ok(Self {
+            reader: Mutex::new(reader),
+            size,
+        })
+    }
+}
+
+/// Find the first `.qcow2`/`.qcow` file entry in the archive, by extension.
+fn find_qcow2_entry(archive: &mut zip::ZipArchive<File>) -> Option<usize> {
+    for i in 0..archive.len() {
+        let Ok(entry) = archive.by_index(i) else {
+            continue;
+        };
+        if entry.is_dir() {
+            continue;
+        }
+        let is_qcow2 = Path::new(entry.name())
+            .extension()
+            .and_then(|x| x.to_str())
+            .is_some_and(|x| x.eq_ignore_ascii_case("qcow2") || x.eq_ignore_ascii_case("qcow"));
+        if is_qcow2 {
+            return Some(i);
+        }
+    }
+    None
+}
+
+/// A positioned, read-only window `[base, base + len)` over a shared file — lets
+/// the QCOW2 reader sit directly on a `Stored` zip entry without extraction.
+/// Uses positioned reads (no `&mut` on the file), so it is `Send + Sync`.
+struct SubRangeReader {
+    file: Arc<File>,
+    base: u64,
+    len: u64,
+    pos: u64,
+}
+
+impl SubRangeReader {
+    fn new(file: Arc<File>, base: u64, len: u64) -> Self {
+        Self {
+            file,
+            base,
+            len,
+            pos: 0,
+        }
+    }
+}
+
+impl Read for SubRangeReader {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let remaining = self.len.saturating_sub(self.pos);
+        if remaining == 0 || buf.is_empty() {
+            return Ok(0);
+        }
+        let to_read = (buf.len() as u64).min(remaining) as usize;
+        #[cfg(unix)]
+        let n = {
+            use std::os::unix::fs::FileExt;
+            self.file
+                .read_at(&mut buf[..to_read], self.base + self.pos)?
+        };
+        #[cfg(windows)]
+        let n = {
+            use std::os::windows::fs::FileExt;
+            self.file
+                .seek_read(&mut buf[..to_read], self.base + self.pos)?
+        };
+        self.pos += n as u64;
+        Ok(n)
+    }
+}
+
+impl Seek for SubRangeReader {
+    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+        let new_pos = match pos {
+            SeekFrom::Start(n) => n as i64,
+            SeekFrom::Current(n) => self.pos as i64 + n,
+            SeekFrom::End(n) => self.len as i64 + n,
+        };
+        if new_pos < 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "seek before start",
+            ));
+        }
+        self.pos = new_pos as u64;
+        Ok(self.pos)
     }
 }
 
