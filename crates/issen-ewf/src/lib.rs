@@ -1,3 +1,4 @@
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 #![allow(
     clippy::doc_markdown,
     clippy::missing_errors_doc,
@@ -41,7 +42,11 @@
 //! Issen pipeline, enabling random-access reads over Expert Witness Format
 //! forensic disk images.
 
+use std::fs::File;
 use std::path::Path;
+use std::sync::Arc;
+
+use ewf::SegmentSource;
 
 use issen_core::error::RtError;
 use issen_core::plugin::traits::DataSource;
@@ -113,8 +118,72 @@ impl EwfDataSource {
     /// image.
     pub fn open(path: &Path) -> Result<Self, EwfError> {
         let reader = ewf::EwfReader::open(path)?;
+        Ok(Self::from_reader(reader))
+    }
+
+    /// Open an EWF image whose `.E01`/`.E02`/… segments live INSIDE a `.zip` —
+    /// directly, without extracting them to a temp directory first.
+    ///
+    /// `Stored` zip entries are read **in place** (a positioned sub-range of the
+    /// zip file); `Deflated` entries (the common case — E01 is already compressed,
+    /// so zipping it gains nothing) are **inflated once into RAM**. Either backing
+    /// feeds the lazy chunk table, so the in-memory chunk index stays bounded
+    /// regardless of image size.
+    ///
+    /// # Errors
+    /// [`EwfError`] if the zip cannot be read, or holds no `.E01`/`.E02`/… segment.
+    pub fn open_zip(zip_path: &Path) -> Result<Self, EwfError> {
+        use std::io::Read as _;
+
+        // One handle backs the in-place `Sub` reads; a second drives the zip's
+        // own central-directory walk + on-demand inflation.
+        let backing = Arc::new(File::open(zip_path)?);
+        let mut archive = zip::ZipArchive::new(File::open(zip_path)?)
+            .map_err(|e| EwfError::Ewf(format!("zip open: {e}")))?;
+
+        // Collect (name, source) per EWF segment entry; sort by name so the
+        // segment order is deterministic (the reader also re-sorts by the EWF
+        // segment number embedded in each header).
+        let mut segs: Vec<(String, SegmentSource)> = Vec::new();
+        for i in 0..archive.len() {
+            let mut entry = archive
+                .by_index(i)
+                .map_err(|e| EwfError::Ewf(format!("zip entry {i}: {e}")))?;
+            let name = entry.name().to_string();
+            if !is_ewf_segment(&name) {
+                continue;
+            }
+            let src = if entry.compression() == zip::CompressionMethod::Stored {
+                // Contiguous, uncompressed -> read straight from the zip at its
+                // data offset. Zero extraction, zero inflate, true random access.
+                SegmentSource::sub(Arc::clone(&backing), entry.data_start(), entry.size())
+            } else {
+                // Deflated -> inflate the whole segment once into RAM (sequential,
+                // which deflate supports), then random-access it there.
+                let mut buf = Vec::with_capacity(usize::try_from(entry.size()).unwrap_or(0));
+                entry
+                    .read_to_end(&mut buf)
+                    .map_err(|e| EwfError::Ewf(format!("inflate {name}: {e}")))?;
+                SegmentSource::from_bytes(buf)
+            };
+            segs.push((name, src));
+        }
+        if segs.is_empty() {
+            return Err(EwfError::Ewf(format!(
+                "no EWF segment (.E01/.E02/…) found in {}",
+                zip_path.display()
+            )));
+        }
+        segs.sort_by(|a, b| a.0.cmp(&b.0));
+        let sources: Vec<SegmentSource> = segs.into_iter().map(|(_, s)| s).collect();
+        let reader = ewf::EwfReader::open_lazy_from_sources(sources)?;
+        Ok(Self::from_reader(reader))
+    }
+
+    /// Wrap an already-opened reader (shared by `open`/`open_zip`).
+    fn from_reader(reader: ewf::EwfReader) -> Self {
         let total_size = reader.total_size();
-        Ok(Self { reader, total_size })
+        Self { reader, total_size }
     }
 
     /// Get the logical size of the forensic image in bytes.
@@ -122,6 +191,22 @@ impl EwfDataSource {
     pub fn total_size(&self) -> u64 {
         self.total_size
     }
+}
+
+/// True when a zip entry names an EWF v1 segment file — basename ends in `.E`
+/// plus two alphanumerics (`.E01`–`.EZZ`). Excludes the `.E01.txt` acquisition
+/// sidecars, directory entries, and EWF2 (`.Ex01`, 4-char ext — the lazy
+/// reader is v1-only).
+fn is_ewf_segment(name: &str) -> bool {
+    let base = name.rsplit(['/', '\\']).next().unwrap_or(name);
+    let Some((_, ext)) = base.rsplit_once('.') else {
+        return false;
+    };
+    let b = ext.as_bytes();
+    b.len() == 3
+        && (b[0] == b'E' || b[0] == b'e')
+        && b[1].is_ascii_alphanumeric()
+        && b[2].is_ascii_alphanumeric()
 }
 
 impl DataSource for EwfDataSource {
@@ -197,6 +282,63 @@ inventory::submit!(issen_unpack::registry::ProviderRegistration {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn is_ewf_segment_matches_e01_family_only() {
+        assert!(is_ewf_segment("disk.E01"));
+        assert!(is_ewf_segment("E01-DC01/CDrive.E02"));
+        assert!(is_ewf_segment("x.EAA"));
+        assert!(is_ewf_segment("x.EZZ"));
+        assert!(!is_ewf_segment("disk.E01.txt")); // acquisition sidecar
+        assert!(!is_ewf_segment("notes.txt"));
+        assert!(!is_ewf_segment("E01-DC01/")); // directory entry
+        assert!(!is_ewf_segment("disk.Ex01")); // EWF2, 4-char ext (lazy is v1-only)
+        assert!(!is_ewf_segment("disk.vmdk"));
+    }
+
+    /// Env-gated (fleet real-data pattern): point `ISSEN_EWF_TEST_E01` at a small
+    /// single-segment `.E01`; the test zips it BOTH stored and deflated and asserts
+    /// `open_zip` == `open(loose)` byte-identical over the whole image — proving the
+    /// Sub (in-place) and Mem (inflate) glue. Skips cleanly when unset.
+    #[test]
+    fn open_zip_matches_open_loose_stored_and_deflated() {
+        use std::io::Write as _;
+        let Ok(e01) = std::env::var("ISSEN_EWF_TEST_E01") else {
+            eprintln!("skip open_zip test: set ISSEN_EWF_TEST_E01 to a .E01 path");
+            return;
+        };
+        let e01 = std::path::PathBuf::from(e01);
+        let oracle = EwfDataSource::open(&e01).expect("open loose E01");
+        let total = oracle.total_size() as usize;
+        let mut want = vec![0u8; total];
+        oracle.read_at(0, &mut want).expect("read loose");
+        let bytes = std::fs::read(&e01).expect("read E01 bytes");
+
+        for method in [
+            zip::CompressionMethod::Stored,
+            zip::CompressionMethod::Deflated,
+        ] {
+            let zip_path = std::env::temp_dir().join(format!("issen_ewf_bridge_{method:?}.zip"));
+            {
+                let f = File::create(&zip_path).unwrap();
+                let mut zw = zip::ZipWriter::new(f);
+                let opts = zip::write::SimpleFileOptions::default().compression_method(method);
+                zw.start_file("image.E01", opts).unwrap();
+                zw.write_all(&bytes).unwrap();
+                zw.finish().unwrap();
+            }
+            let via_zip = EwfDataSource::open_zip(&zip_path).expect("open_zip");
+            assert_eq!(
+                via_zip.total_size() as usize,
+                total,
+                "{method:?} total_size"
+            );
+            let mut got = vec![0u8; total];
+            via_zip.read_at(0, &mut got).expect("read via zip");
+            assert_eq!(got, want, "{method:?}: bytes via zip differ from loose");
+            let _ = std::fs::remove_file(&zip_path);
+        }
+    }
 
     #[test]
     fn test_ewf_error_display_io() {
