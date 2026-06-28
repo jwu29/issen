@@ -5,12 +5,17 @@
 //! stream as a [`DataSource`] for downstream forensic parsers.
 
 use std::fs::File;
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{Cursor, Read, Seek, SeekFrom};
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use issen_core::error::RtError;
 use issen_core::plugin::traits::DataSource;
+
+/// A seekable, thread-safe byte source the raw reader can sit on: a `File`, an
+/// in-RAM `Cursor`, or a positioned sub-range of a `.zip`.
+pub trait ReadSeekSend: Read + Seek + Send + Sync {}
+impl<T: Read + Seek + Send + Sync> ReadSeekSend for T {}
 
 /// Errors specific to ISO image operations.
 #[derive(Debug, thiserror::Error)]
@@ -35,7 +40,7 @@ impl From<IsoError> for RtError {
 
 /// A [`DataSource`] backed by an ISO 9660 optical disc image.
 pub struct IsoDataSource {
-    reader: Mutex<File>,
+    reader: Mutex<Box<dyn ReadSeekSend>>,
     size: u64,
 }
 
@@ -62,7 +67,7 @@ impl IsoDataSource {
         let raw = File::open(path)?;
         let size = raw.metadata()?.len();
         Ok(Self {
-            reader: Mutex::new(raw),
+            reader: Mutex::new(Box::new(raw)),
             size,
         })
     }
@@ -77,8 +82,127 @@ impl IsoDataSource {
     /// [`IsoError`] if the zip cannot be read, holds no `.iso` entry, or the
     /// entry is not a valid ISO 9660 image.
     pub fn open_zip(zip_path: &Path) -> Result<Self, IsoError> {
-        let _ = zip_path;
-        Err(IsoError::InvalidIso("open_zip not implemented".into())) // RED stub
+        let backing = Arc::new(File::open(zip_path)?);
+        let mut archive = zip::ZipArchive::new(File::open(zip_path)?)
+            .map_err(|e| IsoError::InvalidIso(format!("zip open: {e}")))?;
+
+        let idx = find_iso_entry(&mut archive).ok_or_else(|| {
+            IsoError::InvalidIso(format!("no .iso entry found in {}", zip_path.display()))
+        })?;
+        let mut entry = archive
+            .by_index(idx)
+            .map_err(|e| IsoError::InvalidIso(format!("zip entry {idx}: {e}")))?;
+
+        let stored = entry.compression() == zip::CompressionMethod::Stored;
+        let data_start = entry.data_start();
+        let entry_size = entry.size();
+
+        let (reader, size): (Box<dyn ReadSeekSend>, u64) = if stored {
+            // Validate on one positioned window, keep a second for read_at — both
+            // read the zip in place (no extraction).
+            let validate = SubRangeReader::new(Arc::clone(&backing), data_start, entry_size);
+            iso9660_forensic::IsoReader::open(validate)
+                .map_err(|e| IsoError::InvalidIso(e.to_string()))?;
+            let reader = SubRangeReader::new(Arc::clone(&backing), data_start, entry_size);
+            (Box::new(reader), entry_size)
+        } else {
+            let mut buf = Vec::with_capacity(usize::try_from(entry_size).unwrap_or(0));
+            entry.read_to_end(&mut buf).map_err(IsoError::Io)?;
+            let size = buf.len() as u64;
+            // Validate against a borrowed view, then move the bytes into the
+            // read-at Cursor (no second copy of the image).
+            iso9660_forensic::IsoReader::open(Cursor::new(buf.as_slice()))
+                .map_err(|e| IsoError::InvalidIso(e.to_string()))?;
+            (Box::new(Cursor::new(buf)), size)
+        };
+
+        Ok(Self {
+            reader: Mutex::new(reader),
+            size,
+        })
+    }
+}
+
+/// Find the first `.iso` file entry in the archive, by extension.
+fn find_iso_entry(archive: &mut zip::ZipArchive<File>) -> Option<usize> {
+    for i in 0..archive.len() {
+        let Ok(entry) = archive.by_index(i) else {
+            continue;
+        };
+        if entry.is_dir() {
+            continue;
+        }
+        let is_iso = Path::new(entry.name())
+            .extension()
+            .and_then(|x| x.to_str())
+            .is_some_and(|x| x.eq_ignore_ascii_case("iso"));
+        if is_iso {
+            return Some(i);
+        }
+    }
+    None
+}
+
+/// A positioned, read-only window `[base, base + len)` over a shared file — lets
+/// the ISO reader sit directly on a `Stored` zip entry without extraction. Uses
+/// positioned reads (no `&mut` on the file), so it is `Send + Sync`.
+struct SubRangeReader {
+    file: Arc<File>,
+    base: u64,
+    len: u64,
+    pos: u64,
+}
+
+impl SubRangeReader {
+    fn new(file: Arc<File>, base: u64, len: u64) -> Self {
+        Self {
+            file,
+            base,
+            len,
+            pos: 0,
+        }
+    }
+}
+
+impl Read for SubRangeReader {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let remaining = self.len.saturating_sub(self.pos);
+        if remaining == 0 || buf.is_empty() {
+            return Ok(0);
+        }
+        let to_read = (buf.len() as u64).min(remaining) as usize;
+        #[cfg(unix)]
+        let n = {
+            use std::os::unix::fs::FileExt;
+            self.file
+                .read_at(&mut buf[..to_read], self.base + self.pos)?
+        };
+        #[cfg(windows)]
+        let n = {
+            use std::os::windows::fs::FileExt;
+            self.file
+                .seek_read(&mut buf[..to_read], self.base + self.pos)?
+        };
+        self.pos += n as u64;
+        Ok(n)
+    }
+}
+
+impl Seek for SubRangeReader {
+    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+        let new_pos = match pos {
+            SeekFrom::Start(n) => n as i64,
+            SeekFrom::Current(n) => self.pos as i64 + n,
+            SeekFrom::End(n) => self.len as i64 + n,
+        };
+        if new_pos < 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "seek before start",
+            ));
+        }
+        self.pos = new_pos as u64;
+        Ok(self.pos)
     }
 }
 
