@@ -15,6 +15,7 @@ path = "src/lib.rs"
 issen-core   = { workspace = true }
 issen-unpack = { workspace = true }
 inventory    = { workspace = true }
+zip          = { workspace = true }
 thiserror    = { workspace = true }
 tempfile     = { workspace = true }
 
