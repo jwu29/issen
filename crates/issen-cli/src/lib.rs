@@ -139,6 +139,12 @@ pub struct Cli {
     #[arg(short = 'o', long, value_name = "DB")]
     output: Option<std::path::PathBuf>,
 
+    /// Force every applicable stage to re-run, ignoring the resume cache. Use
+    /// after editing the ruleset to refresh an existing case DB without a crate
+    /// version bump (a normal re-run only re-does stages whose inputs changed).
+    #[arg(long)]
+    rerun: bool,
+
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -965,7 +971,7 @@ pub fn run() -> ExitCode {
         }
     } else {
         // Bare front door: `issen <evidence…>` — the resumable pipeline.
-        commands::pipeline_run::run(&cli.evidence, cli.output.as_deref(), cli.verbose)
+        commands::pipeline_run::run(&cli.evidence, cli.output.as_deref(), cli.verbose, cli.rerun)
     };
 
     match result {
@@ -1048,6 +1054,17 @@ mod tests {
         let cli = Cli::try_parse_from(["issen", "info", "case.duckdb"]).expect("parse");
         assert!(matches!(cli.command, Some(Commands::Info { .. })));
         assert!(cli.evidence.is_empty());
+    }
+
+    #[test]
+    fn front_door_accepts_rerun_to_force_stale_stages() {
+        // Without --rerun the pipeline resumes (skips up-to-date stages); with it,
+        // every applicable stage re-runs — the way to refresh a case DB after a
+        // ruleset edit without bumping the crate version.
+        let cli = Cli::try_parse_from(["issen", "DC01.E01"]).expect("parse");
+        assert!(!cli.rerun, "rerun defaults off (normal resume)");
+        let cli = Cli::try_parse_from(["issen", "--rerun", "DC01.E01"]).expect("parse");
+        assert!(cli.rerun, "--rerun forces a full re-run");
     }
 
     #[test]

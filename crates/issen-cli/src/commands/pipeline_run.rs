@@ -154,7 +154,12 @@ fn find_mem_dumps(root: &Path) -> Vec<PathBuf> {
 /// # Errors
 /// Fails if no usable evidence is given, the case DB cannot be opened, or a
 /// stage errors (a failed stage stays resumable).
-pub fn run(evidence: &[PathBuf], output: Option<&Path>, verbose: bool) -> anyhow::Result<()> {
+pub fn run(
+    evidence: &[PathBuf],
+    output: Option<&Path>,
+    verbose: bool,
+    rerun: bool,
+) -> anyhow::Result<()> {
     if evidence.is_empty() {
         anyhow::bail!(
             "no evidence given — pass disk images, a collection, or memory dumps, \
@@ -204,13 +209,18 @@ pub fn run(evidence: &[PathBuf], output: Option<&Path>, verbose: bool) -> anyhow
     // Per-stage input fingerprints.
     let disk_fp_in = sized_paths(&disk);
     let mem_fp_in = sized_paths(&mem);
-    let ruleset = env!("CARGO_PKG_VERSION");
+    // The correlate/scan cache key is a CONTENT digest of the correlation
+    // ruleset (every rule's code/severity/technique/note/params), not the crate
+    // version — so a rule rename or note edit invalidates the cache on its own,
+    // without a version bump. A scan-only native-rule edit not reflected in the
+    // digest is covered by `--rerun` (the explicit force path).
+    let ruleset = issen_correlation::ruleset::ruleset_digest();
     let feeds = feed_snapshot();
     let mut current_fp: HashMap<Stage, String> = HashMap::new();
     if has_disk {
         current_fp.insert(Stage::Ingest, pipeline::ingest_fingerprint(&disk_fp_in));
-        current_fp.insert(Stage::Correlate, pipeline::correlate_fingerprint(ruleset));
-        current_fp.insert(Stage::Scan, pipeline::scan_fingerprint(ruleset, &feeds));
+        current_fp.insert(Stage::Correlate, pipeline::correlate_fingerprint(&ruleset));
+        current_fp.insert(Stage::Scan, pipeline::scan_fingerprint(&ruleset, &feeds));
     }
     if has_memory {
         current_fp.insert(Stage::Memory, pipeline::memory_fingerprint(&mem_fp_in));
@@ -235,7 +245,10 @@ pub fn run(evidence: &[PathBuf], output: Option<&Path>, verbose: bool) -> anyhow
         db_path: db_path.clone(),
     };
 
-    let flags = Flags::default();
+    let flags = Flags {
+        rerun,
+        ..Flags::default()
+    };
     let applicable = pipeline::applicable_stages(has_disk, has_memory, &flags);
 
     println!(
