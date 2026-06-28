@@ -100,6 +100,15 @@ pub trait EventView {
     fn artifact_path(&self) -> &str {
         ""
     }
+
+    /// For a synthesized failed-logon *burst* anchor: `(failure_count,
+    /// first_failure_ns, last_failure_ns)` — how many failures the burst gathered
+    /// and the span they covered. `None` for every ordinary event (the default);
+    /// only a brute-force burst anchor overrides it, so the brute-force note can
+    /// state "N failed logons between T1 and T2" instead of a generic phrase.
+    fn burst_summary(&self) -> Option<(usize, i64, i64)> {
+        None
+    }
 }
 
 /// An optional per-pair guard predicate for a [`RuleSpec`]: a candidate

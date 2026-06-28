@@ -68,6 +68,7 @@ pub(crate) mod testkit {
         pub host: Option<String>,
         pub source: EventSource,
         pub path: String,
+        pub burst_summary: Option<(usize, i64, i64)>,
     }
 
     impl TestEvent {
@@ -80,6 +81,7 @@ pub(crate) mod testkit {
                 host: Some(host.to_string()),
                 source,
                 path: String::new(),
+                burst_summary: None,
             }
         }
 
@@ -92,6 +94,12 @@ pub(crate) mod testkit {
         #[must_use]
         pub fn with_path(mut self, p: &str) -> Self {
             self.path = p.to_string();
+            self
+        }
+
+        #[must_use]
+        pub fn with_burst_summary(mut self, count: usize, first_ns: i64, last_ns: i64) -> Self {
+            self.burst_summary = Some((count, first_ns, last_ns));
             self
         }
     }
@@ -117,6 +125,9 @@ pub(crate) mod testkit {
         }
         fn artifact_path(&self) -> &str {
             &self.path
+        }
+        fn burst_summary(&self) -> Option<(usize, i64, i64)> {
+            self.burst_summary
         }
     }
 }

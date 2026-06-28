@@ -93,6 +93,49 @@ mod tests {
         assert!(corr.note.contains("consistent with"));
     }
 
+    /// `1_750_000_000` s and `1_750_000_225` s are 3m45s apart → a true range.
+    const T1_NS: i64 = 1_750_000_000 * 1_000_000_000;
+    const T2_NS: i64 = 1_750_000_225 * 1_000_000_000;
+
+    #[test]
+    fn note_states_the_failure_count_and_window_when_burst_summary_is_present() {
+        // The runner synthesizes the anchor at the latest failure (T2) and tags
+        // it with the burst's count + span; the note must surface both.
+        let anchor = burst(1, T2_NS, "194.61.24.102").with_burst_summary(37, T1_NS, T2_NS);
+        let cands = vec![success(2, T2_NS + 1_000_000_000, "194.61.24.102")];
+
+        let corr = evaluate_bruteforce(&anchor, &cands).expect("a correlation");
+        assert!(
+            corr.note.contains("37"),
+            "note must state the failure count, got: {}",
+            corr.note
+        );
+        assert!(
+            corr.note.contains("between"),
+            "a multi-second burst must show a from→to range, got: {}",
+            corr.note
+        );
+        // Still an observation, never a verdict.
+        assert!(corr.note.contains("consistent with"));
+    }
+
+    #[test]
+    fn note_collapses_a_same_second_burst_to_one_instant() {
+        // All failures land in the same wall-clock second → no spurious range.
+        let same = T1_NS + 250_000_000; // +0.25 s, still second T1
+        let anchor = burst(1, same, "194.61.24.102").with_burst_summary(5, T1_NS, same);
+        let cands = vec![success(2, same + 1_000_000_000, "194.61.24.102")];
+
+        let corr = evaluate_bruteforce(&anchor, &cands).expect("a correlation");
+        assert!(corr.note.contains('5'), "count, got: {}", corr.note);
+        assert!(
+            !corr.note.contains("between"),
+            "a same-second burst must not show a range, got: {}",
+            corr.note
+        );
+        assert!(corr.note.contains("consistent with"));
+    }
+
     // ── Negative controls ────────────────────────────────────────────────────
 
     #[test]
