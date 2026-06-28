@@ -272,7 +272,7 @@ impl TimelineStore {
         // projected MemEvents; everything else (disk/log) feeds the disk-leg
         // rules. Memory rows are deliberately kept *out* of `inputs` (the
         // disk-rule pass) — they have no flat-EventView rule — but the disk
-        // events are passed to the memory pass too, since CORR-PROC-DISK-MATCH
+        // events are passed to the memory pass too, since CORR-DISK-FILE-RUNNING
         // joins a memory process to a disk FileCreate.
         let memory: Vec<MemEvent> = events.iter().filter_map(mem_event_from_stored).collect();
         let disk: Vec<&StoredEvent> = events

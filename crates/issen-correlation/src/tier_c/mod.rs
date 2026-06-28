@@ -20,7 +20,7 @@
 //!   ESTABLISHED `NetworkConnect` to an external [`EntityRef::Ip`] from the
 //!   *same* process: an injected process beaconing to C2
 //!   ([`injected_c2::injected_c2_pairs`]). ATT&CK T1055 + T1071.
-//! - **`CORR-PROC-DISK-MATCH`** (Tier C) — a memory `ProcessExec` and a *disk*
+//! - **`CORR-DISK-FILE-RUNNING`** (Tier C) — a memory `ProcessExec` and a *disk*
 //!   `FileCreate` for the *same image name*: the on-disk artifact is the running
 //!   process ([`proc_disk_match::proc_disk_matches`]). ATT&CK T1055 / T1105.
 //! - **★`CORR-PROC-MIGRATION`** (Tier C′) — a dead-and-orphaned process plus a
@@ -187,11 +187,11 @@ impl MemEvent {
 /// generic over [`EventView`](crate::evaluator::EventView) and never sees the
 /// metadata these rules need; the store-facing wrapper passes the projected
 /// memory [`MemEvent`] slice (and the flat disk events for the cross-leg
-/// `CORR-PROC-DISK-MATCH`) here and appends the result to the same
+/// `CORR-DISK-FILE-RUNNING`) here and appends the result to the same
 /// `Vec<Correlation>`.
 ///
 /// The two same-dump memory rules (`CORR-INJECTED-C2`, `CORR-PROC-MIGRATION`)
-/// ignore `disk`; only `CORR-PROC-DISK-MATCH` reads it.
+/// ignore `disk`; only `CORR-DISK-FILE-RUNNING` reads it.
 #[must_use]
 pub fn run_memory_rules<E>(memory: &[MemEvent], disk: &[E]) -> Vec<Correlation>
 where
@@ -210,7 +210,7 @@ pub(crate) mod testkit {
 
     use crate::evaluator::{EventSource, EventView};
 
-    /// A synthetic *disk*-leg event for the cross-leg `CORR-PROC-DISK-MATCH`
+    /// A synthetic *disk*-leg event for the cross-leg `CORR-DISK-FILE-RUNNING`
     /// test: a flat [`EventView`] carrying an `artifact_path` (the file the
     /// create concerns) and a real source leg.
     #[derive(Debug, Clone)]

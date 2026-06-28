@@ -1,4 +1,4 @@
-//! `CORR-PROC-DISK-MATCH` (Tier C, plan v4 §5.2 / v5 §7.2).
+//! `CORR-DISK-FILE-RUNNING` (Tier C, plan v4 §5.2 / v5 §7.2).
 //!
 //! A memory `ProcessExec` row and a **disk** `FileCreate` for the **same image
 //! name**: the on-disk artifact is (consistent with) the process now resident in
@@ -10,8 +10,9 @@
 //!
 //! The disk leg is *not* a memory event, so the join is cross-leg: the consequent
 //! must come from a non-[`EventSource::Memory`] leg (a disk `FileCreate`),
-//! distinguishing this from a same-dump memory↔memory rule. ATT&CK: T1055 /
-//! T1105 — consistent with, never a verdict.
+//! distinguishing this from a same-dump memory↔memory rule. A name match is not
+//! identity: it is consistent with execution OR with injection / hollowing /
+//! masquerade (T1055, T1055.012, T1036) — an observation, never a verdict.
 
 use forensicnomicon::report::Severity;
 
@@ -25,9 +26,10 @@ use super::{MemEvent, FILE_CREATE_EVENT_TYPE, PROCESS_EXEC_EVENT_TYPE};
 
 /// Examiner-facing note — an observation, never a verdict.
 pub const PROC_DISK_MATCH_NOTE: &str =
-    "A file created on disk and subsequently found running as a live process in a \
-     memory dump is consistent with that on-disk artifact having been executed \
-     (T1055 / T1105).";
+    "A process whose image name matches an on-disk file create is resident in a \
+     memory dump — consistent with that on-disk artifact running. A name match \
+     alone does not establish identity, and does not exclude process injection, \
+     hollowing, or masquerade (T1055, T1055.012, T1036).";
 
 /// The image stem a memory `ProcessExec` row names, via its
 /// [`EntityRef::Process`] subject (lowercased, extension dropped). `None` when
@@ -73,8 +75,11 @@ where
                 (create.timestamp_ns(), proc.timestamp_ns)
             };
             out.push(
-                Correlation::new("CORR-PROC-DISK-MATCH", Severity::Medium)
-                    .with_attack_technique("T1055")
+                // No single ATT&CK technique: a name-match between a resident
+                // process and an on-disk create is consistent with execution OR
+                // with injection / hollowing / masquerade. Asserting one would
+                // over-commit; the note enumerates the consistent-with set.
+                Correlation::new("CORR-DISK-FILE-RUNNING", Severity::Medium)
                     .with_scope(CorrelationScope::SameHost)
                     .with_window(first, last)
                     .with_note(PROC_DISK_MATCH_NOTE)
@@ -114,8 +119,11 @@ mod tests {
         let corrs = proc_disk_matches(&memory, &disk);
         assert_eq!(corrs.len(), 1);
         let c = &corrs[0];
-        assert_eq!(c.code, "CORR-PROC-DISK-MATCH");
-        assert_eq!(c.attack_technique.as_deref(), Some("T1055"));
+        assert_eq!(c.code, "CORR-DISK-FILE-RUNNING");
+        assert_eq!(
+            c.attack_technique, None,
+            "a name-match corroboration asserts no single technique"
+        );
         assert_eq!(c.severity, Severity::Medium);
         assert_eq!(c.members.len(), 2);
         assert_eq!(c.members[0].timeline_id, 1);

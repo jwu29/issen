@@ -154,7 +154,7 @@ where
 /// timeline events (`events`), the memory-leg rules consume the projected
 /// [`MemEvent`] slice (`memory`, carrying the `pid` / `ppid` / `thread_count` /
 /// `injection` fields parsed from each memory event's metadata), and the
-/// cross-leg `CORR-PROC-DISK-MATCH` reads both. The memory firings are appended
+/// cross-leg `CORR-DISK-FILE-RUNNING` reads both. The memory firings are appended
 /// to the disk firings on the same `Vec<Correlation>` — the additive Tier-C seam.
 #[must_use]
 pub fn run_correlations_with_memory<E>(events: &[E], memory: &[MemEvent]) -> Vec<Correlation>
@@ -815,7 +815,7 @@ mod tests {
     fn run_with_memory_matches_a_resident_process_to_its_on_disk_create() {
         use issen_core::timeline::event::EntityRef;
         // A disk FileCreate of coreupdater.exe and a memory ProcessExec for the
-        // same image -> the cross-leg CORR-PROC-DISK-MATCH fires through the seam.
+        // same image -> the cross-leg CORR-DISK-FILE-RUNNING fires through the seam.
         let events = vec![Ev::new(1, 500, "FileCreate", "DC01", EventSource::Disk)
             .at("C:\\Windows\\System32\\coreupdater.exe")];
         let memory = vec![MemEvent::new(10, 5_000, "ProcessExec", "DUMP-A")
@@ -823,7 +823,7 @@ mod tests {
             .with_pid(3644)];
         let corrs = run_correlations_with_memory(&events, &memory);
         assert!(
-            has_code(&corrs, "CORR-PROC-DISK-MATCH"),
+            has_code(&corrs, "CORR-DISK-FILE-RUNNING"),
             "{:?}",
             codes(&corrs)
         );
