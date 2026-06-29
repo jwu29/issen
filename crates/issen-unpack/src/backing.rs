@@ -101,14 +101,44 @@ impl SubRangeReader {
 }
 
 impl Read for SubRangeReader {
-    fn read(&mut self, _buf: &mut [u8]) -> io::Result<usize> {
-        Ok(0) // RED stub
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let remaining = self.len.saturating_sub(self.pos);
+        if remaining == 0 || buf.is_empty() {
+            return Ok(0);
+        }
+        let to_read = (buf.len() as u64).min(remaining) as usize;
+        #[cfg(unix)]
+        let n = {
+            use std::os::unix::fs::FileExt;
+            self.file
+                .read_at(&mut buf[..to_read], self.base + self.pos)?
+        };
+        #[cfg(windows)]
+        let n = {
+            use std::os::windows::fs::FileExt;
+            self.file
+                .seek_read(&mut buf[..to_read], self.base + self.pos)?
+        };
+        self.pos += n as u64;
+        Ok(n)
     }
 }
 
 impl Seek for SubRangeReader {
-    fn seek(&mut self, _pos: SeekFrom) -> io::Result<u64> {
-        Ok(0) // RED stub
+    fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
+        let new_pos = match pos {
+            SeekFrom::Start(n) => n as i64,
+            SeekFrom::Current(n) => self.pos as i64 + n,
+            SeekFrom::End(n) => self.len as i64 + n,
+        };
+        if new_pos < 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "seek before start",
+            ));
+        }
+        self.pos = new_pos as u64;
+        Ok(self.pos)
     }
 }
 
@@ -127,9 +157,20 @@ pub fn spill_from<R: Read>(
     max_bytes: u64,
     dir: &Path,
 ) -> io::Result<SpooledTempFile> {
-    let _ = (src, ram_threshold, max_bytes, dir);
-    // RED stub — an empty spool, so round-trip/bomb tests fail.
-    Ok(tempfile::spooled_tempfile_in(0, dir))
+    let threshold = usize::try_from(ram_threshold).unwrap_or(usize::MAX);
+    let mut spool = tempfile::spooled_tempfile_in(threshold, dir);
+    // Read at most max_bytes + 1 so an overrun is detectable without consuming
+    // the whole (possibly bomb-sized) stream.
+    let mut limited = src.take(max_bytes.saturating_add(1));
+    let written = io::copy(&mut limited, &mut spool)?;
+    if written > max_bytes {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("decompressed output exceeds cap of {max_bytes} bytes (possible bomb)"),
+        ));
+    }
+    spool.seek(SeekFrom::Start(0))?;
+    Ok(spool)
 }
 
 /// Choose the first writable, **non-tmpfs** directory from `candidates` in order
@@ -141,8 +182,67 @@ fn select_storage_dir(
     writable: &dyn Fn(&Path) -> bool,
     is_tmpfs: &dyn Fn(&Path) -> bool,
 ) -> Option<PathBuf> {
-    let _ = (candidates, writable, is_tmpfs);
-    None // RED stub
+    // Prefer a writable, storage-backed directory in priority order.
+    if let Some(d) = candidates
+        .iter()
+        .find(|c| writable(c) && !is_tmpfs(c))
+        .cloned()
+    {
+        return Some(d);
+    }
+    // Nothing storage-backed: a writable tmpfs beats failing outright.
+    candidates.iter().find(|c| writable(c)).cloned()
+}
+
+/// Resolve a disk-backed temp directory for spilling decompressed images,
+/// preferring storage-backed mounts over RAM-backed tmpfs — the OS default temp
+/// dir is often tmpfs (tempfile's own docs warn of this), and spilling there
+/// would silently defeat the bounded-RAM goal. Honors `ISSEN_SPILL_DIR`.
+#[must_use]
+pub fn storage_backed_temp_dir() -> PathBuf {
+    if let Some(d) = std::env::var_os("ISSEN_SPILL_DIR") {
+        return PathBuf::from(d);
+    }
+    let candidates = [
+        PathBuf::from("/var/tmp"), // Linux: persistent, disk-backed
+        std::env::temp_dir(),      // macOS: disk-backed ($TMPDIR); Linux: often tmpfs
+        PathBuf::from("/tmp"),
+    ];
+    select_storage_dir(&candidates, &dir_is_writable, &dir_is_tmpfs)
+        .unwrap_or_else(std::env::temp_dir)
+}
+
+/// True if a temp file can actually be created in `dir` right now.
+fn dir_is_writable(dir: &Path) -> bool {
+    dir.is_dir() && tempfile::Builder::new().tempfile_in(dir).is_ok()
+}
+
+/// True if `dir` lives on a RAM-backed filesystem (tmpfs/ramfs). Reads
+/// `/proc/mounts` (absent off Linux → `false`, which is correct: macOS/Windows
+/// default temp dirs are disk-backed).
+fn dir_is_tmpfs(dir: &Path) -> bool {
+    let canon = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+    std::fs::read_to_string("/proc/mounts")
+        .ok()
+        .and_then(|m| fstype_for_path(&m, &canon).map(str::to_owned))
+        .is_some_and(|fs| fs == "tmpfs" || fs == "ramfs")
+}
+
+/// Filesystem type of the mount containing `target`, from `/proc/mounts` text:
+/// the longest mount-point that is a path-prefix of `target`. Pure, so the
+/// longest-prefix selection is testable without real mounts.
+fn fstype_for_path<'a>(mounts: &'a str, target: &Path) -> Option<&'a str> {
+    let mut best: Option<(&str, &str)> = None; // (mount_point, fstype)
+    for line in mounts.lines() {
+        let mut fields = line.split_whitespace();
+        let (_dev, mount_point, fstype) = (fields.next(), fields.next(), fields.next());
+        if let (Some(mp), Some(fs)) = (mount_point, fstype) {
+            if target.starts_with(mp) && best.is_none_or(|(b, _)| mp.len() > b.len()) {
+                best = Some((mp, fs));
+            }
+        }
+    }
+    best.map(|(_, fs)| fs)
 }
 
 #[cfg(test)]
@@ -319,5 +419,27 @@ mod tests {
             select_storage_dir(&[PathBuf::from("/nope")], &|_| false, &|_| false),
             None
         );
+    }
+
+    #[test]
+    fn fstype_picks_longest_mount_prefix() {
+        let mounts = "\
+sysfs /sys sysfs rw 0 0
+/dev/sda1 / ext4 rw 0 0
+tmpfs /tmp tmpfs rw 0 0
+/dev/sdb1 /var/tmp xfs rw 0 0
+";
+        // /tmp is its own tmpfs mount; /var/tmp is a disk-backed xfs mount.
+        assert_eq!(
+            fstype_for_path(mounts, Path::new("/tmp/spill")),
+            Some("tmpfs")
+        );
+        assert_eq!(
+            fstype_for_path(mounts, Path::new("/var/tmp/spill")),
+            Some("xfs")
+        );
+        // A path under no specific mount falls to root.
+        assert_eq!(fstype_for_path(mounts, Path::new("/home/x")), Some("ext4"));
+        assert_eq!(fstype_for_path("", Path::new("/x")), None);
     }
 }
