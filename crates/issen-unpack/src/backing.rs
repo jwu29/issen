@@ -853,6 +853,15 @@ fn zip_entries(
     Ok(out)
 }
 
+/// Eligible for the non-solid selective path: every file is its own LZMA stream
+/// (so `read_file` decodes just that file, skipping the rest) AND each matching
+/// file fits a RAM buffer (`read_file` returns a `Vec`, no spill). A solid
+/// archive or an oversized member falls back to stream-once + spill.
+fn sevenz_selective_eligible(is_solid: bool, sizes: &[u64], threshold: u64) -> bool {
+    let _ = (is_solid, sizes, threshold);
+    false
+}
+
 fn sevenz_entries(
     path: &Path,
     plan: &SpillPlan,
@@ -1611,6 +1620,52 @@ mod tests {
             read_all(archive_backing(t.path(), &big_plan(None), &["dd"]).unwrap()),
             p
         );
+    }
+
+    #[test]
+    fn sevenz_selective_eligible_rules() {
+        let t = 64 * MIB;
+        assert!(
+            sevenz_selective_eligible(false, &[1000, 2000], t),
+            "non-solid + small members → selective read_file"
+        );
+        assert!(
+            !sevenz_selective_eligible(true, &[1000], t),
+            "solid → must stream the whole block"
+        );
+        assert!(
+            !sevenz_selective_eligible(false, &[t + 1], t),
+            "oversized member → stream + spill, not a RAM read_file"
+        );
+        assert!(
+            sevenz_selective_eligible(false, &[], t),
+            "no matching members → vacuously eligible (empty result)"
+        );
+    }
+
+    #[test]
+    fn sevenz_nonsolid_selective_reads_matching() {
+        // make_7z uses push_archive_entry per file → non-solid.
+        let a = pattern(4096);
+        let b = pattern(8192);
+        let z = make_7z(&[("img.E01", &a), ("readme.txt", b"skip"), ("img.E02", &b)]);
+        let got =
+            collect_named(archive_entries(z.path(), &big_plan(None), &["e01", "e02"]).unwrap());
+        assert_eq!(got.len(), 2, "two segments, the .txt skipped");
+        assert_eq!(got[0].1, a);
+        assert_eq!(got[1].1, b);
+    }
+
+    #[test]
+    fn sevenz_streaming_fallback_when_member_oversized() {
+        // A 1-byte RAM threshold makes every member oversized → the streaming +
+        // spill path, which must still return identical bytes.
+        let a = pattern(4096);
+        let z = make_7z(&[("disk.img", &a)]);
+        let tiny = big_plan(Some(1));
+        let got = collect_named(archive_entries(z.path(), &tiny, &["img"]).unwrap());
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].1, a);
     }
 
     #[test]
