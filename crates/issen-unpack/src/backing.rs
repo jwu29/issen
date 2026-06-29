@@ -692,36 +692,226 @@ fn first_entry(
     })
 }
 
-fn zip_entries(
-    _path: &Path,
-    _plan: &SpillPlan,
-    _exts: &[&str],
+/// True if `name`'s extension is in `exts` (case-insensitive).
+fn ext_matches(name: &str, exts: &[&str]) -> bool {
+    Path::new(name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .is_some_and(|e| exts.iter().any(|x| x.eq_ignore_ascii_case(&e)))
+}
+
+/// Build a backing for one entry given its decision. `reader` supplies the
+/// positioned/decompressed bytes for the RAM and Spill paths; `InPlace` ignores
+/// it and windows directly over the shared archive file.
+fn build_decided_backing(
+    decision: BackingDecision,
+    shared: &Arc<File>,
+    data_start: u64,
+    declared: u64,
+    plan: &SpillPlan,
+    name: &str,
+    reader: &mut dyn Read,
+) -> io::Result<Box<dyn ReadSeekSend>> {
+    match decision {
+        BackingDecision::InPlace => Ok(Box::new(SubRangeReader::new(
+            Arc::clone(shared),
+            data_start,
+            declared,
+        ))),
+        BackingDecision::Ram { .. } => {
+            let mut buf = Vec::with_capacity(usize::try_from(declared).unwrap_or(0));
+            reader
+                .take(declared.saturating_add(1))
+                .read_to_end(&mut buf)?;
+            if buf.len() as u64 > declared {
+                return Err(io::Error::other(format!(
+                    "{name}: entry larger than its declared {declared} bytes (possible bomb)"
+                )));
+            }
+            Ok(Box::new(Cursor::new(buf)))
+        }
+        BackingDecision::Spill { dir, .. } => Ok(Box::new(spill_from(
+            reader,
+            ram_threshold(plan),
+            declared,
+            &dir,
+        )?)),
+        BackingDecision::Refused { .. } => Err(io::Error::other(decision.to_string())),
+    }
+}
+
+/// Materialize one seek-blind decompressed entry into a spooled backing: RAM
+/// under the threshold, rolling to a temp file past it; bomb-capped. Used by the
+/// codec-wrapped formats (7z solid, tar.gz, tar.bz2) that cannot window in place.
+/// `declared == 0` means the codec did not expose the size (whole-stream gz/bz2).
+fn spill_entry(
+    reader: &mut dyn Read,
+    plan: &SpillPlan,
+    declared: u64,
+    temp_dir: &Path,
+    temp_free: u64,
+    name: &str,
+    fmt: &str,
+) -> io::Result<Box<dyn ReadSeekSend>> {
+    let threshold = ram_threshold(plan);
+    // A known-size entry that fits neither a safe share of RAM nor the temp
+    // volume is refused loudly — never a silent truncation.
+    if declared > threshold && declared > temp_free {
+        return Err(io::Error::other(format!(
+            "{name}: {declared} bytes fit neither the {threshold}-byte RAM threshold \
+             nor {temp_free} bytes of temp at {}",
+            temp_dir.display()
+        )));
+    }
+    // Cap: the known size, or — when the codec hides it — the most we can hold
+    // (RAM threshold for a small stream, else the temp free space).
+    let cap = if declared > 0 {
+        declared
+    } else {
+        threshold.max(temp_free)
+    };
+    tracing::debug!(target: "issen::backing", entry = %name, format = fmt, declared, "spill (compressed)");
+    Ok(Box::new(spill_from(reader, threshold, cap, temp_dir)?))
+}
+
+/// Read up to `buf.len()` bytes, returning how many were filled (short only at EOF).
+fn read_up_to(r: &mut impl Read, buf: &mut [u8]) -> io::Result<usize> {
+    let mut n = 0;
+    while n < buf.len() {
+        match r.read(&mut buf[n..])? {
+            0 => break,
+            k => n += k,
+        }
+    }
+    Ok(n)
+}
+
+/// Decode a tar stream — or a single bare-compressed image — into bounded
+/// backings. Peeks for the tar `ustar` magic at offset 257; absent it, the
+/// decompressed stream is itself a single image (e.g. `disk.raw.gz`) and is
+/// returned as one entry. Tar members are materialized per [`spill_entry`].
+fn tar_entries_from<R: Read>(
+    mut decoded: R,
+    plan: &SpillPlan,
+    exts: &[&str],
+    temp_dir: &Path,
+    temp_free: u64,
+    fmt: &str,
 ) -> io::Result<Vec<(String, Box<dyn ReadSeekSend>)>> {
-    Err(io::Error::other("zip_entries: unimplemented"))
+    let mut head = vec![0u8; 512];
+    let got = read_up_to(&mut decoded, &mut head)?;
+    head.truncate(got);
+    let is_tar = head.get(257..262) == Some(b"ustar".as_slice());
+    let mut chained = Cursor::new(head).chain(decoded);
+    if !is_tar {
+        let name = format!("<{fmt}-stream>");
+        let b = spill_entry(&mut chained, plan, 0, temp_dir, temp_free, &name, fmt)?;
+        return Ok(vec![(name, b)]);
+    }
+    let mut archive = tar::Archive::new(chained);
+    let mut out: Vec<(String, Box<dyn ReadSeekSend>)> = Vec::new();
+    for entry in archive.entries()? {
+        let mut entry = entry?;
+        let name = entry.path()?.to_string_lossy().into_owned();
+        if entry.header().entry_type().is_dir() || !ext_matches(&name, exts) {
+            continue;
+        }
+        let size = entry.size();
+        let b = spill_entry(&mut entry, plan, size, temp_dir, temp_free, &name, fmt)?;
+        out.push((name, b));
+    }
+    Ok(out)
+}
+
+fn zip_entries(
+    path: &Path,
+    plan: &SpillPlan,
+    exts: &[&str],
+) -> io::Result<Vec<(String, Box<dyn ReadSeekSend>)>> {
+    let shared = Arc::new(File::open(path)?);
+    let mut archive = zip::ZipArchive::new(File::open(path)?).map_err(io::Error::other)?;
+    let temp_dir = storage_backed_temp_dir();
+    let temp_free = temp_free_bytes(&temp_dir);
+    let mut out: Vec<(String, Box<dyn ReadSeekSend>)> = Vec::new();
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i).map_err(io::Error::other)?;
+        if entry.is_dir() || !ext_matches(entry.name(), exts) {
+            continue;
+        }
+        let name = entry.name().to_string();
+        let in_place = entry.compression() == zip::CompressionMethod::Stored;
+        let declared = entry.size();
+        let data_start = entry.data_start();
+        let decision = decide_backing(declared, in_place, plan, &temp_dir, temp_free);
+        tracing::debug!(target: "issen::backing", entry = %name, format = "zip", "{decision}");
+        let backing = build_decided_backing(
+            decision, &shared, data_start, declared, plan, &name, &mut entry,
+        )?;
+        out.push((name, backing));
+    }
+    Ok(out)
 }
 
 fn sevenz_entries(
-    _path: &Path,
-    _plan: &SpillPlan,
-    _exts: &[&str],
+    path: &Path,
+    plan: &SpillPlan,
+    exts: &[&str],
 ) -> io::Result<Vec<(String, Box<dyn ReadSeekSend>)>> {
-    Err(io::Error::other("sevenz_entries: unimplemented"))
+    let temp_dir = storage_backed_temp_dir();
+    let temp_free = temp_free_bytes(&temp_dir);
+    let mut reader =
+        sevenz_rust2::ArchiveReader::new(File::open(path)?, sevenz_rust2::Password::empty())
+            .map_err(|e| io::Error::other(format!("{}: 7z: {e}", path.display())))?;
+    let mut out: Vec<(String, Box<dyn ReadSeekSend>)> = Vec::new();
+    let mut captured: Option<io::Error> = None;
+    reader
+        .for_each_entries(|entry, rdr| {
+            // A solid 7z is one continuous stream — every entry's reader MUST be
+            // drained so the next is positioned, matching included.
+            if entry.is_directory() || !ext_matches(entry.name(), exts) {
+                io::copy(rdr, &mut io::sink())?;
+                return Ok(true);
+            }
+            let name = entry.name().to_string();
+            match spill_entry(rdr, plan, entry.size(), &temp_dir, temp_free, &name, "7z") {
+                Ok(b) => {
+                    out.push((name, b));
+                    Ok(true)
+                }
+                Err(e) => {
+                    captured = Some(e);
+                    Ok(false)
+                }
+            }
+        })
+        .map_err(|e| io::Error::other(format!("{}: 7z: {e}", path.display())))?;
+    if let Some(e) = captured {
+        return Err(e);
+    }
+    Ok(out)
 }
 
 fn targz_entries(
-    _path: &Path,
-    _plan: &SpillPlan,
-    _exts: &[&str],
+    path: &Path,
+    plan: &SpillPlan,
+    exts: &[&str],
 ) -> io::Result<Vec<(String, Box<dyn ReadSeekSend>)>> {
-    Err(io::Error::other("targz_entries: unimplemented"))
+    let temp_dir = storage_backed_temp_dir();
+    let temp_free = temp_free_bytes(&temp_dir);
+    let decoded = flate2::read::GzDecoder::new(File::open(path)?);
+    tar_entries_from(decoded, plan, exts, &temp_dir, temp_free, "tar.gz")
 }
 
 fn tarbz2_entries(
-    _path: &Path,
-    _plan: &SpillPlan,
-    _exts: &[&str],
+    path: &Path,
+    plan: &SpillPlan,
+    exts: &[&str],
 ) -> io::Result<Vec<(String, Box<dyn ReadSeekSend>)>> {
-    Err(io::Error::other("tarbz2_entries: unimplemented"))
+    let temp_dir = storage_backed_temp_dir();
+    let temp_free = temp_free_bytes(&temp_dir);
+    let decoded = bzip2_rs::DecoderReader::new(File::open(path)?);
+    tar_entries_from(decoded, plan, exts, &temp_dir, temp_free, "tar.bz2")
 }
 
 #[cfg(test)]
@@ -747,7 +937,7 @@ mod tests {
         };
         assert_eq!(ram_threshold(&p), 5 * GIB);
         let p2 = SpillPlan {
-            available_ram: 1 * GIB,
+            available_ram: GIB,
             concurrency: 1,
             env_override: Some(16 * MIB),
         };
@@ -777,7 +967,7 @@ mod tests {
     fn clamps_to_floor_on_scarce_ram() {
         // 1 GiB available, 4 sources: 0.25*1G/4 = 64 MiB exactly; 512 MiB box
         // would compute 32 MiB → clamped up to the 64 MiB floor.
-        assert_eq!(ram_threshold(&plan(1 * GIB, 4)), 64 * MIB);
+        assert_eq!(ram_threshold(&plan(GIB, 4)), 64 * MIB);
         assert_eq!(ram_threshold(&plan(512 * MIB, 4)), 64 * MIB);
     }
 
@@ -823,7 +1013,7 @@ mod tests {
         let mut sr = SubRangeReader::new(file, 100, 50);
         sr.seek(SeekFrom::Start(5)).unwrap();
         let mut buf = [0u8; 1];
-        sr.read(&mut buf).unwrap();
+        sr.read_exact(&mut buf).unwrap();
         assert_eq!(buf[0], data[105], "offset 5 in window = byte base+5");
         assert_eq!(sr.seek(SeekFrom::End(0)).unwrap(), 50, "End = window len");
     }

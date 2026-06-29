@@ -65,6 +65,10 @@ allow = [
     "Zlib",
     "CC0-1.0",
     "CDLA-Permissive-2.0",
+    # Permissive BSD-style license of the libbzip2 codec, pulled transitively by
+    # sevenz-rust2 for the (rare) bzip2-in-7z compression method. Batteries-
+    # Included: allow the gate rather than amputate sevenz's bzip2 capability.
+    "bzip2-1.0.6",
 ]
 confidence-threshold = 0.8
 exceptions = []
