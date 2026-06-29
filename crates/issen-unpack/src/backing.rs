@@ -7,6 +7,20 @@
 //! (bomb-safe, independent of the entry's declared size). A `zip` `Stored` entry
 //! never reaches the spill path — it is read in place (zero copy).
 
+use std::fs::File;
+use std::io::{self, Read, Seek, SeekFrom};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use tempfile::SpooledTempFile;
+
+/// A seekable, thread-safe byte source a container reader can sit on: an in-place
+/// window over an archive file, an in-RAM buffer, or a disk-backed temp spill.
+/// One canonical definition for the whole fleet (each container's `open_reader`
+/// accepts `Box<dyn ReadSeekSend>`).
+pub trait ReadSeekSend: Read + Seek + Send + Sync {}
+impl<T: Read + Seek + Send + Sync> ReadSeekSend for T {}
+
 /// One mebibyte, in bytes.
 const MIB: u64 = 1024 * 1024;
 /// One gibibyte, in bytes.
@@ -58,6 +72,77 @@ pub fn ram_threshold(plan: &SpillPlan) -> u64 {
     let budget = plan.available_ram / RAM_COMMIT_DENOMINATOR;
     let per_image = budget / concurrency;
     per_image.clamp(THRESHOLD_FLOOR, THRESHOLD_CEILING)
+}
+
+/// A positioned, read-only window `[base, base + len)` over a shared archive
+/// file — lets a container reader sit directly on a `Stored` (uncompressed) zip
+/// entry with zero copy. Positioned reads (no `&mut` on the file), so `Send +
+/// Sync`. This is the one canonical copy (the per-container duplicates fold into
+/// it).
+#[derive(Debug)]
+pub struct SubRangeReader {
+    file: Arc<File>,
+    base: u64,
+    len: u64,
+    pos: u64,
+}
+
+impl SubRangeReader {
+    /// Window `[base, base + len)` over `file`.
+    #[must_use]
+    pub fn new(file: Arc<File>, base: u64, len: u64) -> Self {
+        Self {
+            file,
+            base,
+            len,
+            pos: 0,
+        }
+    }
+}
+
+impl Read for SubRangeReader {
+    fn read(&mut self, _buf: &mut [u8]) -> io::Result<usize> {
+        Ok(0) // RED stub
+    }
+}
+
+impl Seek for SubRangeReader {
+    fn seek(&mut self, _pos: SeekFrom) -> io::Result<u64> {
+        Ok(0) // RED stub
+    }
+}
+
+/// Stream every byte of `src` into a spooled buffer that stays in RAM until it
+/// exceeds `ram_threshold` bytes, then rolls over to a disk-backed temp file in
+/// `dir`. Returns the buffer seeked to the start. Bounded: `io::copy` streams
+/// through a fixed buffer, so RAM never holds the whole decompressed image once
+/// it has rolled over. `max_bytes` caps the output (decompression-bomb guard) —
+/// exceeding it is an error, not a silent truncation.
+///
+/// # Errors
+/// I/O failure, or `src` produces more than `max_bytes` (possible bomb).
+pub fn spill_from<R: Read>(
+    src: R,
+    ram_threshold: u64,
+    max_bytes: u64,
+    dir: &Path,
+) -> io::Result<SpooledTempFile> {
+    let _ = (src, ram_threshold, max_bytes, dir);
+    // RED stub — an empty spool, so round-trip/bomb tests fail.
+    Ok(tempfile::spooled_tempfile_in(0, dir))
+}
+
+/// Choose the first writable, **non-tmpfs** directory from `candidates` in order
+/// (storage-backed before in-memory), falling back to any writable candidate.
+/// Pure: filesystem facts are injected via the predicates, so the
+/// prefer-storage-over-RAM logic is testable without real mounts.
+fn select_storage_dir(
+    candidates: &[PathBuf],
+    writable: &dyn Fn(&Path) -> bool,
+    is_tmpfs: &dyn Fn(&Path) -> bool,
+) -> Option<PathBuf> {
+    let _ = (candidates, writable, is_tmpfs);
+    None // RED stub
 }
 
 #[cfg(test)]
@@ -128,6 +213,111 @@ mod tests {
         assert_eq!(
             ram_threshold(&plan(8 * GIB, 0)),
             ram_threshold(&plan(8 * GIB, 1))
+        );
+    }
+
+    fn tmp_file_with(bytes: &[u8]) -> (tempfile::NamedTempFile, Arc<File>) {
+        use std::io::Write as _;
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        f.write_all(bytes).unwrap();
+        f.flush().unwrap();
+        let reopened = Arc::new(f.reopen().unwrap());
+        (f, reopened)
+    }
+
+    #[test]
+    fn sub_range_reads_only_its_window() {
+        let data: Vec<u8> = (0u8..=255).collect();
+        let (_keep, file) = tmp_file_with(&data);
+        let mut sr = SubRangeReader::new(file, 20, 10); // bytes 20..30
+        let mut buf = vec![0u8; 16];
+        let n = sr.read(&mut buf).unwrap();
+        assert_eq!(n, 10, "clamped to window length");
+        assert_eq!(&buf[..10], &data[20..30]);
+        assert_eq!(sr.read(&mut buf).unwrap(), 0, "EOF at window end");
+    }
+
+    #[test]
+    fn sub_range_seek_is_window_relative() {
+        let data: Vec<u8> = (0u8..=255).collect();
+        let (_keep, file) = tmp_file_with(&data);
+        let mut sr = SubRangeReader::new(file, 100, 50);
+        sr.seek(SeekFrom::Start(5)).unwrap();
+        let mut buf = [0u8; 1];
+        sr.read(&mut buf).unwrap();
+        assert_eq!(buf[0], data[105], "offset 5 in window = byte base+5");
+        assert_eq!(sr.seek(SeekFrom::End(0)).unwrap(), 50, "End = window len");
+    }
+
+    #[test]
+    fn sub_range_is_read_seek_send_sync() {
+        fn assert_rss<T: ReadSeekSend>() {}
+        assert_rss::<SubRangeReader>();
+    }
+
+    #[test]
+    fn spill_below_threshold_stays_in_ram() {
+        let dir = tempfile::tempdir().unwrap();
+        let payload = vec![0xABu8; 100];
+        let mut spool = spill_from(&payload[..], 1000, 1 << 20, dir.path()).unwrap();
+        assert!(!spool.is_rolled(), "100 B under 1000 B threshold → in RAM");
+        let mut got = Vec::new();
+        spool.read_to_end(&mut got).unwrap();
+        assert_eq!(got, payload);
+    }
+
+    #[test]
+    fn spill_above_threshold_rolls_to_temp() {
+        let dir = tempfile::tempdir().unwrap();
+        let payload = vec![0xCDu8; 10_000];
+        let mut spool = spill_from(&payload[..], 100, 1 << 20, dir.path()).unwrap();
+        assert!(
+            spool.is_rolled(),
+            "10 kB over 100 B threshold → spilled to disk"
+        );
+        let mut got = Vec::new();
+        spool.read_to_end(&mut got).unwrap();
+        assert_eq!(got, payload, "spilled bytes round-trip identically");
+    }
+
+    #[test]
+    fn spill_rejects_output_over_cap() {
+        let dir = tempfile::tempdir().unwrap();
+        let payload = vec![0u8; 10_000];
+        let result = spill_from(&payload[..], 1 << 20, 100, dir.path());
+        assert!(
+            result.is_err(),
+            "output exceeding max_bytes must error (bomb guard)"
+        );
+    }
+
+    #[test]
+    fn select_storage_dir_prefers_non_tmpfs() {
+        let cands = vec![PathBuf::from("/tmp"), PathBuf::from("/var/tmp")];
+        let writable = |_: &Path| true;
+        let is_tmpfs = |p: &Path| p == Path::new("/tmp");
+        assert_eq!(
+            select_storage_dir(&cands, &writable, &is_tmpfs),
+            Some(PathBuf::from("/var/tmp")),
+            "skip the writable-but-tmpfs /tmp for storage-backed /var/tmp"
+        );
+    }
+
+    #[test]
+    fn select_storage_dir_falls_back_to_tmpfs_when_only_option() {
+        let cands = vec![PathBuf::from("/tmp")];
+        assert_eq!(
+            select_storage_dir(&cands, &|_| true, &|_| true),
+            Some(PathBuf::from("/tmp")),
+            "tmpfs beats failing entirely"
+        );
+    }
+
+    #[test]
+    fn select_storage_dir_none_when_nothing_writable() {
+        assert_eq!(
+            select_storage_dir(&[PathBuf::from("/nope")], &|_| false, &|_| false),
+            None
         );
     }
 }
