@@ -69,8 +69,8 @@ scattered read inflates only the units it overlaps.
 | E01 / EWF | ~32–64 KB zlib chunk | ✅ | already selective in `ewf` |
 | AFF4 | image-stream chunk | ✅ | chunked like EWF |
 | bzip2 (`.bz2`) | ~900 KB block | ✅ | `Bzip2SeekReader` (this work) |
-| zip-`Deflated` | — (one DEFLATE stream/entry) | — | materialize (spill) |
-| tar.gz | — (one gzip stream) | — | materialize (spill) |
+| **zip-`Deflated`** | checkpoint interval (~1 MiB, tunable) | ✅ | `DeflateSeekReader` (zran, this work) — built, EWF wiring pending |
+| **tar.gz** | checkpoint interval (~1 MiB, tunable) | ✅ | same zran reader over the gzip stream — built, wiring pending |
 | tar.bz2 | ~900 KB block, per member | ✅ | `tar_members` + `RangeView` over a shared `Bzip2SeekReader` (this work) |
 | 7z solid | — (one LZMA stream) | — | materialize (spill) |
 | 7z non-solid | per-file LZMA stream | ✅ | `read_file` decodes only matching files (this work) |
@@ -214,17 +214,25 @@ boundary makes a block fail to decode, which surfaces **loudly** at index build
   than decode-once-and-spill. issen ingest is targeted (artifact-scoped reads),
   which is the favorable pattern; an access-pattern/coverage gate (below) is the
   general mitigation.
-- **Next (high value, small) — bound the EWF Deflated-in-zip path.**
+- **Done — `DeflateSeekReader`** (zran): random-access DEFLATE via a checkpoint
+  index (`(in_pos, out_pos, DecompressorOxide.clone(), 32 KiB window)` at each
+  block boundary past the interval), restored into a window-prefilled buffer to
+  decode forward only to the requested range. Pure-Rust (miniz_oxide
+  `block-boundary` feature; no `inflatePrime`, no C FFI); TDD against flate2. This
+  is the gzip/DEFLATE analog of `Bzip2SeekReader` and the *proper* fix for the EWF
+  RAM blow-up below — bounded RAM **and** selective, no full inflate.
+- **Pending (cross-repo) — wire EWF Deflated-in-zip off the unbounded `Vec`.**
   `EwfDataSource::open_zip` inflates each Deflated segment into an **unbounded
   `Vec`** (`SegmentSource::from_bytes`) and holds *every* segment at once, so peak
   RAM scales with the whole inflated image (~6.8 GB on the Szechuan DESKTOP set)
-  and OOMs on a host smaller than the image. The fix is already built: route that
-  branch through `archive_entries`, so each segment becomes a `SpooledTempFile`
-  (bounded RAM, spills to temp past the budget) instead of a `Vec`. The DRY
-  collapse migrated qcow2/vmdk/vhd/aff4/dd onto the centralized backing but skipped
-  EWF (multi-segment) — wiring it to the multi-entry helper closes that gap. True
-  zero-temp *and* bounded-RAM would need a DEFLATE sync-point index (the gzip
-  analog of `Bzip2SeekReader`) — a larger follow-up.
+  and OOMs on a host smaller than the image. Two fixes, both needing the `ewf`
+  crate to accept a *lazy* backing (today `SegmentSource` is `File`/`Sub`/`Mem`
+  only): (a) interim — a `SpooledTempFile` via `archive_entries` (bounded RAM,
+  spills past budget); (b) proper — a `DeflateSeekReader` per segment (bounded RAM
+  **and** selective, no temp). Both require a new `ewf::SegmentBacking` trait +
+  `Backing` variant, published, then issen bumped. Blocked on reconciling the
+  local `ewf` checkout (a stale 0.2.3 clone vs published 0.3.0) before the change
+  + publish. Until then EWF keeps the unbounded-`Vec` behavior.
 - **Next:** a triage entry point that (a) builds the spine + extent map, (b)
   engages the selective backing (bzip2 / non-solid-7z, or the EWF/qcow2/vmdk
   native sparse path) for the selected artifact set, and (c) applies the coverage
