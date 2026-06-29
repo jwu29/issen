@@ -234,8 +234,9 @@ fn dir_is_tmpfs(dir: &Path) -> bool {
 /// (`TMPFS_MAGIC` / `RAMFS_MAGIC`). Pure, so the classification is testable
 /// without a real mount.
 fn is_ram_backed_fstype(f_type: i64) -> bool {
-    let _ = f_type;
-    false // RED stub
+    const TMPFS_MAGIC: i64 = 0x0102_1994;
+    const RAMFS_MAGIC: i64 = 0x8584_58f6;
+    matches!(f_type, TMPFS_MAGIC | RAMFS_MAGIC)
 }
 
 #[cfg(test)]
