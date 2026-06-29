@@ -44,6 +44,23 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Architecture: architecture-diagram.html
+  - Quickstart: szechuan-sauce-quickstart.md
+  - Design & Internals:
+      - System Architecture: ARCHITECTURE.md
+      - Issen vs Plaso: issen-vs-plaso-architecture.md
+      - Selective Decompression (Triage): selective-decompression-triage.md
+      - Writing Disk-Image Crates: writing-disk-image-crates.md
+      - "DRY — Shared Crates": dry-analysis-shared-crates.md
+      - CLI Front-Door Spec: cli-unified-frontdoor-spec.md
+      - Remote Sources: remote-sources.md
+  - Reference:
+      - Validation: validation.md
+      - Correlation Validation: validation-correlate.md
+      - Format Coverage Audit: format-coverage-audit.md
+      - Test Corpus Catalog: corpus-catalog.md
+      - Fleet Atlas: fleet-atlas.md
+      - Fleet Capability Inventory: fleet-capability-inventory.md
+      - Forensicnomicon Convergence Plan: fleet-fn-convergence-plan.md
   - Privacy Policy: privacy.md
   - Terms of Service: terms.md
 

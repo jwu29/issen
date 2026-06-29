@@ -43,4 +43,17 @@ Each library is independently usable in your own Rust tooling:
 
 ---
 
+## Design notes
+
+How Issen works under the hood:
+
+- [System Architecture](ARCHITECTURE.md) — the multi-repo layer hierarchy
+- [Selective Decompression for Triage](selective-decompression-triage.md) — fast-path reads from compressed images, and which evidence formats are fastest
+- [Writing Disk-Image Crates](writing-disk-image-crates.md) — the container / reader / analyzer pattern
+- [DRY — Shared Crates](dry-analysis-shared-crates.md) — how the fleet avoids duplication
+- [Issen vs Plaso](issen-vs-plaso-architecture.md) — architectural comparison
+- [Validation](validation.md) · [Correlation Validation](validation-correlate.md) — the Doer-Checker evidence
+
+---
+
 [Privacy Policy](privacy.md) · [Terms of Service](terms.md) · [GitHub](https://github.com/SecurityRonin/issen) · © 2026 Security Ronin Ltd.

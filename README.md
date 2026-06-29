@@ -105,6 +105,17 @@ When the evidence is a Windows disk image, Issen walks the NTFS filesystem and e
 - **Registry hives** — `SYSTEM`, `SOFTWARE`, `SAM`, `SECURITY`, `DEFAULT`, plus per-user `NTUSER.DAT`
 - **`SRUDB.dat`** — the System Resource Usage Monitor database
 
+### Fastest evidence formats
+
+Issen reads only the artifacts a triage needs, so it ingests fastest from containers that allow random access **without inflating the whole image**. For the quickest runs:
+
+- ✅ **E01/EWF** — chunk-indexed, so reads stay selective at full compression. The recommended default for acquired evidence.
+- ✅ **raw `.dd`**, or an image stored *uncompressed* inside a **zip** — zero decompression.
+- ✅ **`.bz2` / `.tar.bz2`** — block-seekable; reads decode only the blocks they touch.
+- ⚠️ **`.tar.gz`, deflate-compressed zip, `.7z`** — no random-access unit, so Issen must decompress the *entire* image before it can read anything. Fine for transport (e.g. an `.E01.7z`), but extract it to a fast format first.
+
+See [Selective Decompression for Triage](https://github.com/SecurityRonin/issen/blob/main/docs/selective-decompression-triage.md) for why.
+
 ---
 
 ## Subcommands
