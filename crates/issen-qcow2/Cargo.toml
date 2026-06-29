@@ -16,12 +16,12 @@ issen-core   = { workspace = true }
 issen-unpack = { workspace = true }
 inventory    = { workspace = true }
 qcow2        = { workspace = true }
-zip          = { workspace = true }
 thiserror    = { workspace = true }
 tempfile     = { workspace = true }
 
 [dev-dependencies]
 qcow2 = { workspace = true, features = ["test-helpers"] }
+zip   = { workspace = true }
 
 [lints]
 workspace = true
