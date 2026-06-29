@@ -4,10 +4,9 @@
 //! Wraps the [`vhd`] crate to provide a [`DataSource`] implementation for
 //! Fixed and Dynamic VHD images (Microsoft Virtual PC / Hyper-V Gen-1).
 
-use std::fs::File;
-use std::io::{Cursor, Read, Seek, SeekFrom};
+use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 use issen_core::error::RtError;
 use issen_core::plugin::traits::DataSource;
@@ -76,127 +75,18 @@ impl VhdDataSource {
     /// # Errors
     /// [`VhdError`] if the zip cannot be read or holds no `.vhd` entry.
     pub fn open_zip(zip_path: &Path) -> Result<Self, VhdError> {
-        // One handle backs the in-place `Sub` reads; a second drives the zip's
-        // central-directory walk + on-demand inflation.
-        let backing = Arc::new(File::open(zip_path)?);
-        let mut archive = zip::ZipArchive::new(File::open(zip_path)?)
-            .map_err(|e| VhdError::Vhd(format!("zip open: {e}")))?;
-
-        let idx = find_vhd_entry(&mut archive).ok_or_else(|| {
-            VhdError::Vhd(format!("no .vhd entry found in {}", zip_path.display()))
-        })?;
-        let mut entry = archive
-            .by_index(idx)
-            .map_err(|e| VhdError::Vhd(format!("zip entry {idx}: {e}")))?;
-
-        let src: Box<dyn vhd::ReadSeekSend> =
-            if entry.compression() == zip::CompressionMethod::Stored {
-                // Uncompressed & contiguous → read straight from the zip at its
-                // data offset. Zero extraction, zero inflate, true random access.
-                Box::new(SubRangeReader::new(
-                    Arc::clone(&backing),
-                    entry.data_start(),
-                    entry.size(),
-                ))
-            } else {
-                // Deflated → inflate the whole image once into RAM (sequential,
-                // which deflate supports), then random-access it from a Cursor.
-                let mut buf = Vec::with_capacity(usize::try_from(entry.size()).unwrap_or(0));
-                entry
-                    .read_to_end(&mut buf)
-                    .map_err(|e| VhdError::Vhd(format!("inflate vhd entry: {e}")))?;
-                Box::new(Cursor::new(buf))
-            };
-
-        let reader = vhd::VhdReader::open_reader(src)?;
+        // Delegate to the centralized archive backing (DRY): zip-Stored is read
+        // in place, otherwise decompressed per the adaptive RAM/temp spill
+        // policy; the determination is logged under `--verbose`.
+        let plan = issen_unpack::backing::probe_spill_plan(1);
+        let backing = issen_unpack::backing::archive_backing(zip_path, &plan, &["vhd"])
+            .map_err(|e| VhdError::Vhd(format!("open_zip: {e}")))?;
+        let reader = vhd::VhdReader::open_reader(Box::new(backing))?;
         let size = reader.virtual_disk_size();
         Ok(Self {
             reader: Mutex::new(reader),
             size,
         })
-    }
-}
-
-/// Find the first `.vhd` file entry in the archive, by extension.
-fn find_vhd_entry(archive: &mut zip::ZipArchive<File>) -> Option<usize> {
-    for i in 0..archive.len() {
-        let Ok(entry) = archive.by_index(i) else {
-            continue;
-        };
-        if entry.is_dir() {
-            continue;
-        }
-        let is_vhd = Path::new(entry.name())
-            .extension()
-            .and_then(|x| x.to_str())
-            .is_some_and(|x| x.eq_ignore_ascii_case("vhd"));
-        if is_vhd {
-            return Some(i);
-        }
-    }
-    None
-}
-
-/// A positioned, read-only window `[base, base + len)` over a shared file — lets
-/// the VHD reader sit directly on a `Stored` zip entry without extraction. Uses
-/// positioned reads (no `&mut` on the file), so it is `Send + Sync`.
-struct SubRangeReader {
-    file: Arc<File>,
-    base: u64,
-    len: u64,
-    pos: u64,
-}
-
-impl SubRangeReader {
-    fn new(file: Arc<File>, base: u64, len: u64) -> Self {
-        Self {
-            file,
-            base,
-            len,
-            pos: 0,
-        }
-    }
-}
-
-impl Read for SubRangeReader {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        let remaining = self.len.saturating_sub(self.pos);
-        if remaining == 0 || buf.is_empty() {
-            return Ok(0);
-        }
-        let to_read = (buf.len() as u64).min(remaining) as usize;
-        #[cfg(unix)]
-        let n = {
-            use std::os::unix::fs::FileExt;
-            self.file
-                .read_at(&mut buf[..to_read], self.base + self.pos)?
-        };
-        #[cfg(windows)]
-        let n = {
-            use std::os::windows::fs::FileExt;
-            self.file
-                .seek_read(&mut buf[..to_read], self.base + self.pos)?
-        };
-        self.pos += n as u64;
-        Ok(n)
-    }
-}
-
-impl Seek for SubRangeReader {
-    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
-        let new_pos = match pos {
-            SeekFrom::Start(n) => n as i64,
-            SeekFrom::Current(n) => self.pos as i64 + n,
-            SeekFrom::End(n) => self.len as i64 + n,
-        };
-        if new_pos < 0 {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "seek before start",
-            ));
-        }
-        self.pos = new_pos as u64;
-        Ok(self.pos)
     }
 }
 
