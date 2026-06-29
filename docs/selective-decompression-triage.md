@@ -66,14 +66,14 @@ scattered read inflates only the units it overlaps.
 |---|---|---|---|
 | raw / `.dd` | byte (none to decode) | ✅ | direct seek |
 | zip-`Stored` | byte (in-place window) | ✅ | `SubRangeReader` over the entry |
-| **E01 / EWF** | ~32–64 KB zlib chunk | ✅ | already selective in `ewf` |
+| E01 / EWF | ~32–64 KB zlib chunk | ✅ | already selective in `ewf` |
 | AFF4 | image-stream chunk | ✅ | chunked like EWF |
-| **bzip2** (`.bz2`) | ~900 KB block | ✅ | `Bzip2SeekReader` (this work) |
+| bzip2 (`.bz2`) | ~900 KB block | ✅ | `Bzip2SeekReader` (this work) |
 | zip-`Deflated` | — (one DEFLATE stream/entry) | — | materialize (spill) |
 | tar.gz | — (one gzip stream) | — | materialize (spill) |
-| **tar.bz2** | ~900 KB block, per member | ✅ | `tar_members` + `RangeView` over a shared `Bzip2SeekReader` (this work) |
+| tar.bz2 | ~900 KB block, per member | ✅ | `tar_members` + `RangeView` over a shared `Bzip2SeekReader` (this work) |
 | 7z solid | — (one LZMA stream) | — | materialize (spill) |
-| **7z non-solid** | per-file LZMA stream | ✅ | `read_file` decodes only matching files (this work) |
+| 7z non-solid | per-file LZMA stream | ✅ | `read_file` decodes only matching files (this work) |
 
 A single-stream codec (gzip, solid 7z) has no random-access unit short of a
 prebuilt sync-point index, so it stays on the spill floor.
