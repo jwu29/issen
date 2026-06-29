@@ -14,9 +14,11 @@ inventory = { workspace = true }
 tempfile = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-# Safe statfs(2) for runtime tmpfs/ramfs detection of the spill dir (already in
-# the tree via tempfile; no unsafe/libc in our code).
+# Safe statfs(2)/statvfs(3) for runtime tmpfs detection + temp free space of the
+# spill dir (already in the tree via tempfile; no unsafe/libc in our code).
 rustix = { version = "0.38", features = ["fs"] }
+# Cross-platform available-RAM probe for the adaptive spill budget.
+sysinfo = "0.33"
 
 [dev-dependencies]
 tempfile = { workspace = true }

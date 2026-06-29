@@ -75,6 +75,41 @@ pub fn ram_threshold(plan: &SpillPlan) -> u64 {
     per_image.clamp(THRESHOLD_FLOOR, THRESHOLD_CEILING)
 }
 
+/// Parse a human byte size for `ISSEN_ARCHIVE_SPILL_THRESHOLD`: a bare count
+/// (`1073741824`), a binary suffix (`256MiB`, `1GiB`, `2G`, `512K`), or a decimal
+/// suffix (`512MB`, `1GB`). Case-insensitive; a fractional value is allowed
+/// (`1.5GiB`). Returns `None` on anything unparseable.
+#[must_use]
+pub fn parse_size(s: &str) -> Option<u64> {
+    let _ = s;
+    None // RED stub
+}
+
+/// Best-effort available system RAM in bytes (platform shell).
+#[must_use]
+pub fn available_ram_bytes() -> u64 {
+    0 // RED stub
+}
+
+/// Free bytes on the filesystem containing `dir` (statvfs); 0 if unprobeable.
+#[must_use]
+pub fn temp_free_bytes(dir: &Path) -> u64 {
+    let _ = dir;
+    0 // RED stub
+}
+
+/// Gather the live resource snapshot for `concurrency` planned sources, reading
+/// the `ISSEN_ARCHIVE_SPILL_THRESHOLD` override if set. The thin platform shell
+/// over the pure budget/decision core.
+#[must_use]
+pub fn probe_spill_plan(concurrency: usize) -> SpillPlan {
+    SpillPlan {
+        available_ram: 0, // RED stub
+        concurrency,
+        env_override: None,
+    }
+}
+
 /// Reserve kept free on the spill volume so an ingest never fills it to zero.
 const TEMP_RESERVE: u64 = 2 * GIB;
 
@@ -647,6 +682,54 @@ mod tests {
         assert_eq!(human(100), "100 B");
         assert_eq!(human(2048), "2.0 KiB");
         assert_eq!(human(40 * GIB), "40.0 GiB");
+    }
+
+    #[test]
+    fn parse_size_bare_and_binary_suffixes() {
+        assert_eq!(parse_size("1073741824"), Some(GIB));
+        assert_eq!(parse_size("512"), Some(512));
+        assert_eq!(parse_size("256MiB"), Some(256 * MIB));
+        assert_eq!(parse_size("1GiB"), Some(GIB));
+        assert_eq!(parse_size("2G"), Some(2 * GIB));
+        assert_eq!(parse_size("512K"), Some(512 * 1024));
+    }
+
+    #[test]
+    fn parse_size_decimal_suffixes_and_fraction() {
+        assert_eq!(parse_size("1GB"), Some(1_000_000_000));
+        assert_eq!(parse_size("512MB"), Some(512_000_000));
+        assert_eq!(parse_size("1.5GiB"), Some(GIB + GIB / 2));
+    }
+
+    #[test]
+    fn parse_size_is_case_insensitive_and_trims() {
+        assert_eq!(parse_size("  1gib "), Some(GIB));
+        assert_eq!(parse_size("256mib"), Some(256 * MIB));
+    }
+
+    #[test]
+    fn parse_size_rejects_garbage() {
+        assert_eq!(parse_size(""), None);
+        assert_eq!(parse_size("abc"), None);
+        assert_eq!(parse_size("10XB"), None);
+        assert_eq!(parse_size("-5GiB"), None);
+    }
+
+    #[test]
+    fn probe_spill_plan_reports_live_resources() {
+        // Smoke-test the platform shell on this host: available RAM is positive
+        // and a temp dir reports positive free space.
+        let plan = probe_spill_plan(2);
+        assert!(
+            plan.available_ram > 0,
+            "available RAM probe must be positive"
+        );
+        assert_eq!(plan.concurrency, 2);
+        let dir = tempfile::tempdir().unwrap();
+        assert!(
+            temp_free_bytes(dir.path()) > 0,
+            "temp free-space probe must be positive on a real dir"
+        );
     }
 
     #[test]
