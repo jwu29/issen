@@ -197,6 +197,34 @@ impl EwfDataSource {
 /// plus two alphanumerics (`.E01`–`.EZZ`). Excludes the `.E01.txt` acquisition
 /// sidecars, directory entries, and EWF2 (`.Ex01`, 4-char ext — the lazy
 /// reader is v1-only).
+/// True if `path` begins with the ZIP local-file-header magic `PK\x03\x04`.
+fn path_is_zip(path: &Path) -> bool {
+    use std::io::Read as _;
+    let mut magic = [0u8; 4];
+    File::open(path)
+        .and_then(|mut f| f.read_exact(&mut magic).map(|()| magic))
+        .map(|m| m == [0x50, 0x4B, 0x03, 0x04])
+        .unwrap_or(false)
+}
+
+/// True if the zip at `path` holds at least one EWF segment entry (`.E01`…) —
+/// the cheap central-directory peek that lets the provider claim an E01-bearing
+/// zip for zip-direct ingest.
+fn zip_contains_ewf_segment(path: &Path) -> bool {
+    let Ok(file) = File::open(path) else {
+        return false;
+    };
+    let Ok(mut archive) = zip::ZipArchive::new(file) else {
+        return false;
+    };
+    (0..archive.len()).any(|i| {
+        archive
+            .by_index(i)
+            .map(|e| is_ewf_segment(e.name()))
+            .unwrap_or(false)
+    })
+}
+
 fn is_ewf_segment(name: &str) -> bool {
     let base = name.rsplit(['/', '\\']).next().unwrap_or(name);
     let Some((_, ext)) = base.rsplit_once('.') else {
@@ -258,17 +286,26 @@ impl CollectionProvider for EwfProvider {
             Err(e) => return Err(RtError::Io(e)),
         }
         if magic == EVF_SIG {
-            Ok(Confidence::High)
-        } else {
-            Ok(Confidence::None)
+            return Ok(Confidence::High);
         }
+        // A .zip wrapping .E01 segments: claim it (High beats the generic archive
+        // provider's Medium) so ingest reads the image straight from the zip with
+        // no temp extraction. A zip without EWF segments is left to that provider.
+        if magic[..4] == [0x50, 0x4B, 0x03, 0x04] && zip_contains_ewf_segment(path) {
+            return Ok(Confidence::High);
+        }
+        Ok(Confidence::None)
     }
 
     fn open(&self, path: &Path) -> Result<CollectionManifest, RtError> {
-        // Decode the E01, then run the NTFS disk-triage extractor (same path as
-        // the VMDK provider): pull $MFT, $UsnJrnl:$J, every .evtx, and the
-        // registry hives off the volume into a manifest.
-        let source = EwfDataSource::open(path)?;
+        // Decode the E01 (straight from the zip when wrapped — no extraction),
+        // then run the NTFS disk-triage extractor: pull $MFT, $UsnJrnl:$J, every
+        // .evtx, and the registry hives off the volume into a manifest.
+        let source = if path_is_zip(path) {
+            EwfDataSource::open_zip(path)?
+        } else {
+            EwfDataSource::open(path)?
+        };
         Ok(issen_disk::triage_manifest(&source, self.name())?)
     }
 }
