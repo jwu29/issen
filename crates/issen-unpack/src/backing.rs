@@ -81,21 +81,67 @@ pub fn ram_threshold(plan: &SpillPlan) -> u64 {
 /// (`1.5GiB`). Returns `None` on anything unparseable.
 #[must_use]
 pub fn parse_size(s: &str) -> Option<u64> {
-    let _ = s;
-    None // RED stub
+    let s = s.trim();
+    if s.is_empty() {
+        return None;
+    }
+    // Split the leading numeric part (digits + one optional '.') from the unit.
+    let (num, unit) = match s.find(|c: char| !(c.is_ascii_digit() || c == '.')) {
+        Some(i) => (&s[..i], s[i..].trim()),
+        None => (s, ""),
+    };
+    let value: f64 = num.parse().ok()?;
+    if !value.is_finite() || value < 0.0 {
+        return None;
+    }
+    let mult: f64 = match unit.to_ascii_lowercase().as_str() {
+        "" | "b" => 1.0,
+        "k" | "kib" => 1024.0,
+        "kb" => 1000.0,
+        "m" | "mib" => 1024.0 * 1024.0,
+        "mb" => 1_000_000.0,
+        "g" | "gib" => 1024.0_f64.powi(3),
+        "gb" => 1_000_000_000.0,
+        "t" | "tib" => 1024.0_f64.powi(4),
+        "tb" => 1_000_000_000_000.0,
+        _ => return None,
+    };
+    let bytes = value * mult;
+    if bytes.is_finite() && bytes >= 0.0 {
+        Some(bytes as u64)
+    } else {
+        None
+    }
 }
 
-/// Best-effort available system RAM in bytes (platform shell).
+/// Best-effort available system RAM in bytes (platform shell, via `sysinfo`).
 #[must_use]
 pub fn available_ram_bytes() -> u64 {
-    0 // RED stub
+    let mut sys = sysinfo::System::new();
+    sys.refresh_memory_specifics(sysinfo::MemoryRefreshKind::everything().with_ram());
+    match sys.available_memory() {
+        0 => {
+            // Some platforms (notably macOS) report `available_memory() == 0`
+            // while `total_memory()` is correct; fall back to a conservative half
+            // of total, then a fixed default if even total is unknown.
+            let total = sys.total_memory();
+            if total > 0 {
+                total / 2
+            } else {
+                4 * GIB
+            }
+        }
+        avail => avail,
+    }
 }
 
-/// Free bytes on the filesystem containing `dir` (statvfs); 0 if unprobeable.
+/// Free bytes on the filesystem containing `dir` (statvfs: `f_bavail × f_frsize`);
+/// 0 if it can't be probed (callers treat 0 as "do not spill here").
 #[must_use]
 pub fn temp_free_bytes(dir: &Path) -> u64 {
-    let _ = dir;
-    0 // RED stub
+    rustix::fs::statvfs(dir)
+        .map(|s| s.f_bavail.saturating_mul(s.f_frsize))
+        .unwrap_or(0)
 }
 
 /// Gather the live resource snapshot for `concurrency` planned sources, reading
@@ -104,9 +150,11 @@ pub fn temp_free_bytes(dir: &Path) -> u64 {
 #[must_use]
 pub fn probe_spill_plan(concurrency: usize) -> SpillPlan {
     SpillPlan {
-        available_ram: 0, // RED stub
+        available_ram: available_ram_bytes(),
         concurrency,
-        env_override: None,
+        env_override: std::env::var("ISSEN_ARCHIVE_SPILL_THRESHOLD")
+            .ok()
+            .and_then(|s| parse_size(&s)),
     }
 }
 
@@ -751,3 +799,4 @@ mod tests {
         assert!(refused.contains("ISSEN_SPILL_DIR") && refused.contains("/var/tmp"));
     }
 }
+
