@@ -171,8 +171,31 @@ pub fn probe_spill_plan(concurrency: usize) -> SpillPlan {
 /// materializes, and at least 1 once any single source fits.
 #[must_use]
 pub fn admit_concurrency(sizes: &[u64], budget: u64, requested: usize) -> usize {
-    let _ = (sizes, budget, requested);
-    0 // RED stub
+    // Only sources that materialize (size > 0) AND fit the budget individually
+    // participate; an item larger than the whole budget can't spill at all and is
+    // left to the per-item Refused / RAM-fallback path.
+    let mut materializing: Vec<u64> = sizes
+        .iter()
+        .copied()
+        .filter(|&s| s > 0 && s <= budget)
+        .collect();
+    if materializing.is_empty() {
+        // Nothing materializes (or nothing fits the budget) → no spill pressure;
+        // the in-place / per-item-handled sources run at the requested width.
+        return requested;
+    }
+    materializing.sort_unstable_by(|a, b| b.cmp(a)); // largest first
+    let mut sum = 0u64;
+    let mut k = 0;
+    for &size in materializing.iter().take(requested) {
+        let next = sum.saturating_add(size);
+        if next > budget {
+            break;
+        }
+        sum = next;
+        k += 1;
+    }
+    k.max(1)
 }
 
 /// Reserve kept free on the spill volume so an ingest never fills it to zero.
