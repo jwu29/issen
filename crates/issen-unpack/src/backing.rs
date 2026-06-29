@@ -858,8 +858,7 @@ fn zip_entries(
 /// file fits a RAM buffer (`read_file` returns a `Vec`, no spill). A solid
 /// archive or an oversized member falls back to stream-once + spill.
 fn sevenz_selective_eligible(is_solid: bool, sizes: &[u64], threshold: u64) -> bool {
-    let _ = (is_solid, sizes, threshold);
-    false
+    !is_solid && sizes.iter().all(|&s| s <= threshold)
 }
 
 fn sevenz_entries(
@@ -872,18 +871,57 @@ fn sevenz_entries(
     let mut reader =
         sevenz_rust2::ArchiveReader::new(File::open(path)?, sevenz_rust2::Password::empty())
             .map_err(|e| io::Error::other(format!("{}: 7z: {e}", path.display())))?;
+
+    // Decide the path from metadata alone (no decode yet): a non-solid archive
+    // whose matching members each fit RAM can decode just those files.
+    let is_solid = reader.archive().is_solid;
+    let matching: Vec<(String, u64)> = reader
+        .archive()
+        .files
+        .iter()
+        .filter(|f| f.has_stream() && !f.is_directory() && ext_matches(f.name(), exts))
+        .map(|f| (f.name().to_string(), f.size()))
+        .collect();
+    let sizes: Vec<u64> = matching.iter().map(|&(_, s)| s).collect();
+
+    if sevenz_selective_eligible(is_solid, &sizes, ram_threshold(plan)) {
+        let mut out: Vec<(String, Box<dyn ReadSeekSend>)> = Vec::new();
+        for (name, _) in matching {
+            // read_file on a non-solid archive seeks straight to this file's
+            // block and decodes only it — the other files are never inflated.
+            let bytes = reader
+                .read_file(&name)
+                .map_err(|e| io::Error::other(format!("{}: 7z: {e}", path.display())))?;
+            tracing::debug!(target: "issen::backing", entry = %name, format = "7z", solid = false, "selective file");
+            out.push((name, Box::new(Cursor::new(bytes))));
+        }
+        return Ok(out);
+    }
+
+    // Solid, or an oversized member: stream every entry once, spilling matches.
+    sevenz_entries_streaming(&mut reader, plan, exts, &temp_dir, temp_free, path)
+}
+
+/// Stream a 7z once: every entry's reader is drained (a solid block is one
+/// continuous stream), and matching entries are spilled to a bounded backing.
+fn sevenz_entries_streaming(
+    reader: &mut sevenz_rust2::ArchiveReader<File>,
+    plan: &SpillPlan,
+    exts: &[&str],
+    temp_dir: &Path,
+    temp_free: u64,
+    path: &Path,
+) -> io::Result<Vec<(String, Box<dyn ReadSeekSend>)>> {
     let mut out: Vec<(String, Box<dyn ReadSeekSend>)> = Vec::new();
     let mut captured: Option<io::Error> = None;
     reader
         .for_each_entries(|entry, rdr| {
-            // A solid 7z is one continuous stream — every entry's reader MUST be
-            // drained so the next is positioned, matching included.
             if entry.is_directory() || !ext_matches(entry.name(), exts) {
                 io::copy(rdr, &mut io::sink())?;
                 return Ok(true);
             }
             let name = entry.name().to_string();
-            match spill_entry(rdr, plan, entry.size(), &temp_dir, temp_free, &name, "7z") {
+            match spill_entry(rdr, plan, entry.size(), temp_dir, temp_free, &name, "7z") {
                 Ok(b) => {
                     out.push((name, b));
                     Ok(true)
