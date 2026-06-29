@@ -261,6 +261,77 @@ impl Seek for Bzip2SeekReader {
     }
 }
 
+// ── tar-over-bzip2: members as selective windows ────────────────────────────
+
+/// A positioned window `[base, base + len)` over a shared seekable bzip2 reader.
+/// Reading it inflates only the bzip2 blocks the window overlaps — so a tar
+/// member inside a `.tar.bz2` is extracted without materializing the archive.
+/// `Send + Sync` (the reader is), so it is a `ReadSeekSend` backing.
+pub struct RangeView {
+    src: Arc<Bzip2SeekReader>,
+    base: u64,
+    len: u64,
+    pos: u64,
+}
+
+impl RangeView {
+    /// Window `[base, base + len)` over `src`.
+    #[must_use]
+    pub fn new(src: Arc<Bzip2SeekReader>, base: u64, len: u64) -> Self {
+        Self {
+            src,
+            base,
+            len,
+            pos: 0,
+        }
+    }
+}
+
+impl Read for RangeView {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let remaining = self.len.saturating_sub(self.pos);
+        if remaining == 0 || buf.is_empty() {
+            return Ok(0);
+        }
+        let want = usize::try_from((buf.len() as u64).min(remaining)).unwrap_or(0);
+        let dst = buf
+            .get_mut(..want)
+            .ok_or_else(|| io::Error::other("RangeView: short buffer"))?;
+        let n = self.src.read_at(self.base + self.pos, dst)?;
+        self.pos += n as u64;
+        Ok(n)
+    }
+}
+
+impl Seek for RangeView {
+    fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
+        let new = match pos {
+            SeekFrom::Start(o) => o as i128,
+            SeekFrom::End(o) => self.len as i128 + o as i128,
+            SeekFrom::Current(o) => self.pos as i128 + o as i128,
+        };
+        if new < 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "RangeView: seek before start",
+            ));
+        }
+        self.pos = new as u64;
+        Ok(self.pos)
+    }
+}
+
+/// Walk the tar headers of a `.tar.bz2` (decoded through `reader`) and return
+/// each regular file's `(name, data_offset, size)` in the *decompressed* stream.
+/// Reading a member's range then inflates only the covering bzip2 blocks.
+///
+/// # Errors
+/// A malformed/truncated tar header, or an underlying decode failure.
+pub fn tar_members(reader: &Arc<Bzip2SeekReader>) -> io::Result<Vec<(String, u64, u64)>> {
+    let _ = reader;
+    Err(io::Error::other("tar_members: unimplemented"))
+}
+
 // ── bit-level helpers + the bzip2recover single-block extractor ─────────────
 
 /// MSB-first bit reader over a byte slice.
@@ -521,5 +592,75 @@ mod tests {
     fn open_rejects_non_bzip2() {
         let err = Bzip2SeekReader::open(Box::new(Cursor::new(b"not bzip2".to_vec())));
         assert!(err.is_err());
+    }
+
+    // ── tar.bz2 selective members ─────────────────────────────────────────
+
+    fn make_tarbz2(entries: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut tar = Vec::new();
+        {
+            let mut b = tar::Builder::new(&mut tar);
+            for (name, data) in entries {
+                let mut h = tar::Header::new_gnu();
+                h.set_size(data.len() as u64);
+                h.set_mode(0o644);
+                b.append_data(&mut h, name, *data).unwrap();
+            }
+            b.finish().unwrap();
+        }
+        let mut bz = Vec::new();
+        banzai::encode(Cursor::new(&tar), io::BufWriter::new(&mut bz), 1).unwrap();
+        bz
+    }
+
+    fn arc_reader(bz: Vec<u8>) -> Arc<Bzip2SeekReader> {
+        Arc::new(reader(bz))
+    }
+
+    #[test]
+    fn tar_members_lists_regular_files_with_sizes() {
+        let a = pattern(120_000);
+        let b = pattern(90_000);
+        let r = arc_reader(make_tarbz2(&[("alpha.bin", &a), ("beta.bin", &b)]));
+        let m = tar_members(&r).unwrap();
+        let names: Vec<&str> = m.iter().map(|(n, _, _)| n.as_str()).collect();
+        assert!(names.contains(&"alpha.bin"), "got {names:?}");
+        assert!(names.contains(&"beta.bin"), "got {names:?}");
+        let alpha = m.iter().find(|(n, _, _)| n == "alpha.bin").unwrap();
+        assert_eq!(alpha.2, 120_000, "member size from the tar header");
+    }
+
+    #[test]
+    fn range_view_reads_member_bytes() {
+        let a = pattern(120_000);
+        let b = vec![0xABu8; 90_000];
+        let r = arc_reader(make_tarbz2(&[("alpha.bin", &a), ("beta.bin", &b)]));
+        let m = tar_members(&r).unwrap();
+        let &(_, off, size) = m.iter().find(|(n, _, _)| n == "beta.bin").unwrap();
+        let mut view = RangeView::new(Arc::clone(&r), off, size);
+        let mut got = Vec::new();
+        view.read_to_end(&mut got).unwrap();
+        assert_eq!(got, b);
+    }
+
+    #[test]
+    fn member_read_decodes_subset_of_blocks() {
+        let big = pattern(300_000);
+        let small = vec![0x5Au8; 1000];
+        let r = arc_reader(make_tarbz2(&[("big.bin", &big), ("small.bin", &small)]));
+        assert!(r.block_count() >= 3, "need multiple blocks");
+        let m = tar_members(&r).unwrap();
+        let &(_, off, size) = m.iter().find(|(n, _, _)| n == "small.bin").unwrap();
+        let base = r.decode_count();
+        let mut view = RangeView::new(Arc::clone(&r), off, size);
+        let mut got = Vec::new();
+        view.read_to_end(&mut got).unwrap();
+        assert_eq!(got, small);
+        let decoded = r.decode_count() - base;
+        assert!(
+            decoded < r.block_count() as u64,
+            "selective: decoded {decoded} of {} blocks",
+            r.block_count()
+        );
     }
 }
