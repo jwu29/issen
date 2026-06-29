@@ -224,35 +224,54 @@ boundary makes a block fail to decode, which surfaces **loudly** at index build
 
 The four DFIR Madness **"Szechuan Sauce"** evidence files were ingested **straight
 from their `.zip` form** (no pre-extraction), at commit `4ad0ce4` on a 48 GB macOS
-host. Wall-clock via `/usr/bin/time -l`; peak temp via `df` sampling of the spill
-volume (approximate).
+host. Wall-clock + peak RSS via `/usr/bin/time -l`; temp via a controlled audit
+(below).
 
 | Leg | Source(s) | Wall | Peak RSS | issen temp | Output |
 |---|---|---|---|---|---|
-| Disk ingest | `DC01-E01.zip` + `DESKTOP-E01.zip` (multi-segment E01–E04) | 67.0 s | 10.7 GB | **0** | 2,337,495 events |
-| Memory — DC01 | `DC01-memory.zip` (2 GB dump) | 8.0 s | 4.1 GB | **0** | ok |
-| Memory — Desktop | `DESKTOP-SDN1RPT-memory.zip` (2 GB dump) | 11.1 s | 4.1 GB | **0** | ok |
+| Disk ingest | `DC01-E01.zip` + `DESKTOP-E01.zip` (multi-segment E01–E04) | 67.0 s | ~10.5 GB | ~325 MB (transient) | 2,337,495 events |
+| Memory — DC01 | `DC01-memory.zip` (2 GB dump) | 8.0 s | 4.1 GB | ~0 | ok |
+| Memory — Desktop | `DESKTOP-SDN1RPT-memory.zip` (2 GB dump) | 11.1 s | 4.1 GB | ~0 | ok |
 
 **Tier-2** (real third-party corpus, checked against an oracle): the
 2,337,495-event timeline reconciles exactly with the prior extract-then-ingest
 run of the same corpus — the event count is the correctness oracle, so the
 zip-direct path produces an identical timeline, not just a fast one.
 
-The `0` temp is an **attributable** measurement, not a `df` guess: pointing
-`ISSEN_SPILL_DIR` at an empty directory and sampling its size during the run gave
-a peak of 0 MB. (A naive `df` of `/var/tmp` showed ~1.6 GB "used" — pure noise
-from other processes on that volume; the empty-dir measurement is what isolates
-*issen's* footprint. Look at the right thing.)
+**Temp — decomposed, because "0 temp" was an overstatement I had to retract.** My
+first probe set `ISSEN_SPILL_DIR` to an empty dir, saw 0 MB, and I wrote "0 temp".
+That only proved the *archive-backing spill* stayed empty — it could not see temp
+written through any other channel. A controlled audit (pinning `TMPDIR` **and**
+`ISSEN_SPILL_DIR` to a monitored dir, sampling DuckDB's `<db>.tmp`, `/var/tmp`,
+`/var/folders`, and `lsof` for large open files) found:
 
-**What this does and does not measure — the load-bearing caveat.** Every entry in
-these four archives is **zip-`Deflated`**, so the run exercises the **inflate-to-RAM
-path** (ewf reads a Deflated zip entry through a RAM `Cursor`, not a spill), *not*
-the selective bzip2 reader. The selective fast-path engages only for `.bz2` /
-`.tar.bz2` / non-solid `.7z`, none of which appear in this corpus. So these numbers
-measure the **materialize floor on real evidence**: zero temp, with the 10.7 GB RSS
-dominated by the ingest pipeline (DuckDB + the NTFS/registry/EVTX parsers) and the
-inflated image segments riding on top of it. A `.bz2`-wrapped image is what would
-exercise the selective reader; that measurement is the integration's job (below).
+| Temp channel | Disk-leg peak | Note |
+|---|---|---|
+| archive-backing spill (`ISSEN_SPILL_DIR`) | **0** | ewf never uses it for the E01 |
+| DuckDB `<db>.tmp` | **0** | 2.3 M rows fit under the default `memory_limit`; no spill |
+| std temp dir (`TMPDIR`) | **~325 MB, transient** | the triage extracts MFT/hives/EVTX out of the in-RAM image into a `tempfile::TempDir`, parses, then drops it (0 → 325 MB at ~24 s → 0 by ~31 s) |
+
+So the disk leg writes **~325 MB of transient scratch** (extracted artifacts), not
+zero — the earlier "0" missed it because that temp follows `TMPDIR` (→ macOS
+`/var/folders`), which `ISSEN_SPILL_DIR` does not redirect. The output DuckDB
+(576 MB) is a separate, persistent artifact, not temp.
+
+**The image is paid for in RAM, not temp — and that is the real caveat.** All four
+archives are **zip-`Deflated`**, and ewf inflates a Deflated entry *wholly into a
+RAM `Vec`* (`SegmentSource::from_bytes`) — **every** segment of a source at once.
+So "no image spill" is not free: peak RAM scales with the *total inflated segment
+size* (DESKTOP's four segments ≈ 6.8 GB), which dominates the ~10.5 GB RSS
+alongside DuckDB and the parsers. On this 48 GB host that is comfortable; on a host
+with less RAM than the inflated image it would **OOM**. This run proves a correct,
+fast, low-temp ingest *for a host with ample RAM* — it does not prove the path
+scales down. (A spill-backed or chunk-streaming E01-in-zip reader is the fix for
+the low-RAM case; today the Deflated path trades temp for RAM by construction.)
+
+This also is **not** the selective reader: the selective fast-path engages only
+for `.bz2` / `.tar.bz2` / non-solid `.7z`, none present here. These numbers measure
+the **inflate-to-RAM materialize path on real evidence**; a `.bz2`-wrapped image is
+what would exercise the selective reader, and wiring that is the integration's job
+(below).
 
 ## The "just recompress everything to bz2" experiment
 
