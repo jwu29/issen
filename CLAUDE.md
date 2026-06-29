@@ -399,20 +399,12 @@ no orphan). After 72h, a yank leaves the old name as a permanent reserved orphan
 
 ## Security & Robustness Standard — Paranoid Gatekeeper (MANDATORY for every `*-core` / `*-forensic` crate)
 
-These crates parse **untrusted, attacker-controllable disk images**. The bar is: *never panic, never read out of bounds, never trust a length field.* The standard below is the **superset** of the strongest settings found across vmdk/vhdx/ewf/ntfs/qcow2 — every forensic crate must meet all of it.
+These crates parse **untrusted, attacker-controllable disk images** — *never panic, never read out of bounds, never trust a length field.* They meet the global **panic-free lint recipe, pre-publish gate, and CI shape** (`~/.claude/CLAUDE.core.md` → *Rust Lint Posture* + *Pre-Push & Pre-Publish Discipline*); the **forensic superset adds**:
 
-**Lints (in `[workspace.lints]`, every member inherits via `[lints] workspace = true`):**
-- `[workspace.lints.rust]`: `unsafe_code = "forbid"` — **except** crates that legitimately need one bounded `unsafe` (e.g. an mmap-backed reader calling `memmap2::Mmap::map`): use `unsafe_code = "deny"` and put a justified `#[allow(unsafe_code)]` on each genuine site (`forbid` can't be locally overridden). ewf-forensic does this for its 4 mmap sites; every other `unsafe` stays a hard error.
-- `[workspace.lints.clippy]`: `all = warn`, `pedantic = warn`, `correctness = deny`, `suspicious = deny`, **`unwrap_used = deny`**, **`expect_used = deny`**. Pragmatic allows (priority 1): `module_name_repetitions`, `must_use_candidate`, `missing_errors_doc`, `missing_panics_doc`, `cast_possible_truncation/wrap/sign_loss/precision_loss`.
-- Tests opt out of the panic lints: `#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]` in each lib; integration-test files (separate crates) need their own top-level `#![allow(clippy::unwrap_used, clippy::expect_used)]`.
-
-**Panic-free production code:** no `.unwrap()`, `.expect()`, `panic!`, or unchecked slice indexing in non-test code. Read integers through bounds-checked helpers (`fn be_u32(data, off) -> u32 { let mut b=[0;4]; if let Some(s)=data.get(off..off+4){b.copy_from_slice(s);} u32::from_be_bytes(b) }`) — out-of-range yields 0, never a panic. Range-check every length/offset/count field from the image *before* using it; cap allocations (reject absurd table sizes) to defend against allocation bombs.
-
-**Required tooling files (copy/keep in sync, repo root):** `deny.toml` (cargo-deny: licenses + advisories + bans), `.gitleaks.toml`, `clippy.toml`, `rustfmt.toml`, `.pre-commit-config.yaml`, `renovate.json`, `LICENSE`.
-
-**Fuzzing:** a `fuzz/` cargo-fuzz workspace with **one target per parsed structure** (ntfs is the model: `boot`, `record`, `attributes`, `attribute_list`, `runlist`, `index_buffer`, `compress`, …) **plus** a `fuzz_forensic` target driving the full inspect/audit pipeline. Each target's invariant is "must not panic." A `fuzz.yml` CI workflow builds + smoke-runs every target.
-
-**CI gates (every PR):** build, test, `cargo clippy --workspace --all-targets` (the paranoid set, warnings = errors), `cargo fmt --check`, `cargo deny check`, gitleaks, and **100% line coverage** (`cargo llvm-cov --lib`, fail on any `DA:n,0` not annotated `// cov:unreachable` — see the coverage-gate standard above). Validate against **real artifacts** (e.g. qcow2 validates `inspect()` against qemu-img-produced images with backing-file/snapshot/encryption + a real CirrOS corpus), not only synthetic fixtures.
+- **`unsafe` mmap exception:** a reader that legitimately needs one bounded `unsafe` (e.g. `memmap2::Mmap::map`) downgrades the base `unsafe_code = "forbid"` to `"deny"` + a justified per-site `#[allow(unsafe_code)]` (`forbid` can't be locally overridden). ewf-forensic does this for its 4 mmap sites; every other `unsafe` stays a hard error.
+- **Bounds-checked readers on the image:** read integers through helpers (`fn be_u32(data, off) -> u32 { let mut b=[0;4]; if let Some(s)=data.get(off..off+4){b.copy_from_slice(s);} u32::from_be_bytes(b) }`) that yield 0 (never panic) out of range; range-check every length/offset/count field *from the image* before use; cap allocations (reject absurd table sizes) against allocation bombs.
+- **Fuzzing — one target per parsed structure** (ntfs is the model: `boot`, `record`, `attributes`, `attribute_list`, `runlist`, `index_buffer`, `compress`, …) **plus** a `fuzz_forensic` target driving the full inspect/audit pipeline; `fuzz.yml` builds + smoke-runs every target.
+- **Real-artifact CI validation:** beyond the global gates, validate `inspect()` / `audit()` against **real artifacts** (e.g. qcow2 vs qemu-img images with backing-file/snapshot/encryption + a CirrOS corpus), not only synthetic fixtures; **100% line coverage** (`cargo llvm-cov --lib`, `// cov:unreachable` per the coverage-gate standard above).
 
 **Compliance (2026-06-08):** qcow2, vmdk, vhdx, ewf, ntfs-forensic all enforce the `unwrap_used`/`expect_used = deny` panic lints with panic-free bounds-checked readers, and all have `fuzz.yml`. Panic-free remediation counts: vhdx 80 reads, ewf 47, ntfs 44+2, qcow2 clean by construction. Residual debt to clear in a *separate* pass (not security — pre-existing pedantic/fmt style): vhdx ~30 pedantic warnings, ewf broad stylistic allow-list + fmt diffs. The safety lints are hard denies everywhere.
 
@@ -481,7 +473,7 @@ crates.io** like the `<x>4n6` tools — never a webview app crates.io cannot del
 
 ## README Standard (every forensic repo)
 
-Full rules live in the global `~/.claude/CLAUDE.personal.md` ("SecurityRonin Repository README Standard"); the load-bearing points for these crates:
+Full rules live in the global `~/.claude/CLAUDE.personal.md` ("SecurityRonin Repository README Standard"); the **pre-push readiness + verify mechanics** (adapt the README from `~/src/blazehash`, set repo About description/topics, enable Pages, confirm footer/docs links resolve) live in the `release` skill (`~/.claude/skills/release.md`). The **forensic-specific** load-bearing points for these crates:
 
 - **Goal:** convert the target reader (forensic analyst *or* Rust dev) into an active user in **30 seconds** — `cargo add` to a result they care about, above the fold.
 - **Badges (badge the guarantees we already enforce; plan for TWO rows — 9 badges wrap on GitHub, and accidental wrapping destroys the information architecture):**
@@ -582,6 +574,15 @@ Both legs completing and producing populated, non-crashing output across all ana
 the runtime confirmation. Deliberately exclude pagefile and pcap.
 
 ## Release & Distribution Standard — binaries + Homebrew/apt/winget (every app/CLI repo)
+
+> **The general release/pre-push *mechanics* — the build matrix, repo "About"
+> metadata (description/topics), GitHub Pages enablement + footer/docs link
+> verification, README readiness (adapt from `~/src/blazehash`), the winget
+> bootstrap, the cargo-wix/cargo-deb gotchas, and all verify commands — live in
+> the `release` skill (`~/.claude/skills/release.md`), the primary source. This
+> section keeps only **fleet-specific values & overrides** (SecurityRonin org
+> secrets, the shared tap, the Cloudsmith org, repo lists, forensic-crate
+> specifics).**
 
 Reference implementations (both verified end-to-end): **`blazehash`** and **`disk-forensic`** —
 `.github/workflows/release.yml` is byte-identical between them except for the binary/crate name and
