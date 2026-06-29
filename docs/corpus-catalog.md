@@ -380,6 +380,11 @@ VM, packaged as a 22-segment split EWF inside one zip. Writeup:
   SHA1 `e3a73cd1b750a851c12c7b608e95edbef1606504`.
 - **Structure:** `macOS/macOS-BigSur.E01`–`.E22` (~1.57 GB **Deflated** zip entries) + `…E01.txt`. Pass
   the first segment to `ewf`; it follows the rest automatically.
+- **Validated (Tier-1, 2026-06-29):** streamed the *full* 80 GB image through `ewf` opened zip-direct
+  over the `DeflateSeekReader` (zran) path and recomputed the MD5 — `768785635426d008df76200fbc421063`,
+  an **exact match** to FTK's acquisition hash. Independent third-party image + third-party answer key
+  (FTK), so this is a Tier-1 end-to-end correctness check of the EWF zip-direct + seekable-DEFLATE
+  segment reads on a real multi-segment macOS/APFS image (not a synthetic round-trip).
 - **Why it's here:** real macOS/APFS test data (apfs-forensic, planned), and the live regression for
   issen's **EWF zip-direct + `DeflateSeekReader` (zran)** path — a genuine multi-segment Deflated
   E01-in-zip, the exact shape that exercises bounded-RAM seekable-DEFLATE segment reads.
