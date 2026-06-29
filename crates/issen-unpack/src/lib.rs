@@ -36,6 +36,7 @@
     clippy::unnecessary_literal_bound
 )]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+pub mod backing;
 pub mod registry;
 pub mod tempdir;
 
