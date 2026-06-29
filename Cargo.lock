@@ -5371,6 +5371,7 @@ dependencies = [
  "flate2",
  "inventory",
  "issen-core",
+ "miniz_oxide",
  "rustix 0.38.44",
  "sevenz-rust2",
  "sysinfo",

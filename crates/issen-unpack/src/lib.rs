@@ -38,6 +38,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 pub mod backing;
 pub mod bzseek;
+pub mod deflate_seek;
 pub mod registry;
 pub mod tempdir;
 

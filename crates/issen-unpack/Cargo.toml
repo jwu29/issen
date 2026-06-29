@@ -28,6 +28,10 @@ sevenz-rust2 = "0.21"
 flate2 = { workspace = true }
 tar = { workspace = true }
 bzip2-rs = "0.1"
+# Pure-Rust DEFLATE whose decompressor state (DecompressorOxide) is Clone and
+# stops on block boundaries — the primitives the zran seekable-deflate reader
+# needs to checkpoint + resume without inflatePrime or C FFI.
+miniz_oxide = "0.8"
 
 [dev-dependencies]
 tempfile = { workspace = true }
