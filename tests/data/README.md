@@ -104,17 +104,19 @@ Used by automated tests in `rt-parser-uac` and `rt-navigator`. The small archive
   Adam Hachem, James Cangelosi, Cece Ehgotz, Nathan Kreit), for Magnet Forensics.
 - **Scenario:** two personas "Ruth" and "Mary"; activity across mobile + computer + web, Nov–Dec 2024.
 - **Devices/images:** iOS 18 full-file-system, Android 14, **Windows 11**, and a **Chromebook**.
-- **Authoritative source (use this):** NIST **CFReDS** — <https://cfreds.nist.gov/all/Hexordia/2025MVSCTF>
-  (public, documents per-file hashes; preferred over the Drive mirror).
+- **Catalog page:** NIST **CFReDS** — <https://cfreds.nist.gov/all/Hexordia/2025MVSCTF>
+  (the public index). **Note:** CFReDS *hosts this dataset on Google Drive* — its download API resolves
+  files by Drive `fileIds` (`POST /api/google-drive/files`), so CFReDS and the folder below are the
+  **same Google Drive files**, subject to the same per-file quota.
 - **Writeup:** <https://www.magnetforensics.com/blog/announcing-the-winners-of-the-2025-magnet-virtual-summit-ctf/>
-- **Mirror (rate-limited):** Google Drive folder
-  <https://drive.google.com/drive/folders/1qLwXFZTZidkx1tWpG8uenVQnX6zWF-Oa>. Contains `userbss.ad1`
-  (AccessData **AD1** logical image; Drive id `1ImeVi8BzHcuLDOV7LhAle9kRnZOMFb64`) among others. As of
-  2026-06-29 the Drive download returns Google's "too many users have viewed/downloaded this file
-  recently" quota error (transient, up to 24 h) — **download from CFReDS instead**, or retry the Drive
-  link later.
-- **Status:** provenance recorded; bytes **not yet downloaded** (Drive quota-blocked). MD5/SHA256 +
-  exact sizes to be filled from the CFReDS-documented hashes once pulled. Gitignored like the rest.
+- **Google Drive folder:** <https://drive.google.com/drive/folders/1qLwXFZTZidkx1tWpG8uenVQnX6zWF-Oa>.
+  Contains `userbss.ad1` (AccessData **AD1** logical image; Drive id `1ImeVi8BzHcuLDOV7LhAle9kRnZOMFb64`)
+  among others.
+- **Download status (2026-06-29):** **blocked** — both the Drive folder *and* CFReDS (which proxies the
+  same Drive) return Google's "too many users have viewed or downloaded this file recently" quota error
+  (transient, clears in up to 24 h). `gdown`/automation cannot pass it. **To get the bytes:** retry in
+  < 24 h, or download via a **logged-in browser** (a Google account often bypasses the public quota),
+  then drop the files here. MD5/SHA256 + sizes to be filled on acquisition. Gitignored like the rest.
 - **Used by (planned):** Windows 11 leg → NTFS/registry/EVTX triage; `userbss.ad1` exercises a future
   **AD1 (AccessData logical image) container** reader (issen does not yet parse AD1); the iOS 18 /
   Android / Chromebook legs are mobile/cross-platform corpora for later parsers.
