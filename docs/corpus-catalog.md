@@ -29,6 +29,7 @@ download/regenerate per the provenance notes; they are not committed._
 | Magnet Virtual Summit 2023 CTF — Win11 (`PC-MUS-001.E01`) | 49 GB | REAL-ext | Magnet/Champlain DFA |
 | DEF CON DFIR CTF 2018 (`MaxPowersCDrive.E01`) | 29 GB | REAL-ext | DEF CON / D. Cowen |
 | Josh Hickman iOS 17.3 image (Apple Biome **SEGB** streams) | 22 GB (.tar.gz) | REAL-ext | Joshua Hickman / DigitalCorpora |
+| Josh Hickman **macOS Big Sur** image (APFS, split EWF in zip) | 32 GiB zip → 80 GB image | REAL-ext | Joshua Hickman / thebinaryhick.blog |
 | DFIR Madness "Stolen Szechuan Sauce" Case 001 (both hosts, full) | ~13 GB | REAL-ext | dfirmadness.com |
 | Hal Pomeranz "Linux Forensic Scenario" (UAC, incl. `avml.lime`) | 5.9 GB | REAL-ext | Hal Pomeranz / righteousit.com |
 | Collection-A380 (**Velociraptor**, Win11 24H2) | 2.2 GB | REAL-self | self, Velociraptor offline collector |
@@ -351,6 +352,25 @@ image-creation doc (hashes, app list):
   `ccl_segb_cli.py`. Stored under `issen/tests/data/Josh Hickman iOS 17 (Biome SEGB)/` (gitignored;
   only the biome subset kept on disk). Note: `App.MenuItem` is macOS-Tahoe-26-only, so it is **not**
   in this iOS image — this validates the SEGB *container*, not the App.MenuItem protobuf field mapping.
+
+### A7b · Josh Hickman **macOS Big Sur** image — APFS, split EWF-in-zip (32 GiB zip → 80 GB image) · REAL-ext ✓
+
+Public **macOS Big Sur** forensic reference image by **Joshua Hickman** (The Binary Hick), freely
+licensed for training/education/testing/research (attribution). An 80 GB **APFS** virtual disk
+(167,772,160 × 512-byte sectors) acquired 2021-02-20 with **FTK Imager 4.5.0.3** from an Arsenal-mounted
+VM, packaged as a 22-segment split EWF inside one zip. Writeup:
+<https://thebinaryhick.blog/2021/02/20/ios-14-macos-big-sur-lots-of-images/> (index
+<https://thebinaryhick.blog/images/>).
+
+- **Path:** `issen/tests/data/josh-hickman-mac-bigsur/macOS - BigSur.zip` (gitignored; download manually).
+- **Zip MD5:** `1047921dcc695be98fa648ad54a111d6` (34,408,655,935 bytes).
+- **Image hashes** (FTK, from the embedded `macOS-BigSur.E01.txt`): MD5 `768785635426d008df76200fbc421063`,
+  SHA1 `e3a73cd1b750a851c12c7b608e95edbef1606504`.
+- **Structure:** `macOS/macOS-BigSur.E01`–`.E22` (~1.57 GB **Deflated** zip entries) + `…E01.txt`. Pass
+  the first segment to `ewf`; it follows the rest automatically.
+- **Why it's here:** real macOS/APFS test data (apfs-forensic, planned), and the live regression for
+  issen's **EWF zip-direct + `DeflateSeekReader` (zran)** path — a genuine multi-segment Deflated
+  E01-in-zip, the exact shape that exercises bounded-RAM seekable-DEFLATE segment reads.
 
 ### A8 · LogHub `OpenSSH_2k.log` — real sshd `auth.log` (220 KB) · REAL-ext ✓
 

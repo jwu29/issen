@@ -208,6 +208,25 @@ icat -i ewf -o 239616 PC-MUS-001.E01 54-128-1 > hiberfil.sys
   `chmod -R u+rwX` before scanning. `App.MenuItem` is macOS-Tahoe-26-only and absent here (this is the
   container validation; the App.MenuItem protobuf field mapping still awaits a Tahoe 26 image).
 
+#### josh-hickman-mac-bigsur/macOS - BigSur.zip (32 GiB zip → 80 GB image)
+
+- **Source:** Joshua Hickman ("The Binary Hick") — public macOS Big Sur forensic reference image,
+  freely licensed for training / education / testing / research (attribution).
+- **Identity:** macOS Big Sur install on **APFS**; 80 GB virtual disk (167,772,160 × 512-byte sectors);
+  acquired Sat 2021-02-20 with AccessData FTK Imager 4.5.0.3 from an Arsenal-mounted VM disk
+  ("Arsenal Virtual SCSI Disk Device", serial `{77ed1df2-737f-11eb-999e-f01898863f52}`).
+- **Writeup:** <https://thebinaryhick.blog/2021/02/20/ios-14-macos-big-sur-lots-of-images/>
+  (series index <https://thebinaryhick.blog/images/>) — documented + hashed on the source post.
+- **Zip MD5:** `1047921dcc695be98fa648ad54a111d6` (34,408,655,935 bytes).
+- **Image hashes** (from the embedded `macOS-BigSur.E01.txt`, computed by FTK Imager at acquisition):
+  MD5 `768785635426d008df76200fbc421063`, SHA1 `e3a73cd1b750a851c12c7b608e95edbef1606504`.
+- **Structure:** split EWF/E01 — `macOS/macOS-BigSur.E01`–`.E22` (~1.57 GB segments, **Deflated** zip
+  entries) + `macOS-BigSur.E01.txt` (acquisition metadata). Pass the first segment (`.E01`) to `ewf`;
+  it follows `.E02…` automatically.
+- **Used by:** macOS / APFS forensic testing (apfs-forensic, planned), and a real **multi-segment
+  E01-inside-a-zip** that exercises issen's EWF zip-direct path + the `DeflateSeekReader` (zran)
+  seekable-DEFLATE backing — the segments are Deflated, so this is the live regression for that wiring.
+
 #### loghub-openssh/OpenSSH_2k.log (220 KB)
 
 - **Source:** loghub (logpai), the LogPAI OpenSSH dataset — real, unsanitized SSH server auth events
