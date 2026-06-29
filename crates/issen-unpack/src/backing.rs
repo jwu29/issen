@@ -9,7 +9,7 @@
 
 use std::fmt;
 use std::fs::File;
-use std::io::{self, Read, Seek, SeekFrom};
+use std::io::{self, Cursor, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -283,6 +283,47 @@ fn human(bytes: u64) -> String {
     } else {
         format!("{value:.1} {}", UNITS[unit])
     }
+}
+
+/// Outer archive format wrapping a disk image, recognized by leading magic.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArchiveFormat {
+    /// PKZIP (`.zip`).
+    Zip,
+    /// 7-Zip (`.7z`).
+    SevenZ,
+    /// gzip stream (`.gz` / `.tar.gz`).
+    Gzip,
+    /// bzip2 stream (`.bz2` / `.tar.bz2`).
+    Bzip2,
+    /// DAR backup archive (`.dar`).
+    Dar,
+}
+
+/// Recognize the outer archive format from leading bytes. `None` for a loose
+/// (non-archive) file — the caller then opens it directly.
+#[must_use]
+pub fn detect_archive_format(magic: &[u8]) -> Option<ArchiveFormat> {
+    let _ = magic;
+    None // RED stub
+}
+
+/// Open a disk-image container that lives inside an archive (`zip` today;
+/// 7z/tar.gz/tar.bz2/dar next), returning a bounded backing per the adaptive
+/// [`decide_backing`] policy. `exts` names the image entry to extract (an entry
+/// with a matching extension, else the largest file entry). The chosen
+/// determination is logged at `debug` (surfaced under `--verbose`).
+///
+/// # Errors
+/// Not a recognized archive, no matching entry, an unsupported format, a decode
+/// failure, or a [`BackingDecision::Refused`] (won't fit temp or RAM).
+pub fn archive_backing(
+    path: &Path,
+    plan: &SpillPlan,
+    exts: &[&str],
+) -> io::Result<Box<dyn ReadSeekSend>> {
+    let _ = (path, plan, exts);
+    Err(io::Error::other("archive_backing not implemented")) // RED stub
 }
 
 /// A positioned, read-only window `[base, base + len)` over a shared archive
@@ -798,5 +839,122 @@ mod tests {
         .to_string();
         assert!(refused.contains("ISSEN_SPILL_DIR") && refused.contains("/var/tmp"));
     }
-}
 
+    use std::io::Write as _;
+
+    /// Build a single-entry zip with the given compression method.
+    fn make_zip(
+        name: &str,
+        data: &[u8],
+        method: zip::CompressionMethod,
+    ) -> tempfile::NamedTempFile {
+        make_zip_entries(&[(name, data, method)])
+    }
+
+    /// Build a zip from several `(name, data, method)` entries.
+    fn make_zip_entries(
+        entries: &[(&str, &[u8], zip::CompressionMethod)],
+    ) -> tempfile::NamedTempFile {
+        use zip::write::SimpleFileOptions;
+        let mut cursor = Cursor::new(Vec::<u8>::new());
+        {
+            let mut zw = zip::ZipWriter::new(&mut cursor);
+            for (name, data, method) in entries {
+                zw.start_file(
+                    *name,
+                    SimpleFileOptions::default().compression_method(*method),
+                )
+                .unwrap();
+                zw.write_all(data).unwrap();
+            }
+            zw.finish().unwrap();
+        }
+        let mut f = tempfile::Builder::new().suffix(".zip").tempfile().unwrap();
+        f.write_all(cursor.get_ref()).unwrap();
+        f.flush().unwrap();
+        f
+    }
+
+    fn read_all(mut r: Box<dyn ReadSeekSend>) -> Vec<u8> {
+        let mut v = Vec::new();
+        r.read_to_end(&mut v).unwrap();
+        v
+    }
+
+    fn big_plan(env_override: Option<u64>) -> SpillPlan {
+        SpillPlan {
+            available_ram: 8 * GIB,
+            concurrency: 1,
+            env_override,
+        }
+    }
+
+    #[test]
+    fn detect_format_by_magic() {
+        assert_eq!(
+            detect_archive_format(&[0x50, 0x4B, 0x03, 0x04]),
+            Some(ArchiveFormat::Zip)
+        );
+        assert_eq!(
+            detect_archive_format(&[0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C]),
+            Some(ArchiveFormat::SevenZ)
+        );
+        assert_eq!(
+            detect_archive_format(&[0x1F, 0x8B, 0x08]),
+            Some(ArchiveFormat::Gzip)
+        );
+        assert_eq!(detect_archive_format(b"BZh9"), Some(ArchiveFormat::Bzip2));
+        assert_eq!(
+            detect_archive_format(&[0x00, 0x00, 0x00, 0x7B]),
+            Some(ArchiveFormat::Dar)
+        );
+        assert_eq!(detect_archive_format(b"not an archive"), None);
+        assert_eq!(detect_archive_format(&[]), None);
+    }
+
+    /// Oracle: regardless of the path chosen (in-place / RAM / spill), the bytes
+    /// read back equal the original — proving probe→decide→build is lossless.
+    #[test]
+    fn archive_backing_zip_stored_reads_in_place() {
+        let payload: Vec<u8> = (0u8..=255).cycle().take(4096).collect();
+        let zip = make_zip("disk.img", &payload, zip::CompressionMethod::Stored);
+        let backing = archive_backing(zip.path(), &big_plan(None), &["img"]).unwrap();
+        assert_eq!(read_all(backing), payload);
+    }
+
+    #[test]
+    fn archive_backing_zip_deflated_small_uses_ram() {
+        let payload = vec![0xABu8; 4096];
+        let zip = make_zip("disk.img", &payload, zip::CompressionMethod::Deflated);
+        let backing = archive_backing(zip.path(), &big_plan(None), &["img"]).unwrap();
+        assert_eq!(read_all(backing), payload);
+    }
+
+    #[test]
+    fn archive_backing_zip_deflated_spills_over_threshold() {
+        let payload = vec![0xCDu8; 8192];
+        let zip = make_zip("disk.img", &payload, zip::CompressionMethod::Deflated);
+        // Force the spill path: a 1 KiB override threshold < the 8 KiB entry.
+        let backing = archive_backing(zip.path(), &big_plan(Some(1024)), &["img"]).unwrap();
+        assert_eq!(read_all(backing), payload);
+    }
+
+    #[test]
+    fn archive_backing_picks_entry_by_extension() {
+        let img = vec![0x42u8; 2048];
+        let zip = make_zip_entries(&[
+            ("readme.txt", b"ignore me", zip::CompressionMethod::Stored),
+            ("disk.img", &img, zip::CompressionMethod::Stored),
+        ]);
+        let backing = archive_backing(zip.path(), &big_plan(None), &["img"]).unwrap();
+        assert_eq!(read_all(backing), img);
+    }
+
+    #[test]
+    fn archive_backing_rejects_non_archive() {
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        f.write_all(&[0u8; 100]).unwrap();
+        f.flush().unwrap();
+        assert!(archive_backing(f.path(), &big_plan(None), &["img"]).is_err());
+    }
+}

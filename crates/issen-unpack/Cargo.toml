@@ -19,6 +19,8 @@ tracing = { workspace = true }
 rustix = { version = "0.38", features = ["fs"] }
 # Cross-platform available-RAM probe for the adaptive spill budget.
 sysinfo = "0.33"
+# Read a disk-image entry straight out of an archive (zip first; 7z/tar/dar next).
+zip = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
