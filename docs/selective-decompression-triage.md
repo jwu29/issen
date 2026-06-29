@@ -214,6 +214,17 @@ boundary makes a block fail to decode, which surfaces **loudly** at index build
   than decode-once-and-spill. issen ingest is targeted (artifact-scoped reads),
   which is the favorable pattern; an access-pattern/coverage gate (below) is the
   general mitigation.
+- **Next (high value, small) — bound the EWF Deflated-in-zip path.**
+  `EwfDataSource::open_zip` inflates each Deflated segment into an **unbounded
+  `Vec`** (`SegmentSource::from_bytes`) and holds *every* segment at once, so peak
+  RAM scales with the whole inflated image (~6.8 GB on the Szechuan DESKTOP set)
+  and OOMs on a host smaller than the image. The fix is already built: route that
+  branch through `archive_entries`, so each segment becomes a `SpooledTempFile`
+  (bounded RAM, spills to temp past the budget) instead of a `Vec`. The DRY
+  collapse migrated qcow2/vmdk/vhd/aff4/dd onto the centralized backing but skipped
+  EWF (multi-segment) — wiring it to the multi-entry helper closes that gap. True
+  zero-temp *and* bounded-RAM would need a DEFLATE sync-point index (the gzip
+  analog of `Bzip2SeekReader`) — a larger follow-up.
 - **Next:** a triage entry point that (a) builds the spine + extent map, (b)
   engages the selective backing (bzip2 / non-solid-7z, or the EWF/qcow2/vmdk
   native sparse path) for the selected artifact set, and (c) applies the coverage
