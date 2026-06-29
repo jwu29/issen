@@ -71,9 +71,9 @@ scattered read inflates only the units it overlaps.
 | **bzip2** (`.bz2`) | ~900 KB block | ✅ | `Bzip2SeekReader` (this work) |
 | zip-`Deflated` | — (one DEFLATE stream/entry) | — | materialize (spill) |
 | tar.gz | — (one gzip stream) | — | materialize (spill) |
-| tar.bz2 | block, per member (in principle) | partial | selective possible, **not yet wired** — currently spill |
+| **tar.bz2** | ~900 KB block, per member | ✅ | `tar_members` + `RangeView` over a shared `Bzip2SeekReader` (this work) |
 | 7z solid | — (one LZMA stream) | — | materialize (spill) |
-| 7z non-solid | per-file LZMA stream | partial | random per file, **not yet wired** |
+| **7z non-solid** | per-file LZMA stream | ✅ | `read_file` decodes only matching files (this work) |
 
 A single-stream codec (gzip, solid 7z) has no random-access unit short of a
 prebuilt sync-point index, so it stays on the spill floor.
@@ -113,14 +113,19 @@ Ranked for a sparse triage workload (fastest first):
    artifact, and the chunk index is built into the format (no separate index
    pass). For real evidence this is the **practical winner**: near-raw speed on
    the working set with the storage savings of compression. (AFF4 sits here too.)
-3. **bzip2 `.bz2` via `Bzip2SeekReader`** — selective, but two costs make it
-   slower than EWF: the ~900 KB block is ~14–28× larger than an EWF chunk (more
-   wasted decompression per scattered 64 KB artifact), and bzip2 stores no output
-   length, so the offset map costs **one full decode** up front (parallelizable,
-   no temp writes). Beats decode-once-and-spill only when the working set is
-   sparse *and* temp is slow/absent (e.g. a read-only or tmpfs-only host).
-4. **non-solid 7z** (when wired) — per-file LZMA; random at file granularity but
-   LZMA decode is costlier than zlib.
+3. **bzip2 `.bz2` / `.tar.bz2` via `Bzip2SeekReader`** — selective, but two costs
+   make it slower than EWF: the ~900 KB block is ~14–28× larger than an EWF chunk
+   (more wasted decompression per scattered 64 KB artifact), and bzip2 stores no
+   output length, so the offset map costs **one full decode** up front
+   (parallelizable, no temp writes). A `.tar.bz2` member is a `RangeView` over the
+   shared reader, so it inherits the same block-granular selectivity. Beats
+   decode-once-and-spill only when the working set is sparse *and* temp is
+   slow/absent (e.g. a read-only or tmpfs-only host).
+4. **non-solid 7z via `read_file`** — per-file LZMA. Selective at *file*
+   granularity (decodes only the matching files, never the others), but each
+   matching file is one LZMA stream with no *intra*-file random access, so a
+   member is decoded whole. Best when extracting a small subset of small files
+   from a many-file archive; a single large member just falls back to spill.
 
 Not on the fast path (materialize once, then free seeks off the spill):
 **zip-`Deflated`, tar.gz, solid 7z, single-stream gzip.**
@@ -129,6 +134,43 @@ The one-line rule: **prefer a format whose random-access unit is small and
 indexed.** EWF wins because 64 KB ≪ 900 KB and its index is free; bzip2 is the
 fallback that rescues an otherwise-unseekable `.bz2`; gzip/solid-7z can't be
 rescued without a full index pass and stay on spill.
+
+## Nested wrappers seen in the wild: `e01.zip`, `e01.7z`
+
+E01 is itself a compressed, chunk-indexed format, so it is common to find one
+re-wrapped for transport or archival — `case.E01.zip`, `case.E01.7z`. These are
+**nested**: an outer container around an already-selective image. The rule for
+whether the inner E01's chunk-selectivity *survives* is the same single axis —
+**the outer format's random-access unit must be fine-grained enough not to force
+materializing the whole E01.**
+
+| Wrapper of an E01 | Outer unit | E01 chunk-selectivity | Net |
+|---|---|---|---|
+| loose / raw | byte | ✅ | fast (native EWF chunks) |
+| **zip-`Stored`** | byte (in-place window) | ✅ | **fast** — and this is the *usual* `e01.zip` |
+| **`.E01.bz2`** | ~900 KB block | ✅ | **fast** — *double* selective: bz2 block → EWF chunk |
+| zip-`Deflated` | one DEFLATE stream | ✗ | materialize the whole E01 first |
+| 7z (solid **or** non-solid) | one LZMA stream per file | ✗ | materialize the whole E01 first |
+
+Two practical points the table encodes:
+
+- **`e01.zip` is normally the fast case.** E01 is already zlib-compressed, so
+  deflating it again buys almost nothing — tools overwhelmingly store an E01 into
+  a zip with **`Stored`** (no compression). That keeps the byte-granular in-place
+  window, so the EWF chunk index still serves selective reads straight through the
+  zip. (issen reaches this via the EWF-in-zip path: `EwfDataSource::open_zip` →
+  `archive_backing(.., &["E01"])` → in-place window for `Stored`.)
+- **`e01.7z` always materializes the E01.** 7z re-compresses the E01 with LZMA for
+  a smaller archive (its reason to exist), but the E01 becomes **one LZMA stream**
+  — and LZMA has no intra-stream random access. Non-solid 7z only lets you skip
+  *other* files; the E01 file itself must be decoded whole before its chunk index
+  is usable again. So treat `e01.7z` as transport packaging: spill the E01 once
+  (or extract it to loose), then enjoy native EWF selectivity — do not expect
+  selective reads *through* the 7z layer.
+
+The same logic generalizes to any `image.<wrapper>`: a sparse VMDK/QCOW2/VHD keeps
+its selectivity inside zip-`Stored` or bzip2, and loses it inside zip-`Deflated`,
+gzip, or 7z. The inner format is never the bottleneck — the outer unit is.
 
 ## `Bzip2SeekReader` — how it works
 
@@ -157,16 +199,26 @@ boundary makes a block fail to decode, which surfaces **loudly** at index build
 
 ## Integration status & next steps
 
-- **Done:** `Bzip2SeekReader` (random-access bzip2), TDD against `bzip2-rs`.
-- **Deliberately not done:** swapping the default `archive_backing` for bzip2 to
-  the seek reader. `open` decodes all blocks once and re-decodes on eviction, so a
-  *full sequential* read (whole-image hash/carve) thrashes vs spill — full-image
-  ops stay on the spill floor by design.
+- **Done — `Bzip2SeekReader`** (random-access bzip2), TDD against `bzip2-rs`.
+- **Done — bzip2 backings are selective** (`backing::bzip2_entries`): a bare
+  `.bz2` image is a `RangeView` over the seek reader, and each `.tar.bz2` member
+  is a `RangeView` over a *shared* reader, so it inflates only the covering
+  blocks. This replaced the bzip2 spill path.
+- **Done — non-solid 7z is selective** (`backing::sevenz_entries`): a non-solid
+  archive whose matching members each fit RAM decodes only those files via
+  `read_file`; solid archives or oversized members fall back to stream-once +
+  spill (`sevenz_entries_streaming`).
+- **Caveat (the spill floor still matters):** the bzip2 seek reader builds its
+  offset map with one full decode and re-decodes blocks on LRU eviction, so a
+  *full sequential* read of a `.bz2` backing (whole-image hash/carve) is slower
+  than decode-once-and-spill. issen ingest is targeted (artifact-scoped reads),
+  which is the favorable pattern; an access-pattern/coverage gate (below) is the
+  general mitigation.
 - **Next:** a triage entry point that (a) builds the spine + extent map, (b)
-  engages `Bzip2SeekReader` (or the EWF/qcow2/vmdk native sparse path) for the
-  selected artifact set, and (c) applies the coverage gate to fall back to spill
-  when most units are touched. Wire non-solid-7z and per-member tar.bz2 the same
-  way.
+  engages the selective backing (bzip2 / non-solid-7z, or the EWF/qcow2/vmdk
+  native sparse path) for the selected artifact set, and (c) applies the coverage
+  gate — fall back to spill when most units are touched or the access pattern is
+  sequential.
 
 ## Validation plan (for the integration)
 
