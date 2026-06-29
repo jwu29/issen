@@ -221,28 +221,21 @@ fn dir_is_writable(dir: &Path) -> bool {
 /// `/proc/mounts` (absent off Linux → `false`, which is correct: macOS/Windows
 /// default temp dirs are disk-backed).
 fn dir_is_tmpfs(dir: &Path) -> bool {
-    let canon = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
-    std::fs::read_to_string("/proc/mounts")
-        .ok()
-        .and_then(|m| fstype_for_path(&m, &canon).map(str::to_owned))
-        .is_some_and(|fs| fs == "tmpfs" || fs == "ramfs")
+    // statfs(2) at the moment the spill dir is chosen — the kernel's own answer,
+    // authoritative across bind mounts / overlays (unlike parsing /proc/mounts).
+    // Off Linux the magics don't match, which is the correct conservative default
+    // (macOS/Windows default temp dirs are disk-backed).
+    rustix::fs::statfs(dir)
+        .map(|s| is_ram_backed_fstype(s.f_type as i64))
+        .unwrap_or(false)
 }
 
-/// Filesystem type of the mount containing `target`, from `/proc/mounts` text:
-/// the longest mount-point that is a path-prefix of `target`. Pure, so the
-/// longest-prefix selection is testable without real mounts.
-fn fstype_for_path<'a>(mounts: &'a str, target: &Path) -> Option<&'a str> {
-    let mut best: Option<(&str, &str)> = None; // (mount_point, fstype)
-    for line in mounts.lines() {
-        let mut fields = line.split_whitespace();
-        let (_dev, mount_point, fstype) = (fields.next(), fields.next(), fields.next());
-        if let (Some(mp), Some(fs)) = (mount_point, fstype) {
-            if target.starts_with(mp) && best.is_none_or(|(b, _)| mp.len() > b.len()) {
-                best = Some((mp, fs));
-            }
-        }
-    }
-    best.map(|(_, fs)| fs)
+/// True for a RAM-backed filesystem magic, per the Linux `statfs(2)` man page
+/// (`TMPFS_MAGIC` / `RAMFS_MAGIC`). Pure, so the classification is testable
+/// without a real mount.
+fn is_ram_backed_fstype(f_type: i64) -> bool {
+    let _ = f_type;
+    false // RED stub
 }
 
 #[cfg(test)]
@@ -422,24 +415,22 @@ mod tests {
     }
 
     #[test]
-    fn fstype_picks_longest_mount_prefix() {
-        let mounts = "\
-sysfs /sys sysfs rw 0 0
-/dev/sda1 / ext4 rw 0 0
-tmpfs /tmp tmpfs rw 0 0
-/dev/sdb1 /var/tmp xfs rw 0 0
-";
-        // /tmp is its own tmpfs mount; /var/tmp is a disk-backed xfs mount.
-        assert_eq!(
-            fstype_for_path(mounts, Path::new("/tmp/spill")),
-            Some("tmpfs")
+    fn ram_backed_fstype_matches_tmpfs_and_ramfs_only() {
+        assert!(is_ram_backed_fstype(0x0102_1994), "TMPFS_MAGIC");
+        assert!(is_ram_backed_fstype(0x8584_58f6), "RAMFS_MAGIC");
+        assert!(
+            !is_ram_backed_fstype(0xEF53),
+            "ext4 (EXT4_SUPER_MAGIC) is disk"
         );
-        assert_eq!(
-            fstype_for_path(mounts, Path::new("/var/tmp/spill")),
-            Some("xfs")
-        );
-        // A path under no specific mount falls to root.
-        assert_eq!(fstype_for_path(mounts, Path::new("/home/x")), Some("ext4"));
-        assert_eq!(fstype_for_path("", Path::new("/x")), None);
+        assert!(!is_ram_backed_fstype(0x5846_5342), "xfs is disk");
+        assert!(!is_ram_backed_fstype(0), "unknown/zero is not RAM-backed");
+    }
+
+    #[test]
+    fn dir_is_tmpfs_does_not_crash_on_a_real_dir() {
+        // Exercise the statfs shell against a real temp dir; the value is
+        // platform-dependent, but it must not panic.
+        let dir = tempfile::tempdir().unwrap();
+        let _ = dir_is_tmpfs(dir.path());
     }
 }

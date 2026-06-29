@@ -5297,6 +5297,7 @@ dependencies = [
  "chrono",
  "inventory",
  "issen-core",
+ "rustix 0.38.44",
  "tempfile",
  "thiserror 2.0.18",
  "tracing",
