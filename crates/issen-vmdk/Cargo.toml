@@ -16,13 +16,13 @@ issen-core   = { workspace = true }
 issen-unpack = { workspace = true }
 issen-disk   = { workspace = true }
 inventory    = { workspace = true }
-zip          = { workspace = true }
 vmdk         = { workspace = true }
 thiserror    = { workspace = true }
 tempfile     = { workspace = true }
 
 [dev-dependencies]
 vmdk = { workspace = true, features = ["test-helpers"] }
+zip  = { workspace = true }
 
 [lints]
 workspace = true

@@ -7,7 +7,7 @@
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 use issen_core::error::RtError;
 use issen_core::plugin::traits::DataSource;
@@ -97,51 +97,15 @@ impl VmdkDataSource {
     /// [`VmdkError`] if the zip cannot be read, holds no `.vmdk` entry, or the
     /// entry is not a self-contained binary VMDK.
     pub fn open_zip(zip_path: &Path) -> Result<Self, VmdkError> {
-        // One handle backs the in-place `Stored` sub-range read; a second drives
-        // the zip's central-directory walk + on-demand inflation.
-        let backing_file = Arc::new(File::open(zip_path)?);
-        let mut archive = zip::ZipArchive::new(File::open(zip_path)?)
-            .map_err(|e| VmdkError::Vmdk(format!("zip open: {e}")))?;
-
-        // Find the first `.vmdk` entry (deterministic by name). Single-extent
-        // only — the descriptor+extents multi-file shape is out of scope.
-        let mut names: Vec<(usize, String)> = (0..archive.len())
-            .map(|i| -> Result<(usize, String), VmdkError> {
-                let e = archive
-                    .by_index_raw(i)
-                    .map_err(|e| VmdkError::Vmdk(format!("zip entry {i}: {e}")))?;
-                Ok((i, e.name().to_string()))
-            })
-            .collect::<Result<_, _>>()?;
-        names.sort_by(|a, b| a.1.cmp(&b.1));
-
-        let Some((idx, name)) = names.into_iter().find(|(_, n)| is_vmdk_entry(n)) else {
-            return Err(VmdkError::Vmdk(format!(
-                "no .vmdk entry found in {}",
-                zip_path.display()
-            )));
-        };
-
-        let mut entry = archive
-            .by_index(idx)
-            .map_err(|e| VmdkError::Vmdk(format!("zip entry {name}: {e}")))?;
-        let backing: Box<dyn ReadSeekSend> =
-            if entry.compression() == zip::CompressionMethod::Stored {
-                // Contiguous, uncompressed -> a positioned sub-range of the zip.
-                Box::new(SubRangeReader::new(
-                    Arc::clone(&backing_file),
-                    entry.data_start(),
-                    entry.size(),
-                ))
-            } else {
-                // Compressed -> inflate the whole entry once, read from RAM.
-                let mut buf = Vec::with_capacity(usize::try_from(entry.size()).unwrap_or(0));
-                entry
-                    .read_to_end(&mut buf)
-                    .map_err(|e| VmdkError::Vmdk(format!("inflate {name}: {e}")))?;
-                Box::new(std::io::Cursor::new(buf))
-            };
-        Self::from_backing(backing)
+        // Delegate to the centralized archive backing (DRY): zip-Stored is read
+        // in place, otherwise decompressed per the adaptive RAM/temp spill
+        // policy; the determination is logged under `--verbose`. Monolithic VMDK
+        // only — the descriptor+extents multi-file shape is out of scope (a
+        // future shared multi-entry helper, see backing::archive_entries).
+        let plan = issen_unpack::backing::probe_spill_plan(1);
+        let inner = issen_unpack::backing::archive_backing(zip_path, &plan, &["vmdk"])
+            .map_err(VmdkError::Io)?;
+        Self::from_backing(Box::new(inner))
     }
 
     /// Build a source from an already-erased backing (shared by `open`/`open_zip`).
@@ -153,87 +117,6 @@ impl VmdkDataSource {
             size,
         })
     }
-}
-
-/// True when a zip entry names a `.vmdk` file (case-insensitive), excluding
-/// directory entries.
-fn is_vmdk_entry(name: &str) -> bool {
-    let base = name.rsplit(['/', '\\']).next().unwrap_or(name);
-    base.len() > 5
-        && base
-            .rsplit_once('.')
-            .is_some_and(|(_, ext)| ext.eq_ignore_ascii_case("vmdk"))
-}
-
-/// A positioned, read-only sub-range view over a shared file: `[base, base+len)`
-/// presented as its own `0..len` address space. Lets a `Stored` zip entry serve
-/// as a `Read + Seek` backing with zero extraction.
-///
-/// Reads under a `pread`-style positioned syscall where available
-/// (`read_at`/`seek_read`), so concurrent clones do not contend on a shared
-/// cursor; the internal `pos` is the only per-clone state.
-struct SubRangeReader {
-    file: Arc<File>,
-    base: u64,
-    len: u64,
-    pos: u64,
-}
-
-impl SubRangeReader {
-    fn new(file: Arc<File>, base: u64, len: u64) -> Self {
-        Self {
-            file,
-            base,
-            len,
-            pos: 0,
-        }
-    }
-}
-
-impl Read for SubRangeReader {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        if self.pos >= self.len || buf.is_empty() {
-            return Ok(0);
-        }
-        let remaining = self.len - self.pos;
-        let to_read = (buf.len() as u64).min(remaining) as usize;
-        let abs = self.base + self.pos;
-        let n = positioned_read(&self.file, abs, &mut buf[..to_read])?;
-        self.pos += n as u64;
-        Ok(n)
-    }
-}
-
-impl Seek for SubRangeReader {
-    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
-        let new = match pos {
-            SeekFrom::Start(o) => o as i64,
-            SeekFrom::End(o) => self.len as i64 + o,
-            SeekFrom::Current(o) => self.pos as i64 + o,
-        };
-        if new < 0 {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "seek before start of sub-range",
-            ));
-        }
-        self.pos = new as u64;
-        Ok(self.pos)
-    }
-}
-
-/// Positioned read at an absolute file offset without moving a shared cursor.
-#[cfg(unix)]
-fn positioned_read(file: &File, offset: u64, buf: &mut [u8]) -> std::io::Result<usize> {
-    use std::os::unix::fs::FileExt;
-    file.read_at(buf, offset)
-}
-
-/// Positioned read at an absolute file offset without moving a shared cursor.
-#[cfg(windows)]
-fn positioned_read(file: &File, offset: u64, buf: &mut [u8]) -> std::io::Result<usize> {
-    use std::os::windows::fs::FileExt;
-    file.seek_read(buf, offset)
 }
 
 impl DataSource for VmdkDataSource {
@@ -321,17 +204,6 @@ mod tests {
     }
 
     #[test]
-    fn is_vmdk_entry_matches_vmdk_only() {
-        assert!(is_vmdk_entry("disk.vmdk"));
-        assert!(is_vmdk_entry("sub/dir/disk.VMDK"));
-        assert!(is_vmdk_entry("DC01-flat-s001.vmdk"));
-        assert!(!is_vmdk_entry("disk.vmdk/")); // directory entry
-        assert!(!is_vmdk_entry("disk.E01"));
-        assert!(!is_vmdk_entry("notes.txt"));
-        assert!(!is_vmdk_entry(".vmdk")); // no stem
-    }
-
-    #[test]
     fn open_zip_no_vmdk_entry_returns_err() {
         let zip_path = std::env::temp_dir().join("issen_vmdk_no_entry.zip");
         {
@@ -342,8 +214,10 @@ mod tests {
             zw.write_all(b"hello").unwrap();
             zw.finish().unwrap();
         }
+        // No `.vmdk` entry: the centralized backing falls back to the largest
+        // entry, which is not a valid VMDK, so the reader rejects it loudly.
         let err = VmdkDataSource::open_zip(&zip_path).unwrap_err();
-        assert!(format!("{err}").contains("no .vmdk entry"));
+        assert!(matches!(err, VmdkError::Vmdk(_) | VmdkError::Io(_)));
         let _ = std::fs::remove_file(&zip_path);
     }
 
