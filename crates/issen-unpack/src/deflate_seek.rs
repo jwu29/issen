@@ -51,7 +51,6 @@ pub struct DeflateSeekReader {
     zlib: bool,
     checkpoints: Vec<Checkpoint>,
     total: u64,
-    interval: u64,
     pos: u64,
     decodes: AtomicU64,
 }
@@ -82,12 +81,117 @@ impl DeflateSeekReader {
     /// # Errors
     /// A malformed stream or an underlying I/O error.
     pub fn open_with_interval(
-        inner: Box<dyn ReadSeekSend>,
+        mut inner: Box<dyn ReadSeekSend>,
         zlib: bool,
         interval: u64,
     ) -> io::Result<Self> {
-        let _ = (inner, zlib, interval);
-        Err(io::Error::other("DeflateSeekReader::open: unimplemented"))
+        use miniz_oxide::inflate::core::inflate_flags::{
+            TINFL_FLAG_HAS_MORE_INPUT, TINFL_FLAG_IGNORE_ADLER32, TINFL_FLAG_PARSE_ZLIB_HEADER,
+            TINFL_FLAG_STOP_ON_BLOCK_BOUNDARY, TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF,
+        };
+        use miniz_oxide::inflate::core::{decompress, DecompressorOxide};
+        use miniz_oxide::inflate::TINFLStatus;
+
+        // Decode-ahead segment after the 32 KiB window; the window slides to the
+        // front when the buffer fills, so total RAM is ~WINDOW + SEGMENT.
+        const SEGMENT: usize = 256 * 1024;
+
+        inner.seek(SeekFrom::Start(0))?;
+        let mut state = DecompressorOxide::new();
+        let mut buf = vec![0u8; WINDOW + SEGMENT];
+        let mut out_pos = WINDOW; // physical write cursor in `buf`
+        let mut out_total: u64 = 0;
+        let mut in_total: u64 = 0;
+        // Start checkpoint: fresh state, empty window (no history at the start).
+        let mut checkpoints = vec![Checkpoint {
+            in_pos: 0,
+            out_pos: 0,
+            state: state.clone(),
+            window: Vec::new(),
+        }];
+        let mut last_ckpt: u64 = 0;
+
+        let mut in_buf = vec![0u8; IN_CHUNK];
+        let mut in_len = 0usize;
+        let mut in_off = 0usize;
+        let mut eof = false;
+        let mut first = true; // zlib header is parsed on the first call only
+
+        loop {
+            if in_off >= in_len && !eof {
+                in_len = inner.read(&mut in_buf)?;
+                in_off = 0;
+                if in_len == 0 {
+                    eof = true;
+                }
+            }
+            let mut flags = TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF
+                | TINFL_FLAG_STOP_ON_BLOCK_BOUNDARY
+                | TINFL_FLAG_IGNORE_ADLER32;
+            if zlib && first {
+                flags |= TINFL_FLAG_PARSE_ZLIB_HEADER;
+            }
+            if !eof {
+                flags |= TINFL_FLAG_HAS_MORE_INPUT;
+            }
+            let (status, used_in, used_out) = decompress(
+                &mut state,
+                &in_buf[in_off..in_len],
+                &mut buf,
+                out_pos,
+                flags,
+            );
+            first = false;
+            in_off += used_in;
+            in_total += used_in as u64;
+            out_pos += used_out;
+            out_total += used_out as u64;
+
+            match status {
+                TINFLStatus::Done => break,
+                TINFLStatus::BlockBoundary => {
+                    if out_total - last_ckpt >= interval {
+                        let wlen = std::cmp::min(out_total, WINDOW as u64) as usize;
+                        let window = buf
+                            .get(out_pos - wlen..out_pos)
+                            .ok_or_else(|| io::Error::other("deflate_seek: window underflow"))?
+                            .to_vec();
+                        checkpoints.push(Checkpoint {
+                            in_pos: in_total,
+                            out_pos: out_total,
+                            state: state.clone(),
+                            window,
+                        });
+                        last_ckpt = out_total;
+                    }
+                }
+                TINFLStatus::HasMoreOutput => {
+                    // Buffer full mid-stream: slide the last 32 KiB to the front
+                    // (the back-reference window) and keep going.
+                    buf.copy_within(out_pos - WINDOW..out_pos, 0);
+                    out_pos = WINDOW;
+                }
+                TINFLStatus::NeedsMoreInput => {
+                    if eof {
+                        return Err(io::Error::other("deflate_seek: truncated stream"));
+                    }
+                }
+                other => {
+                    return Err(io::Error::other(format!(
+                        "deflate_seek: decode failed ({other:?})"
+                    )));
+                }
+            }
+        }
+
+        Ok(Self {
+            inner: Mutex::new(inner),
+            zlib,
+            checkpoints,
+            total: out_total,
+            pos: 0,
+            decodes: AtomicU64::new(0),
+        })
     }
 
     /// Total decompressed length in bytes.
@@ -121,11 +225,108 @@ impl DeflateSeekReader {
     ///
     /// # Errors
     /// A decode or underlying I/O failure.
-    pub fn read_at(&self, offset: u64, buf: &mut [u8]) -> io::Result<usize> {
-        let _ = (offset, buf);
-        Err(io::Error::other(
-            "DeflateSeekReader::read_at: unimplemented",
-        ))
+    pub fn read_at(&self, offset: u64, dst: &mut [u8]) -> io::Result<usize> {
+        use miniz_oxide::inflate::core::decompress;
+        use miniz_oxide::inflate::core::inflate_flags::{
+            TINFL_FLAG_HAS_MORE_INPUT, TINFL_FLAG_IGNORE_ADLER32, TINFL_FLAG_PARSE_ZLIB_HEADER,
+            TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF,
+        };
+        use miniz_oxide::inflate::TINFLStatus;
+
+        if offset >= self.total || dst.is_empty() {
+            return Ok(0);
+        }
+        let end = offset.saturating_add(dst.len() as u64).min(self.total);
+        // Nearest checkpoint at or before `offset`.
+        let ci = self
+            .checkpoints
+            .partition_point(|c| c.out_pos <= offset)
+            .saturating_sub(1);
+        let cp = self
+            .checkpoints
+            .get(ci)
+            .ok_or_else(|| io::Error::other("deflate_seek: no checkpoint"))?;
+
+        let produce = usize::try_from(end - cp.out_pos).unwrap_or(0);
+        let wlen = cp.window.len();
+        // Window prefix (the back-ref dictionary) + the bytes we must produce.
+        let mut out = vec![0u8; wlen + produce];
+        out.get_mut(..wlen)
+            .ok_or_else(|| io::Error::other("deflate_seek: out too small"))?
+            .copy_from_slice(&cp.window);
+        let mut state = cp.state.clone();
+        let mut out_pos = wlen;
+        let target = wlen + produce;
+
+        let mut guard = self
+            .inner
+            .lock()
+            .map_err(|_| io::Error::other("deflate_seek: inner poisoned"))?;
+        guard.seek(SeekFrom::Start(cp.in_pos))?;
+        let mut in_buf = vec![0u8; IN_CHUNK];
+        let mut in_len = 0usize;
+        let mut in_off = 0usize;
+        let mut eof = false;
+        let at_start = cp.in_pos == 0;
+        let mut first = true;
+
+        while out_pos < target {
+            if in_off >= in_len && !eof {
+                in_len = guard.read(&mut in_buf)?;
+                in_off = 0;
+                if in_len == 0 {
+                    eof = true;
+                }
+            }
+            let mut flags = TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF | TINFL_FLAG_IGNORE_ADLER32;
+            if self.zlib && at_start && first {
+                flags |= TINFL_FLAG_PARSE_ZLIB_HEADER;
+            }
+            if !eof {
+                flags |= TINFL_FLAG_HAS_MORE_INPUT;
+            }
+            let (status, used_in, used_out) = decompress(
+                &mut state,
+                &in_buf[in_off..in_len],
+                &mut out,
+                out_pos,
+                flags,
+            );
+            first = false;
+            in_off += used_in;
+            out_pos += used_out;
+            match status {
+                TINFLStatus::Done => break,
+                TINFLStatus::HasMoreOutput => {}
+                TINFLStatus::NeedsMoreInput => {
+                    if eof {
+                        break;
+                    }
+                }
+                TINFLStatus::BlockBoundary => {}
+                other => {
+                    return Err(io::Error::other(format!(
+                        "deflate_seek: decode failed ({other:?})"
+                    )));
+                }
+            }
+        }
+        drop(guard);
+        self.decodes.fetch_add(1, Ordering::Relaxed);
+
+        let lo = wlen + usize::try_from(offset - cp.out_pos).unwrap_or(0);
+        let produced = out_pos.saturating_sub(lo);
+        let n = dst
+            .len()
+            .min(usize::try_from(end - offset).unwrap_or(0))
+            .min(produced);
+        dst.get_mut(..n)
+            .ok_or_else(|| io::Error::other("deflate_seek: dst slice"))?
+            .copy_from_slice(
+                out.get(lo..lo + n)
+                    .ok_or_else(|| io::Error::other("deflate_seek: out slice"))?,
+            );
+        Ok(n)
     }
 }
 
