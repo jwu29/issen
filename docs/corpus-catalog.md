@@ -27,6 +27,7 @@ download/regenerate per the provenance notes; they are not committed._
 | Dataset | Size | Class | Source |
 |---|---|---|---|
 | Magnet Virtual Summit 2023 CTF — Win11 (`PC-MUS-001.E01`) | 49 GB | REAL-ext | Magnet/Champlain DFA |
+| Magnet Virtual Summit **2025** CTF (iOS 18 / Android 14 / Win 11 / Chromebook) | *pending download* | REAL-ext `?` | Hexordia (K. Pagano) + Champlain DFA / NIST CFReDS |
 | DEF CON DFIR CTF 2018 (`MaxPowersCDrive.E01`) | 29 GB | REAL-ext | DEF CON / D. Cowen |
 | Josh Hickman iOS 17.3 image (Apple Biome **SEGB** streams) | 22 GB (.tar.gz) | REAL-ext | Joshua Hickman / DigitalCorpora |
 | Josh Hickman **macOS Big Sur** image (APFS, split EWF in zip) | 32 GiB zip → 80 GB image | REAL-ext | Joshua Hickman / thebinaryhick.blog |
@@ -56,6 +57,17 @@ Win11 physical drive. By Jessica Hyde + Champlain College DFA for Magnet. EnCase
 2023-01-07. **MD5** `522df9db8289f4f8132cf47b14d20fb8`. Contains `hiberfil.sys` (MFT #54, 3.37 GB)
 — real corpus for the `memf-format` hiberfil provider. Redistribution: Magnet/Champlain — verify.
 **Download:** <https://getdataforensics.com/capture-the-flag/> (Magnet Virtual Summit 2023 — Win11).
+
+### A2b · Magnet Virtual Summit **2025** CTF — Hexordia (iOS 18 / Android 14 / Win 11 / Chromebook) · REAL-ext `?` (download pending)
+
+By the **Hexordia** team (Kevin Pagano) with Champlain College DFA interns, for Magnet Forensics.
+Scenario: personas "Ruth" + "Mary", Nov–Dec 2024, across mobile/computer/web. Authoritative public
+host: **NIST CFReDS** <https://cfreds.nist.gov/all/Hexordia/2025MVSCTF> (documents per-file hashes).
+Winners writeup: <https://www.magnetforensics.com/blog/announcing-the-winners-of-the-2025-magnet-virtual-summit-ctf/>.
+A Google Drive mirror (<https://drive.google.com/drive/folders/1qLwXFZTZidkx1tWpG8uenVQnX6zWF-Oa>)
+holds `userbss.ad1` (AccessData **AD1** logical image) among others, but is **Google-quota-blocked**
+as of 2026-06-29 — pull from CFReDS instead. **Bytes not yet downloaded**; sizes + MD5/SHA256 to be
+filled from CFReDS on acquisition. Detail: `issen/tests/data/README.md` → `magnet-summit-2025-ctf/`.
 
 ### A3 · DFIR Madness "Stolen Szechuan Sauce" Case 001 (~13 GB) · REAL-ext ✓
 Folder: `tests/data/DFIR Madness "Stolen Szechuan Sauce" Case 001 — Windows 10/` (name predates the

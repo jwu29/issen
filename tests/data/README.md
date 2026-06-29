@@ -97,6 +97,28 @@ Used by automated tests in `rt-parser-uac` and `rt-navigator`. The small archive
 - **MD5:** `522df9db8289f4f8132cf47b14d20fb8`
 - **Notable contents:** Contains `hiberfil.sys` (MFT entry 54, 3.37 GB allocated) — usable as real test data for `memf-format` hiberfil provider
 
+### magnet-summit-2025-ctf/
+
+- **Source:** **2025 Magnet Virtual Summit CTF** — authored by the **Hexordia** team (Kevin Pagano
+  authored the harder questions) with Champlain College DFA interns (Yehuda Bollen, Fatima Omorevic,
+  Adam Hachem, James Cangelosi, Cece Ehgotz, Nathan Kreit), for Magnet Forensics.
+- **Scenario:** two personas "Ruth" and "Mary"; activity across mobile + computer + web, Nov–Dec 2024.
+- **Devices/images:** iOS 18 full-file-system, Android 14, **Windows 11**, and a **Chromebook**.
+- **Authoritative source (use this):** NIST **CFReDS** — <https://cfreds.nist.gov/all/Hexordia/2025MVSCTF>
+  (public, documents per-file hashes; preferred over the Drive mirror).
+- **Writeup:** <https://www.magnetforensics.com/blog/announcing-the-winners-of-the-2025-magnet-virtual-summit-ctf/>
+- **Mirror (rate-limited):** Google Drive folder
+  <https://drive.google.com/drive/folders/1qLwXFZTZidkx1tWpG8uenVQnX6zWF-Oa>. Contains `userbss.ad1`
+  (AccessData **AD1** logical image; Drive id `1ImeVi8BzHcuLDOV7LhAle9kRnZOMFb64`) among others. As of
+  2026-06-29 the Drive download returns Google's "too many users have viewed/downloaded this file
+  recently" quota error (transient, up to 24 h) — **download from CFReDS instead**, or retry the Drive
+  link later.
+- **Status:** provenance recorded; bytes **not yet downloaded** (Drive quota-blocked). MD5/SHA256 +
+  exact sizes to be filled from the CFReDS-documented hashes once pulled. Gitignored like the rest.
+- **Used by (planned):** Windows 11 leg → NTFS/registry/EVTX triage; `userbss.ad1` exercises a future
+  **AD1 (AccessData logical image) container** reader (issen does not yet parse AD1); the iOS 18 /
+  Android / Chromebook legs are mobile/cross-platform corpora for later parsers.
+
 ### CyberDefenders/
 
 #### 78-DeepDive.zip (537 MB)
