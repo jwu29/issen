@@ -19,13 +19,23 @@ tracing = { workspace = true }
 rustix = { version = "0.38", features = ["fs"] }
 # Cross-platform available-RAM probe for the adaptive spill budget.
 sysinfo = "0.33"
-# Read a disk-image entry straight out of an archive (zip first; 7z/tar/dar next).
+# Read a disk-image entry straight out of an archive. Each format feeds the same
+# adaptive RAM/temp spill: zip (Stored = in-place window), 7z (solid LZMA),
+# tar.gz, tar.bz2. All pure-Rust to keep the forbid(unsafe) / batteries-included
+# guarantee — bzip2-rs is decompress-only, which is all a read-only reader needs.
 zip = { workspace = true }
+sevenz-rust2 = "0.21"
+flate2 = { workspace = true }
+tar = { workspace = true }
+bzip2-rs = "0.1"
 
 [dev-dependencies]
 tempfile = { workspace = true }
 inventory = { workspace = true }
 issen-core = { workspace = true }
+# Pure-Rust bzip2 ENCODER, test-only: mints .tar.bz2 fixtures the production
+# decompressor (bzip2-rs) reads back. Never shipped.
+banzai = "0.3"
 
 [lints]
 workspace = true

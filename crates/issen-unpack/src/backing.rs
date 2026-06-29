@@ -379,6 +379,9 @@ pub fn archive_backing(
     let n = File::open(path)?.read(&mut head)?;
     match detect_archive_format(&head[..n]) {
         Some(ArchiveFormat::Zip) => zip_backing(path, plan, exts),
+        Some(ArchiveFormat::SevenZ) => first_entry(sevenz_entries(path, plan, exts)?, path, exts),
+        Some(ArchiveFormat::Gzip) => first_entry(targz_entries(path, plan, exts)?, path, exts),
+        Some(ArchiveFormat::Bzip2) => first_entry(tarbz2_entries(path, plan, exts)?, path, exts),
         Some(other) => Err(io::Error::other(format!(
             "{}: archive format {other:?} not yet supported",
             path.display()
@@ -638,6 +641,87 @@ fn is_ram_backed_fstype(f_type: i64) -> bool {
     const TMPFS_MAGIC: i64 = 0x0102_1994;
     const RAMFS_MAGIC: i64 = 0x8584_58f6;
     matches!(f_type, TMPFS_MAGIC | RAMFS_MAGIC)
+}
+
+// ── Multi-entry collection + the compressed formats (7z / tar.gz / tar.bz2) ──
+
+/// Collect EVERY archive entry whose extension is in `exts` as an independent
+/// bounded backing — the shared "N backings from a zip" step for multi-file
+/// images (ewf `.E01`/`.E02`… segments, split-vmdk extents). Returns
+/// `(name, backing)` pairs in archive order; the caller assembles them
+/// (ewf concatenates ordered segments; vmdk resolves the descriptor's extents).
+///
+/// Each entry is decided independently: zip-`Stored` is an in-place window, while
+/// the codec-wrapped formats (7z solid LZMA, tar.gz, tar.bz2) always materialize
+/// through the adaptive RAM/temp spill.
+///
+/// # Errors
+/// Not a recognized archive, an unsupported format, or a decode/spill failure.
+pub fn archive_entries(
+    path: &Path,
+    plan: &SpillPlan,
+    exts: &[&str],
+) -> io::Result<Vec<(String, Box<dyn ReadSeekSend>)>> {
+    let mut head = [0u8; 8];
+    let n = File::open(path)?.read(&mut head)?;
+    match detect_archive_format(&head[..n]) {
+        Some(ArchiveFormat::Zip) => zip_entries(path, plan, exts),
+        Some(ArchiveFormat::SevenZ) => sevenz_entries(path, plan, exts),
+        Some(ArchiveFormat::Gzip) => targz_entries(path, plan, exts),
+        Some(ArchiveFormat::Bzip2) => tarbz2_entries(path, plan, exts),
+        Some(other) => Err(io::Error::other(format!(
+            "{}: archive format {other:?} not yet supported",
+            path.display()
+        ))),
+        None => Err(io::Error::other(format!(
+            "{}: not a recognized archive",
+            path.display()
+        ))),
+    }
+}
+
+/// Single-image pick from a collected set: the first matching entry, else a loud
+/// "no entry" error (never a silent empty backing).
+fn first_entry(
+    entries: Vec<(String, Box<dyn ReadSeekSend>)>,
+    path: &Path,
+    exts: &[&str],
+) -> io::Result<Box<dyn ReadSeekSend>> {
+    entries.into_iter().next().map(|(_, b)| b).ok_or_else(|| {
+        io::Error::other(format!("{}: no {exts:?} entry in archive", path.display()))
+    })
+}
+
+fn zip_entries(
+    _path: &Path,
+    _plan: &SpillPlan,
+    _exts: &[&str],
+) -> io::Result<Vec<(String, Box<dyn ReadSeekSend>)>> {
+    Err(io::Error::other("zip_entries: unimplemented"))
+}
+
+fn sevenz_entries(
+    _path: &Path,
+    _plan: &SpillPlan,
+    _exts: &[&str],
+) -> io::Result<Vec<(String, Box<dyn ReadSeekSend>)>> {
+    Err(io::Error::other("sevenz_entries: unimplemented"))
+}
+
+fn targz_entries(
+    _path: &Path,
+    _plan: &SpillPlan,
+    _exts: &[&str],
+) -> io::Result<Vec<(String, Box<dyn ReadSeekSend>)>> {
+    Err(io::Error::other("targz_entries: unimplemented"))
+}
+
+fn tarbz2_entries(
+    _path: &Path,
+    _plan: &SpillPlan,
+    _exts: &[&str],
+) -> io::Result<Vec<(String, Box<dyn ReadSeekSend>)>> {
+    Err(io::Error::other("tarbz2_entries: unimplemented"))
 }
 
 #[cfg(test)]
@@ -1149,5 +1233,177 @@ mod tests {
     fn admit_respects_requested_cap() {
         // Plenty of budget, but only one worker allowed.
         assert_eq!(admit_concurrency(&[GIB, GIB, GIB], 64 * GIB, 1), 1);
+    }
+
+    // ── Multi-entry + compressed-format fixtures (all pure-Rust) ──────────
+
+    /// A recognizable byte pattern of `len` bytes.
+    fn pattern(len: usize) -> Vec<u8> {
+        (0u8..=255).cycle().take(len).collect()
+    }
+
+    fn write_named(suffix: &str, bytes: &[u8]) -> tempfile::NamedTempFile {
+        let mut f = tempfile::Builder::new().suffix(suffix).tempfile().unwrap();
+        f.write_all(bytes).unwrap();
+        f.flush().unwrap();
+        f
+    }
+
+    /// Build an uncompressed tar from `(name, data)` entries.
+    fn tar_bytes(entries: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut buf = Vec::new();
+        {
+            let mut tb = tar::Builder::new(&mut buf);
+            for (name, data) in entries {
+                let mut h = tar::Header::new_gnu();
+                h.set_size(data.len() as u64);
+                h.set_mode(0o644);
+                tb.append_data(&mut h, name, *data).unwrap();
+            }
+            tb.finish().unwrap();
+        }
+        buf
+    }
+
+    fn make_7z(entries: &[(&str, &[u8])]) -> tempfile::NamedTempFile {
+        let mut buf = Vec::new();
+        {
+            let mut w = sevenz_rust2::ArchiveWriter::new(Cursor::new(&mut buf)).unwrap();
+            for (name, data) in entries {
+                w.push_archive_entry(sevenz_rust2::ArchiveEntry::new_file(name), Some(*data))
+                    .unwrap();
+            }
+            w.finish().unwrap();
+        }
+        write_named(".7z", &buf)
+    }
+
+    fn make_targz(entries: &[(&str, &[u8])]) -> tempfile::NamedTempFile {
+        let tar = tar_bytes(entries);
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        gz.write_all(&tar).unwrap();
+        write_named(".tar.gz", &gz.finish().unwrap())
+    }
+
+    fn make_bare_gz(suffix: &str, data: &[u8]) -> tempfile::NamedTempFile {
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        gz.write_all(data).unwrap();
+        write_named(suffix, &gz.finish().unwrap())
+    }
+
+    fn make_tarbz2(entries: &[(&str, &[u8])]) -> tempfile::NamedTempFile {
+        let tar = tar_bytes(entries);
+        let mut bz = Vec::new();
+        banzai::encode(Cursor::new(&tar), std::io::BufWriter::new(&mut bz), 9).unwrap();
+        write_named(".tar.bz2", &bz)
+    }
+
+    fn make_bare_bz2(suffix: &str, data: &[u8]) -> tempfile::NamedTempFile {
+        let mut bz = Vec::new();
+        banzai::encode(Cursor::new(data), std::io::BufWriter::new(&mut bz), 9).unwrap();
+        write_named(suffix, &bz)
+    }
+
+    /// Read every `(name, backing)` pair to bytes, sorted by name for stability.
+    fn collect_named(got: Vec<(String, Box<dyn ReadSeekSend>)>) -> Vec<(String, Vec<u8>)> {
+        let mut v: Vec<(String, Vec<u8>)> =
+            got.into_iter().map(|(n, b)| (n, read_all(b))).collect();
+        v.sort_by(|x, y| x.0.cmp(&y.0));
+        v
+    }
+
+    // ── archive_entries: the shared "N backings from a zip" step ──────────
+
+    #[test]
+    fn archive_entries_zip_collects_matching_in_order() {
+        let a = pattern(100);
+        let b = pattern(200);
+        let zip = make_zip_entries(&[
+            ("img.E01", &a, zip::CompressionMethod::Stored),
+            ("notes.txt", b"ignore me", zip::CompressionMethod::Stored),
+            ("img.E02", &b, zip::CompressionMethod::Deflated),
+        ]);
+        let got =
+            collect_named(archive_entries(zip.path(), &big_plan(None), &["e01", "e02"]).unwrap());
+        assert_eq!(got.len(), 2, "two segments collected, the .txt skipped");
+        assert!(got[0].0.ends_with(".E01"));
+        assert_eq!(got[0].1, a);
+        assert!(got[1].0.ends_with(".E02"));
+        assert_eq!(got[1].1, b);
+    }
+
+    // ── 7z (solid LZMA) ───────────────────────────────────────────────────
+
+    #[test]
+    fn archive_backing_sevenz_roundtrip() {
+        let p = pattern(4096);
+        let z = make_7z(&[("disk.img", &p)]);
+        assert_eq!(
+            read_all(archive_backing(z.path(), &big_plan(None), &["img"]).unwrap()),
+            p
+        );
+    }
+
+    #[test]
+    fn archive_entries_sevenz_multi() {
+        let a = pattern(300);
+        let b = pattern(700);
+        let z = make_7z(&[("img.E01", &a), ("readme", b"x"), ("img.E02", &b)]);
+        let got =
+            collect_named(archive_entries(z.path(), &big_plan(None), &["e01", "e02"]).unwrap());
+        assert_eq!(got.len(), 2);
+        assert_eq!(got[0].1, a);
+        assert_eq!(got[1].1, b);
+    }
+
+    // ── tar.gz / bare .gz ─────────────────────────────────────────────────
+
+    #[test]
+    fn archive_backing_targz_roundtrip() {
+        let p = pattern(5000);
+        let t = make_targz(&[("disk.dd", &p)]);
+        assert_eq!(
+            read_all(archive_backing(t.path(), &big_plan(None), &["dd"]).unwrap()),
+            p
+        );
+    }
+
+    #[test]
+    fn archive_backing_bare_gz_roundtrip() {
+        // A single gzipped image (no tar wrapper): the decoded stream IS the image.
+        let p = pattern(5000);
+        let g = make_bare_gz(".dd.gz", &p);
+        assert_eq!(
+            read_all(archive_backing(g.path(), &big_plan(None), &["dd"]).unwrap()),
+            p
+        );
+    }
+
+    // ── tar.bz2 / bare .bz2 (pure-Rust bzip2-rs decode) ───────────────────
+
+    #[test]
+    fn archive_backing_tarbz2_roundtrip() {
+        let p = pattern(5000);
+        let t = make_tarbz2(&[("disk.dd", &p)]);
+        assert_eq!(
+            read_all(archive_backing(t.path(), &big_plan(None), &["dd"]).unwrap()),
+            p
+        );
+    }
+
+    #[test]
+    fn archive_backing_bare_bz2_roundtrip() {
+        let p = pattern(5000);
+        let z = make_bare_bz2(".dd.bz2", &p);
+        assert_eq!(
+            read_all(archive_backing(z.path(), &big_plan(None), &["dd"]).unwrap()),
+            p
+        );
+    }
+
+    #[test]
+    fn archive_entries_unrecognized_errors() {
+        let f = write_named(".bin", b"not an archive at all");
+        assert!(archive_entries(f.path(), &big_plan(None), &["dd"]).is_err());
     }
 }
