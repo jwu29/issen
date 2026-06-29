@@ -328,8 +328,75 @@ impl Seek for RangeView {
 /// # Errors
 /// A malformed/truncated tar header, or an underlying decode failure.
 pub fn tar_members(reader: &Arc<Bzip2SeekReader>) -> io::Result<Vec<(String, u64, u64)>> {
-    let _ = reader;
-    Err(io::Error::other("tar_members: unimplemented"))
+    let total = reader.len();
+    let mut out = Vec::new();
+    let mut pos = 0u64;
+    while pos + 512 <= total {
+        let mut hdr = [0u8; 512];
+        if reader.read_at(pos, &mut hdr)? < 512 {
+            break;
+        }
+        // End-of-archive: the trailing zero block (name field starts with NUL).
+        if hdr[0] == 0 {
+            break;
+        }
+        let name = tar_name(&hdr);
+        let size = parse_tar_size(hdr.get(124..136).unwrap_or(&[]))
+            .ok_or_else(|| io::Error::other("tar_members: malformed size field"))?;
+        // typeflag '0' or NUL = regular file (the only thing with file data).
+        let typeflag = hdr[156];
+        let data_off = pos + 512;
+        if typeflag == b'0' || typeflag == 0 {
+            out.push((name, data_off, size));
+        }
+        pos = data_off + size.div_ceil(512) * 512;
+    }
+    Ok(out)
+}
+
+/// Reassemble a ustar member name from the 100-byte name + optional 155-byte
+/// prefix fields.
+fn tar_name(hdr: &[u8; 512]) -> String {
+    let name = tar_cstr(hdr.get(0..100).unwrap_or(&[]));
+    let prefix = tar_cstr(hdr.get(345..500).unwrap_or(&[]));
+    if prefix.is_empty() {
+        name
+    } else {
+        format!("{prefix}/{name}")
+    }
+}
+
+/// A NUL-terminated tar text field as a `String`.
+fn tar_cstr(b: &[u8]) -> String {
+    let end = b.iter().position(|&c| c == 0).unwrap_or(b.len());
+    String::from_utf8_lossy(b.get(..end).unwrap_or(&[])).into_owned()
+}
+
+/// Parse a tar size field: octal (the common case) or GNU base-256 (high bit of
+/// the first byte set — used for members larger than 8 GiB, e.g. disk images).
+fn parse_tar_size(field: &[u8]) -> Option<u64> {
+    let first = *field.first()?;
+    if first & 0x80 != 0 {
+        // GNU base-256, big-endian. Sizes that fit u64 live in the last 8 bytes;
+        // the flag bit is in byte 0, which those 8 bytes exclude for a 12-byte
+        // field.
+        let lo = field.len().saturating_sub(8);
+        let mut v = 0u64;
+        for &b in field.get(lo..).unwrap_or(&[]) {
+            v = (v << 8) | u64::from(b);
+        }
+        return Some(v);
+    }
+    let digits: Vec<u8> = field
+        .iter()
+        .copied()
+        .filter(|&c| c != 0 && c != b' ')
+        .collect();
+    if digits.is_empty() {
+        return Some(0);
+    }
+    let s = std::str::from_utf8(&digits).ok()?;
+    u64::from_str_radix(s, 8).ok()
 }
 
 // ── bit-level helpers + the bzip2recover single-block extractor ─────────────
@@ -662,5 +729,20 @@ mod tests {
             "selective: decoded {decoded} of {} blocks",
             r.block_count()
         );
+    }
+
+    #[test]
+    fn tar_size_parses_octal_and_base256() {
+        // Octal (the tar default): "12000" → 0o12000.
+        let mut octal = [0u8; 12];
+        octal[..5].copy_from_slice(b"12000");
+        assert_eq!(parse_tar_size(&octal), Some(0o12000));
+
+        // GNU base-256 for a large member: flag in byte 0, big-endian value in
+        // the last 8 bytes. 0x01_0000 = 65536.
+        let mut b256 = [0u8; 12];
+        b256[0] = 0x80;
+        b256[9] = 0x01;
+        assert_eq!(parse_tar_size(&b256), Some(65_536));
     }
 }
