@@ -202,8 +202,9 @@
 
   <rect x="18"  y="288" width="208" height="46" rx="6" fill="#0f172a"/>
   <rect x="18"  y="288" width="208" height="46" rx="6" fill="rgba(30,41,59,0.5)" stroke="#94a3b8" stroke-width="1.5"/>
-  <text x="122" y="307" fill="white"   font-size="11" font-weight="600" text-anchor="middle">CONTAINER</text>
-  <text x="122" y="324" fill="#94a3b8" font-size="9"  text-anchor="middle">ewf  (E01 / EWF)</text>
+  <text x="122" y="304" fill="white"   font-size="11" font-weight="600" text-anchor="middle">CONTAINER</text>
+  <text x="122" y="318" fill="#94a3b8" font-size="8"  text-anchor="middle">ewf · vmdk · vhdx · qcow2</text>
+  <text x="122" y="329" fill="#94a3b8" font-size="8"  text-anchor="middle">vhd · aff4 · dd · iso</text>
 
   <rect x="236" y="288" width="208" height="46" rx="6" fill="#0f172a"/>
   <rect x="236" y="288" width="208" height="46" rx="6" fill="rgba(30,41,59,0.5)" stroke="#94a3b8" stroke-width="1.5"/>
@@ -216,6 +217,9 @@
         fill="rgba(30,41,59,0.08)" stroke="#334155" stroke-width="1" stroke-dasharray="5,3"/>
   <text x="776" y="309" fill="#475569" font-size="10" font-style="italic" text-anchor="middle">no outer container</text>
   <text x="776" y="325" fill="#334155" font-size="8"  text-anchor="middle">[L] [Q] [C] — LOG FORMAT / QUERY ENGINE / GRAPH NAV are the entry points</text>
+
+  <!-- zip-direct foundation note (under the [P] [M] container boxes) -->
+  <text x="231" y="349" fill="#64748b" font-size="8" font-style="italic" text-anchor="middle">↑ each reads straight from a .zip via zip-forensic-core — pure-Rust, no C FFI</text>
 
   <!-- ════ [H] STATE-HISTORY STRIP  y=362, h=112, bottom=474 ════ -->
 
@@ -239,8 +243,8 @@
   <rect x="12" y="498" width="1096" height="46" rx="8"
         fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1.5"/>
   <text x="20" y="496" fill="#fbbf24" font-size="9" font-weight="600" letter-spacing="0.5">KNOWLEDGE LAYER</text>
-  <text x="560" y="517" fill="white"   font-size="12" font-weight="600" text-anchor="middle">forensicnomicon</text>
-  <text x="560" y="535" fill="#fbbf24" font-size="9"  text-anchor="middle">magic bytes · format offsets · ESE / EVTX / NTFS field schemas — zero-dep · zero-I/O · compile-time format constants</text>
+  <text x="560" y="517" fill="white"   font-size="12" font-weight="600" text-anchor="middle">forensicnomicon  ·  jsonguard</text>
+  <text x="560" y="535" fill="#fbbf24" font-size="9"  text-anchor="middle">magic bytes · format offsets · ESE / EVTX / NTFS field schemas (zero-dep, zero-I/O) · jsonguard: RFC-4180 / formula-injection output guard</text>
 
   <!-- ════ LEGEND  (below KNOWLEDGE which ends at y=530) ════ -->
 
