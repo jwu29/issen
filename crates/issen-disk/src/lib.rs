@@ -58,13 +58,31 @@ impl From<DiskError> for RtError {
 /// [`DiskError::Disk`] if the partition table can't be analysed, or
 /// [`DiskError::Io`] on a read failure.
 pub fn find_ntfs_partitions(source: &dyn DataSource) -> Result<Vec<PartitionWindow>, DiskError> {
+    Ok(classify_partitions(source)?.0)
+}
+
+/// Partitions split by triage support: the NTFS volumes issen extracts, plus
+/// recognized-but-untriaged filesystems as `(filesystem, byte-offset)` pairs.
+type PartitionClass = (Vec<PartitionWindow>, Vec<(&'static str, u64)>);
+
+/// Enumerate the source's partitions and split them into NTFS volumes (which
+/// issen triages) and recognized-but-untriaged filesystems — each returned as
+/// `(filesystem, byte-offset)`. The candidate windows come from the partition
+/// table; a window is NTFS iff its boot sector parses, else it is probed for a
+/// known non-NTFS magic via [`detect_filesystem`].
+///
+/// # Errors
+///
+/// [`DiskError::Disk`] if the partition table can't be analysed, or
+/// [`DiskError::Source`] on a read failure.
+fn classify_partitions(source: &dyn DataSource) -> Result<PartitionClass, DiskError> {
     use disk_forensic::DiskReport;
 
     let mut reader = DataSourceReader::new(source);
     let report = match disk_forensic::analyse_disk(&mut reader, source.len()) {
         Ok(report) => report,
         // No partition table at all — nothing to triage, not a hard failure.
-        Err(disk_forensic::Error::UnknownScheme) => return Ok(Vec::new()),
+        Err(disk_forensic::Error::UnknownScheme) => return Ok((Vec::new(), Vec::new())),
         Err(e) => return Err(e.into()),
     };
 
@@ -98,13 +116,16 @@ pub fn find_ntfs_partitions(source: &dyn DataSource) -> Result<Vec<PartitionWind
         DiskReport::Apm(_) => Vec::new(),
     };
 
-    let mut out = Vec::new();
+    let mut ntfs = Vec::new();
+    let mut unsupported = Vec::new();
     for w in candidates {
         if window_is_ntfs(source, w)? {
-            out.push(w);
+            ntfs.push(w);
+        } else if let Some(fs) = detect_filesystem(source, w)? {
+            unsupported.push((fs, w.offset));
         }
     }
-    Ok(out)
+    Ok((ntfs, unsupported))
 }
 
 /// `true` if the 512-byte boot sector at `window.offset` parses as NTFS.
@@ -114,6 +135,35 @@ fn window_is_ntfs(source: &dyn DataSource, window: PartitionWindow) -> Result<bo
         .read_at(window.offset, &mut sector)
         .map_err(|e| DiskError::Source(e.to_string()))?;
     Ok(n >= 512 && ntfs_core::BootSector::parse(&sector).is_ok())
+}
+
+/// Identify a recognized non-NTFS filesystem at `window` (APFS / HFS+ / ext),
+/// or `None` for NTFS (handled separately) and for FAT / empty / unrecognized
+/// partitions. The `None` cases are deliberate: FAT (EFI System Partition) and
+/// empty (Microsoft Reserved) partitions are normal companions on a Windows
+/// disk, so flagging them would be a false "unsupported" alarm.
+fn detect_filesystem(
+    source: &dyn DataSource,
+    window: PartitionWindow,
+) -> Result<Option<&'static str>, DiskError> {
+    // Cover the deepest magic offset we check (ext s_magic at 1080).
+    let mut hdr = [0u8; 2048];
+    let n = source
+        .read_at(window.offset, &mut hdr)
+        .map_err(|e| DiskError::Source(e.to_string()))?;
+    // APFS container superblock: nx_superblock_t.nx_magic "NXSB" at offset 32.
+    if n >= 36 && &hdr[32..36] == b"NXSB" {
+        return Ok(Some("APFS"));
+    }
+    // HFS+/HFSX volume header: signature "H+"/"HX" at offset 1024.
+    if n >= 1026 && (&hdr[1024..1026] == b"H+" || &hdr[1024..1026] == b"HX") {
+        return Ok(Some("HFS+"));
+    }
+    // ext2/3/4 superblock: s_magic 0xEF53 (LE) at offset 1024 + 56 = 1080.
+    if n >= 1082 && hdr[1080] == 0x53 && hdr[1081] == 0xEF {
+        return Ok(Some("ext"));
+    }
+    Ok(None)
 }
 
 /// The standard high-value Windows triage artifacts, by NTFS path.
@@ -224,7 +274,20 @@ pub fn collect_with_caps(
     caps: ExtractCaps,
 ) -> Result<ExtractOutcome, DiskError> {
     let mut acc = Accumulator::new(caps);
-    for window in find_ntfs_partitions(source)? {
+    let (ntfs_windows, unsupported) = classify_partitions(source)?;
+    // A disk with NO NTFS volume but a recognized non-NTFS filesystem produces
+    // zero artifacts — record that LOUDLY so the empty result is distinguishable
+    // from a clean image (the Big Sur "✔ 0 events" gap). Skipped when NTFS
+    // partitions exist, since APFS/ext/HFS companions on a Windows disk are noise.
+    if ntfs_windows.is_empty() {
+        for (filesystem, offset) in unsupported {
+            acc.record(ExtractionLimit::UnsupportedFilesystem {
+                filesystem: filesystem.to_string(),
+                offset,
+            });
+        }
+    }
+    for window in ntfs_windows {
         if acc.global_full() {
             // The global cap is exhausted with partitions still unread — a
             // bounded partial, recorded loudly rather than returned as a silent
