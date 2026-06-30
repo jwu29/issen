@@ -31,6 +31,8 @@ issen report case.duckdb --format text
 
 One command takes a raw acquisition to a correlated attack narrative. No Python env, no dependency hell — one static binary.
 
+**Resumable by default.** Ingest fingerprints each artifact by content, so re-running re-parses only what changed — a crash, an added source, or a repeated run picks up where it stopped instead of redoing the whole case. An unchanged warm re-ingest drops from **7.36 s to 0.20 s** (~37×): the second pass reads nothing it already has.
+
 ---
 
 ## How it works
