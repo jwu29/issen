@@ -194,9 +194,18 @@ pub fn run(
     // of which parse finishes first. Cross-source events differ in
     // evidence_source_id (hence record_hash), so the timeline sort is stable
     // across runs no matter the commit interleaving.
-    let max_par = std::thread::available_parallelism()
-        .map(|n| n.get().saturating_sub(2).max(1))
-        .unwrap_or(1);
+    // ISSEN_INGEST_MAX_PAR caps source-level ingest concurrency (>=1). Useful on
+    // RAM-constrained hosts (each in-flight source holds its extracted artifacts)
+    // and to measure serial-vs-parallel ingest. Default: cores - 2 (min 1).
+    let max_par = std::env::var("ISSEN_INGEST_MAX_PAR")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|&n| n >= 1)
+        .unwrap_or_else(|| {
+            std::thread::available_parallelism()
+                .map(|n| n.get().saturating_sub(2).max(1))
+                .unwrap_or(1)
+        });
     let num_sources = sources.len();
     let parsed = crate::parallel_sources::parse_sources_parallel(&sources, max_par, |i, src| {
         let setup = &setups[i];
