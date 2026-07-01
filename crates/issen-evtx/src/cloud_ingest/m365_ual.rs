@@ -67,29 +67,14 @@ pub fn parse_m365_ual(json: &str) -> Vec<EvtxEvent> {
         .collect()
 }
 
-#[allow(clippy::map_identity, clippy::unnecessary_lazy_evaluations)] // pre-existing convoluted parse chain whose `?` short-circuit is load-bearing
 fn parse_iso8601_ns(s: &str) -> Option<i64> {
-    chrono::DateTime::parse_from_rfc3339(s)
-        .or_else(|_| {
-            let with_z = format!("{s}Z");
-            chrono::DateTime::parse_from_rfc3339(&with_z)
-        })
-        .or_else(|_| chrono::DateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S"))
-        .ok()?
-        .timestamp_nanos_opt()
-        .map(|n| n)
-        .map(|_| ())
-        .and_then(|()| {
-            // Re-parse to get timestamp_nanos
-            None::<()>
-        });
-
-    // Simpler: parse with naive then assume UTC
-    if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S") {
-        return dt.and_utc().timestamp_nanos_opt();
+    // Parse a bare civil datetime (no offset) and assume UTC.
+    if let Ok(dt) = jiff::civil::DateTime::strptime("%Y-%m-%dT%H:%M:%S", s) {
+        let ts = dt.to_zoned(jiff::tz::TimeZone::UTC).ok()?.timestamp();
+        return i64::try_from(ts.as_nanosecond()).ok();
     }
-    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
-        return dt.timestamp_nanos_opt();
+    if let Ok(ts) = s.parse::<jiff::Timestamp>() {
+        return i64::try_from(ts.as_nanosecond()).ok();
     }
     None
 }

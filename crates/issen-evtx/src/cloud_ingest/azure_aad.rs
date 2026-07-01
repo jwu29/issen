@@ -56,11 +56,12 @@ pub fn parse_azure_aad_signin(json: &str) -> Vec<EvtxEvent> {
 }
 
 fn parse_iso8601_ns(s: &str) -> Option<i64> {
-    // Try chrono parse
-    let dt = chrono::DateTime::parse_from_rfc3339(s)
-        .or_else(|_| chrono::DateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%SZ"))
-        .ok()?;
-    dt.timestamp_nanos_opt()
+    if let Ok(ts) = s.parse::<jiff::Timestamp>() {
+        return i64::try_from(ts.as_nanosecond()).ok();
+    }
+    let dt = jiff::civil::DateTime::strptime("%Y-%m-%dT%H:%M:%SZ", s).ok()?;
+    let ts = dt.to_zoned(jiff::tz::TimeZone::UTC).ok()?.timestamp();
+    i64::try_from(ts.as_nanosecond()).ok()
 }
 
 #[cfg(test)]

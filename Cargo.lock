@@ -4686,10 +4686,10 @@ name = "issen-evtx"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "chrono",
  "evtx",
  "forensicnomicon",
  "issen-core",
+ "jiff",
  "rusqlite",
  "schemars",
  "serde",

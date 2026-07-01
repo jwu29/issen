@@ -126,9 +126,11 @@ pub fn extract_process_events(path: &Path) -> Vec<ProcessEvent> {
 ///
 /// `ProcessExecution` does not carry `LogonId`; the field is set to `None`.
 fn execution_to_process_event(pe: winevt_extract::ProcessExecution) -> ProcessEvent {
-    let timestamp_ns = chrono::DateTime::parse_from_rfc3339(&pe.timestamp)
+    let timestamp_ns = pe
+        .timestamp
+        .parse::<jiff::Timestamp>()
         .ok()
-        .and_then(|dt| dt.timestamp_nanos_opt())
+        .and_then(|ts| i64::try_from(ts.as_nanosecond()).ok())
         .unwrap_or(0);
     ProcessEvent {
         timestamp_ns,

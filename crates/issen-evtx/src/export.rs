@@ -3,9 +3,17 @@
 //! l2tcsv format (log2timeline legacy CSV):
 //! `date,time,timezone,MACB,source,sourcetype,type,user,host,short,desc,version,filename,inode,notes,format,extra`
 
-use chrono::DateTime;
 use serde_json::json;
 use winevt_core::EvtxEvent;
+
+/// Convert an i64 nanosecond count since the Unix epoch into a `jiff::Timestamp`.
+///
+/// Any `i64` nanosecond value is within jiff's supported range, so the fallback
+/// to the Unix epoch is unreachable in practice but keeps the conversion
+/// panic-free.
+fn timestamp_from_nanos(ns: i64) -> jiff::Timestamp {
+    jiff::Timestamp::from_nanosecond(i128::from(ns)).unwrap_or_default()
+}
 
 /// l2tcsv header line.
 pub const L2TCSV_HEADER: &str =
@@ -15,9 +23,9 @@ pub const L2TCSV_HEADER: &str =
 ///
 /// Timestamps are rendered as UTC. Empty optional fields use `-`.
 pub fn event_to_l2tcsv(event: &EvtxEvent) -> String {
-    let dt = DateTime::from_timestamp_nanos(event.timestamp_ns);
-    let date = dt.format("%m/%d/%Y").to_string();
-    let time = dt.format("%H:%M:%S").to_string();
+    let ts = timestamp_from_nanos(event.timestamp_ns);
+    let date = jiff::fmt::strtime::format("%m/%d/%Y", ts).unwrap_or_default();
+    let time = jiff::fmt::strtime::format("%H:%M:%S", ts).unwrap_or_default();
     let user = event.user_sid.as_deref().unwrap_or("-");
     let short = format!("EID {} on {}", event.event_id, event.channel);
     let desc = format!("EID {} channel:{}", event.event_id, event.channel);
@@ -49,13 +57,13 @@ pub fn events_to_l2tcsv(events: &[EvtxEvent]) -> String {
 ///
 /// Schema mirrors plaso's `data_type: windows:evtx:record`.
 pub fn event_to_jsonl(event: &EvtxEvent) -> String {
-    let dt = DateTime::from_timestamp_nanos(event.timestamp_ns);
+    let ts = timestamp_from_nanos(event.timestamp_ns);
     let obj = json!({
         "data_type": "windows:evtx:record",
         "event_identifier": event.event_id,
         "channel": event.channel,
         "computer_name": event.computer,
-        "timestamp": dt.to_rfc3339(),
+        "timestamp": ts.to_string(),
         "user_sid": event.user_sid,
         "strings": event.data,
     });
