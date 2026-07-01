@@ -14,6 +14,8 @@ path = "src/lib.rs"
 [dependencies]
 issen-core   = { workspace = true }
 issen-unpack = { workspace = true }
+# NTFS disk-triage extractor, run over the decoded AFF4 image (mirrors issen-ewf).
+issen-disk   = { workspace = true }
 inventory    = { workspace = true }
 aff4         = { workspace = true }
 zip-forensic-core = { workspace = true }

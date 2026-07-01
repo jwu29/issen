@@ -122,14 +122,13 @@ impl CollectionProvider for Aff4Provider {
     }
 
     fn open(&self, path: &Path) -> Result<CollectionManifest, RtError> {
-        // The container opens (format decodes), but no triage extractor is wired
-        // for it yet — fail loud rather than emit a silent empty timeline.
-        Aff4DataSource::open(path)?;
-        Err(RtError::UnsupportedFormat(format!(
-            "{}: image opens, but artifact extraction is not yet wired for \
-             this container (refusing to emit a silent empty timeline)",
-            self.name()
-        )))
+        // Decode the AFF4 image, then run the NTFS disk-triage extractor — pull
+        // $MFT, $UsnJrnl:$J, the .evtx logs and the registry hives off the volume
+        // into a manifest (mirrors EwfProvider). The disk layer emits a loud
+        // diagnostic when the volume is an unsupported filesystem (ADR-0008), so
+        // no container-level stopgap is needed here.
+        let source = Aff4DataSource::open(path)?;
+        Ok(issen_disk::triage_manifest(&source, self.name())?)
     }
 }
 
