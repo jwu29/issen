@@ -288,13 +288,18 @@ mod tests {
     }
 
     #[test]
-    fn aff4_provider_open_fails_loud_not_silent() {
+    fn aff4_provider_open_runs_disk_triage() {
+        // open() must run the NTFS disk triage over the AFF4 image (like EWF),
+        // returning a CollectionManifest — not the old container-level fail-loud
+        // stopgap. This fixture has no partition table, so the manifest is empty;
+        // the point is that triage RAN (the disk layer now owns fail-loud on an
+        // unsupported filesystem, per ADR-0008), not that artifacts were found.
         let img = aff4::testutil::test_aff4(&[0u8; 512]);
         let f = write_tmp(&img);
-        assert!(matches!(
-            Aff4Provider.open(f.path()),
-            Err(RtError::UnsupportedFormat(_))
-        ));
+        let manifest = Aff4Provider
+            .open(f.path())
+            .expect("disk triage should run, not fail loud");
+        assert_eq!(manifest.format_name, "AFF4");
     }
 
     #[test]
