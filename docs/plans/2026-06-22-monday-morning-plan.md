@@ -1,7 +1,7 @@
 # Monday Morning Plan — consolidated forward plan for `issen`
 
 **Status:** ACTIVE — single source of truth. Supersedes the five plans listed under
-[Superseded](#superseded-plans-archived). · **Date:** 2026-06-22 · **Author:** consolidation pass.
+[Superseded](#superseded-plans). · **Date:** 2026-06-22 · **Author:** consolidation pass.
 
 ## Executive Summary
 
@@ -251,18 +251,14 @@ crates.io is immutable+additive, so pin dependents back to the last-good version
 yank` the bad one (yank is reversible). The last-good state is always recoverable because it
 is an immutable published version + a committed lock.
 
-## Superseded plans (archived)
+## Superseded plans
 
-Moved to `docs/plans/archive/` — their live items are folded above; detailed designs are
-preserved for reference.
-
-- `2026-06-20-saturday-morning-mega-plan.md` — value-first phases shipped; open items folded here.
-- `2026-06-21-four-depth-builds-design.md` — §A/§C/§D done, §B split (B1 done, B2 → P1 above).
-- `2026-06-20-registry-driven-artifact-selector-design.md` — Stage 1 done; Stage 2/3 → P1
-  above (design retained as the detailed spec for that work).
-- `2026-06-20-stage1-selector-implementation.md` — subsumed by the selector entry.
-- `2026-06-20-parallel-ingest-design.md` — superseded by the per-unit commit model (#115;
-  `issen-fswalker/isolate.rs`, `issen-timeline/ingest.rs`); Codex verdict was revise-don't-implement.
+Their live items are folded into the backlog above; the durable "why" decisions are
+captured as ADRs in `docs/decisions/`. The detailed superseded designs
+(saturday-morning-mega-plan, four-depth-builds, registry-driven-artifact-selector,
+stage1-selector-implementation, parallel-ingest-design) live in git history —
+`git log --follow -- docs/plans/<name>.md` — per the plan-lifecycle standard (git is
+the archive; the working tree holds only the conclusion).
 
 ## Working-tree note
 

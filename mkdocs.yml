@@ -53,6 +53,17 @@ nav:
       - "DRY — Shared Crates": dry-analysis-shared-crates.md
       - CLI Front-Door Spec: cli-unified-frontdoor-spec.md
       - Remote Sources: remote-sources.md
+  - Decision Records (ADRs):
+      - Overview: decisions/README.md
+      - "0001 · Multi-repo fleet & five primitives": decisions/0001-multi-repo-fleet-five-navigation-primitives.md
+      - "0002 · forensicnomicon & report model": decisions/0002-forensicnomicon-knowledge-leaf-and-report-model.md
+      - "0003 · core reader / forensic analyzer split": decisions/0003-core-reader-forensic-analyzer-split.md
+      - "0004 · CollectionProvider for logical containers": decisions/0004-collectionprovider-for-logical-containers.md
+      - "0005 · DuckDB timeline store + Appender": decisions/0005-duckdb-timeline-store-columnar-appender.md
+      - "0006 · Pure-Rust container reading (zip-direct, zran)": decisions/0006-pure-rust-container-reading-zip-and-zran.md
+      - "0007 · Resumable ingestion (content fingerprint)": decisions/0007-resumable-ingestion-content-fingerprint.md
+      - "0008 · Fail loud on unsupported filesystem": decisions/0008-fail-loud-on-unsupported-filesystem.md
+      - "0009 · Batteries-included single static binary": decisions/0009-batteries-included-single-static-binary.md
   - Reference:
       - Validation: validation.md
       - Correlation Validation: validation-correlate.md
