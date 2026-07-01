@@ -2,11 +2,19 @@ use std::io::Write;
 
 use anyhow::Result;
 use issen_timeline::query::TimelineRow;
+use issen_timeline::temporal::{render_at, TimeRenderConfig};
 
 /// Write timeline events in CSV format.
 ///
+/// The `timestamp` column is rendered through `render_cfg` (timezone / format /
+/// calendar), matching the table and JSON views.
+///
 /// Header: timestamp,event_type,source,path,description,evidence_source
-pub fn write_csv(events: &[TimelineRow], out: &mut impl Write) -> Result<()> {
+pub fn write_csv(
+    events: &[TimelineRow],
+    render_cfg: &TimeRenderConfig,
+    out: &mut impl Write,
+) -> Result<()> {
     let mut wtr = csv::Writer::from_writer(out);
     wtr.write_record([
         "timestamp",
@@ -18,7 +26,7 @@ pub fn write_csv(events: &[TimelineRow], out: &mut impl Write) -> Result<()> {
     ])?;
     for row in events {
         wtr.write_record([
-            &row.timestamp_display,
+            &render_at(row.timestamp_ns, render_cfg),
             &row.event_type,
             &row.source,
             &row.artifact_path,
@@ -99,7 +107,7 @@ mod tests {
             r"C:\foo\bar.exe",
         )];
         let mut out = Vec::new();
-        write_csv(&events, &mut out).unwrap();
+        write_csv(&events, &TimeRenderConfig::default(), &mut out).unwrap();
         let text = String::from_utf8(out).unwrap();
         let first_line = text.lines().next().unwrap();
         assert_eq!(
@@ -116,7 +124,7 @@ mod tests {
             r"C:\foo\bar.exe",
         )];
         let mut out = Vec::new();
-        write_csv(&events, &mut out).unwrap();
+        write_csv(&events, &TimeRenderConfig::default(), &mut out).unwrap();
         let text = String::from_utf8(out).unwrap();
         let mut lines = text.lines();
         let _header = lines.next().unwrap(); // skip header

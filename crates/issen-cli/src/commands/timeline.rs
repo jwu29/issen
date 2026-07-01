@@ -1,7 +1,7 @@
 use std::io;
 use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use issen_core::timeline::event::TimelineEvent;
 use issen_correlation::temporal_rule::{
     bundled_temporal_rules, evaluate_temporal, TemporalFinding,
@@ -9,8 +9,44 @@ use issen_correlation::temporal_rule::{
 use issen_timeline::findings;
 use issen_timeline::query::{TimelineQuery, TimelineRow};
 use issen_timeline::store::TimelineStore;
+use issen_timeline::temporal::{render_at, Calendar, TimeRenderConfig};
+use timeglyph::RenderZone;
 
 use super::timeline_format;
+
+/// Build a [`TimeRenderConfig`] from the CLI time-rendering flags.
+///
+/// Extracted so the flag→config translation is unit-testable without spawning
+/// the CLI. Fails loud on an unknown timezone or an unrecognized calendar —
+/// never a silent UTC / civil fallback.
+///
+/// - `tz`: `--timezone` spec (`""`/`"UTC"`/`"Z"` → UTC, `"+08:00"` → fixed
+///   offset, `"America/New_York"` → IANA). An unknown zone is an error.
+/// - `fmt`: optional `--time-format` jiff strftime pattern (`None` → RFC 3339).
+/// - `calendar`: `"civil"` or `"lunisolar"`.
+/// - `lon`: observer longitude east; only meaningful with `lunisolar`.
+pub fn build_render_config(
+    tz: &str,
+    fmt: Option<&str>,
+    calendar: &str,
+    lon: Option<f64>,
+) -> Result<TimeRenderConfig> {
+    let zone = RenderZone::parse(tz).map_err(|e| anyhow!("invalid --timezone {tz:?}: {e}"))?;
+    let calendar = match calendar {
+        "civil" => Calendar::Civil,
+        "lunisolar" => Calendar::Lunisolar(lon),
+        other => {
+            return Err(anyhow!(
+                "invalid --calendar {other:?}: expected 'civil' or 'lunisolar'"
+            ))
+        }
+    };
+    Ok(TimeRenderConfig {
+        zone,
+        format: fmt.map(str::to_string),
+        calendar,
+    })
+}
 
 /// Run the timeline command: query events, show findings, or export.
 #[allow(clippy::too_many_arguments)]
@@ -25,6 +61,7 @@ pub fn run(
     min_severity: &str,
     format: &str,
     narrative: bool,
+    render_cfg: &TimeRenderConfig,
 ) -> Result<()> {
     let store = TimelineStore::open(db_path)
         .with_context(|| format!("Failed to open database: {}", db_path.display()))?;
@@ -69,7 +106,7 @@ pub fn run(
             .iter()
             .map(|r| {
                 serde_json::json!({
-                    "timestamp": r.timestamp_display,
+                    "timestamp": render_at(r.timestamp_ns, render_cfg),
                     "event_type": r.event_type,
                     "source": r.source,
                     "description": r.description,
@@ -83,7 +120,7 @@ pub fn run(
     if format == "csv" {
         let stdout = io::stdout();
         let mut out = stdout.lock();
-        timeline_format::write_csv(&rows, &mut out).context("CSV export failed")?;
+        timeline_format::write_csv(&rows, render_cfg, &mut out).context("CSV export failed")?;
         return Ok(());
     }
 
@@ -107,7 +144,7 @@ pub fn run(
     println!("{}", "-".repeat(80));
 
     for row in &rows {
-        print_row(row);
+        print_row(row, render_cfg);
     }
 
     println!("\n{} event(s) displayed.", rows.len());
@@ -248,7 +285,7 @@ fn show_flagged_json(store: &TimelineStore, rows: &[findings::FindingRow]) -> Re
     Ok(())
 }
 
-fn print_row(row: &TimelineRow) {
+fn print_row(row: &TimelineRow, render_cfg: &TimeRenderConfig) {
     // Truncate description to 40 chars for display.
     let desc = if row.description.len() > 40 {
         format!("{}...", &row.description[..37])
@@ -258,7 +295,10 @@ fn print_row(row: &TimelineRow) {
 
     println!(
         "{:<26} {:<16} {:<14} {}",
-        row.timestamp_display, row.event_type, row.source, desc
+        render_at(row.timestamp_ns, render_cfg),
+        row.event_type,
+        row.source,
+        desc
     );
 }
 
@@ -299,6 +339,71 @@ mod tests {
                 .iter()
                 .map(|f| f.rule_id.as_str())
                 .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn build_render_config_defaults_to_utc_civil() {
+        let cfg = build_render_config("", None, "civil", None).expect("default config");
+        assert!(
+            matches!(cfg.zone, RenderZone::Utc),
+            "empty --timezone must default to UTC, got {:?}",
+            cfg.zone
+        );
+        assert!(cfg.format.is_none(), "default format is RFC 3339 (None)");
+        assert!(
+            matches!(cfg.calendar, Calendar::Civil),
+            "default calendar is Civil"
+        );
+    }
+
+    #[test]
+    fn build_render_config_parses_named_zone() {
+        let cfg = build_render_config("Asia/Tokyo", None, "civil", None).expect("named zone");
+        assert!(
+            matches!(cfg.zone, RenderZone::Named(_)),
+            "Asia/Tokyo must resolve to a Named zone, got {:?}",
+            cfg.zone
+        );
+    }
+
+    #[test]
+    fn build_render_config_rejects_unknown_zone() {
+        let err = build_render_config("Mars/Olympus", None, "civil", None);
+        assert!(
+            err.is_err(),
+            "an unknown zone must be a hard error, never a silent UTC fallback"
+        );
+    }
+
+    #[test]
+    fn build_render_config_lunisolar_with_longitude() {
+        let cfg = build_render_config("Asia/Shanghai", None, "lunisolar", Some(120.0))
+            .expect("lunisolar config");
+        assert!(
+            matches!(cfg.calendar, Calendar::Lunisolar(Some(l)) if (l - 120.0).abs() < 1e-9),
+            "lunisolar + longitude must carry the observer longitude, got {:?}",
+            cfg.calendar
+        );
+    }
+
+    #[test]
+    fn build_render_config_lunisolar_without_longitude_is_meridian_only() {
+        let cfg =
+            build_render_config("Asia/Shanghai", None, "lunisolar", None).expect("meridian-only");
+        assert!(
+            matches!(cfg.calendar, Calendar::Lunisolar(None)),
+            "lunisolar with no --longitude is meridian-only, got {:?}",
+            cfg.calendar
+        );
+    }
+
+    #[test]
+    fn build_render_config_rejects_unknown_calendar() {
+        let err = build_render_config("", None, "mayan", None);
+        assert!(
+            err.is_err(),
+            "an unknown --calendar value must be a hard, named error"
         );
     }
 }

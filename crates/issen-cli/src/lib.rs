@@ -201,6 +201,32 @@ pub enum Commands {
         #[arg(long)]
         narrative: bool,
 
+        // --- Time rendering (timezone / format / calendar) ---
+        /// Output timezone: "" / "UTC" / "Z" (UTC), "+08:00" / "-05" (fixed
+        /// offset), or an IANA name ("America/New_York"). An unknown zone is a
+        /// hard error, never a silent UTC fallback.
+        #[arg(
+            long = "timezone",
+            alias = "tz",
+            value_name = "SPEC",
+            default_value = "UTC"
+        )]
+        timezone: String,
+
+        /// Optional jiff strftime pattern (e.g. "%Y-%m-%d %H:%M:%S"); default is
+        /// RFC 3339.
+        #[arg(long = "time-format", value_name = "STRFTIME")]
+        time_format: Option<String>,
+
+        /// Calendar system for rendered timestamps.
+        #[arg(long, value_name = "CAL", default_value = "civil")]
+        calendar: String,
+
+        /// Observer longitude east (degrees) for `--calendar lunisolar`
+        /// apparent-solar-time correction; meridian-only when omitted.
+        #[arg(long, value_name = "DEG")]
+        longitude: Option<f64>,
+
         // --- Tier-1 typed-query surface (design Phase 1) ---
         /// Print the curated field registry (name -> JSON path) and exit.
         #[arg(long = "list-fields")]
@@ -695,6 +721,10 @@ pub fn run() -> ExitCode {
                 min_severity,
                 format,
                 narrative,
+                timezone,
+                time_format,
+                calendar,
+                longitude,
                 list_fields,
                 path,
                 from,
@@ -866,18 +896,31 @@ pub fn run() -> ExitCode {
                         }
                         // Legacy path (export / flagged / narrative / plain listing):
                         // the typed event_type/source vecs collapse to their first.
-                        Some(db) => commands::timeline::run(
-                            &db,
-                            event_type.first().map(String::as_str),
-                            source.first().map(String::as_str),
-                            limit,
-                            descending,
-                            export_sqlite.as_deref(),
-                            flagged,
-                            &min_severity,
-                            &format,
-                            narrative,
-                        ),
+                        Some(db) => {
+                            // Resolve the time-render config first (loud on a bad
+                            // timezone / calendar). run() -> ExitCode, so no `?`.
+                            match commands::timeline::build_render_config(
+                                &timezone,
+                                time_format.as_deref(),
+                                &calendar,
+                                longitude,
+                            ) {
+                                Err(e) => Err(e),
+                                Ok(render_cfg) => commands::timeline::run(
+                                    &db,
+                                    event_type.first().map(String::as_str),
+                                    source.first().map(String::as_str),
+                                    limit,
+                                    descending,
+                                    export_sqlite.as_deref(),
+                                    flagged,
+                                    &min_severity,
+                                    &format,
+                                    narrative,
+                                    &render_cfg,
+                                ),
+                            }
+                        }
                     }
                 }
             }
