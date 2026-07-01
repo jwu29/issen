@@ -4886,9 +4886,9 @@ name = "issen-parser-linux"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "chrono",
  "inventory",
  "issen-core",
+ "jiff",
  "serde_json",
  "tempfile",
 ]

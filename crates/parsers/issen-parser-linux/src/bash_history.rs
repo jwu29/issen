@@ -2,19 +2,16 @@
 
 use std::path::Path;
 
-use chrono::Utc;
 use issen_core::artifacts::ArtifactType;
 use issen_core::timeline::event::{EventType, TimelineEvent};
 
 fn ts_display(timestamp_ns: i64) -> String {
     if timestamp_ns != 0 {
         let secs = timestamp_ns / 1_000_000_000;
-        #[allow(clippy::cast_sign_loss)]
-        let nanos = (timestamp_ns % 1_000_000_000) as u32;
-        chrono::DateTime::from_timestamp(secs, nanos).map_or_else(
-            || timestamp_ns.to_string(),
-            |dt: chrono::DateTime<Utc>| dt.to_rfc3339(),
-        )
+        #[allow(clippy::cast_possible_truncation)]
+        let nanos = (timestamp_ns % 1_000_000_000) as i32;
+        jiff::Timestamp::new(secs, nanos)
+            .map_or_else(|_| timestamp_ns.to_string(), |ts| ts.to_string())
     } else {
         "1970-01-01T00:00:00Z".to_string()
     }

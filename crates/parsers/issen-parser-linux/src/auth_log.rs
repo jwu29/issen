@@ -3,16 +3,26 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use chrono::{Datelike, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
 use issen_core::artifacts::ArtifactType;
 use issen_core::timeline::event::{EventType, TimelineEvent};
+
+/// Current calendar year in UTC (the default `year_hint` for syslog-style
+/// timestamps that carry no year field). Returns 1970 only if the current
+/// instant is outside jiff's civil range, which cannot happen for `now()`.
+pub(crate) fn current_utc_year() -> i32 {
+    i32::from(
+        jiff::Timestamp::now()
+            .to_zoned(jiff::tz::TimeZone::UTC)
+            .year(),
+    )
+}
 
 /// Parse the `"Apr 15 10:23:01"` prefix common to syslog-format files.
 /// Returns nanoseconds since the Unix epoch, or 0 on any parse failure.
 ///
 /// `year_hint` is the calendar year to use when no year appears in the log
 /// line. If the resulting timestamp is more than 30 days in the future
-/// relative to `Utc::now()`, the function subtracts one year and retries
+/// relative to `current_utc_year`, the function subtracts one year and retries
 /// (handles December logs read in January).
 pub(crate) fn parse_syslog_ts(month: &str, day: &str, time: &str, year_hint: i32) -> i64 {
     let month_num = match month {
@@ -44,20 +54,28 @@ pub(crate) fn parse_syslog_ts(month: &str, day: &str, time: &str, year_hint: i32
     if hour > 23 || min > 59 || sec > 59 {
         return 0;
     }
-    let Some(date) = NaiveDate::from_ymd_opt(year_hint, month_num, day_num) else {
+    let (Ok(year_i), Ok(month_i), Ok(day_i), Ok(hour_i), Ok(min_i), Ok(sec_i)) = (
+        i16::try_from(year_hint),
+        i8::try_from(month_num),
+        i8::try_from(day_num),
+        i8::try_from(hour),
+        i8::try_from(min),
+        i8::try_from(sec),
+    ) else {
         return 0;
     };
-    let Some(time_of_day) = NaiveTime::from_hms_opt(hour, min, sec) else {
+    let Ok(dt) = jiff::civil::DateTime::new(year_i, month_i, day_i, hour_i, min_i, sec_i, 0) else {
         return 0;
     };
-    let dt = NaiveDateTime::new(date, time_of_day);
-    let result_ns = match Utc.from_local_datetime(&dt).single() {
-        Some(utc_dt) => utc_dt.timestamp_nanos_opt().unwrap_or(0),
-        None => return 0,
+    let Ok(zoned) = dt.to_zoned(jiff::tz::TimeZone::UTC) else {
+        return 0;
+    };
+    let Ok(result_ns) = i64::try_from(zoned.timestamp().as_nanosecond()) else {
+        return 0;
     };
     // Year-boundary rollback: if result is more than 30 days in the future,
     // subtract one year and retry (handles Dec logs read in Jan).
-    let now_ns = Utc::now().timestamp_nanos_opt().unwrap_or(0);
+    let now_ns = i64::try_from(jiff::Timestamp::now().as_nanosecond()).unwrap_or(i64::MAX);
     let thirty_days_ns = 30_i64 * 86_400 * 1_000_000_000;
     if result_ns > now_ns + thirty_days_ns && year_hint > 1970 {
         return parse_syslog_ts(month, day, time, year_hint - 1);
@@ -68,12 +86,10 @@ pub(crate) fn parse_syslog_ts(month: &str, day: &str, time: &str, year_hint: i32
 fn ts_display(timestamp_ns: i64) -> String {
     if timestamp_ns != 0 {
         let secs = timestamp_ns / 1_000_000_000;
-        #[allow(clippy::cast_sign_loss)]
-        let nanos = (timestamp_ns % 1_000_000_000) as u32;
-        chrono::DateTime::from_timestamp(secs, nanos).map_or_else(
-            || timestamp_ns.to_string(),
-            |dt: chrono::DateTime<Utc>| dt.to_rfc3339(),
-        )
+        #[allow(clippy::cast_possible_truncation)]
+        let nanos = (timestamp_ns % 1_000_000_000) as i32;
+        jiff::Timestamp::new(secs, nanos)
+            .map_or_else(|_| timestamp_ns.to_string(), |ts| ts.to_string())
     } else {
         "1970-01-01T00:00:00Z".to_string()
     }
@@ -148,7 +164,7 @@ pub fn parse_auth_log_str(
     artifact_path: &str,
     year_hint: Option<i32>,
 ) -> Vec<TimelineEvent> {
-    let year = year_hint.unwrap_or_else(|| Utc::now().year());
+    let year = year_hint.unwrap_or_else(current_utc_year);
     let path_str = artifact_path.to_string();
     let mut events = Vec::new();
 

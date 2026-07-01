@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use chrono::{Datelike, Utc};
+use crate::auth_log::current_utc_year;
 use issen_core::artifacts::ArtifactType;
 use issen_core::timeline::event::{EventType, TimelineEvent};
 
@@ -12,12 +12,10 @@ use crate::auth_log::parse_syslog_ts;
 fn ts_display(timestamp_ns: i64) -> String {
     if timestamp_ns != 0 {
         let secs = timestamp_ns / 1_000_000_000;
-        #[allow(clippy::cast_sign_loss)]
-        let nanos = (timestamp_ns % 1_000_000_000) as u32;
-        chrono::DateTime::from_timestamp(secs, nanos).map_or_else(
-            || timestamp_ns.to_string(),
-            |dt: chrono::DateTime<Utc>| dt.to_rfc3339(),
-        )
+        #[allow(clippy::cast_possible_truncation)]
+        let nanos = (timestamp_ns % 1_000_000_000) as i32;
+        jiff::Timestamp::new(secs, nanos)
+            .map_or_else(|_| timestamp_ns.to_string(), |ts| ts.to_string())
     } else {
         "1970-01-01T00:00:00Z".to_string()
     }
@@ -78,7 +76,7 @@ pub fn parse_syslog(path: &Path, source_id: &str) -> anyhow::Result<Vec<Timeline
         let proc_field = parts[4]; // "systemd[1]:" or "kernel:"
         let msg = parts[5];
 
-        let timestamp_ns = parse_syslog_ts(month, day, time, Utc::now().year());
+        let timestamp_ns = parse_syslog_ts(month, day, time, current_utc_year());
 
         // Extract process name and optional PID
         let (process, pid) = parse_proc_field(proc_field);

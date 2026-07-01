@@ -11,7 +11,7 @@
 
 use std::collections::HashMap;
 
-use chrono::{Datelike, Utc};
+use crate::auth_log::current_utc_year;
 use issen_core::artifacts::ArtifactType;
 use issen_core::timeline::event::{EventType, TimelineEvent};
 
@@ -20,12 +20,10 @@ use crate::auth_log::parse_syslog_ts;
 fn ts_display(timestamp_ns: i64) -> String {
     if timestamp_ns != 0 {
         let secs = timestamp_ns / 1_000_000_000;
-        #[allow(clippy::cast_sign_loss)]
-        let nanos = (timestamp_ns % 1_000_000_000) as u32;
-        chrono::DateTime::from_timestamp(secs, nanos).map_or_else(
-            || timestamp_ns.to_string(),
-            |dt: chrono::DateTime<chrono::Utc>| dt.to_rfc3339(),
-        )
+        #[allow(clippy::cast_possible_truncation)]
+        let nanos = (timestamp_ns % 1_000_000_000) as i32;
+        jiff::Timestamp::new(secs, nanos)
+            .map_or_else(|_| timestamp_ns.to_string(), |ts| ts.to_string())
     } else {
         "1970-01-01T00:00:00Z".to_string()
     }
@@ -100,7 +98,7 @@ pub fn parse_boot_log(
     source_id: &str,
     year_hint: Option<i32>,
 ) -> Vec<TimelineEvent> {
-    let year = year_hint.unwrap_or_else(|| Utc::now().year());
+    let year = year_hint.unwrap_or_else(current_utc_year);
     let mut events = Vec::new();
 
     for line in content.lines() {
