@@ -5403,6 +5403,7 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "thiserror 2.0.18",
+ "timeglyph",
  "tracing",
 ]
 
@@ -10350,6 +10351,21 @@ checksum = "dcef1a61bdb119096e153208ec5cbec23944ce8bca13be5c7f60c634f7403935"
 dependencies = [
  "num-conv",
  "time-core",
+]
+
+[[package]]
+name = "timeglyph"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9034ae17e87cc1d09dd1da2c7e220d18daa7cca7bdec9dc83bc52dc6804efb95"
+dependencies = [
+ "clap",
+ "csv",
+ "hex",
+ "jiff",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

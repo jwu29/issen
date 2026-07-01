@@ -126,6 +126,16 @@ pub fn filetime_to_utc_ns(filetime: u64) -> Option<i64> {
     i64::try_from(unix_100ns.checked_mul(100)?).ok()
 }
 
+/// Decode a raw integer timestamp in the named format (a [`timeglyph`] format
+/// id — e.g. `"filetime"`, `"webkit"`, `"cocoa"`, `"hfsplus"`) to Unix
+/// nanoseconds, via the spec-cited timeglyph format registry. `None` if the id
+/// is unknown or the value is out of the representable range.
+#[must_use]
+pub fn decode(format_id: &str, value: i64) -> Option<i64> {
+    let _ = (format_id, value);
+    None // GREEN: delegate to timeglyph::format(id).decode_int(value)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -261,6 +271,19 @@ mod tests {
         let expected_ns: i64 = 1_700_000_000_000_000_000;
 
         assert_eq!(filetime_to_utc_ns(filetime), Some(expected_ns));
+    }
+
+    #[test]
+    fn decode_dispatches_multi_format_via_timeglyph() {
+        // filetime: must agree with the hand-rolled central helper on a normal value.
+        let ft: i64 = 133_444_736_000_000_000;
+        assert_eq!(decode("filetime", ft), filetime_to_utc_ns(ft as u64));
+        // cocoa: 0 == 2001-01-01T00:00:00Z == 978_307_200 s since the Unix epoch.
+        assert_eq!(decode("cocoa", 0), Some(978_307_200_000_000_000));
+        // webkit (Chrome, µs since 1601): the Unix epoch is 11_644_473_600_000_000 µs.
+        assert_eq!(decode("webkit", 11_644_473_600_000_000), Some(0));
+        // unknown format id → None (never a silent wrong answer).
+        assert_eq!(decode("not_a_format", 0), None);
     }
 
     #[test]
