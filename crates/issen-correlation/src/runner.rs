@@ -501,8 +501,9 @@ fn run_lateral_move<E: EventView>(events: &[E]) -> Vec<Correlation> {
 /// invalid, or non-IPv4). Wraps `forensicnomicon::cloud_ranges` for issen's
 /// string-typed `EntityRef::Ip`. RED stub; replaced by the GREEN implementation.
 fn classify_destination(ip: &str) -> Option<forensicnomicon::cloud_ranges::CloudProvider> {
-    let _ = ip;
-    None
+    ip.parse::<std::net::Ipv4Addr>()
+        .ok()
+        .and_then(forensicnomicon::cloud_ranges::classify_ipv4)
 }
 
 /// `NET-BEACON-PERIODIC`: repeated connections to one destination IP at a regular
@@ -549,12 +550,16 @@ fn run_beaconing<E: EventView>(events: &[E]) -> Vec<Correlation> {
         };
         let first = ts_sorted.first().copied().unwrap_or(0);
         let last = ts_sorted.last().copied().unwrap_or(0);
+        let dst = match classify_destination(&ip) {
+            Some(p) => format!("hosted in {} address space", p.as_str()),
+            None => "an unknown destination (not a known cloud/CDN range)".to_string(),
+        };
         let mut corr = Correlation::new("NET-BEACON-PERIODIC", Severity::Medium)
             .with_attack_technique("T1071")
             .with_scope(CorrelationScope::SameHost)
             .with_window(first, last)
             .with_note(format!(
-                "{} connections to {ip} at a regular ~{:.0}s cadence                  (interval CoV {:.2}) — consistent with automated C2 beaconing;                  benign periodic traffic (update checks, telemetry) also fits",
+                "{} connections to {ip} ({dst}) at a regular ~{:.0}s cadence                  (interval CoV {:.2}) — consistent with automated C2 beaconing;                  benign periodic traffic (update checks, telemetry) also fits",
                 a.occurrences, a.mean_interval_seconds, a.coefficient_of_variation
             ));
         for (_, id) in &conns {
@@ -694,8 +699,8 @@ mod tests {
     fn classify_destination_known_aws_ip() {
         // 1.178.1.0 is in the committed AWS snapshot.
         assert_eq!(
-            classify_destination("1.178.1.0").map(|p| p.as_str()),
-            Some("aws")
+            classify_destination("1.178.1.0"),
+            Some(forensicnomicon::cloud_ranges::CloudProvider::Aws)
         );
     }
 
