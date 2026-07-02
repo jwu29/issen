@@ -36,7 +36,6 @@
     clippy::manual_contains,
     clippy::unnecessary_literal_bound
 )]
-use chrono::DateTime;
 use issen_core::artifacts::ArtifactType;
 use issen_core::classify;
 use issen_core::error::RtError;
@@ -185,11 +184,11 @@ impl UsnRecordV2 {
     #[must_use]
     pub fn filetime_to_display(filetime: i64) -> String {
         let unix_ns = Self::filetime_to_unix_ns(filetime);
-        let secs = unix_ns / 1_000_000_000;
-        let nsecs = (unix_ns % 1_000_000_000).unsigned_abs() as u32;
-        match DateTime::from_timestamp(secs, nsecs) {
-            Some(dt) => dt.format("%Y-%m-%dT%H:%M:%S%.9fZ").to_string(),
-            None => format!("INVALID_FILETIME({filetime})"),
+        let invalid = || format!("INVALID_FILETIME({filetime})");
+        match jiff::Timestamp::from_nanosecond(i128::from(unix_ns)) {
+            Ok(ts) => jiff::fmt::strtime::format("%Y-%m-%dT%H:%M:%S%.9fZ", ts)
+                .unwrap_or_else(|_| invalid()),
+            Err(_) => invalid(),
         }
     }
 

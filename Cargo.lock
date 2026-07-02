@@ -5148,10 +5148,10 @@ name = "issen-parser-typedurls"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "chrono",
  "inventory",
  "issen-core",
  "issen-plugin-sdk",
+ "jiff",
  "serde_json",
  "tempfile",
  "winreg-artifacts",
@@ -5181,10 +5181,10 @@ name = "issen-parser-userassist"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "chrono",
  "inventory",
  "issen-core",
  "issen-plugin-sdk",
+ "jiff",
  "serde_json",
  "tempfile",
  "winreg-artifacts",
@@ -5195,10 +5195,10 @@ dependencies = [
 name = "issen-parser-usnjrnl"
 version = "0.1.0"
 dependencies = [
- "chrono",
  "insta",
  "inventory",
  "issen-core",
+ "jiff",
  "serde_json",
  "tempfile",
  "timeglyph",
@@ -5298,11 +5298,11 @@ dependencies = [
 name = "issen-remote-access"
 version = "0.1.0"
 dependencies = [
- "chrono",
  "duckdb",
  "glob",
  "issen-core",
  "issen-timeline",
+ "jiff",
  "quick-xml 0.37.5",
  "serde",
  "serde_json",
@@ -5333,12 +5333,12 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
- "chrono",
  "duckdb",
  "forensicnomicon",
  "issen-core",
  "issen-correlation",
  "issen-timeline",
+ "jiff",
  "printpdf",
  "reqwest",
  "serde",
@@ -5384,7 +5384,6 @@ dependencies = [
 name = "issen-timeline"
 version = "0.1.0"
 dependencies = [
- "chrono",
  "duckdb",
  "forensicnomicon",
  "hex",

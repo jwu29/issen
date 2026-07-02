@@ -25,7 +25,6 @@
 
 use std::path::Path;
 
-use chrono::{DateTime, Utc};
 use issen_core::artifacts::ArtifactType;
 use issen_core::classify;
 use issen_core::plugin::registry::ParserRegistration;
@@ -44,10 +43,9 @@ use issen_core::timeline::event::{EventType, TimelineEvent};
 /// the Unix epoch. Returns `None` if the string is unparseable.
 #[must_use]
 pub fn iso8601_to_ns(s: &str) -> Option<i64> {
-    DateTime::parse_from_rfc3339(s)
+    s.parse::<jiff::Timestamp>()
         .ok()
-        .map(|dt| dt.with_timezone(&Utc))
-        .and_then(|dt| dt.timestamp_nanos_opt())
+        .and_then(|ts| i64::try_from(ts.as_nanosecond()).ok())
 }
 
 // ---------------------------------------------------------------------------

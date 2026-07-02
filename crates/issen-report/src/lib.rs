@@ -31,7 +31,6 @@ pub use mermaid::{
     AttackTactic, DefenseCategory, DefenseInput, DefenseItem,
 };
 
-use chrono::{TimeZone, Utc};
 use forensicnomicon::report::Severity;
 use issen_correlation::correlation::Correlation;
 
@@ -200,7 +199,9 @@ pub fn collect_report_data(
     config: ReportConfig,
 ) -> Result<ReportData, ReportError> {
     let conn = store.connection();
-    let generated_at = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    let now_ts = jiff::Timestamp::now();
+    let generated_at = jiff::fmt::strtime::format("%Y-%m-%dT%H:%M:%SZ", now_ts)
+        .unwrap_or_else(|_| now_ts.to_string());
 
     // --- Total event count ---------------------------------------------------
     let total_events: u64 = {
@@ -510,10 +511,10 @@ fn severity_from_finding_str(s: &str) -> Option<Severity> {
 fn format_ns(ns: i64) -> String {
     let secs = ns.div_euclid(1_000_000_000);
     let nanos = ns.rem_euclid(1_000_000_000);
-    Utc.timestamp_opt(secs, nanos as u32).single().map_or_else(
-        || format!("ns:{ns}"),
-        |dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
-    )
+    jiff::Timestamp::new(secs, nanos as i32)
+        .ok()
+        .and_then(|ts| jiff::fmt::strtime::format("%Y-%m-%dT%H:%M:%SZ", ts).ok())
+        .unwrap_or_else(|| format!("ns:{ns}"))
 }
 
 /// Map a MITRE technique id (e.g. `T1543.003`, `T1110`) to the kill-chain

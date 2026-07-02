@@ -2,7 +2,6 @@
 
 use std::path::Path;
 
-use chrono::SecondsFormat;
 use issen_correlation::model::Finding;
 use serde_json::json;
 use uuid::Uuid;
@@ -32,7 +31,9 @@ pub fn findings_to_stix_bundle(
     title: &str,
     _author: Option<&str>,
 ) -> StixBundle {
-    let now = chrono::Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
+    let now_ts = jiff::Timestamp::now();
+    let now = jiff::fmt::strtime::format("%Y-%m-%dT%H:%M:%S.%3fZ", now_ts)
+        .unwrap_or_else(|_| now_ts.to_string());
 
     // Static extension-definition object (always the same).
     let ext_def = json!({

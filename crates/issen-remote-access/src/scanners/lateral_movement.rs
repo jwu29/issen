@@ -118,9 +118,11 @@ impl LateralMovementScanner {
         let mut ntlm_hits: Vec<RawArtifactHit> = Vec::new();
 
         for ev in &events {
-            let ts_nanos = chrono::DateTime::parse_from_rfc3339(&ev.timestamp)
+            let ts_nanos = ev
+                .timestamp
+                .parse::<jiff::Timestamp>()
                 .ok()
-                .map(|dt| dt.timestamp_nanos_opt().unwrap_or(0));
+                .map(|ts| i64::try_from(ts.as_nanosecond()).unwrap_or(0));
 
             match ev.event_id {
                 4648 => {
