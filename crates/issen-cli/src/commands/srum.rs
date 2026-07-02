@@ -75,7 +75,7 @@ pub fn run(path: &Path, format: &str) -> anyhow::Result<()> {
                     r.user_id,
                     r.bytes_sent,
                     r.bytes_recv,
-                    r.timestamp.to_rfc3339(),
+                    r.timestamp.to_string(),
                 );
             }
             println!();
@@ -95,7 +95,7 @@ pub fn run(path: &Path, format: &str) -> anyhow::Result<()> {
                     r.user_id,
                     r.foreground_cycles,
                     r.background_cycles,
-                    r.timestamp.to_rfc3339(),
+                    r.timestamp.to_string(),
                 );
             }
         }

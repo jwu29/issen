@@ -319,7 +319,7 @@ fn push_ntfs_timestamps(
 
 /// Convert USN journal records into timeline events.
 ///
-/// Each record produces one event. The `DateTime<Utc>` timestamp is converted
+/// Each record produces one event. The record timestamp is converted
 /// directly to Unix epoch seconds.
 #[must_use]
 pub fn usn_to_events(records: &[UsnRecord]) -> Vec<TimelineEvent> {

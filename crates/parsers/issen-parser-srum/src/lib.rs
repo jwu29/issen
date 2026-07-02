@@ -14,7 +14,7 @@
     clippy::must_use_candidate
 )]
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use issen_core::artifacts::ArtifactType;
 use issen_core::classify;
 use issen_core::error::RtError;
@@ -157,8 +157,8 @@ struct EnergyAgg {
     occurrences: u64,
     total_energy: u64,
     last_charge: u64,
-    first: Option<DateTime<Utc>>,
-    last: Option<DateTime<Utc>>,
+    first: Option<Timestamp>,
+    last: Option<Timestamp>,
 }
 
 /// Aggregate SRUM energy rows per app into one `Execution` event each (an app
@@ -190,8 +190,8 @@ fn energy_aggregate_events(
                 .clone()
                 .unwrap_or_else(|| format!("app_id={app_id}"));
             let mut event = TimelineEvent::new(
-                last.timestamp_nanos_opt().unwrap_or(0),
-                last.to_rfc3339(),
+                i64::try_from(last.as_nanosecond()).unwrap_or(0),
+                last.to_string(),
                 EventType::Other(kind.to_string()),
                 ArtifactType::Srum,
                 evidence_source.to_string(),
@@ -208,9 +208,9 @@ fn energy_aggregate_events(
             .with_metadata("app_id", serde_json::json!(app_id))
             .with_metadata(
                 "first_seen",
-                serde_json::json!(agg.first.map(|t| t.to_rfc3339())),
+                serde_json::json!(agg.first.map(|t| t.to_string())),
             )
-            .with_metadata("last_seen", serde_json::json!(last.to_rfc3339()));
+            .with_metadata("last_seen", serde_json::json!(last.to_string()));
             if let Some(name) = &app_name {
                 event = event.with_metadata("app_name", serde_json::json!(name));
             }
@@ -226,8 +226,8 @@ struct PushAgg {
     occurrences: u64,
     total_count: u64,
     total_fg_cycle: u64,
-    first: Option<DateTime<Utc>>,
-    last: Option<DateTime<Utc>>,
+    first: Option<Timestamp>,
+    last: Option<Timestamp>,
 }
 
 /// Aggregate SRUM PushNotifications per app into one `NetworkActivity` event each,
@@ -256,8 +256,8 @@ fn push_aggregate_events(
                 .clone()
                 .unwrap_or_else(|| format!("app_id={app_id}"));
             let mut event = TimelineEvent::new(
-                last.timestamp_nanos_opt().unwrap_or(0),
-                last.to_rfc3339(),
+                i64::try_from(last.as_nanosecond()).unwrap_or(0),
+                last.to_string(),
                 EventType::Other("PushNotifications".into()),
                 ArtifactType::Srum,
                 evidence_source.to_string(),
@@ -277,9 +277,9 @@ fn push_aggregate_events(
             .with_metadata("app_id", serde_json::json!(app_id))
             .with_metadata(
                 "first_seen",
-                serde_json::json!(agg.first.map(|t| t.to_rfc3339())),
+                serde_json::json!(agg.first.map(|t| t.to_string())),
             )
-            .with_metadata("last_seen", serde_json::json!(last.to_rfc3339()));
+            .with_metadata("last_seen", serde_json::json!(last.to_string()));
             if let Some(name) = &app_name {
                 event = event.with_metadata("app_name", serde_json::json!(name));
             }
@@ -305,8 +305,8 @@ fn energy_per_row_events(
                 .clone()
                 .unwrap_or_else(|| format!("app_id={}", record.app_id));
             let mut event = TimelineEvent::new(
-                record.timestamp.timestamp_nanos_opt().unwrap_or(0),
-                record.timestamp.to_rfc3339(),
+                i64::try_from(record.timestamp.as_nanosecond()).unwrap_or(0),
+                record.timestamp.to_string(),
                 EventType::Other(kind.to_string()),
                 ArtifactType::Srum,
                 evidence_source.to_string(),
@@ -344,8 +344,8 @@ fn push_per_row_events(
                 .clone()
                 .unwrap_or_else(|| format!("app_id={}", record.app_id));
             let mut event = TimelineEvent::new(
-                record.timestamp.timestamp_nanos_opt().unwrap_or(0),
-                record.timestamp.to_rfc3339(),
+                i64::try_from(record.timestamp.as_nanosecond()).unwrap_or(0),
+                record.timestamp.to_string(),
                 EventType::Other("PushNotifications".into()),
                 ArtifactType::Srum,
                 evidence_source.to_string(),
@@ -387,8 +387,8 @@ fn network_usage_events(
                 .clone()
                 .unwrap_or_else(|| format!("app_id={}", record.app_id));
             let mut event = TimelineEvent::new(
-                record.timestamp.timestamp_nanos_opt().unwrap_or(0),
-                record.timestamp.to_rfc3339(),
+                i64::try_from(record.timestamp.as_nanosecond()).unwrap_or(0),
+                record.timestamp.to_string(),
                 EventType::Other("NetworkBandwidth".into()),
                 ArtifactType::Srum,
                 evidence_source.to_string(),
@@ -426,8 +426,8 @@ fn app_usage_events(
                 .clone()
                 .unwrap_or_else(|| format!("app_id={}", record.app_id));
             let mut event = TimelineEvent::new(
-                record.timestamp.timestamp_nanos_opt().unwrap_or(0),
-                record.timestamp.to_rfc3339(),
+                i64::try_from(record.timestamp.as_nanosecond()).unwrap_or(0),
+                record.timestamp.to_string(),
                 EventType::ProcessExec,
                 ArtifactType::Srum,
                 evidence_source.to_string(),
@@ -465,14 +465,14 @@ fn app_timeline_events(
     records
         .into_iter()
         .map(|record| {
-            let ts_ns = record.timestamp.timestamp_nanos_opt().unwrap_or(0);
+            let ts_ns = i64::try_from(record.timestamp.as_nanosecond()).unwrap_or(0);
             let app_name = resolve_name(id_map, record.app_id);
             let app_label = app_name
                 .clone()
                 .unwrap_or_else(|| format!("app_id={}", record.app_id));
             let mut event = TimelineEvent::new(
                 ts_ns,
-                record.timestamp.to_rfc3339(),
+                record.timestamp.to_string(),
                 EventType::ProcessExec,
                 ArtifactType::Srum,
                 evidence_source.to_string(),
@@ -508,7 +508,7 @@ fn connectivity_events(
     records
         .into_iter()
         .map(|record| {
-            let ts_ns = record.timestamp.timestamp_nanos_opt().unwrap_or(0);
+            let ts_ns = i64::try_from(record.timestamp.as_nanosecond()).unwrap_or(0);
             let app_name = resolve_name(id_map, record.app_id);
             let profile_name = resolve_name(id_map, record.profile_id);
             let app_label = app_name
@@ -516,7 +516,7 @@ fn connectivity_events(
                 .unwrap_or_else(|| format!("app_id={}", record.app_id));
             let mut event = TimelineEvent::new(
                 ts_ns,
-                record.timestamp.to_rfc3339(),
+                record.timestamp.to_string(),
                 EventType::Other("NetworkConnectivity".into()),
                 ArtifactType::Srum,
                 evidence_source.to_string(),

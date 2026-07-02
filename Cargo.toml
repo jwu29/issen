@@ -174,7 +174,6 @@ tracing      = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 inventory    = "0.3"
 toml         = "0.8"
-chrono       = { version = "0.4", features = ["serde"] }
 timeglyph    = "0.3"
 jiff         = { version = "0.2", features = ["serde"] }
 bytes        = "1"
@@ -207,8 +206,8 @@ tar          = "0.4"
 sevenz-rust  = "0.6"
 
 # Forensic artifact parsers
-srum-parser      = "0.2.0"
-srum-core        = "0.1.0"
+srum-parser      = "0.3.0"
+srum-core        = "0.2.0"
 segb             = { version = "0.2", package = "segb-core" }
 segb-forensic    = "0.2"
 useract-forensic = "0.4"
@@ -272,3 +271,5 @@ cast_precision_loss = "allow"
 [patch.crates-io]
 winreg-core = { path = "/Users/4n6h4x0r/src/winreg-forensic/crates/winreg-core" }
 winreg-artifacts = { path = "/Users/4n6h4x0r/src/winreg-forensic/crates/winreg-artifacts" }
+srum-core = { path = "/Users/4n6h4x0r/src/srum-forensic/crates/srum-core" }
+srum-parser = { path = "/Users/4n6h4x0r/src/srum-forensic/crates/srum-parser" }

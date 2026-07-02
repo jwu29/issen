@@ -112,11 +112,13 @@ Used by automated tests in `rt-parser-uac` and `rt-navigator`. The small archive
 - **Google Drive folder:** <https://drive.google.com/drive/folders/1qLwXFZTZidkx1tWpG8uenVQnX6zWF-Oa>.
   Contains `userbss.ad1` (AccessData **AD1** logical image; Drive id `1ImeVi8BzHcuLDOV7LhAle9kRnZOMFb64`)
   among others.
-- **Download status (2026-06-29):** **blocked** — both the Drive folder *and* CFReDS (which proxies the
-  same Drive) return Google's "too many users have viewed or downloaded this file recently" quota error
-  (transient, clears in up to 24 h). `gdown`/automation cannot pass it. **To get the bytes:** retry in
-  < 24 h, or download via a **logged-in browser** (a Google account often bypasses the public quota),
-  then drop the files here. MD5/SHA256 + sizes to be filled on acquisition. Gitignored like the rest.
+- **Download status (2026-07-01):** **acquired** — `userbss.ad1` obtained via a logged-in
+  browser (bypasses the public Drive quota). It lives in the AD1 repo, not here:
+  `ad1-forensic/tests/data/userbss.ad1` (gitignored), with full provenance in
+  `ad1-forensic/tests/data/README.md`.
+  - Size: 51,678,663,221 bytes (≈ 48.1 GiB)
+  - MD5: `0b6b53e3475b97ae8b3bd3c1e7cec2d9`
+  - SHA256: `743e1e89e1d4fa9d6f75d91e820f6dd02d2d906e1bab70eb4731a2fdb4458e7c`
 - **Used by (planned):** Windows 11 leg → NTFS/registry/EVTX triage; `userbss.ad1` exercises a future
   **AD1 (AccessData logical image) container** reader (issen does not yet parse AD1); the iOS 18 /
   Android / Chromebook legs are mobile/cross-platform corpora for later parsers.
