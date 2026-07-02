@@ -4818,8 +4818,8 @@ dependencies = [
  "jiff",
  "serde_json",
  "tempfile",
- "winreg-artifacts",
- "winreg-core",
+ "winreg-artifacts 0.4.0",
+ "winreg-core 0.2.0",
 ]
 
 [[package]]
@@ -4846,8 +4846,8 @@ dependencies = [
  "issen-plugin-sdk",
  "serde_json",
  "tempfile",
- "winreg-artifacts",
- "winreg-core",
+ "winreg-artifacts 0.4.0",
+ "winreg-core 0.2.0",
 ]
 
 [[package]]
@@ -4860,8 +4860,8 @@ dependencies = [
  "issen-plugin-sdk",
  "serde_json",
  "tempfile",
- "winreg-artifacts",
- "winreg-core",
+ "winreg-artifacts 0.4.0",
+ "winreg-core 0.2.0",
 ]
 
 [[package]]
@@ -4927,8 +4927,8 @@ dependencies = [
  "issen-plugin-sdk",
  "serde_json",
  "tempfile",
- "winreg-artifacts",
- "winreg-core",
+ "winreg-artifacts 0.4.0",
+ "winreg-core 0.2.0",
 ]
 
 [[package]]
@@ -4941,8 +4941,8 @@ dependencies = [
  "issen-plugin-sdk",
  "serde_json",
  "tempfile",
- "winreg-artifacts",
- "winreg-core",
+ "winreg-artifacts 0.4.0",
+ "winreg-core 0.2.0",
 ]
 
 [[package]]
@@ -5010,8 +5010,8 @@ dependencies = [
  "issen-plugin-sdk",
  "serde_json",
  "tempfile",
- "winreg-artifacts",
- "winreg-core",
+ "winreg-artifacts 0.4.0",
+ "winreg-core 0.2.0",
 ]
 
 [[package]]
@@ -5019,15 +5019,15 @@ name = "issen-parser-registry"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "chrono",
  "forensicnomicon",
  "inventory",
  "issen-core",
  "issen-plugin-sdk",
+ "jiff",
  "serde_json",
  "tempfile",
- "winreg-artifacts",
- "winreg-core",
+ "winreg-artifacts 0.4.0",
+ "winreg-core 0.2.0",
 ]
 
 [[package]]
@@ -5040,8 +5040,8 @@ dependencies = [
  "issen-plugin-sdk",
  "serde_json",
  "tempfile",
- "winreg-artifacts",
- "winreg-core",
+ "winreg-artifacts 0.4.0",
+ "winreg-core 0.2.0",
 ]
 
 [[package]]
@@ -5055,8 +5055,8 @@ dependencies = [
  "jiff",
  "serde_json",
  "tempfile",
- "winreg-artifacts",
- "winreg-core",
+ "winreg-artifacts 0.4.0",
+ "winreg-core 0.2.0",
 ]
 
 [[package]]
@@ -5084,8 +5084,8 @@ dependencies = [
  "jiff",
  "serde_json",
  "tempfile",
- "winreg-artifacts",
- "winreg-core",
+ "winreg-artifacts 0.4.0",
+ "winreg-core 0.2.0",
 ]
 
 [[package]]
@@ -5099,8 +5099,8 @@ dependencies = [
  "jiff",
  "serde_json",
  "tempfile",
- "winreg-artifacts",
- "winreg-core",
+ "winreg-artifacts 0.4.0",
+ "winreg-core 0.2.0",
 ]
 
 [[package]]
@@ -5128,8 +5128,8 @@ dependencies = [
  "issen-plugin-sdk",
  "serde_json",
  "tempfile",
- "winreg-artifacts",
- "winreg-core",
+ "winreg-artifacts 0.4.0",
+ "winreg-core 0.2.0",
 ]
 
 [[package]]
@@ -5154,8 +5154,8 @@ dependencies = [
  "jiff",
  "serde_json",
  "tempfile",
- "winreg-artifacts",
- "winreg-core",
+ "winreg-artifacts 0.4.0",
+ "winreg-core 0.2.0",
 ]
 
 [[package]]
@@ -5187,8 +5187,8 @@ dependencies = [
  "jiff",
  "serde_json",
  "tempfile",
- "winreg-artifacts",
- "winreg-core",
+ "winreg-artifacts 0.4.0",
+ "winreg-core 0.2.0",
 ]
 
 [[package]]
@@ -6360,8 +6360,8 @@ dependencies = [
  "shellitem",
  "thiserror 2.0.18",
  "winevt-core",
- "winreg-core",
- "winreg-format",
+ "winreg-core 0.1.1",
+ "winreg-format 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "yara-x",
 ]
 
@@ -11053,7 +11053,7 @@ dependencies = [
  "shellhist-core",
  "srum-core",
  "srum-parser",
- "winreg-artifacts",
+ "winreg-artifacts 0.3.1",
 ]
 
 [[package]]
@@ -12068,9 +12068,22 @@ dependencies = [
  "forensicnomicon",
  "serde",
  "shellitem",
- "winreg-core",
- "winreg-discover",
- "winreg-format",
+ "winreg-core 0.1.1",
+ "winreg-discover 0.1.0",
+ "winreg-format 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "winreg-artifacts"
+version = "0.4.0"
+dependencies = [
+ "forensicnomicon",
+ "jiff",
+ "serde",
+ "shellitem",
+ "winreg-core 0.2.0",
+ "winreg-discover 0.2.0",
+ "winreg-format 0.1.0",
 ]
 
 [[package]]
@@ -12085,7 +12098,20 @@ dependencies = [
  "miette",
  "serde",
  "thiserror 2.0.18",
- "winreg-format",
+ "winreg-format 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "winreg-core"
+version = "0.2.0"
+dependencies = [
+ "binrw",
+ "jiff",
+ "memmap2",
+ "miette",
+ "serde",
+ "thiserror 2.0.18",
+ "winreg-format 0.1.0",
 ]
 
 [[package]]
@@ -12096,8 +12122,26 @@ checksum = "1e14b06e0d41a240b27d19e5d5a25bd2c039133ad9bff7101e9a2c0abb6f169b"
 dependencies = [
  "chrono",
  "serde",
- "winreg-core",
- "winreg-format",
+ "winreg-core 0.1.1",
+ "winreg-format 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "winreg-discover"
+version = "0.2.0"
+dependencies = [
+ "jiff",
+ "serde",
+ "winreg-core 0.2.0",
+ "winreg-format 0.1.0",
+]
+
+[[package]]
+name = "winreg-format"
+version = "0.1.0"
+dependencies = [
+ "binrw",
+ "bitflags 2.13.0",
 ]
 
 [[package]]

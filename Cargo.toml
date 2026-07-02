@@ -224,8 +224,8 @@ evtx         = { version = "0.11", default-features = false }
 mft          = "0.6"
 
 # Registry — our own winreg-forensic fleet crates (notatin fully removed)
-winreg-core      = "0.1.1"
-winreg-artifacts = "0.3.1"
+winreg-core      = "0.2.0"
+winreg-artifacts = "0.4.0"
 
 # XML / filesystem scanning
 uuid         = { version = "1", features = ["v4"] }
@@ -266,3 +266,9 @@ cast_possible_truncation = "allow"
 cast_possible_wrap = "allow"
 cast_sign_loss = "allow"
 cast_precision_loss = "allow"
+
+# TEMPORARY: local winreg-forensic migrated to jiff (chrono→jiff fleet sweep),
+# pending publish of winreg-core 0.2.0 + winreg-artifacts 0.4.0. Remove once published.
+[patch.crates-io]
+winreg-core = { path = "/Users/4n6h4x0r/src/winreg-forensic/crates/winreg-core" }
+winreg-artifacts = { path = "/Users/4n6h4x0r/src/winreg-forensic/crates/winreg-artifacts" }

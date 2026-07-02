@@ -106,8 +106,8 @@ fn extract_lsa_secrets(
         .map(|s| {
             let (ts_ns, ts_display) = s.last_written.map_or((0, String::new()), |dt| {
                 (
-                    dt.timestamp_nanos_opt().unwrap_or(0),
-                    dt.format("%Y-%m-%dT%H:%M:%S").to_string(),
+                    i64::try_from(dt.as_nanosecond()).unwrap_or(0),
+                    jiff::fmt::strtime::format("%Y-%m-%dT%H:%M:%S", dt).unwrap_or_default(),
                 )
             });
             let presence = match (s.has_current, s.has_old) {
@@ -232,8 +232,8 @@ fn extract_services(
             )?;
             let (ts_ns, ts_display) = s.last_written.map_or((0, String::new()), |dt| {
                 (
-                    dt.timestamp_nanos_opt().unwrap_or(0),
-                    dt.format("%Y-%m-%dT%H:%M:%S").to_string(),
+                    i64::try_from(dt.as_nanosecond()).unwrap_or(0),
+                    jiff::fmt::strtime::format("%Y-%m-%dT%H:%M:%S", dt).unwrap_or_default(),
                 )
             });
             let label = if s.display_name.is_empty() {
@@ -543,8 +543,8 @@ fn extract_run_keys(
         .map(|e| {
             let (ts_ns, ts_display) = e.last_written.map_or((0, String::new()), |dt| {
                 (
-                    dt.timestamp_nanos_opt().unwrap_or(0),
-                    dt.format("%Y-%m-%dT%H:%M:%S").to_string(),
+                    i64::try_from(dt.as_nanosecond()).unwrap_or(0),
+                    jiff::fmt::strtime::format("%Y-%m-%dT%H:%M:%S", dt).unwrap_or_default(),
                 )
             });
             let full_key = format!(r"{}\{}", e.key_path, e.value_name);
@@ -779,9 +779,10 @@ fn interface_events(
 /// Convert a `walk_keys` ISO-8601 string (`%Y-%m-%dT%H:%M:%S`, UTC) to
 /// nanoseconds since the Unix epoch; `0` if unparseable.
 fn iso_to_ns(s: &str) -> i64 {
-    chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S")
+    jiff::civil::DateTime::strptime("%Y-%m-%dT%H:%M:%S", s)
         .ok()
-        .and_then(|ndt| ndt.and_utc().timestamp_nanos_opt())
+        .and_then(|dt| dt.to_zoned(jiff::tz::TimeZone::UTC).ok())
+        .and_then(|z| i64::try_from(z.timestamp().as_nanosecond()).ok())
         .unwrap_or(0)
 }
 
