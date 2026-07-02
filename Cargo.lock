@@ -4593,6 +4593,7 @@ dependencies = [
  "issen-signatures",
  "issen-timeline",
  "issen-unpack",
+ "jiff",
  "mft",
  "ntfs-core",
  "predicates",
@@ -4801,6 +4802,7 @@ dependencies = [
  "issen-parser-velociraptor",
  "issen-signatures",
  "issen-unpack",
+ "jiff",
  "ntfs-core",
  "ratatui",
  "shrinkpath",
@@ -5162,11 +5164,11 @@ dependencies = [
 name = "issen-parser-uac"
 version = "0.1.0"
 dependencies = [
- "chrono",
  "flate2",
  "inventory",
  "issen-core",
  "issen-unpack",
+ "jiff",
  "regex",
  "serde",
  "serde_json",
@@ -5209,10 +5211,10 @@ dependencies = [
 name = "issen-parser-velociraptor"
 version = "0.1.0"
 dependencies = [
- "chrono",
  "inventory",
  "issen-core",
  "issen-unpack",
+ "jiff",
  "percent-encoding",
  "regex",
  "tempfile",
@@ -5408,10 +5410,10 @@ version = "0.1.0"
 dependencies = [
  "banzai",
  "bzip2-rs",
- "chrono",
  "flate2",
  "inventory",
  "issen-core",
+ "jiff",
  "miniz_oxide",
  "rustix 0.38.44",
  "sevenz-rust2",

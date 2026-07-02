@@ -44,7 +44,7 @@ pub mod tempdir;
 
 use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use issen_core::artifacts::ArtifactType;
 
 /// How confident a provider is that it can handle a given file.
@@ -73,7 +73,7 @@ pub enum OsType {
 #[derive(Debug, Clone)]
 pub struct CollectionMetadata {
     pub hostname: Option<String>,
-    pub collection_time: Option<DateTime<Utc>>,
+    pub collection_time: Option<Timestamp>,
     pub os_type: OsType,
     pub tool_version: Option<String>,
 }
@@ -314,7 +314,7 @@ mod tests {
 
     #[test]
     fn test_collection_metadata_with_some_fields() {
-        let now = chrono::Utc::now();
+        let now = jiff::Timestamp::now();
         let meta = CollectionMetadata {
             hostname: Some("DESKTOP-ABC123".to_string()),
             collection_time: Some(now),

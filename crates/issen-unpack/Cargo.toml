@@ -9,7 +9,7 @@ repository.workspace = true
 
 [dependencies]
 issen-core = { workspace = true }
-chrono = { workspace = true }
+jiff = { workspace = true }
 inventory = { workspace = true }
 tempfile = { workspace = true }
 thiserror = { workspace = true }

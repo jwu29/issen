@@ -285,7 +285,7 @@ fn convert_manifest_metadata(m: &issen_unpack::CollectionMetadata) -> Collection
         hostname: m.hostname.clone().unwrap_or_default(),
         os: os.to_string(),
         collection_tool: m.tool_version.clone().unwrap_or_default(),
-        acquisition_time: m.collection_time.map_or(0, |dt| dt.timestamp()),
+        acquisition_time: m.collection_time.map_or(0, |ts| ts.as_second()),
         ..CollectionMetadata::default()
     }
 }
@@ -559,9 +559,11 @@ mod tests {
         let meta = ManifestMeta {
             hostname: Some("WORKSTATION01".into()),
             collection_time: Some(
-                chrono::NaiveDateTime::parse_from_str("2025-08-10 03:41:20", "%Y-%m-%d %H:%M:%S")
+                jiff::civil::DateTime::strptime("%Y-%m-%d %H:%M:%S", "2025-08-10 03:41:20")
                     .unwrap()
-                    .and_utc(),
+                    .to_zoned(jiff::tz::TimeZone::UTC)
+                    .unwrap()
+                    .timestamp(),
             ),
             os_type: OsType::Windows,
             tool_version: Some("Velociraptor".into()),

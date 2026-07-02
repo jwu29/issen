@@ -95,9 +95,10 @@ fn parse_uac_metadata(uac_log: &str, archive_path: &Path) -> CollectionMetadata 
 
     let collection_time = uac_log.lines().next().and_then(|line| {
         let ts_str = line.trim_start_matches('[').split(']').next()?;
-        chrono::NaiveDateTime::parse_from_str(ts_str, "%Y-%m-%d %H:%M:%S")
+        jiff::civil::DateTime::strptime("%Y-%m-%d %H:%M:%S", ts_str)
             .ok()
-            .map(|dt| dt.and_utc())
+            .and_then(|dt| dt.to_zoned(jiff::tz::TimeZone::UTC).ok())
+            .map(|z| z.timestamp())
     });
 
     let os_type = if uac_log.contains("Linux") || uac_log.contains("linux") {

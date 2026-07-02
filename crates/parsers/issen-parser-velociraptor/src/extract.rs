@@ -80,9 +80,10 @@ fn extract_metadata_from_filename(path: &Path) -> CollectionMetadata {
         if let Some(idx) = rest.find("-20") {
             let host = &rest[..idx];
             let ts_str = &rest[idx + 1..];
-            let ts = chrono::NaiveDateTime::parse_from_str(ts_str, "%Y-%m-%dT%H_%M_%SZ")
+            let ts = jiff::civil::DateTime::strptime("%Y-%m-%dT%H_%M_%SZ", ts_str)
                 .ok()
-                .map(|dt| dt.and_utc());
+                .and_then(|dt| dt.to_zoned(jiff::tz::TimeZone::UTC).ok())
+                .map(|z| z.timestamp());
             (Some(host.to_string()), ts)
         } else {
             (Some(rest.to_string()), None)

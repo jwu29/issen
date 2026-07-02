@@ -10,7 +10,7 @@ repository.workspace = true
 [dependencies]
 issen-core = { workspace = true }
 issen-unpack = { workspace = true }
-chrono = { workspace = true }
+jiff = { workspace = true }
 flate2 = { workspace = true }
 inventory = { workspace = true }
 regex = { workspace = true }

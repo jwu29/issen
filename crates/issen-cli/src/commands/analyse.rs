@@ -70,7 +70,7 @@ pub fn run(collection_path: &Path) -> anyhow::Result<()> {
     let hostname = manifest.metadata.hostname.as_deref().unwrap_or("(unknown)");
     let collected_at = manifest.metadata.collection_time.map_or_else(
         || "(unknown)".to_string(),
-        |t| t.format("%Y-%m-%d %H:%M:%S UTC").to_string(),
+        |t| jiff::fmt::strtime::format("%Y-%m-%d %H:%M:%S UTC", t).unwrap_or_default(),
     );
 
     println!(

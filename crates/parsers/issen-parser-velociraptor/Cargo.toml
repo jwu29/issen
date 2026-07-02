@@ -14,7 +14,7 @@ inventory = { workspace = true }
 tracing = { workspace = true }
 zip-forensic-core = { workspace = true }
 percent-encoding = { workspace = true }
-chrono = { workspace = true }
+jiff = { workspace = true }
 regex = { workspace = true }
 
 [dev-dependencies]
