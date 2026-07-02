@@ -26,3 +26,4 @@ holds the standing conclusion.
 | [0007](0007-resumable-ingestion-content-fingerprint.md) | Resumable ingestion keyed on per-artifact content fingerprint | Accepted |
 | [0008](0008-fail-loud-on-unsupported-filesystem.md) | Fail loud on an unsupported filesystem; never a silent empty result | Accepted |
 | [0009](0009-batteries-included-single-static-binary.md) | Batteries-included single static binary | Accepted |
+| [0010](0010-disk-forensic-as-disk-image-access-abstraction.md) | disk-forensic as the disk-image access abstraction (collapse per-format wrappers) | Proposed |

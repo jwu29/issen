@@ -64,6 +64,7 @@ nav:
       - "0007 · Resumable ingestion (content fingerprint)": decisions/0007-resumable-ingestion-content-fingerprint.md
       - "0008 · Fail loud on unsupported filesystem": decisions/0008-fail-loud-on-unsupported-filesystem.md
       - "0009 · Batteries-included single static binary": decisions/0009-batteries-included-single-static-binary.md
+      - "0010 · disk-forensic as disk-image access abstraction (Proposed)": decisions/0010-disk-forensic-as-disk-image-access-abstraction.md
   - Reference:
       - Validation: validation.md
       - Correlation Validation: validation-correlate.md
