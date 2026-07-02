@@ -21,7 +21,6 @@
 //!   `EventSource::Memory` in the correlation evaluator
 //!   (`ProcessList` / `NetworkState` / `RootkitScan`).
 
-use chrono::{TimeZone, Utc};
 use issen_core::artifacts::ArtifactType;
 use issen_core::timeline::event::{EntityRef, EventType, TimelineEvent};
 use issen_timeline::store::{TimelineStore, TimelineStoreError};
@@ -87,14 +86,12 @@ fn process_subject(image_name: &str, pid: u32) -> String {
 /// Mirrors the workspace convention (`issen-cli` `commands::correlate::fmt_ns`):
 /// out-of-range instants degrade to a raw `<n>ns` label rather than panicking.
 /// The seconds derived from any `i64` nanosecond value (`ns / 1e9`, so at most
-/// ~9.2e9 s ≈ year 2262) always fall within chrono's representable range, so the
+/// ~9.2e9 s ≈ year 2262) always fall within jiff's representable range, so the
 /// degradation arm is a defence-in-depth guard, not a reachable path.
 fn fmt_ns(ns: i64) -> String {
-    let secs = ns.div_euclid(1_000_000_000);
-    let nanos = ns.rem_euclid(1_000_000_000) as u32;
-    match Utc.timestamp_opt(secs, nanos).single() {
-        Some(dt) => dt.to_rfc3339_opts(chrono::SecondsFormat::Nanos, true),
-        None => format!("{ns}ns"), // cov:unreachable: ns/1e9 secs is always in chrono range
+    match jiff::Timestamp::from_nanosecond(i128::from(ns)) {
+        Ok(ts) => ts.to_string(),
+        Err(_) => format!("{ns}ns"), // cov:unreachable: any i64 ns is within jiff's range
     }
 }
 

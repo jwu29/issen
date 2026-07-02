@@ -4751,13 +4751,13 @@ name = "issen-mem"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "chrono",
  "forensic-hashdb",
  "inventory",
  "issen-core",
  "issen-correlation",
  "issen-timeline",
  "issen-unpack",
+ "jiff",
  "memf-core",
  "memf-correlate",
  "memf-format",
@@ -4812,10 +4812,10 @@ name = "issen-parser-amcache"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "chrono",
  "inventory",
  "issen-core",
  "issen-plugin-sdk",
+ "jiff",
  "serde_json",
  "tempfile",
  "winreg-artifacts",
@@ -4827,9 +4827,9 @@ name = "issen-parser-biome"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "chrono",
  "inventory",
  "issen-core",
+ "jiff",
  "segb-core",
  "segb-forensic",
  "serde_json",
@@ -4895,10 +4895,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "cfb-forensic",
- "chrono",
  "forensicnomicon",
  "inventory",
  "issen-core",
+ "jiff",
  "lnk-core",
  "serde",
  "serde_json",
@@ -4988,10 +4988,10 @@ name = "issen-parser-prefetch"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "chrono",
  "forensicnomicon",
  "inventory",
  "issen-core",
+ "jiff",
  "prefetch-core",
  "prefetch-forensic",
  "serde_json",
@@ -5049,10 +5049,10 @@ name = "issen-parser-sam"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "chrono",
  "inventory",
  "issen-core",
  "issen-plugin-sdk",
+ "jiff",
  "serde_json",
  "tempfile",
  "winreg-artifacts",
@@ -5064,10 +5064,10 @@ name = "issen-parser-setupapi"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "chrono",
  "inventory",
  "issen-core",
  "issen-plugin-sdk",
+ "jiff",
  "regex",
  "serde_json",
  "tempfile",
@@ -5078,10 +5078,10 @@ name = "issen-parser-shellbags"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "chrono",
  "inventory",
  "issen-core",
  "issen-plugin-sdk",
+ "jiff",
  "serde_json",
  "tempfile",
  "winreg-artifacts",
@@ -5093,10 +5093,10 @@ name = "issen-parser-shimcache"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "chrono",
  "inventory",
  "issen-core",
  "issen-plugin-sdk",
+ "jiff",
  "serde_json",
  "tempfile",
  "winreg-artifacts",

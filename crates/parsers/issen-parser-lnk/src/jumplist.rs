@@ -55,8 +55,8 @@ pub fn parse_jumplist_bytes(raw: &[u8], filename: &str, source_id: &str) -> Vec<
             let (ts_ns, ts_display) = match e.destlist.as_ref() {
                 Some(d) if d.last_access > 0 => (
                     d.last_access.saturating_mul(1_000_000_000),
-                    chrono::DateTime::from_timestamp(d.last_access, 0)
-                        .map(|dt| dt.to_rfc3339())
+                    jiff::Timestamp::from_second(d.last_access)
+                        .map(|ts| ts.to_string())
                         .unwrap_or_default(),
                 ),
                 _ => (0, String::new()),

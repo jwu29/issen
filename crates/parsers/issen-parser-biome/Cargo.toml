@@ -13,7 +13,7 @@ segb             = { workspace = true }
 segb-forensic    = { workspace = true }
 useract-forensic = { workspace = true }
 inventory        = { workspace = true }
-chrono           = { workspace = true }
+jiff             = { workspace = true }
 serde_json       = { workspace = true }
 anyhow           = { workspace = true }
 

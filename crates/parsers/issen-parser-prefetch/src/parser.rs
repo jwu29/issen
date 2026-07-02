@@ -28,7 +28,8 @@ fn filetime_to_unix(ft: i64) -> (i64, String) {
         .and_then(|f| f.decode_int(ft).ok())
         .and_then(|posix_ns| i64::try_from(posix_ns.0).ok())
         .unwrap_or_else(|| ft.saturating_sub(FILETIME_EPOCH_DIFF).saturating_mul(100));
-    let display = chrono::DateTime::from_timestamp_nanos(ns).to_rfc3339();
+    let display = jiff::Timestamp::from_nanosecond(i128::from(ns))
+        .map_or_else(|_| format!("{ns}ns"), |ts| ts.to_string());
     (ns, display)
 }
 

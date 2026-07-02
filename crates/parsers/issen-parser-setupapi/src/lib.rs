@@ -27,7 +27,6 @@
 
 use std::path::Path;
 
-use chrono::{NaiveDateTime, TimeZone, Utc};
 use issen_core::artifacts::ArtifactType;
 use issen_core::classify;
 use issen_core::plugin::registry::ParserRegistration;
@@ -52,13 +51,13 @@ fn parse_setupapi_timestamp(s: &str) -> Option<(i64, String)> {
     let fmt_ms = "%Y/%m/%d %H:%M:%S%.3f";
     let fmt_plain = "%Y/%m/%d %H:%M:%S";
 
-    let naive = NaiveDateTime::parse_from_str(s.trim(), fmt_ms)
-        .or_else(|_| NaiveDateTime::parse_from_str(s.trim(), fmt_plain))
+    let naive = jiff::civil::DateTime::strptime(fmt_ms, s.trim())
+        .or_else(|_| jiff::civil::DateTime::strptime(fmt_plain, s.trim()))
         .ok()?;
 
-    let dt = Utc.from_utc_datetime(&naive);
-    let ns = dt.timestamp_nanos_opt()?;
-    Some((ns, dt.to_rfc3339()))
+    let ts = naive.to_zoned(jiff::tz::TimeZone::UTC).ok()?.timestamp();
+    let ns = i64::try_from(ts.as_nanosecond()).ok()?;
+    Some((ns, ts.to_string()))
 }
 
 // ---------------------------------------------------------------------------

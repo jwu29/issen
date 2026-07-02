@@ -64,9 +64,12 @@ pub fn events_from_bytes(bytes: &[u8], hive_name: &str, source_id: &str) -> Vec<
             let (timestamp_ns, timestamp_display) = e
                 .last_written
                 .as_deref()
-                .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-                .map_or((0, String::new()), |dt| {
-                    (dt.timestamp_nanos_opt().unwrap_or(0), dt.to_rfc3339())
+                .and_then(|s| s.parse::<jiff::Timestamp>().ok())
+                .map_or((0, String::new()), |ts| {
+                    (
+                        i64::try_from(ts.as_nanosecond()).unwrap_or(0),
+                        ts.to_string(),
+                    )
                 });
 
             let label = if e.path.is_empty() {

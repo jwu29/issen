@@ -128,8 +128,8 @@ pub fn activities_to_events(
             let ts_ns = a.timestamp.map_or(0, |s| s.saturating_mul(1_000_000_000));
             let ts_display = a
                 .timestamp
-                .and_then(|s| chrono::DateTime::from_timestamp(s, 0))
-                .map_or_else(|| "unknown".to_string(), |dt| dt.to_rfc3339());
+                .and_then(|s| jiff::Timestamp::from_second(s).ok())
+                .map_or_else(|| "unknown".to_string(), |ts| ts.to_string());
             TimelineEvent::new(
                 ts_ns,
                 ts_display,
