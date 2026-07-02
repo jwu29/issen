@@ -521,10 +521,10 @@ fn format_bytes(bytes: u64) -> String {
 /// `issen-ingested-<UTC>Z.duckdb`, e.g. `issen-ingested-2026-06-20T180159Z.duckdb`.
 /// The timestamp is colon-free for cross-platform filenames; the trailing `Z`
 /// marks UTC (Zulu).
-pub fn auto_output_path(now: chrono::DateTime<chrono::Utc>) -> PathBuf {
+pub fn auto_output_path(now: jiff::Timestamp) -> PathBuf {
     PathBuf::from(format!(
         "issen-ingested-{}.duckdb",
-        now.format("%Y-%m-%dT%H%M%SZ")
+        jiff::fmt::strtime::format("%Y-%m-%dT%H%M%SZ", now).unwrap_or_default()
     ))
 }
 
@@ -532,14 +532,15 @@ pub fn auto_output_path(now: chrono::DateTime<chrono::Utc>) -> PathBuf {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
-    use chrono::TimeZone;
 
     #[test]
     fn auto_output_name_is_utc_z_stamped() {
         // A fixed UTC instant → a colon-free, Z-suffixed default DB name.
-        let ts = chrono::Utc
-            .with_ymd_and_hms(2026, 6, 20, 18, 1, 59)
-            .unwrap();
+        let ts = jiff::civil::date(2026, 6, 20)
+            .at(18, 1, 59, 0)
+            .to_zoned(jiff::tz::TimeZone::UTC)
+            .unwrap()
+            .timestamp();
         assert_eq!(
             auto_output_path(ts),
             PathBuf::from("issen-ingested-2026-06-20T180159Z.duckdb")

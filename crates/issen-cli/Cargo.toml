@@ -39,7 +39,6 @@ issen-signatures = { workspace = true }
 forensicnomicon = { workspace = true }
 ntfs-core = { workspace = true }
 mft = { workspace = true }
-chrono = { workspace = true }
 jiff = { workspace = true }
 timeglyph = { workspace = true }
 inventory = { workspace = true }

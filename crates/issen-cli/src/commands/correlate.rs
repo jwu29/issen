@@ -14,7 +14,6 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use chrono::{TimeZone, Utc};
 use issen_correlation::correlation::Correlation;
 use issen_timeline::store::TimelineStore;
 
@@ -76,10 +75,11 @@ pub fn discover_evidence(case_dir: &Path) -> Vec<PathBuf> {
 /// Format a nanosecond Unix timestamp as an RFC3339 UTC instant for display.
 fn fmt_ns(ns: i64) -> String {
     let secs = ns.div_euclid(1_000_000_000);
-    let nanos = ns.rem_euclid(1_000_000_000) as u32;
-    match Utc.timestamp_opt(secs, nanos).single() {
-        Some(dt) => dt.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
-        None => format!("{ns}ns"),
+    let nanos = ns.rem_euclid(1_000_000_000) as i32;
+    match jiff::Timestamp::new(secs, nanos) {
+        Ok(ts) => jiff::fmt::strtime::format("%Y-%m-%dT%H:%M:%SZ", ts)
+            .unwrap_or_else(|_| format!("{ns}ns")),
+        Err(_) => format!("{ns}ns"),
     }
 }
 

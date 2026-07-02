@@ -258,26 +258,25 @@ fn op_str(op: FieldOp) -> &'static str {
 /// datetime assumed UTC (`2020-09-19T03:00:00`), or a bare date treated as
 /// midnight UTC (`2020-09-19`). Fails loud on an unparseable value.
 pub fn parse_timestamp(s: &str) -> Result<i64> {
-    use chrono::{NaiveDate, NaiveDateTime, TimeZone, Utc};
     let s = s.trim();
     let oor = || anyhow::anyhow!("timestamp out of representable range: {s}");
-    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
-        return dt.timestamp_nanos_opt().ok_or_else(oor);
+    let to_ns = |ts: jiff::Timestamp| i64::try_from(ts.as_nanosecond()).ok().ok_or_else(oor);
+    if let Ok(ts) = s.parse::<jiff::Timestamp>() {
+        return to_ns(ts);
     }
-    if let Ok(ndt) = NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S") {
-        return Utc
-            .from_utc_datetime(&ndt)
-            .timestamp_nanos_opt()
-            .ok_or_else(oor);
+    if let Ok(dt) = jiff::civil::DateTime::strptime("%Y-%m-%dT%H:%M:%S", s) {
+        let ts = dt
+            .to_zoned(jiff::tz::TimeZone::UTC)
+            .map_err(|_| anyhow::anyhow!("invalid datetime: {s}"))?
+            .timestamp();
+        return to_ns(ts);
     }
-    if let Ok(date) = NaiveDate::parse_from_str(s, "%Y-%m-%d") {
-        let ndt = date
-            .and_hms_opt(0, 0, 0)
-            .ok_or_else(|| anyhow::anyhow!("invalid date: {s}"))?;
-        return Utc
-            .from_utc_datetime(&ndt)
-            .timestamp_nanos_opt()
-            .ok_or_else(oor);
+    if let Ok(date) = jiff::civil::Date::strptime("%Y-%m-%d", s) {
+        let ts = date
+            .to_zoned(jiff::tz::TimeZone::UTC)
+            .map_err(|_| anyhow::anyhow!("invalid date: {s}"))?
+            .timestamp();
+        return to_ns(ts);
     }
     anyhow::bail!(
         "could not parse timestamp '{s}' \
