@@ -11,7 +11,6 @@ repository.workspace = true
 forensicnomicon = { workspace = true, features = ["serde"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
-chrono = { workspace = true }
 thiserror = { workspace = true }
 inventory = { workspace = true }
 bytes = { workspace = true }

@@ -17,7 +17,6 @@ winreg-artifacts = { workspace = true }
 # catalog hit is a different artifact kind, so the category is looked up per-hit.
 forensicnomicon = { workspace = true }
 anyhow = { workspace = true }
-chrono = { workspace = true }
 inventory = { workspace = true }
 serde_json = { workspace = true }
 

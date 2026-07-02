@@ -10,7 +10,6 @@ anyhow = { workspace = true }
 issen-core = { path = "../../issen-core" }
 serde_json = { workspace = true }
 inventory = { workspace = true }
-chrono = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
