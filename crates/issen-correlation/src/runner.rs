@@ -170,7 +170,7 @@ where
 /// short name reported to `start_rule`. Collecting their outputs in this fixed
 /// order keeps the findings deterministic even though the rules run in parallel.
 #[allow(clippy::type_complexity)]
-fn disk_rules<E: EventView + Sync>() -> [(&'static str, fn(&[E]) -> Vec<Correlation>); 8] {
+fn disk_rules<E: EventView + Sync>() -> [(&'static str, fn(&[E]) -> Vec<Correlation>); 9] {
     [
         ("relocate", run_relocate::<E>),
         ("persist", run_persist::<E>),
@@ -180,6 +180,7 @@ fn disk_rules<E: EventView + Sync>() -> [(&'static str, fn(&[E]) -> Vec<Correlat
         ("exfil-stage", run_exfil_stage::<E>),
         ("regconfirm", run_regconfirm::<E>),
         ("lateral-move", run_lateral_move::<E>),
+        ("beaconing", run_beaconing::<E>),
     ]
 }
 
@@ -495,6 +496,14 @@ fn run_lateral_move<E: EventView>(events: &[E]) -> Vec<Correlation> {
     out
 }
 
+/// `NET-BEACON-PERIODIC`: repeated connections to one destination IP at a regular
+/// cadence, grouped per host — consistent with automated C2 beaconing (also fits
+/// benign periodic traffic). RED stub; replaced by the GREEN implementation.
+fn run_beaconing<E: EventView>(events: &[E]) -> Vec<Correlation> {
+    let _ = events;
+    Vec::new()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -568,6 +577,56 @@ mod tests {
 
     fn has_code(corrs: &[Correlation], code: &str) -> bool {
         corrs.iter().any(|c| c.code == code)
+    }
+
+    /// A destination contacted at a regular cadence over time fires
+    /// NET-BEACON-PERIODIC (grouped per host, source-agnostic via EntityRef::Ip).
+    #[test]
+    fn beaconing_fires_for_regular_network_connections() {
+        // 5 connections to 203.0.113.7, exactly 60s apart.
+        let events: Vec<Ev> = (0i64..5)
+            .map(|i| {
+                Ev::new(
+                    i as u64 + 1,
+                    1_000_000_000_000 + i * 60 * 1_000_000_000,
+                    "NetworkConnect",
+                    "DC01",
+                    EventSource::Memory,
+                )
+                .ent(EntityRef::Ip("203.0.113.7".to_string()))
+            })
+            .collect();
+        assert!(has_code(&run_correlations(&events), "NET-BEACON-PERIODIC"));
+    }
+
+    /// Irregular (human) traffic to a destination does not fire.
+    #[test]
+    fn beaconing_ignores_irregular_connections() {
+        let gaps = [5_i64, 3600, 40, 900, 7200];
+        let mut ts = 2_000_000_000_000_i64;
+        let mut events = vec![Ev::new(1, ts, "NetworkConnect", "DC01", EventSource::Memory)
+            .ent(EntityRef::Ip("198.51.100.9".to_string()))];
+        for (i, g) in gaps.iter().enumerate() {
+            ts += g * 1_000_000_000;
+            events.push(
+                Ev::new(i as u64 + 2, ts, "NetworkConnect", "DC01", EventSource::Memory)
+                    .ent(EntityRef::Ip("198.51.100.9".to_string())),
+            );
+        }
+        assert!(!has_code(&run_correlations(&events), "NET-BEACON-PERIODIC"));
+    }
+
+    /// A single netstat snapshot stamps every connection with the same
+    /// acquisition time — no intervals, so beaconing must not fire.
+    #[test]
+    fn beaconing_ignores_single_snapshot_same_timestamp() {
+        let events: Vec<Ev> = (0u64..6)
+            .map(|i| {
+                Ev::new(i + 1, 9_000_000_000_000, "NetworkConnect", "DC01", EventSource::Memory)
+                    .ent(EntityRef::Ip("203.0.113.7".to_string()))
+            })
+            .collect();
+        assert!(!has_code(&run_correlations(&events), "NET-BEACON-PERIODIC"));
     }
 
     #[test]
