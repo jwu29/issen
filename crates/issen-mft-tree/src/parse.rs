@@ -12,6 +12,16 @@ use ntfs_core::MftData;
 use crate::node::{FileNode, NtfsTimestamps};
 use crate::tree::FileTree;
 
+/// Convert a Unix-nanosecond count (as produced by the `mft` and `ntfs-core`
+/// crates' timestamp accessors) into a [`jiff::Timestamp`]. Out-of-range or
+/// absent values degrade to the Unix epoch so parsing untrusted MFT input
+/// never panics.
+fn ns_to_ts(nanos: Option<i64>) -> jiff::Timestamp {
+    nanos
+        .and_then(|n| jiff::Timestamp::from_nanosecond(i128::from(n)).ok())
+        .unwrap_or(jiff::Timestamp::UNIX_EPOCH)
+}
+
 impl FileTree {
     /// Parse an `$MFT` file on disk and build the tree.
     ///
@@ -85,18 +95,30 @@ impl FileTree {
             // $FILE_NAME timestamps (kernel-managed). Prefer ntfs-core's
             // full-precision FILETIME; fall back to the `mft` crate per field.
             let fn_ts = NtfsTimestamps {
-                modified: precise_entry
-                    .and_then(|e| e.fn_modified)
-                    .unwrap_or(fname.modified),
-                accessed: precise_entry
-                    .and_then(|e| e.fn_accessed)
-                    .unwrap_or(fname.accessed),
-                created: precise_entry
-                    .and_then(|e| e.fn_created)
-                    .unwrap_or(fname.created),
-                entry_modified: precise_entry
-                    .and_then(|e| e.fn_mft_modified)
-                    .unwrap_or(fname.mft_modified),
+                modified: ns_to_ts(
+                    precise_entry
+                        .and_then(|e| e.fn_modified)
+                        .unwrap_or(fname.modified)
+                        .timestamp_nanos_opt(),
+                ),
+                accessed: ns_to_ts(
+                    precise_entry
+                        .and_then(|e| e.fn_accessed)
+                        .unwrap_or(fname.accessed)
+                        .timestamp_nanos_opt(),
+                ),
+                created: ns_to_ts(
+                    precise_entry
+                        .and_then(|e| e.fn_created)
+                        .unwrap_or(fname.created)
+                        .timestamp_nanos_opt(),
+                ),
+                entry_modified: ns_to_ts(
+                    precise_entry
+                        .and_then(|e| e.fn_mft_modified)
+                        .unwrap_or(fname.mft_modified)
+                        .timestamp_nanos_opt(),
+                ),
             };
 
             // $STANDARD_INFORMATION timestamps (user-visible, preferred). The
@@ -108,10 +130,10 @@ impl FileTree {
                 .find_map(|attr| {
                     if let MftAttributeContent::AttrX10(si) = attr.data {
                         Some(NtfsTimestamps {
-                            modified: si.modified,
-                            accessed: si.accessed,
-                            created: si.created,
-                            entry_modified: si.mft_modified,
+                            modified: ns_to_ts(si.modified.timestamp_nanos_opt()),
+                            accessed: ns_to_ts(si.accessed.timestamp_nanos_opt()),
+                            created: ns_to_ts(si.created.timestamp_nanos_opt()),
+                            entry_modified: ns_to_ts(si.mft_modified.timestamp_nanos_opt()),
                         })
                     } else {
                         None
@@ -121,16 +143,22 @@ impl FileTree {
             let si_ts = NtfsTimestamps {
                 modified: precise_entry
                     .and_then(|e| e.si_modified)
-                    .unwrap_or(si_fallback.modified),
+                    .map_or(si_fallback.modified, |dt| {
+                        ns_to_ts(dt.timestamp_nanos_opt())
+                    }),
                 accessed: precise_entry
                     .and_then(|e| e.si_accessed)
-                    .unwrap_or(si_fallback.accessed),
+                    .map_or(si_fallback.accessed, |dt| {
+                        ns_to_ts(dt.timestamp_nanos_opt())
+                    }),
                 created: precise_entry
                     .and_then(|e| e.si_created)
-                    .unwrap_or(si_fallback.created),
+                    .map_or(si_fallback.created, |dt| ns_to_ts(dt.timestamp_nanos_opt())),
                 entry_modified: precise_entry
                     .and_then(|e| e.si_mft_modified)
-                    .unwrap_or(si_fallback.entry_modified),
+                    .map_or(si_fallback.entry_modified, |dt| {
+                        ns_to_ts(dt.timestamp_nanos_opt())
+                    }),
             };
 
             // Only store fn_timestamps if they differ from si_timestamps.
@@ -237,8 +265,6 @@ mod tests {
     /// trailing 600 ns and rendering `.305856000`. This guards full precision.
     #[test]
     fn from_mft_preserves_100ns_filetime_precision() {
-        use chrono::{DateTime, Utc};
-
         const REC: &[u8] = include_bytes!("../tests/data/dc01_mft_record_74419.bin");
         let tmp = tempfile::NamedTempFile::new().unwrap();
         std::fs::write(tmp.path(), REC).unwrap();
@@ -249,7 +275,7 @@ mod tests {
             .find(|n| n.name.contains("37E2F32E"))
             .expect("settingcontent record present");
 
-        let expected: DateTime<Utc> = "2013-06-18T15:02:18.305856600Z".parse().unwrap();
+        let expected: jiff::Timestamp = "2013-06-18T15:02:18.305856600Z".parse().unwrap();
         assert_eq!(
             node.si_timestamps.modified, expected,
             "$SI Modified lost 100 ns precision: got {}, want {} (TSK istat)",

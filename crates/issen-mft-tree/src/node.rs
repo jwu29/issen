@@ -1,14 +1,14 @@
 //! NTFS file node and timestamp types for MFT tree construction.
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 
 /// Four NTFS timestamps from a single attribute ($SI or $FN).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NtfsTimestamps {
-    pub modified: DateTime<Utc>,
-    pub accessed: DateTime<Utc>,
-    pub created: DateTime<Utc>,
-    pub entry_modified: DateTime<Utc>,
+    pub modified: Timestamp,
+    pub accessed: Timestamp,
+    pub created: Timestamp,
+    pub entry_modified: Timestamp,
 }
 
 /// A single file or directory extracted from the MFT.
@@ -104,10 +104,13 @@ impl FileNode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::TimeZone;
 
-    fn ts(year: i32, month: u32, day: u32) -> DateTime<Utc> {
-        Utc.with_ymd_and_hms(year, month, day, 0, 0, 0).unwrap()
+    fn ts(year: i16, month: i8, day: i8) -> Timestamp {
+        jiff::civil::date(year, month, day)
+            .at(0, 0, 0, 0)
+            .to_zoned(jiff::tz::TimeZone::UTC)
+            .unwrap()
+            .timestamp()
     }
 
     fn default_timestamps() -> NtfsTimestamps {

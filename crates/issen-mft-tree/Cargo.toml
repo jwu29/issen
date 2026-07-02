@@ -8,7 +8,7 @@ description = "Shared MFT file tree for Issen"
 repository.workspace = true
 
 [dependencies]
-chrono = { workspace = true }
+jiff = { workspace = true }
 anyhow = { workspace = true }
 indicatif = { workspace = true }
 mft = { workspace = true }

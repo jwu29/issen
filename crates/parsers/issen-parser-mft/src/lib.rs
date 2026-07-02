@@ -43,7 +43,6 @@
 //! can produce up to four events (MACE timestamps): Modified, Accessed,
 //! Created, and Entry-modified.
 
-use chrono::{DateTime, Utc};
 use issen_core::artifacts::ArtifactType;
 use issen_core::classify;
 use issen_core::error::RtError;
@@ -54,6 +53,7 @@ use issen_core::plugin::traits::{
     ParserCapabilities,
 };
 use issen_core::timeline::event::{EventType, TimelineEvent};
+use jiff::Timestamp;
 use mft::attribute::x10::StandardInfoAttr;
 use mft::attribute::x30::FileNameAttr;
 use mft::attribute::MftAttributeContent;
@@ -65,24 +65,34 @@ use tracing::warn;
 /// NTFS Master File Table parser.
 pub struct MftFileParser;
 
+/// Convert a Unix-nanosecond count (as produced by the `mft` and `ntfs-core`
+/// crates' timestamp accessors) into a [`jiff::Timestamp`]. Out-of-range or
+/// absent values degrade to the Unix epoch so parsing untrusted MFT input
+/// never panics.
+fn ns_to_ts(nanos: Option<i64>) -> Timestamp {
+    nanos
+        .and_then(|n| Timestamp::from_nanosecond(i128::from(n)).ok())
+        .unwrap_or(Timestamp::UNIX_EPOCH)
+}
+
 /// The four `$FILE_NAME` MACE timestamps, decoupled from the `mft` crate's
 /// `FileNameAttr` so full-precision (ntfs-core) values can be substituted for
 /// the truncated ones. `From<&FileNameAttr>` preserves the mft-crate path.
 #[derive(Clone, Copy)]
 struct FnTimestamps {
-    created: DateTime<Utc>,
-    modified: DateTime<Utc>,
-    accessed: DateTime<Utc>,
-    mft_modified: DateTime<Utc>,
+    created: Timestamp,
+    modified: Timestamp,
+    accessed: Timestamp,
+    mft_modified: Timestamp,
 }
 
 impl From<&FileNameAttr> for FnTimestamps {
     fn from(f: &FileNameAttr) -> Self {
         Self {
-            created: f.created,
-            modified: f.modified,
-            accessed: f.accessed,
-            mft_modified: f.mft_modified,
+            created: ns_to_ts(f.created.timestamp_nanos_opt()),
+            modified: ns_to_ts(f.modified.timestamp_nanos_opt()),
+            accessed: ns_to_ts(f.accessed.timestamp_nanos_opt()),
+            mft_modified: ns_to_ts(f.mft_modified.timestamp_nanos_opt()),
         }
     }
 }
@@ -117,17 +127,17 @@ pub fn filetime_to_ns(filetime: u64) -> Option<i64> {
     i64::try_from(posix_ns.0).ok()
 }
 
-/// Convert a `chrono::DateTime<Utc>` to nanoseconds since the Unix epoch.
+/// Convert a [`jiff::Timestamp`] to nanoseconds since the Unix epoch.
 #[must_use]
-pub fn datetime_to_ns(dt: &DateTime<Utc>) -> i64 {
-    dt.timestamp_nanos_opt()
-        .unwrap_or_else(|| dt.timestamp() * 1_000_000_000)
+pub fn datetime_to_ns(dt: &Timestamp) -> i64 {
+    i64::try_from(dt.as_nanosecond()).unwrap_or_else(|_| dt.as_second() * 1_000_000_000)
 }
 
-/// Convert a `chrono::DateTime<Utc>` to an ISO 8601 display string.
+/// Convert a [`jiff::Timestamp`] to an ISO 8601 display string with
+/// nanosecond precision (nine fractional digits, always present).
 #[must_use]
-pub fn datetime_to_display(dt: &DateTime<Utc>) -> String {
-    dt.format("%Y-%m-%dT%H:%M:%S%.9fZ").to_string()
+pub fn datetime_to_display(dt: &Timestamp) -> String {
+    jiff::fmt::strtime::format("%Y-%m-%dT%H:%M:%S.%9fZ", *dt).unwrap_or_else(|_| dt.to_string())
 }
 
 /// Create a [`TimelineEvent`] from an MFT timestamp.
@@ -138,7 +148,7 @@ pub fn datetime_to_display(dt: &DateTime<Utc>) -> String {
 /// `$SI`/`$FN` record hashes differ when their timestamps coincide, so dedup
 /// keeps both rows.
 fn mace_event(
-    timestamp: &DateTime<Utc>,
+    timestamp: &Timestamp,
     event_type: EventType,
     entry_id: u64,
     full_path: &str,
@@ -200,10 +210,10 @@ const MIN_MFT_SIZE: u64 = 1024;
 #[allow(clippy::too_many_arguments)]
 fn emit_mace_timestamps(
     batch: &mut Vec<TimelineEvent>,
-    modified: &DateTime<Utc>,
-    accessed: &DateTime<Utc>,
-    created: &DateTime<Utc>,
-    mft_modified: &DateTime<Utc>,
+    modified: &Timestamp,
+    accessed: &Timestamp,
+    created: &Timestamp,
+    mft_modified: &Timestamp,
     entry_id: u64,
     full_path: &str,
     is_dir: bool,
@@ -434,12 +444,26 @@ impl ForensicParser for MftFileParser {
 
             // Full-precision $FN MACE (fall back to the mft crate per field).
             let fn_ts = FnTimestamps {
-                created: pe.and_then(|e| e.fn_created).unwrap_or(file_name.created),
-                modified: pe.and_then(|e| e.fn_modified).unwrap_or(file_name.modified),
-                accessed: pe.and_then(|e| e.fn_accessed).unwrap_or(file_name.accessed),
-                mft_modified: pe
-                    .and_then(|e| e.fn_mft_modified)
-                    .unwrap_or(file_name.mft_modified),
+                created: ns_to_ts(
+                    pe.and_then(|e| e.fn_created)
+                        .unwrap_or(file_name.created)
+                        .timestamp_nanos_opt(),
+                ),
+                modified: ns_to_ts(
+                    pe.and_then(|e| e.fn_modified)
+                        .unwrap_or(file_name.modified)
+                        .timestamp_nanos_opt(),
+                ),
+                accessed: ns_to_ts(
+                    pe.and_then(|e| e.fn_accessed)
+                        .unwrap_or(file_name.accessed)
+                        .timestamp_nanos_opt(),
+                ),
+                mft_modified: ns_to_ts(
+                    pe.and_then(|e| e.fn_mft_modified)
+                        .unwrap_or(file_name.mft_modified)
+                        .timestamp_nanos_opt(),
+                ),
             };
 
             // Prefer $STANDARD_INFORMATION timestamps; fall back to $FILE_NAME.
@@ -450,13 +474,32 @@ impl ForensicParser for MftFileParser {
             // metadata on FileCreate for timestomp detection) PLUS the 4 $FN
             // MACE rows. When $SI is absent, only the $FN quad is emitted.
             if let Some(si) = extract_standard_info(&entry) {
+                let si_modified = ns_to_ts(
+                    pe.and_then(|e| e.si_modified)
+                        .unwrap_or(si.modified)
+                        .timestamp_nanos_opt(),
+                );
+                let si_accessed = ns_to_ts(
+                    pe.and_then(|e| e.si_accessed)
+                        .unwrap_or(si.accessed)
+                        .timestamp_nanos_opt(),
+                );
+                let si_created = ns_to_ts(
+                    pe.and_then(|e| e.si_created)
+                        .unwrap_or(si.created)
+                        .timestamp_nanos_opt(),
+                );
+                let si_mft_modified = ns_to_ts(
+                    pe.and_then(|e| e.si_mft_modified)
+                        .unwrap_or(si.mft_modified)
+                        .timestamp_nanos_opt(),
+                );
                 emit_mace_timestamps(
                     &mut batch,
-                    &pe.and_then(|e| e.si_modified).unwrap_or(si.modified),
-                    &pe.and_then(|e| e.si_accessed).unwrap_or(si.accessed),
-                    &pe.and_then(|e| e.si_created).unwrap_or(si.created),
-                    &pe.and_then(|e| e.si_mft_modified)
-                        .unwrap_or(si.mft_modified),
+                    &si_modified,
+                    &si_accessed,
+                    &si_created,
+                    &si_mft_modified,
                     entry_id,
                     &full_path,
                     is_dir,
@@ -625,9 +668,8 @@ mod tests {
         // (132_000_000_000_000_000 - 116_444_736_000_000_000) * 100 ns
         // = 15_555_264_000_000_000 * 100 = 1_555_526_400_000_000_000 ns
         // = 1_555_526_400 seconds = 2019-04-17T18:40:00Z
-        use chrono::TimeZone;
         let ns: i64 = 1_555_526_400_000_000_000;
-        let dt = Utc.timestamp_nanos(ns);
+        let dt = jiff::Timestamp::from_nanosecond(i128::from(ns)).expect("valid timestamp");
         let display = datetime_to_display(&dt);
         assert!(
             display.starts_with("2019-04-17T18:40:00"),
@@ -637,8 +679,7 @@ mod tests {
 
     #[test]
     fn test_datetime_to_display_unix_epoch() {
-        use chrono::TimeZone;
-        let dt = Utc.timestamp_nanos(0);
+        let dt = jiff::Timestamp::UNIX_EPOCH;
         let display = datetime_to_display(&dt);
         assert!(
             display.starts_with("1970-01-01T00:00:00"),
@@ -649,9 +690,7 @@ mod tests {
     #[test]
     fn test_datetime_to_display_format_iso8601() {
         // Verify the format includes sub-second precision and trailing 'Z'.
-        let dt = DateTime::parse_from_rfc3339("2019-02-22T00:00:00Z")
-            .expect("valid timestamp")
-            .with_timezone(&Utc);
+        let dt: jiff::Timestamp = "2019-02-22T00:00:00Z".parse().expect("valid timestamp");
         let display = datetime_to_display(&dt);
         // Should match "2019-02-22T00:00:00.000000000Z"
         assert_eq!(display, "2019-02-22T00:00:00.000000000Z");
@@ -661,9 +700,7 @@ mod tests {
 
     #[test]
     fn test_datetime_to_ns() {
-        let dt = DateTime::parse_from_rfc3339("2023-11-14T22:13:20Z")
-            .expect("valid timestamp")
-            .with_timezone(&Utc);
+        let dt: jiff::Timestamp = "2023-11-14T22:13:20Z".parse().expect("valid timestamp");
         let ns = datetime_to_ns(&dt);
         let expected = 1_700_000_000_i64 * 1_000_000_000;
         assert_eq!(ns, expected);
@@ -671,9 +708,7 @@ mod tests {
 
     #[test]
     fn test_datetime_to_display() {
-        let dt = DateTime::parse_from_rfc3339("2023-11-14T22:13:20Z")
-            .expect("valid timestamp")
-            .with_timezone(&Utc);
+        let dt: jiff::Timestamp = "2023-11-14T22:13:20Z".parse().expect("valid timestamp");
         let display = datetime_to_display(&dt);
         assert!(display.starts_with("2023-11-14T22:13:20"), "Got: {display}");
     }
@@ -682,9 +717,7 @@ mod tests {
 
     #[test]
     fn test_mace_event_file() {
-        let dt = DateTime::parse_from_rfc3339("2023-06-15T10:30:00Z")
-            .expect("valid timestamp")
-            .with_timezone(&Utc);
+        let dt: jiff::Timestamp = "2023-06-15T10:30:00Z".parse().expect("valid timestamp");
         let event = mace_event(
             &dt,
             EventType::FileCreate,
@@ -710,9 +743,7 @@ mod tests {
         // removed). It must carry the FilePath correlation join key the builtin
         // had, so temporal rules can still join MFT events by path.
         use issen_core::timeline::event::EntityRef;
-        let dt = DateTime::parse_from_rfc3339("2023-06-15T10:30:00Z")
-            .expect("valid timestamp")
-            .with_timezone(&Utc);
+        let dt: jiff::Timestamp = "2023-06-15T10:30:00Z".parse().expect("valid timestamp");
         let event = mace_event(
             &dt,
             EventType::FileCreate,
@@ -732,9 +763,7 @@ mod tests {
 
     #[test]
     fn test_mace_event_directory() {
-        let dt = DateTime::parse_from_rfc3339("2023-01-01T00:00:00Z")
-            .expect("valid timestamp")
-            .with_timezone(&Utc);
+        let dt: jiff::Timestamp = "2023-01-01T00:00:00Z".parse().expect("valid timestamp");
         let event = mace_event(
             &dt,
             EventType::FileModify,
@@ -750,9 +779,7 @@ mod tests {
 
     #[test]
     fn test_mace_event_entry_modified_type() {
-        let dt = DateTime::parse_from_rfc3339("2023-06-15T10:30:00Z")
-            .expect("valid timestamp")
-            .with_timezone(&Utc);
+        let dt: jiff::Timestamp = "2023-06-15T10:30:00Z".parse().expect("valid timestamp");
         let event = mace_event(
             &dt,
             EventType::Other("MftEntryModified".to_string()),
@@ -968,24 +995,23 @@ mod tests {
     /// the event timestamps themselves.
     #[test]
     fn test_fn_timestamps_surfaced_when_si_present() {
-        use chrono::TimeZone;
-
         // $SI create timestamp: 2020-01-01T00:00:00Z (drives the event ts).
-        let si_created = Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap();
-        let si_modified = Utc.with_ymd_and_hms(2020, 1, 2, 0, 0, 0).unwrap();
-        let si_accessed = Utc.with_ymd_and_hms(2020, 1, 3, 0, 0, 0).unwrap();
-        let si_mft_modified = Utc.with_ymd_and_hms(2020, 1, 4, 0, 0, 0).unwrap();
+        let si_created: Timestamp = "2020-01-01T00:00:00Z".parse().unwrap();
+        let si_modified: Timestamp = "2020-01-02T00:00:00Z".parse().unwrap();
+        let si_accessed: Timestamp = "2020-01-03T00:00:00Z".parse().unwrap();
+        let si_mft_modified: Timestamp = "2020-01-04T00:00:00Z".parse().unwrap();
 
         // $FN with a DISTINCT FILETIME: 2010-06-15T12:00:00Z.
         // FILETIME = (unix_seconds * 10_000_000) + 116_444_736_000_000_000.
-        let fn_unix = Utc
-            .with_ymd_and_hms(2010, 6, 15, 12, 0, 0)
+        let fn_unix = "2010-06-15T12:00:00Z"
+            .parse::<Timestamp>()
             .unwrap()
-            .timestamp();
+            .as_second();
         #[allow(clippy::cast_sign_loss)]
         let fn_filetime = (fn_unix as u64) * 10_000_000 + 116_444_736_000_000_000;
         let fn_attr = build_file_name_attr(fn_filetime, "report.docx");
-        let fn_created_display = datetime_to_display(&fn_attr.created);
+        let fn_ts: FnTimestamps = (&fn_attr).into();
+        let fn_created_display = datetime_to_display(&fn_ts.created);
 
         let mut batch: Vec<TimelineEvent> = Vec::new();
         emit_mace_timestamps(
@@ -998,7 +1024,7 @@ mod tests {
             "Users/analyst/report.docx",
             false,
             "evidence-001",
-            Some((&fn_attr).into()),
+            Some(fn_ts),
         );
 
         let create = batch
@@ -1016,15 +1042,15 @@ mod tests {
         );
         assert_eq!(
             create.metadata["fn_modified"],
-            serde_json::json!(datetime_to_display(&fn_attr.modified)),
+            serde_json::json!(datetime_to_display(&fn_ts.modified)),
         );
         assert_eq!(
             create.metadata["fn_accessed"],
-            serde_json::json!(datetime_to_display(&fn_attr.accessed)),
+            serde_json::json!(datetime_to_display(&fn_ts.accessed)),
         );
         assert_eq!(
             create.metadata["fn_mft_modified"],
-            serde_json::json!(datetime_to_display(&fn_attr.mft_modified)),
+            serde_json::json!(datetime_to_display(&fn_ts.mft_modified)),
         );
     }
 
@@ -1033,12 +1059,10 @@ mod tests {
     /// stronger ordering test (`si_modified<fn_created`) can run from one event.
     #[test]
     fn test_si_mace_surfaced_on_file_create() {
-        use chrono::TimeZone;
-
-        let si_created = Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap();
-        let si_modified = Utc.with_ymd_and_hms(2020, 1, 2, 0, 0, 0).unwrap();
-        let si_accessed = Utc.with_ymd_and_hms(2020, 1, 3, 0, 0, 0).unwrap();
-        let si_mft_modified = Utc.with_ymd_and_hms(2020, 1, 4, 0, 0, 0).unwrap();
+        let si_created: Timestamp = "2020-01-01T00:00:00Z".parse().unwrap();
+        let si_modified: Timestamp = "2020-01-02T00:00:00Z".parse().unwrap();
+        let si_accessed: Timestamp = "2020-01-03T00:00:00Z".parse().unwrap();
+        let si_mft_modified: Timestamp = "2020-01-04T00:00:00Z".parse().unwrap();
 
         let mut batch: Vec<TimelineEvent> = Vec::new();
         emit_mace_timestamps(
@@ -1081,8 +1105,7 @@ mod tests {
     /// are added — behavior is unchanged for single-attribute entries.
     #[test]
     fn test_no_fn_metadata_when_fn_absent() {
-        use chrono::TimeZone;
-        let ts = Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap();
+        let ts: Timestamp = "2020-01-01T00:00:00Z".parse().unwrap();
 
         let mut batch: Vec<TimelineEvent> = Vec::new();
         emit_mace_timestamps(
@@ -1111,8 +1134,7 @@ mod tests {
     /// MFT MACE events are FileSystemActivity (CADET meaning axis).
     #[test]
     fn event_tagged_filesystem_activity() {
-        use chrono::TimeZone;
-        let ts = Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap();
+        let ts: Timestamp = "2020-01-01T00:00:00Z".parse().unwrap();
 
         let mut batch: Vec<TimelineEvent> = Vec::new();
         emit_mace_timestamps(

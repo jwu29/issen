@@ -298,12 +298,12 @@ mod tests {
     }
 
     fn default_ts() -> NtfsTimestamps {
-        let t: SystemTime = sys("2024-01-01T00:00:00Z".parse().unwrap());
+        let t: jiff::Timestamp = "2024-01-01T00:00:00Z".parse().unwrap();
         NtfsTimestamps {
-            modified: t.into(),
-            accessed: t.into(),
-            created: t.into(),
-            entry_modified: t.into(),
+            modified: t,
+            accessed: t,
+            created: t,
+            entry_modified: t,
         }
     }
 

@@ -222,21 +222,19 @@ mod tests {
     use issen_mft_tree::node::{FileNode, NtfsTimestamps};
     use issen_mft_tree::tree::FileTree;
     use std::collections::HashMap;
-    use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-    /// 2024-01-01 00:00:00 UTC as a `SystemTime`; `.into()` builds the
+    /// 2024-01-01 00:00:00 UTC as a `jiff::Timestamp`, for building the
     /// `NtfsTimestamps` fields (whose type is provided by `issen_mft_tree`).
-    fn ts() -> SystemTime {
-        let inst = "2024-01-01T00:00:00Z".parse::<jiff::Timestamp>().unwrap();
-        UNIX_EPOCH + Duration::new(inst.as_second() as u64, inst.subsec_nanosecond() as u32)
+    fn ts() -> jiff::Timestamp {
+        "2024-01-01T00:00:00Z".parse().unwrap()
     }
 
     fn default_ts() -> NtfsTimestamps {
         NtfsTimestamps {
-            modified: ts().into(),
-            accessed: ts().into(),
-            created: ts().into(),
-            entry_modified: ts().into(),
+            modified: ts(),
+            accessed: ts(),
+            created: ts(),
+            entry_modified: ts(),
         }
     }
 

@@ -193,13 +193,10 @@ impl SearchEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::{TimeZone, Utc};
     use issen_mft_tree::node::{FileNode, NtfsTimestamps};
 
-    fn ts() -> chrono::DateTime<Utc> {
-        Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0)
-            .single()
-            .expect("valid timestamp")
+    fn ts() -> jiff::Timestamp {
+        "2024-01-01T00:00:00Z".parse().expect("valid timestamp")
     }
 
     fn timestamps() -> NtfsTimestamps {

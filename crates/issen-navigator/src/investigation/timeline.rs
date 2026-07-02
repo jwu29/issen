@@ -4,7 +4,7 @@
 //! login history, process list) into a unified `TimelineEvent` stream that
 //! can be sorted, filtered, and displayed in the Investigation Workbench.
 
-use chrono::{DateTime, Utc};
+use chrono::DateTime;
 use issen_mft_tree::node::NtfsTimestamps;
 use issen_mft_tree::tree::FileTree;
 use issen_parser_uac::parsers::bodyfile::BodyfileEntry;
@@ -286,7 +286,7 @@ fn push_ntfs_timestamps(
 ) {
     let prefix = if is_fn { "FN " } else { "" };
 
-    let pairs: [(TimestampType, &DateTime<Utc>, &str); 4] = if is_fn {
+    let pairs: [(TimestampType, &jiff::Timestamp, &str); 4] = if is_fn {
         [
             (TimestampType::FnModified, &ts.modified, "modified"),
             (TimestampType::FnAccessed, &ts.accessed, "accessed"),
@@ -308,7 +308,7 @@ fn push_ntfs_timestamps(
 
     for (tt, dt, desc) in pairs {
         events.push(TimelineEvent {
-            timestamp: dt.timestamp(),
+            timestamp: dt.as_second(),
             timestamp_type: tt,
             source,
             path: path.to_string(),

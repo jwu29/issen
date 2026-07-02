@@ -245,13 +245,16 @@ impl FileTree {
     #[must_use]
     pub fn test_single_node(name: &str) -> Self {
         use crate::node::{FileNode, NtfsTimestamps};
-        use chrono::{TimeZone, Utc};
 
+        let midnight = jiff::civil::date(2024, 1, 1)
+            .at(0, 0, 0, 0)
+            .to_zoned(jiff::tz::TimeZone::UTC)
+            .map_or(jiff::Timestamp::UNIX_EPOCH, |z| z.timestamp());
         let ts = NtfsTimestamps {
-            modified: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
-            accessed: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
-            created: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
-            entry_modified: Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
+            modified: midnight,
+            accessed: midnight,
+            created: midnight,
+            entry_modified: midnight,
         };
 
         let file = FileNode {
@@ -305,10 +308,13 @@ impl FileTree {
 mod tests {
     use super::*;
     use crate::node::{FileNode, NtfsTimestamps};
-    use chrono::{DateTime, TimeZone, Utc};
 
-    fn ts(year: i32, month: u32, day: u32) -> DateTime<Utc> {
-        Utc.with_ymd_and_hms(year, month, day, 0, 0, 0).unwrap()
+    fn ts(year: i16, month: i8, day: i8) -> jiff::Timestamp {
+        jiff::civil::date(year, month, day)
+            .at(0, 0, 0, 0)
+            .to_zoned(jiff::tz::TimeZone::UTC)
+            .unwrap()
+            .timestamp()
     }
 
     fn default_timestamps() -> NtfsTimestamps {

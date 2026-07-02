@@ -36,6 +36,18 @@ fn format_size(bytes: u64) -> String {
 /// Uses the most recent timestamp in the tree as reference (not wall clock),
 /// so forensic images from any era get useful color gradients.
 /// Buckets are exponentially spaced: changes are most visible for recent files.
+/// Render an NTFS timestamp (`jiff::Timestamp`) as `YYYY-MM-DD HH:MM:SS` UTC.
+fn ts_display(ts: jiff::Timestamp) -> String {
+    jiff::fmt::strtime::format("%Y-%m-%d %H:%M:%S", ts).unwrap_or_else(|_| ts.to_string())
+}
+
+/// Convert an NTFS timestamp (`jiff::Timestamp`) to the `chrono` instant type
+/// the age-gradient helper is written against.
+fn ts_to_chrono(ts: jiff::Timestamp) -> chrono::DateTime<chrono::Utc> {
+    chrono::DateTime::from_timestamp(ts.as_second(), ts.subsec_nanosecond() as u32)
+        .unwrap_or_default()
+}
+
 fn age_color(
     modified: chrono::DateTime<chrono::Utc>,
     reference: chrono::DateTime<chrono::Utc>,
@@ -254,7 +266,10 @@ fn draw_file_list(frame: &mut Frame, area: Rect, app: &mut App) {
                         .add_modifier(Modifier::BOLD),
                 )
             } else {
-                let file_color = age_color(node.si_timestamps.modified, app.reference_time);
+                let file_color = age_color(
+                    ts_to_chrono(node.si_timestamps.modified),
+                    app.reference_time,
+                );
                 if node.is_downloaded() {
                     Cell::from(Line::from(vec![
                         Span::styled(
@@ -279,16 +294,8 @@ fn draw_file_list(frame: &mut Frame, area: Rect, app: &mut App) {
                 format_size(node.size)
             };
 
-            let modified = node
-                .si_timestamps
-                .modified
-                .format("%Y-%m-%d %H:%M:%S")
-                .to_string();
-            let created = node
-                .si_timestamps
-                .created
-                .format("%Y-%m-%d %H:%M:%S")
-                .to_string();
+            let modified = ts_display(node.si_timestamps.modified);
+            let created = ts_display(node.si_timestamps.created);
             let attrs = node.format_attributes();
             let attr_style = if node.is_hidden() || node.is_system() {
                 Style::default().fg(Color::Yellow)
@@ -368,7 +375,6 @@ fn draw_detail_panel(frame: &mut Frame, area: Rect, app: &mut App) {
     lines.push(Line::from(""));
 
     // -- File info section ---------------------------------------------------
-    let fmt = "%Y-%m-%d %H:%M:%S";
     let dim = Style::default().fg(Color::DarkGray);
     let label = Style::default().fg(Color::Cyan);
     let val = Style::default().fg(Color::White);
@@ -441,20 +447,20 @@ fn draw_detail_panel(frame: &mut Frame, area: Rect, app: &mut App) {
     lines.push(Line::from(Span::styled(" $SI Timestamps", label)));
     lines.push(Line::from(vec![
         Span::styled("  Created  ", dim),
-        Span::styled(node.si_timestamps.created.format(fmt).to_string(), val),
+        Span::styled(ts_display(node.si_timestamps.created), val),
     ]));
     lines.push(Line::from(vec![
         Span::styled("  Modified ", dim),
-        Span::styled(node.si_timestamps.modified.format(fmt).to_string(), val),
+        Span::styled(ts_display(node.si_timestamps.modified), val),
     ]));
     lines.push(Line::from(vec![
         Span::styled("  Accessed ", dim),
-        Span::styled(node.si_timestamps.accessed.format(fmt).to_string(), val),
+        Span::styled(ts_display(node.si_timestamps.accessed), val),
     ]));
     lines.push(Line::from(vec![
         Span::styled("  MFT Mod  ", dim),
         Span::styled(
-            node.si_timestamps.entry_modified.format(fmt).to_string(),
+            ts_display(node.si_timestamps.entry_modified),
             val,
         ),
     ]));
@@ -495,19 +501,19 @@ fn draw_detail_panel(frame: &mut Frame, area: Rect, app: &mut App) {
 
         lines.push(Line::from(vec![
             Span::styled("  Created  ", dim),
-            Span::styled(fn_ts.created.format(fmt).to_string(), c_style),
+            Span::styled(ts_display(fn_ts.created), c_style),
         ]));
         lines.push(Line::from(vec![
             Span::styled("  Modified ", dim),
-            Span::styled(fn_ts.modified.format(fmt).to_string(), m_style),
+            Span::styled(ts_display(fn_ts.modified), m_style),
         ]));
         lines.push(Line::from(vec![
             Span::styled("  Accessed ", dim),
-            Span::styled(fn_ts.accessed.format(fmt).to_string(), a_style),
+            Span::styled(ts_display(fn_ts.accessed), a_style),
         ]));
         lines.push(Line::from(vec![
             Span::styled("  MFT Mod  ", dim),
-            Span::styled(fn_ts.entry_modified.format(fmt).to_string(), e_style),
+            Span::styled(ts_display(fn_ts.entry_modified), e_style),
         ]));
     }
 

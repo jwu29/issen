@@ -138,23 +138,18 @@ mod tests {
     use super::*;
     use issen_mft_tree::node::{FileNode, NtfsTimestamps};
     use issen_mft_tree::tree::FileTree;
-    use std::time::{Duration, SystemTime, UNIX_EPOCH};
-
-    /// A calendar date at midnight UTC as a `SystemTime`; `.into()` builds the
+    /// A calendar date at midnight UTC as a `jiff::Timestamp`, for building the
     /// `NtfsTimestamps` fields (whose type is provided by `issen_mft_tree`).
-    fn ts(y: i32, m: u32, d: u32) -> SystemTime {
-        let inst = format!("{y:04}-{m:02}-{d:02}T00:00:00Z")
-            .parse::<jiff::Timestamp>()
-            .unwrap();
-        UNIX_EPOCH + Duration::new(inst.as_second() as u64, inst.subsec_nanosecond() as u32)
+    fn ts(y: i32, m: u32, d: u32) -> jiff::Timestamp {
+        format!("{y:04}-{m:02}-{d:02}T00:00:00Z").parse().unwrap()
     }
 
     fn default_ts() -> NtfsTimestamps {
         NtfsTimestamps {
-            modified: ts(2024, 1, 1).into(),
-            accessed: ts(2024, 1, 1).into(),
-            created: ts(2024, 1, 1).into(),
-            entry_modified: ts(2024, 1, 1).into(),
+            modified: ts(2024, 1, 1),
+            accessed: ts(2024, 1, 1),
+            created: ts(2024, 1, 1),
+            entry_modified: ts(2024, 1, 1),
         }
     }
 

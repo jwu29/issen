@@ -678,13 +678,16 @@ fn sort_children_by(tree: &FileTree, mode: SortMode, children: &mut [usize]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::{TimeZone, Utc};
     use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
     use issen_mft_tree::node::{FileNode, NtfsTimestamps};
     use issen_mft_tree::tree::FileTree;
 
-    fn ts(y: i32, m: u32, d: u32) -> chrono::DateTime<Utc> {
-        Utc.with_ymd_and_hms(y, m, d, 0, 0, 0).unwrap()
+    fn ts(y: i16, m: i8, d: i8) -> jiff::Timestamp {
+        jiff::civil::date(y, m, d)
+            .at(0, 0, 0, 0)
+            .to_zoned(jiff::tz::TimeZone::UTC)
+            .unwrap()
+            .timestamp()
     }
 
     fn dir_node(name: &str, mft: u64, parent: u64) -> FileNode {
