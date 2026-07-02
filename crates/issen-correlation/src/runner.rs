@@ -144,6 +144,7 @@ where
     out.extend(run_exfil_stage(events));
     out.extend(run_regconfirm(events));
     out.extend(run_lateral_move(events));
+    out.extend(run_beaconing(events));
     out
 }
 
@@ -498,10 +499,62 @@ fn run_lateral_move<E: EventView>(events: &[E]) -> Vec<Correlation> {
 
 /// `NET-BEACON-PERIODIC`: repeated connections to one destination IP at a regular
 /// cadence, grouped per host — consistent with automated C2 beaconing (also fits
-/// benign periodic traffic). RED stub; replaced by the GREEN implementation.
+/// benign periodic traffic). Groups `NetworkConnect` events by (host, remote IP),
+/// then delegates the periodicity judgement to `forensicnomicon::beaconing`
+/// (interval coefficient of variation). Source-agnostic: fires on any network
+/// leg with distinct per-connection timestamps (Zeek/pcap/repeated dumps); a
+/// single netstat snapshot shares one timestamp, so it correctly does not fire.
 fn run_beaconing<E: EventView>(events: &[E]) -> Vec<Correlation> {
-    let _ = events;
-    Vec::new()
+    use crate::correlation::{CorrelationMember, CorrelationRole, CorrelationScope};
+    use forensicnomicon::beaconing::{assess_periodicity, DEFAULT_BEACONING};
+    use forensicnomicon::report::Severity;
+    use std::collections::BTreeMap;
+
+    // (host, remote-ip) -> connection (timestamp_ns, timeline id). BTreeMap keeps
+    // group iteration deterministic (fleet ordering guarantee).
+    let mut groups: BTreeMap<(String, String), Vec<(i64, u64)>> = BTreeMap::new();
+    for e in events {
+        if e.event_type() != "NetworkConnect" {
+            continue;
+        }
+        let ts = e.timestamp_ns();
+        if ts <= 0 {
+            continue; // no clock → cannot place it on the cadence
+        }
+        let host = e.hostname().unwrap_or_default().to_string();
+        for r in e.entity_refs() {
+            if let EntityRef::Ip(ip) = r {
+                groups
+                    .entry((host.clone(), ip.clone()))
+                    .or_default()
+                    .push((ts, e.id()));
+            }
+        }
+    }
+
+    let mut out = Vec::new();
+    for ((_host, ip), mut conns) in groups {
+        conns.sort_by_key(|(ts, _)| *ts);
+        let ts_sorted: Vec<i64> = conns.iter().map(|(ts, _)| *ts).collect();
+        let Some(a) = assess_periodicity(&ts_sorted, &DEFAULT_BEACONING) else {
+            continue;
+        };
+        let first = ts_sorted.first().copied().unwrap_or(0);
+        let last = ts_sorted.last().copied().unwrap_or(0);
+        let mut corr = Correlation::new("NET-BEACON-PERIODIC", Severity::Medium)
+            .with_attack_technique("T1071")
+            .with_scope(CorrelationScope::SameHost)
+            .with_window(first, last)
+            .with_note(format!(
+                "{} connections to {ip} at a regular ~{:.0}s cadence                  (interval CoV {:.2}) — consistent with automated C2 beaconing;                  benign periodic traffic (update checks, telemetry) also fits",
+                a.occurrences, a.mean_interval_seconds, a.coefficient_of_variation
+            ));
+        for (_, id) in &conns {
+            corr = corr.with_member(CorrelationMember::new(*id, CorrelationRole::Supporting));
+        }
+        out.push(corr);
+    }
+    out
 }
 
 #[cfg(test)]

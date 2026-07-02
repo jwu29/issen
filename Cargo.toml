@@ -73,7 +73,7 @@ authors = ["Issen Contributors"]
 
 [workspace.dependencies]
 # Internal crates (path dependencies)
-forensicnomicon  = "1"
+forensicnomicon  = "1.1"
 forensic-pivot   = { path = "crates/forensic-pivot" }
 issen-core       = { path = "crates/issen-core" }
 issen-fswalker   = { path = "crates/issen-fswalker" }
@@ -269,6 +269,9 @@ cast_precision_loss = "allow"
 # TEMPORARY: local winreg-forensic migrated to jiff (chrono→jiff fleet sweep),
 # pending publish of winreg-core 0.2.0 + winreg-artifacts 0.4.0. Remove once published.
 [patch.crates-io]
+# TEMPORARY: local forensicnomicon 1.1.0 (beaconing module), pending publish.
+forensicnomicon = { path = "/Users/4n6h4x0r/src/forensicnomicon" }
+
 winreg-core = { path = "/Users/4n6h4x0r/src/winreg-forensic/crates/winreg-core" }
 winreg-artifacts = { path = "/Users/4n6h4x0r/src/winreg-forensic/crates/winreg-artifacts" }
 srum-core = { path = "/Users/4n6h4x0r/src/srum-forensic/crates/srum-core" }
