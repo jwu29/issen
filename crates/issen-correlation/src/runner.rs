@@ -497,6 +497,14 @@ fn run_lateral_move<E: EventView>(events: &[E]) -> Vec<Correlation> {
     out
 }
 
+/// Classify a destination IP string to its cloud/CDN provider (`None` = unknown,
+/// invalid, or non-IPv4). Wraps `forensicnomicon::cloud_ranges` for issen's
+/// string-typed `EntityRef::Ip`. RED stub; replaced by the GREEN implementation.
+fn classify_destination(ip: &str) -> Option<forensicnomicon::cloud_ranges::CloudProvider> {
+    let _ = ip;
+    None
+}
+
 /// `NET-BEACON-PERIODIC`: repeated connections to one destination IP at a regular
 /// cadence, grouped per host — consistent with automated C2 beaconing (also fits
 /// benign periodic traffic). Groups `NetworkConnect` events by (host, remote IP),
@@ -680,6 +688,49 @@ mod tests {
             })
             .collect();
         assert!(!has_code(&run_correlations(&events), "NET-BEACON-PERIODIC"));
+    }
+
+    #[test]
+    fn classify_destination_known_aws_ip() {
+        // 1.178.1.0 is in the committed AWS snapshot.
+        assert_eq!(
+            classify_destination("1.178.1.0").map(|p| p.as_str()),
+            Some("aws")
+        );
+    }
+
+    #[test]
+    fn classify_destination_private_and_invalid_are_none() {
+        assert!(classify_destination("10.0.0.1").is_none());
+        assert!(classify_destination("not-an-ip").is_none());
+    }
+
+    /// A beacon to a destination in no known cloud range is flagged as an
+    /// unknown destination in the finding note (the higher-signal case).
+    #[test]
+    fn beaconing_note_flags_unknown_destination() {
+        let events: Vec<Ev> = (0i64..5)
+            .map(|i| {
+                Ev::new(
+                    i as u64 + 1,
+                    1_000_000_000_000 + i * 60 * 1_000_000_000,
+                    "NetworkConnect",
+                    "DC01",
+                    EventSource::Memory,
+                )
+                .ent(EntityRef::Ip("203.0.113.7".to_string()))
+            })
+            .collect();
+        let corrs = run_correlations(&events);
+        let beacon = corrs
+            .iter()
+            .find(|c| c.code == "NET-BEACON-PERIODIC")
+            .expect("beacon fires");
+        assert!(
+            beacon.note.contains("unknown destination"),
+            "note should flag unknown destination, got: {}",
+            beacon.note
+        );
     }
 
     #[test]
