@@ -636,8 +636,9 @@ fn current_control_set(hive: &Hive<Cursor<Vec<u8>>>) -> String {
 /// `forensicnomicon::eol_os`), else `None`. The decision seam for EOL-OS
 /// enrichment of the OS-version event. RED stub; replaced by GREEN.
 fn eol_end_date(product_name: Option<&str>) -> Option<&'static str> {
-    let _ = product_name;
-    None
+    product_name
+        .and_then(forensicnomicon::eol_os::lookup)
+        .map(|e| e.eol)
 }
 
 fn extract_named_values(
@@ -667,18 +668,29 @@ fn extract_named_values(
             let build = str_value(hive, k, "CurrentBuild")
                 .or_else(|| str_value(hive, k, "CurrentBuildNumber"));
             if product.is_some() || build.is_some() {
-                out.push(
-                    mk(
-                        format!(
-                            "OS version: {} (build {})",
-                            product.as_deref().unwrap_or("?"),
-                            build.as_deref().unwrap_or("?")
-                        ),
-                        k,
-                    )
+                let eol = eol_end_date(product.as_deref());
+                let desc = match eol {
+                    Some(date) => format!(
+                        "OS version: {} (build {}) — END OF LIFE (support ended {date})",
+                        product.as_deref().unwrap_or("?"),
+                        build.as_deref().unwrap_or("?")
+                    ),
+                    None => format!(
+                        "OS version: {} (build {})",
+                        product.as_deref().unwrap_or("?"),
+                        build.as_deref().unwrap_or("?")
+                    ),
+                };
+                let mut ev = mk(desc, k)
                     .with_metadata("product_name", serde_json::json!(product))
-                    .with_metadata("current_build", serde_json::json!(build)),
-                );
+                    .with_metadata("current_build", serde_json::json!(build));
+                if let Some(date) = eol {
+                    ev = ev
+                        .with_tag("eol-os")
+                        .with_metadata("eol", serde_json::json!(true))
+                        .with_metadata("eol_date", serde_json::json!(date));
+                }
+                out.push(ev);
             }
         }
         "system" => {
