@@ -505,7 +505,6 @@ fn run_lateral_move<E: EventView>(events: &[E]) -> Vec<Correlation> {
 /// (name-level, since `EventView` carries no PID) and applies
 /// `forensicnomicon::process_lifetime::is_short_lived`. A component signal for
 /// the composite network-risk score.
-#[allow(dead_code)] // consumed by run_network_risk (composite) in the next commit
 fn short_lived_process_names<E: EventView>(events: &[E]) -> std::collections::HashSet<(String, String)> {
     use std::collections::{BTreeMap, HashSet};
     // (host, process) -> start / exit timestamps.
@@ -563,14 +562,98 @@ fn classify_destination(ip: &str) -> Option<forensicnomicon::cloud_ranges::Cloud
         .and_then(forensicnomicon::cloud_ranges::classify_ipv4)
 }
 
+/// A network connection for risk grouping: (timestamp_ns, timeline id, owning
+/// process names on the event).
+type RiskConn = (i64, u64, Vec<String>);
+
 /// `NET-RISK-COMPOSITE`: a destination that exhibits two or more coinciding
 /// network-risk signals — periodic beaconing, an unknown (non-cloud) destination,
 /// and a short-lived owning process. Additive to the per-signal findings (does not
 /// mutate NET-BEACON-PERIODIC). Severity scales with the signal count (>=2 High,
 /// 3 Critical). RED stub; replaced by GREEN.
 fn run_network_risk<E: EventView>(events: &[E]) -> Vec<Correlation> {
-    let _ = events;
-    Vec::new()
+    use crate::correlation::{CorrelationMember, CorrelationRole, CorrelationScope};
+    use forensicnomicon::beaconing::{assess_periodicity, DEFAULT_BEACONING};
+    use forensicnomicon::report::Severity;
+    use std::collections::BTreeMap;
+
+    let short_lived = short_lived_process_names(events);
+    // (host, remote-ip) -> connection (ts, id, owning process names).
+    let mut groups: BTreeMap<(String, String), Vec<RiskConn>> = BTreeMap::new();
+    for e in events {
+        if e.event_type() != "NetworkConnect" {
+            continue;
+        }
+        let ts = e.timestamp_ns();
+        if ts <= 0 {
+            continue;
+        }
+        let host = e.hostname().unwrap_or_default().to_string();
+        let procs: Vec<String> = e
+            .entity_refs()
+            .iter()
+            .filter_map(|r| match r {
+                EntityRef::Process(n) => Some(n.clone()),
+                _ => None,
+            })
+            .collect();
+        for r in e.entity_refs() {
+            if let EntityRef::Ip(ip) = r {
+                groups
+                    .entry((host.clone(), ip.clone()))
+                    .or_default()
+                    .push((ts, e.id(), procs.clone()));
+            }
+        }
+    }
+
+    let mut out = Vec::new();
+    for ((host, ip), mut conns) in groups {
+        conns.sort_by_key(|(ts, _, _)| *ts);
+        let ts_sorted: Vec<i64> = conns.iter().map(|(ts, _, _)| *ts).collect();
+
+        let mut signals: Vec<&str> = Vec::new();
+        if assess_periodicity(&ts_sorted, &DEFAULT_BEACONING).is_some() {
+            signals.push("periodic beaconing");
+        }
+        if classify_destination(&ip).is_none() {
+            signals.push("unknown (non-cloud) destination");
+        }
+        let short_lived_owner = conns.iter().any(|(_, _, procs)| {
+            procs
+                .iter()
+                .any(|p| short_lived.contains(&(host.clone(), p.clone())))
+        });
+        if short_lived_owner {
+            signals.push("short-lived owning process");
+        }
+        if signals.len() < 2 {
+            continue;
+        }
+
+        let severity = if signals.len() >= 3 {
+            Severity::Critical
+        } else {
+            Severity::High
+        };
+        let first = ts_sorted.first().copied().unwrap_or(0);
+        let last = ts_sorted.last().copied().unwrap_or(0);
+        let mut corr = Correlation::new("NET-RISK-COMPOSITE", severity)
+            .with_attack_technique("T1071")
+            .with_scope(CorrelationScope::SameHost)
+            .with_window(first, last)
+            .with_note(format!(
+                "destination {ip} exhibits {} coinciding network-risk signals ({}) \
+                 — consistent with malicious C2 infrastructure; review in context",
+                signals.len(),
+                signals.join(", ")
+            ));
+        for (_, id, _) in &conns {
+            corr = corr.with_member(CorrelationMember::new(*id, CorrelationRole::Supporting));
+        }
+        out.push(corr);
+    }
+    out
 }
 
 /// `NET-BEACON-PERIODIC`: repeated connections to one destination IP at a regular
