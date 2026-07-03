@@ -146,6 +146,7 @@ where
     out.extend(run_lateral_move(events));
     out.extend(run_beaconing(events));
     out.extend(run_network_risk(events));
+    out.extend(run_shared_ioc(events));
     out
 }
 
@@ -172,7 +173,7 @@ where
 /// short name reported to `start_rule`. Collecting their outputs in this fixed
 /// order keeps the findings deterministic even though the rules run in parallel.
 #[allow(clippy::type_complexity)]
-fn disk_rules<E: EventView + Sync>() -> [(&'static str, fn(&[E]) -> Vec<Correlation>); 10] {
+fn disk_rules<E: EventView + Sync>() -> [(&'static str, fn(&[E]) -> Vec<Correlation>); 11] {
     [
         ("relocate", run_relocate::<E>),
         ("persist", run_persist::<E>),
@@ -184,6 +185,7 @@ fn disk_rules<E: EventView + Sync>() -> [(&'static str, fn(&[E]) -> Vec<Correlat
         ("lateral-move", run_lateral_move::<E>),
         ("beaconing", run_beaconing::<E>),
         ("network-risk", run_network_risk::<E>),
+        ("shared-ioc", run_shared_ioc::<E>),
     ]
 }
 
@@ -560,6 +562,19 @@ fn classify_destination(ip: &str) -> Option<forensicnomicon::cloud_ranges::Cloud
     ip.parse::<std::net::Ipv4Addr>()
         .ok()
         .and_then(forensicnomicon::cloud_ranges::classify_ipv4)
+}
+
+/// Minimum distinct hosts for a destination to count as a shared IOC (definition
+/// of "shared": contacted from more than one host).
+const SHARED_IOC_MIN_HOSTS: usize = 2;
+
+/// `NET-IOC-SHARED`: an unknown (non-cloud) destination contacted from two or more
+/// hosts — consistent with shared C2 / lateral infrastructure. Known cloud/CDN
+/// destinations are benign shared egress and are intentionally not flagged. RED
+/// stub; replaced by GREEN.
+fn run_shared_ioc<E: EventView>(events: &[E]) -> Vec<Correlation> {
+    let _ = events;
+    Vec::new()
 }
 
 /// A network connection for risk grouping: (timestamp_ns, timeline id, owning
@@ -980,6 +995,39 @@ mod tests {
                 .ent(EntityRef::Ip("203.0.113.7".to_string())),
         ];
         assert!(!has_code(&run_correlations(&events), "NET-RISK-COMPOSITE"));
+    }
+
+    fn net_conn(id: u64, ts: i64, host: &str, ip: &str) -> Ev {
+        Ev::new(id, ts, "NetworkConnect", host, EventSource::Memory)
+            .ent(EntityRef::Ip(ip.to_string()))
+    }
+
+    #[test]
+    fn shared_ioc_fires_for_unknown_dest_on_two_hosts() {
+        let events = vec![
+            net_conn(1, 1_000_000_000_000, "DC01", "203.0.113.7"),
+            net_conn(2, 1_000_000_000_000, "WS01", "203.0.113.7"),
+        ];
+        assert!(has_code(&run_correlations(&events), "NET-IOC-SHARED"));
+    }
+
+    #[test]
+    fn no_shared_ioc_for_single_host() {
+        let events = vec![
+            net_conn(1, 1_000_000_000_000, "DC01", "203.0.113.7"),
+            net_conn(2, 2_000_000_000_000, "DC01", "203.0.113.7"),
+        ];
+        assert!(!has_code(&run_correlations(&events), "NET-IOC-SHARED"));
+    }
+
+    #[test]
+    fn no_shared_ioc_for_known_cloud_dest() {
+        // 1.178.1.0 is a known AWS range in the snapshot — benign shared egress.
+        let events = vec![
+            net_conn(1, 1_000_000_000_000, "DC01", "1.178.1.0"),
+            net_conn(2, 1_000_000_000_000, "WS01", "1.178.1.0"),
+        ];
+        assert!(!has_code(&run_correlations(&events), "NET-IOC-SHARED"));
     }
 
     #[test]
