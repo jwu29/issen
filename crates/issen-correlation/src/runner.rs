@@ -497,6 +497,17 @@ fn run_lateral_move<E: EventView>(events: &[E]) -> Vec<Correlation> {
     out
 }
 
+/// The set of `(host, process-name)` that started and exited within the
+/// short-lived threshold. Pairs `ProcessExec` (EVTX 4688) with the nearest
+/// following `ProcessExit` (4689) sharing a `Process` entity on the same host
+/// (name-level, since `EventView` carries no PID) and applies
+/// `forensicnomicon::process_lifetime::is_short_lived`. A component signal for
+/// the composite network-risk score. RED stub; replaced by GREEN.
+fn short_lived_process_names<E: EventView>(events: &[E]) -> std::collections::HashSet<(String, String)> {
+    let _ = events;
+    std::collections::HashSet::new()
+}
+
 /// Classify a destination IP string to its cloud/CDN provider (`None` = unknown,
 /// invalid, or non-IPv4). Wraps `forensicnomicon::cloud_ranges` for issen's
 /// string-typed `EntityRef::Ip`. RED stub; replaced by the GREEN implementation.
@@ -736,6 +747,38 @@ mod tests {
             "note should flag unknown destination, got: {}",
             beacon.note
         );
+    }
+
+    #[test]
+    fn short_lived_process_is_detected() {
+        let events = vec![
+            Ev::new(1, 1_000_000_000_000, "ProcessExec", "DC01", EventSource::Evtx)
+                .ent(EntityRef::Process("dropper.exe".to_string())),
+            // exits 5s later → short-lived
+            Ev::new(2, 1_000_000_000_000 + 5 * 1_000_000_000, "ProcessExit", "DC01", EventSource::Evtx)
+                .ent(EntityRef::Process("dropper.exe".to_string())),
+        ];
+        let set = short_lived_process_names(&events);
+        assert!(set.contains(&("DC01".to_string(), "dropper.exe".to_string())));
+    }
+
+    #[test]
+    fn long_lived_process_is_not_short_lived() {
+        let events = vec![
+            Ev::new(1, 1_000_000_000_000, "ProcessExec", "DC01", EventSource::Evtx)
+                .ent(EntityRef::Process("service.exe".to_string())),
+            // exits 1h later
+            Ev::new(2, 1_000_000_000_000 + 3600 * 1_000_000_000, "ProcessExit", "DC01", EventSource::Evtx)
+                .ent(EntityRef::Process("service.exe".to_string())),
+        ];
+        assert!(short_lived_process_names(&events).is_empty());
+    }
+
+    #[test]
+    fn exec_without_exit_is_not_short_lived() {
+        let events = vec![Ev::new(1, 1_000_000_000_000, "ProcessExec", "DC01", EventSource::Evtx)
+            .ent(EntityRef::Process("still-running.exe".to_string()))];
+        assert!(short_lived_process_names(&events).is_empty());
     }
 
     #[test]
