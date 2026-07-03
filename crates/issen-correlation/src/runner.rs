@@ -502,10 +502,54 @@ fn run_lateral_move<E: EventView>(events: &[E]) -> Vec<Correlation> {
 /// following `ProcessExit` (4689) sharing a `Process` entity on the same host
 /// (name-level, since `EventView` carries no PID) and applies
 /// `forensicnomicon::process_lifetime::is_short_lived`. A component signal for
-/// the composite network-risk score. RED stub; replaced by GREEN.
+/// the composite network-risk score.
+#[allow(dead_code)] // consumed by run_network_risk (composite) in the next commit
 fn short_lived_process_names<E: EventView>(events: &[E]) -> std::collections::HashSet<(String, String)> {
-    let _ = events;
-    std::collections::HashSet::new()
+    use std::collections::{BTreeMap, HashSet};
+    // (host, process) -> start / exit timestamps.
+    let mut execs: BTreeMap<(String, String), Vec<i64>> = BTreeMap::new();
+    let mut exits: BTreeMap<(String, String), Vec<i64>> = BTreeMap::new();
+    for e in events {
+        let ts = e.timestamp_ns();
+        if ts <= 0 {
+            continue;
+        }
+        let bucket = match e.event_type() {
+            "ProcessExec" => &mut execs,
+            "ProcessExit" => &mut exits,
+            _ => continue,
+        };
+        let host = e.hostname().unwrap_or_default().to_string();
+        for r in e.entity_refs() {
+            if let EntityRef::Process(name) = r {
+                bucket
+                    .entry((host.clone(), name.clone()))
+                    .or_default()
+                    .push(ts);
+            }
+        }
+    }
+    let mut out = HashSet::new();
+    for (key, mut starts) in execs {
+        let Some(ends) = exits.get(&key) else {
+            continue; // no exit seen → lifetime unknown, cannot call it short-lived
+        };
+        starts.sort_unstable();
+        let mut ends = ends.clone();
+        ends.sort_unstable();
+        // Pair each start with the nearest exit at or after it; if any instance
+        // is short-lived, the name is flagged (name-level, no PID available).
+        for start in starts {
+            if let Some(&end) = ends.iter().find(|&&t| t >= start) {
+                let lifetime_s = (end - start) / 1_000_000_000;
+                if forensicnomicon::process_lifetime::is_short_lived(lifetime_s) {
+                    out.insert(key.clone());
+                    break;
+                }
+            }
+        }
+    }
+    out
 }
 
 /// Classify a destination IP string to its cloud/CDN provider (`None` = unknown,
