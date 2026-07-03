@@ -632,6 +632,14 @@ fn current_control_set(hive: &Hive<Cursor<Vec<u8>>>) -> String {
 /// Extract high-value **named values** (not just key-write timestamps) that
 /// answer host-identity questions: OS version (SOFTWARE), timezone + computer
 /// name (SYSTEM). Emitted as `system-info` events tagged for discovery.
+/// End-of-support date if `product_name` is a known end-of-life OS (per
+/// `forensicnomicon::eol_os`), else `None`. The decision seam for EOL-OS
+/// enrichment of the OS-version event. RED stub; replaced by GREEN.
+fn eol_end_date(product_name: Option<&str>) -> Option<&'static str> {
+    let _ = product_name;
+    None
+}
+
 fn extract_named_values(
     hive: &Hive<Cursor<Vec<u8>>>,
     hive_name: &str,
@@ -800,6 +808,13 @@ mod tests {
     /// Real DC SOFTWARE hive: the named-value extraction must surface the OS
     /// version (F1: Windows Server 2012 R2, build 9600) — a parsed VALUE, not a
     /// key-write timestamp. Skips cleanly when the corpus is absent.
+    #[test]
+    fn eol_end_date_flags_known_eol_os() {
+        assert_eq!(eol_end_date(Some("Windows 7 Professional")), Some("2020-01-14"));
+        assert_eq!(eol_end_date(Some("Windows 11 Pro")), None);
+        assert_eq!(eol_end_date(None), None);
+    }
+
     #[test]
     fn real_software_hive_yields_os_version() {
         let p = hive("SOFTWARE");
