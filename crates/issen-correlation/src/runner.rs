@@ -145,6 +145,7 @@ where
     out.extend(run_regconfirm(events));
     out.extend(run_lateral_move(events));
     out.extend(run_beaconing(events));
+    out.extend(run_network_risk(events));
     out
 }
 
@@ -171,7 +172,7 @@ where
 /// short name reported to `start_rule`. Collecting their outputs in this fixed
 /// order keeps the findings deterministic even though the rules run in parallel.
 #[allow(clippy::type_complexity)]
-fn disk_rules<E: EventView + Sync>() -> [(&'static str, fn(&[E]) -> Vec<Correlation>); 9] {
+fn disk_rules<E: EventView + Sync>() -> [(&'static str, fn(&[E]) -> Vec<Correlation>); 10] {
     [
         ("relocate", run_relocate::<E>),
         ("persist", run_persist::<E>),
@@ -182,6 +183,7 @@ fn disk_rules<E: EventView + Sync>() -> [(&'static str, fn(&[E]) -> Vec<Correlat
         ("regconfirm", run_regconfirm::<E>),
         ("lateral-move", run_lateral_move::<E>),
         ("beaconing", run_beaconing::<E>),
+        ("network-risk", run_network_risk::<E>),
     ]
 }
 
@@ -561,6 +563,16 @@ fn classify_destination(ip: &str) -> Option<forensicnomicon::cloud_ranges::Cloud
         .and_then(forensicnomicon::cloud_ranges::classify_ipv4)
 }
 
+/// `NET-RISK-COMPOSITE`: a destination that exhibits two or more coinciding
+/// network-risk signals — periodic beaconing, an unknown (non-cloud) destination,
+/// and a short-lived owning process. Additive to the per-signal findings (does not
+/// mutate NET-BEACON-PERIODIC). Severity scales with the signal count (>=2 High,
+/// 3 Critical). RED stub; replaced by GREEN.
+fn run_network_risk<E: EventView>(events: &[E]) -> Vec<Correlation> {
+    let _ = events;
+    Vec::new()
+}
+
 /// `NET-BEACON-PERIODIC`: repeated connections to one destination IP at a regular
 /// cadence, grouped per host — consistent with automated C2 beaconing (also fits
 /// benign periodic traffic). Groups `NetworkConnect` events by (host, remote IP),
@@ -823,6 +835,68 @@ mod tests {
         let events = vec![Ev::new(1, 1_000_000_000_000, "ProcessExec", "DC01", EventSource::Evtx)
             .ent(EntityRef::Process("still-running.exe".to_string()))];
         assert!(short_lived_process_names(&events).is_empty());
+    }
+
+    /// Beacon (regular cadence) + unknown destination = 2 signals -> High composite.
+    fn beacon_to_unknown_events(proc: Option<&str>) -> Vec<Ev> {
+        (0i64..5)
+            .map(|i| {
+                let mut e = Ev::new(
+                    i as u64 + 1,
+                    1_000_000_000_000 + i * 60 * 1_000_000_000,
+                    "NetworkConnect",
+                    "DC01",
+                    EventSource::Memory,
+                )
+                .ent(EntityRef::Ip("203.0.113.7".to_string()));
+                if let Some(p) = proc {
+                    e = e.ent(EntityRef::Process(p.to_string()));
+                }
+                e
+            })
+            .collect()
+    }
+
+    #[test]
+    fn composite_high_for_two_signals() {
+        let corrs = run_correlations(&beacon_to_unknown_events(None));
+        let c = corrs
+            .iter()
+            .find(|c| c.code == "NET-RISK-COMPOSITE")
+            .expect("composite fires");
+        assert_eq!(c.severity, forensicnomicon::report::Severity::High);
+    }
+
+    #[test]
+    fn composite_critical_for_three_signals() {
+        // Add a short-lived owning process (exec+exit 5s apart) named on the connections.
+        let mut events = beacon_to_unknown_events(Some("mal.exe"));
+        events.push(
+            Ev::new(100, 900_000_000_000, "ProcessExec", "DC01", EventSource::Evtx)
+                .ent(EntityRef::Process("mal.exe".to_string())),
+        );
+        events.push(
+            Ev::new(101, 905_000_000_000, "ProcessExit", "DC01", EventSource::Evtx)
+                .ent(EntityRef::Process("mal.exe".to_string())),
+        );
+        let corrs = run_correlations(&events);
+        let c = corrs
+            .iter()
+            .find(|c| c.code == "NET-RISK-COMPOSITE")
+            .expect("composite fires");
+        assert_eq!(c.severity, forensicnomicon::report::Severity::Critical);
+    }
+
+    #[test]
+    fn no_composite_for_single_signal() {
+        // Two irregular connections to an unknown IP: unknown only (1 signal).
+        let events = vec![
+            Ev::new(1, 1_000_000_000_000, "NetworkConnect", "DC01", EventSource::Memory)
+                .ent(EntityRef::Ip("203.0.113.7".to_string())),
+            Ev::new(2, 1_000_000_000_000 + 7 * 1_000_000_000, "NetworkConnect", "DC01", EventSource::Memory)
+                .ent(EntityRef::Ip("203.0.113.7".to_string())),
+        ];
+        assert!(!has_code(&run_correlations(&events), "NET-RISK-COMPOSITE"));
     }
 
     #[test]
