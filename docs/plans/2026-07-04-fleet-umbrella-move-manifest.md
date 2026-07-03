@@ -23,14 +23,13 @@ keeps its own `.git`/remote/history and is *relocated* under `~/src/issen/<layer
   parser/       browser-forensic · srum-forensic · exec-pe-forensic · winreg-forensic ·
                 prefetch-forensic · lnk-forensic · trash-forensic · shellhist-forensic ·
                 peripheral-forensic · shellitem · snss-forensic · dpapi-forensic ·
-                sqlite-forensic · doc4n6
+                sqlite-forensic · doc4n6 · chat4n6   # doc4n6/chat4n6: parsers that ship a GUI/CLI
   graph/        git-forensic
   history/      snapshot-forensic · vsc-forensic
   orchestrator/ issen  ·  disk-forensic  ·  useract-forensic
   util/         lzo · lzvn · xpress-huffman · timeglyph · stem-branch · shrinkpath ·
-                name-variants · tl · blazehash
-  app/          chat4n6
-  deprecated/   usnjrnl-forensic
+                name-variants · blazehash
+  deprecated/   usnjrnl-forensic · tl
 ```
 
 ~55 repos. **Explicitly OUT** (stay as standalone `~/src/<name>`): all non-forensic products
@@ -41,7 +40,7 @@ APOLLO, bulk_extractor, …). `mft` (third-party) stays out per plan.
 
 ## Mechanics (avoids the umbrella/repo name collision; run from `~/src`, never inside a moving dir)
 
-1. `mkdir -p ~/src/.issen-umbrella/{knowledge,container,filesystem,mount,partition,memory,log,parser,graph,history,orchestrator,util,app,deprecated}`
+1. `mkdir -p ~/src/.issen-umbrella/{knowledge,container,filesystem,mount,partition,memory,log,parser,graph,history,orchestrator,util,deprecated}`
 2. Move every in-scope repo: `mv ~/src/<repo> ~/src/.issen-umbrella/<layer>/<repo>` — one `mv` per repo,
    verifying each `.git` arrives intact (`git -C <dest> status`). issen itself moves LAST
    (`mv ~/src/issen ~/src/.issen-umbrella/orchestrator/issen`).
@@ -75,7 +74,9 @@ Dirty and/or ahead of remote (folder move preserves everything, but landing firs
 - **verify remote:** `~/src/vhd` currently shows **no origin remote** — confirm it's the real
   `SecurityRonin/vhd` (or re-add remote) before moving.
 
-## Open placements to confirm during execution
-- `chat4n6` → `app/` (front-end tool) — reclassify to `parser/` if it's chat-artifact parsing.
-- `tl`, `name-variants` → `util/` (tentative).
-- `atx-forensic` → `container/` (verify what ATX is).
+## Placements resolved (user, 2026-07-04)
+- `chat4n6`, `doc4n6` → `parser/` — parsers that happen to ship a GUI/CLI front end.
+- `atx-forensic` → `container/` — confirmed: reader/decoder for Apple ATX/AAPL texture-image
+  containers (iOS UI image caches; parses the chunked AAPL container, decodes ASTC/LZFSE).
+- `tl` (Rapid Forensic Triage Timeline — superseded by issen) and `usnjrnl-forensic` → `deprecated/`.
+- `name-variants` → `util/`.
