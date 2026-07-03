@@ -568,13 +568,67 @@ fn classify_destination(ip: &str) -> Option<forensicnomicon::cloud_ranges::Cloud
 /// of "shared": contacted from more than one host).
 const SHARED_IOC_MIN_HOSTS: usize = 2;
 
+/// Cross-host aggregation for one destination IP: (distinct hosts, connection
+/// (timestamp_ns, timeline id) members).
+type SharedIocEntry = (std::collections::BTreeSet<String>, Vec<(i64, u64)>);
+
 /// `NET-IOC-SHARED`: an unknown (non-cloud) destination contacted from two or more
 /// hosts — consistent with shared C2 / lateral infrastructure. Known cloud/CDN
 /// destinations are benign shared egress and are intentionally not flagged. RED
 /// stub; replaced by GREEN.
 fn run_shared_ioc<E: EventView>(events: &[E]) -> Vec<Correlation> {
-    let _ = events;
-    Vec::new()
+    use crate::correlation::{CorrelationMember, CorrelationRole, CorrelationScope};
+    use forensicnomicon::report::Severity;
+    use std::collections::BTreeMap;
+
+    // remote-ip -> (distinct hosts, connection (ts, id) members).
+    let mut by_ip: BTreeMap<String, SharedIocEntry> = BTreeMap::new();
+    for e in events {
+        if e.event_type() != "NetworkConnect" {
+            continue;
+        }
+        let ts = e.timestamp_ns();
+        if ts <= 0 {
+            continue;
+        }
+        let host = e.hostname().unwrap_or_default().to_string();
+        for r in e.entity_refs() {
+            if let EntityRef::Ip(ip) = r {
+                let entry = by_ip.entry(ip.clone()).or_default();
+                entry.0.insert(host.clone());
+                entry.1.push((ts, e.id()));
+            }
+        }
+    }
+
+    let mut out = Vec::new();
+    for (ip, (hosts, mut members)) in by_ip {
+        if hosts.len() < SHARED_IOC_MIN_HOSTS {
+            continue;
+        }
+        // Known cloud/CDN destinations are benign shared egress — not flagged.
+        if classify_destination(&ip).is_some() {
+            continue;
+        }
+        members.sort_by_key(|(ts, _)| *ts);
+        let first = members.first().map_or(0, |(ts, _)| *ts);
+        let last = members.last().map_or(0, |(ts, _)| *ts);
+        let host_list = hosts.iter().cloned().collect::<Vec<_>>().join(", ");
+        let mut corr = Correlation::new("NET-IOC-SHARED", Severity::High)
+            .with_attack_technique("T1071")
+            .with_scope(CorrelationScope::CrossHost)
+            .with_window(first, last)
+            .with_note(format!(
+                "unknown (non-cloud) destination {ip} contacted from {} hosts ({host_list}) \
+                 — consistent with shared C2 / lateral infrastructure",
+                hosts.len()
+            ));
+        for (_, id) in &members {
+            corr = corr.with_member(CorrelationMember::new(*id, CorrelationRole::Supporting));
+        }
+        out.push(corr);
+    }
+    out
 }
 
 /// A network connection for risk grouping: (timestamp_ns, timeline id, owning
