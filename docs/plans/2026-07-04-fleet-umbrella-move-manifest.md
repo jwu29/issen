@@ -11,7 +11,7 @@ keeps its own `.git`/remote/history and is *relocated* under `~/src/issen/<layer
 ```
 ~/src/issen/                          # umbrella root (a plain folder — NO .git, NO Cargo.toml)
   knowledge/    forensicnomicon · state-history-forensic · jsonguard
-  container/    ewf · ewf-forensic · vhdx-forensic · vmdk-forensic · vhd · qcow2-forensic ·
+  container/    ewf · ewf-forensic · vhdx-forensic · vmdk-forensic · vhd-forensic · qcow2-forensic ·
                 aff4-forensic · dmg · dar-forensic · segb-forensic · cfb-forensic ·
                 zip-forensic · atx-forensic · ad1-forensic
   filesystem/   ntfs-forensic · ext4fs-forensic · hfsplus-forensic · udf-forensic ·
@@ -71,8 +71,11 @@ Dirty and/or ahead of remote (folder move preserves everything, but landing firs
 - **uncommitted changes:** `sqlite-forensic` (9), `doc4n6` (8), `stem-branch` (5), and single-file
   dirt in `vhdx-forensic`, `ext4fs-forensic`, `apfs-forensic`, `mbr-partition-forensic`,
   `memory-forensic`, `trash-forensic`, `4n6mount`.
-- **verify remote:** `~/src/vhd` currently shows **no origin remote** — confirm it's the real
-  `SecurityRonin/vhd` (or re-add remote) before moving.
+- **verify remote:** ✅ RESOLVED — `~/src/vhd` had no remote and `SecurityRonin/vhd` was a 404.
+  Renamed folder → `~/src/vhd-forensic`, created public `SecurityRonin/vhd-forensic`, pushed all 28
+  commits, repointed the `repository` field. FOLLOW-UP (needs the crates.io token): the reader crate
+  is still bare `vhd` 0.1.1 — align to the `vhd-core` ([lib] `vhd`) + `vhd-forensic` split like
+  vhdx-core/vhdx-forensic, and build the (currently non-existent) `vhd-forensic` analyzer.
 
 ## Placements resolved (user, 2026-07-04)
 - `chat4n6`, `doc4n6` → `parser/` — parsers that happen to ship a GUI/CLI front end.
