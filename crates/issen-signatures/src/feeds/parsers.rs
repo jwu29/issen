@@ -6,7 +6,7 @@
 use serde::Deserialize;
 use thiserror::Error;
 
-use crate::engines::ioc_hash::HashIocStore;
+use crate::engines::ioc_hash::HashFeed;
 use crate::engines::ioc_network::NetworkIocStore;
 
 /// Errors from feed parsing.
@@ -29,10 +29,7 @@ pub enum FeedParseError {
 /// Parse a plain-text feed (one indicator per line) into a hash store.
 /// Lines starting with '#' or ';' are comments. Empty lines are skipped.
 /// Returns the number of indicators loaded.
-pub fn parse_plaintext_hashes(
-    data: &str,
-    store: &mut HashIocStore,
-) -> Result<usize, FeedParseError> {
+pub fn parse_plaintext_hashes(data: &str, store: &mut HashFeed) -> Result<usize, FeedParseError> {
     let mut count = 0;
     for line in data.lines() {
         let trimmed = line.trim();
@@ -92,7 +89,7 @@ pub fn parse_plaintext_network(
 /// The ioc_value is in column index 2 (0-based).
 pub fn parse_threatfox_csv(
     data: &str,
-    hash_store: &mut HashIocStore,
+    hash_store: &mut HashFeed,
     network_store: &mut NetworkIocStore,
 ) -> Result<usize, FeedParseError> {
     let mut count = 0;
@@ -226,7 +223,7 @@ mod tests {
                      \n\
                      # end of list\n";
 
-        let mut store = HashIocStore::new("test");
+        let mut store = HashFeed::new("test");
         let count = parse_plaintext_hashes(data, &mut store).expect("parse");
 
         assert_eq!(count, 2);
@@ -241,7 +238,7 @@ mod tests {
     #[test]
     fn test_parse_plaintext_hashes_with_trailing_comments() {
         let data = "d41d8cd98f00b204e9800998ecf8427e  # empty file hash\n";
-        let mut store = HashIocStore::new("test");
+        let mut store = HashFeed::new("test");
         let count = parse_plaintext_hashes(data, &mut store).expect("parse");
         assert_eq!(count, 1);
     }
@@ -249,7 +246,7 @@ mod tests {
     #[test]
     fn test_parse_plaintext_hashes_empty() {
         let data = "# just comments\n\n";
-        let mut store = HashIocStore::new("test");
+        let mut store = HashFeed::new("test");
         let count = parse_plaintext_hashes(data, &mut store).expect("parse");
         assert_eq!(count, 0);
     }
@@ -258,7 +255,7 @@ mod tests {
     fn test_parse_plaintext_hashes_semicolon_comments() {
         let data = "; Spamhaus-style comment\n\
                      d41d8cd98f00b204e9800998ecf8427e\n";
-        let mut store = HashIocStore::new("test");
+        let mut store = HashFeed::new("test");
         let count = parse_plaintext_hashes(data, &mut store).expect("parse");
         assert_eq!(count, 1);
     }
@@ -303,7 +300,7 @@ mod tests {
                      \"2024-01-01\",\"ip:port\",\"10.0.0.1:4444\",\"c2\",\"CobaltStrike\",\"90\"\n\
                      \"2024-01-01\",\"domain\",\"evil.example.com\",\"c2\",\"Qakbot\",\"80\"\n";
 
-        let mut hash_store = HashIocStore::new("threatfox");
+        let mut hash_store = HashFeed::new("threatfox");
         let mut network_store = NetworkIocStore::new("threatfox");
         let count = parse_threatfox_csv(data, &mut hash_store, &mut network_store).expect("parse");
 
@@ -318,7 +315,7 @@ mod tests {
     #[test]
     fn test_parse_threatfox_csv_url_type() {
         let data = "\"2024-01-01\",\"url\",\"http://malware.com/payload.exe\",\"payload\",\"Generic\",\"50\"\n";
-        let mut hash_store = HashIocStore::new("test");
+        let mut hash_store = HashFeed::new("test");
         let mut network_store = NetworkIocStore::new("test");
         let count = parse_threatfox_csv(data, &mut hash_store, &mut network_store).expect("parse");
         assert_eq!(count, 1);
@@ -328,7 +325,7 @@ mod tests {
     #[test]
     fn test_parse_threatfox_csv_empty() {
         let data = "# just a header\n";
-        let mut hash_store = HashIocStore::new("test");
+        let mut hash_store = HashFeed::new("test");
         let mut network_store = NetworkIocStore::new("test");
         let count = parse_threatfox_csv(data, &mut hash_store, &mut network_store).expect("parse");
         assert_eq!(count, 0);

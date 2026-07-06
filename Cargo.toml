@@ -153,7 +153,7 @@ memf-linux     = "0.3.0"
 memf-windows   = "0.3.0"
 memf-strings   = "0.2.1"
 memf-correlate = "0.3.0"
-forensic-hashdb = "0.1"
+forensic-hashdb = "0.2"
 browser-core    = { version = "0.2", package = "browser-forensic-core" }
 browser-chrome  = { version = "0.2", package = "browser-forensic-chrome" }
 browser-firefox = { version = "0.2", package = "browser-forensic-firefox" }
@@ -265,3 +265,8 @@ cast_possible_truncation = "allow"
 cast_possible_wrap = "allow"
 cast_sign_loss = "allow"
 cast_precision_loss = "allow"
+
+# TEMPORARY: forensic-hashdb extracted to its own repo + feed module (0.2.0),
+# pending publish. Remove once forensic-hashdb 0.2.0 is on crates.io (ADR-0011).
+[patch.crates-io]
+forensic-hashdb = { path = "/Users/4n6h4x0r/src/forensic-hashdb" }

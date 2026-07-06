@@ -434,7 +434,7 @@ mod tests {
     use super::*;
     use issen_core::artifacts::ArtifactType;
     use issen_core::timeline::event::EventType;
-    use issen_signatures::engines::ioc_hash::HashIocStore;
+    use issen_signatures::engines::ioc_hash::HashFeed;
     use issen_signatures::engines::ioc_network::NetworkIocStore;
     use issen_signatures::engines::sigma::SigmaEngine;
     use issen_signatures::engines::yara::YaraEngine;
@@ -721,7 +721,7 @@ detection:
         let data = b"known_bad_binary_content";
         let sha256 = issen_signatures::engines::ioc_hash::sha256_hex(data);
 
-        let mut hash_store = HashIocStore::new("malware-hashes");
+        let mut hash_store = HashFeed::new("malware-hashes");
         hash_store.insert_bad(&sha256).unwrap();
 
         let engine = ScanEngine::new().with_hash_store(hash_store);

@@ -8,7 +8,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use tracing::info;
 
-use issen_signatures::engines::ioc_hash::HashIocStore;
+use issen_signatures::engines::ioc_hash::HashFeed;
 use issen_signatures::engines::ioc_network::NetworkIocStore;
 use issen_signatures::engines::stix::StixParser;
 use issen_signatures::engines::yara::YaraEngine;
@@ -88,7 +88,7 @@ pub fn run(
     // Load hash IOC files.
     if let Some(hash_files) = hash_iocs {
         for path in hash_files {
-            let mut store = HashIocStore::new(
+            let mut store = HashFeed::new(
                 path.file_stem()
                     .and_then(|s| s.to_str())
                     .unwrap_or("hash-iocs"),
@@ -123,7 +123,7 @@ pub fn run(
             let indicators = StixParser::parse_file(bundle_path)
                 .with_context(|| format!("parsing STIX bundle: {}", bundle_path.display()))?;
 
-            let mut hash_store = HashIocStore::new(
+            let mut hash_store = HashFeed::new(
                 bundle_path
                     .file_stem()
                     .and_then(|s| s.to_str())

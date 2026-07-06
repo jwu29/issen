@@ -10,7 +10,7 @@ use std::path::Path;
 use thiserror::Error;
 use tracing::{debug, warn};
 
-use crate::engines::ioc_hash::HashIocStore;
+use crate::engines::ioc_hash::HashFeed;
 use crate::engines::ioc_network::NetworkIocStore;
 use crate::engines::sigma::SigmaEngine;
 use crate::engines::yara::YaraEngine;
@@ -35,7 +35,7 @@ pub enum ScanError {
 pub struct ScanEngine {
     yara: Option<YaraEngine>,
     sigma: Option<SigmaEngine>,
-    hash_stores: Vec<HashIocStore>,
+    hash_stores: Vec<HashFeed>,
     network_stores: Vec<NetworkIocStore>,
 }
 
@@ -74,12 +74,12 @@ impl ScanEngine {
     }
 
     /// Add a hash IOC store.
-    pub fn add_hash_store(&mut self, store: HashIocStore) {
+    pub fn add_hash_store(&mut self, store: HashFeed) {
         self.hash_stores.push(store);
     }
 
     /// Add a hash IOC store (builder pattern).
-    pub fn with_hash_store(mut self, store: HashIocStore) -> Self {
+    pub fn with_hash_store(mut self, store: HashFeed) -> Self {
         self.hash_stores.push(store);
         self
     }
@@ -450,7 +450,7 @@ mod tests {
         let data = b"known malware content";
         let sha256 = crate::engines::ioc_hash::sha256_hex(data);
 
-        let mut store = HashIocStore::new("test-feed");
+        let mut store = HashFeed::new("test-feed");
         store.insert_bad(&sha256).unwrap();
 
         let engine = ScanEngine::new().with_hash_store(store);
@@ -465,7 +465,7 @@ mod tests {
 
     #[test]
     fn test_scan_bytes_hash_no_match() {
-        let mut store = HashIocStore::new("test-feed");
+        let mut store = HashFeed::new("test-feed");
         store
             .insert_bad("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
             .unwrap();
@@ -484,7 +484,7 @@ mod tests {
         let data = b"known good system file";
         let sha256 = crate::engines::ioc_hash::sha256_hex(data);
 
-        let mut store = HashIocStore::new("test-feed");
+        let mut store = HashFeed::new("test-feed");
         store.insert_bad(&sha256).unwrap();
         store.insert_good(&sha256).unwrap(); // Also in known good list (NSRL).
 
@@ -644,7 +644,7 @@ detection:
         )
         .unwrap();
 
-        let mut hash_store = HashIocStore::new("bazaar");
+        let mut hash_store = HashFeed::new("bazaar");
         hash_store.insert_bad(&sha256).unwrap();
 
         let engine = ScanEngine::new()
@@ -665,10 +665,10 @@ detection:
         let data = b"multi-store test data";
         let sha256 = crate::engines::ioc_hash::sha256_hex(data);
 
-        let mut store_a = HashIocStore::new("feed-a");
+        let mut store_a = HashFeed::new("feed-a");
         store_a.insert_bad(&sha256).unwrap();
 
-        let mut store_b = HashIocStore::new("feed-b");
+        let mut store_b = HashFeed::new("feed-b");
         store_b.insert_bad(&sha256).unwrap();
 
         let engine = ScanEngine::new()
@@ -722,7 +722,7 @@ detection:
             )
             .unwrap();
 
-        let mut hash_store = HashIocStore::new("test");
+        let mut hash_store = HashFeed::new("test");
         hash_store
             .insert_bad("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
             .unwrap();
@@ -744,8 +744,8 @@ detection:
     #[test]
     fn test_builder_pattern() {
         let engine = ScanEngine::new()
-            .with_hash_store(HashIocStore::new("a"))
-            .with_hash_store(HashIocStore::new("b"))
+            .with_hash_store(HashFeed::new("a"))
+            .with_hash_store(HashFeed::new("b"))
             .with_network_store(NetworkIocStore::new("c"));
 
         let stats = engine.stats();
@@ -756,7 +756,7 @@ detection:
     #[test]
     fn test_add_methods() {
         let mut engine = ScanEngine::new();
-        engine.add_hash_store(HashIocStore::new("a"));
+        engine.add_hash_store(HashFeed::new("a"));
         engine.add_network_store(NetworkIocStore::new("b"));
 
         let stats = engine.stats();

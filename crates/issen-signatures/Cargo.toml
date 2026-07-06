@@ -36,6 +36,9 @@ regex = { workspace = true }
 
 # Hashing
 sha2 = { workspace = true }
+
+# Hash-DB lookup (the single fleet capability — ADR-0011)
+forensic-hashdb = { workspace = true }
 hex = { workspace = true }
 md-5 = { workspace = true }
 

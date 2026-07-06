@@ -5,7 +5,7 @@ use issen_core::artifacts::ArtifactType;
 use issen_fswalker::orchestrator::run_auto_parse_jobs;
 use issen_remote_io::gdrive;
 use issen_remote_io::uri::{is_remote_uri, UriScheme};
-use issen_signatures::engines::ioc_hash::HashIocStore;
+use issen_signatures::engines::ioc_hash::HashFeed;
 use issen_signatures::engines::ioc_network::NetworkIocStore;
 use issen_signatures::engines::yara::YaraEngine;
 use issen_signatures::matching::engine::ScanEngine;
@@ -424,7 +424,7 @@ pub fn run(
         // Layer on explicit hash IOC files.
         if let Some(hash_files) = hash_iocs {
             for path in hash_files {
-                let mut store = HashIocStore::new(
+                let mut store = HashFeed::new(
                     path.file_stem()
                         .and_then(|s| s.to_str())
                         .unwrap_or("hash-iocs"),

@@ -7,7 +7,7 @@
 use thiserror::Error;
 use tracing::{debug, info, warn};
 
-use crate::engines::ioc_hash::HashIocStore;
+use crate::engines::ioc_hash::HashFeed;
 use crate::engines::ioc_network::NetworkIocStore;
 use crate::feeds::config::{FeedFormat, FeedIndicatorType, FeedRegistry};
 use crate::feeds::fetcher::{FeedCache, FeedError};
@@ -75,7 +75,7 @@ pub fn load_cached_feeds(
         // Parse based on format + indicator type combination.
         match (feed.format, feed.indicator_type) {
             (FeedFormat::PlainText, FeedIndicatorType::Hash) => {
-                let mut store = HashIocStore::new(&feed.id);
+                let mut store = HashFeed::new(&feed.id);
                 let count = parsers::parse_plaintext_hashes(&data, &mut store)?;
                 debug!(feed_id = %feed.id, indicators = count, "loaded hash feed");
                 summary.hash_indicators += count;
@@ -92,7 +92,7 @@ pub fn load_cached_feeds(
                 summary.feeds_loaded += 1;
             }
             (FeedFormat::Csv, FeedIndicatorType::Mixed) => {
-                let mut hash_store = HashIocStore::new(&feed.id);
+                let mut hash_store = HashFeed::new(&feed.id);
                 let mut network_store = NetworkIocStore::new(&feed.id);
                 let count =
                     parsers::parse_threatfox_csv(&data, &mut hash_store, &mut network_store)?;
