@@ -265,11 +265,3 @@ cast_possible_truncation = "allow"
 cast_possible_wrap = "allow"
 cast_sign_loss = "allow"
 cast_precision_loss = "allow"
-
-# TEMPORARY: local winreg-forensic migrated to jiff (chrono→jiff fleet sweep),
-# pending publish of winreg-core 0.2.0 + winreg-artifacts 0.4.0. Remove once published.
-[patch.crates-io]
-winreg-core = { path = "/Users/4n6h4x0r/src/winreg-forensic/crates/winreg-core" }
-winreg-artifacts = { path = "/Users/4n6h4x0r/src/winreg-forensic/crates/winreg-artifacts" }
-srum-core = { path = "/Users/4n6h4x0r/src/srum-forensic/crates/srum-core" }
-srum-parser = { path = "/Users/4n6h4x0r/src/srum-forensic/crates/srum-parser" }

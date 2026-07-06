@@ -2869,15 +2869,6 @@ dependencies = [
 [[package]]
 name = "ese-core"
 version = "0.1.0"
-dependencies = [
- "memmap2",
- "serde",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "ese-core"
-version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e295c6ac0a4a2233ee98a520cda35eb91ff98bab752baa6af2d53ec3e78677b1"
 dependencies = [
@@ -6370,7 +6361,7 @@ dependencies = [
  "thiserror 2.0.18",
  "winevt-core",
  "winreg-core 0.1.1",
- "winreg-format 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "winreg-format",
  "yara-x",
 ]
 
@@ -9872,6 +9863,8 @@ dependencies = [
 [[package]]
 name = "srum-core"
 version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "62ce014310c9d16c752f03f853dd5585af784f94d5b4848efaf1106e47b38e26"
 dependencies = [
  "jiff",
  "serde",
@@ -9887,7 +9880,7 @@ checksum = "a8947055b8f3bb2ef67d5473cc4a0e0934c52cfd5eefc4d5e6095a2e271bfaf7"
 dependencies = [
  "anyhow",
  "chrono",
- "ese-core 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ese-core",
  "forensicnomicon",
  "srum-core 0.1.0",
  "thiserror 2.0.18",
@@ -9896,9 +9889,11 @@ dependencies = [
 [[package]]
 name = "srum-parser"
 version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6aadb2f43e4afc947be0711b03f3ca6540d80a4d607ee972997493b87b937458"
 dependencies = [
  "anyhow",
- "ese-core 0.1.0",
+ "ese-core",
  "forensicnomicon",
  "srum-core 0.2.0",
  "thiserror 2.0.18",
@@ -12100,12 +12095,14 @@ dependencies = [
  "shellitem",
  "winreg-core 0.1.1",
  "winreg-discover 0.1.0",
- "winreg-format 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "winreg-format",
 ]
 
 [[package]]
 name = "winreg-artifacts"
 version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "da7cb6cfaa582750556403a7456e617a253554c0df90e412280552dbeb513d79"
 dependencies = [
  "forensicnomicon",
  "jiff",
@@ -12113,7 +12110,7 @@ dependencies = [
  "shellitem",
  "winreg-core 0.2.0",
  "winreg-discover 0.2.0",
- "winreg-format 0.1.0",
+ "winreg-format",
 ]
 
 [[package]]
@@ -12128,12 +12125,14 @@ dependencies = [
  "miette",
  "serde",
  "thiserror 2.0.18",
- "winreg-format 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "winreg-format",
 ]
 
 [[package]]
 name = "winreg-core"
 version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5ed5ec02ef808b8797f0953ec56972a84f01b7bc11044d4837b355f0bcd9aba0"
 dependencies = [
  "binrw",
  "jiff",
@@ -12141,7 +12140,7 @@ dependencies = [
  "miette",
  "serde",
  "thiserror 2.0.18",
- "winreg-format 0.1.0",
+ "winreg-format",
 ]
 
 [[package]]
@@ -12153,25 +12152,19 @@ dependencies = [
  "chrono",
  "serde",
  "winreg-core 0.1.1",
- "winreg-format 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "winreg-format",
 ]
 
 [[package]]
 name = "winreg-discover"
 version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b9887137f05a70988e284f4223d180dff4c8a921a8269ef82365d135c58f8fa3"
 dependencies = [
  "jiff",
  "serde",
  "winreg-core 0.2.0",
- "winreg-format 0.1.0",
-]
-
-[[package]]
-name = "winreg-format"
-version = "0.1.0"
-dependencies = [
- "binrw",
- "bitflags 2.13.0",
+ "winreg-format",
 ]
 
 [[package]]
