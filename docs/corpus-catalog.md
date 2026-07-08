@@ -39,6 +39,21 @@ download/regenerate per the provenance notes; they are not committed._
 | CyberDefenders lab #78 "DeepDive" (memory) | 537 MB | REAL-ext | cyberdefenders.org |
 | Volatility `cridex.vmem` | 38 MB | REAL-ext | Volatility Foundation public sample |
 | LogHub `OpenSSH_2k.log` — real sshd `auth.log` | 220 KB | REAL-ext | logpai/loghub (ISSRE'23) |
+| BitLocker oracle `bdetogo.raw` (`bitlocker-forensic`) | 64 MB | REAL-ext | log2timeline/dfvfs (Apache-2.0) |
+| FileVault CoreStorage oracle `fvdetest.qcow2` (`filevault-forensic`) | 16 MB | REAL-ext | log2timeline/dfvfs (Apache-2.0) |
+
+**Encryption-layer Tier-1 oracles (dfvfs, Apache-2.0).** Third-party images with
+*published* unlock keys — genuine Tier-1 for the decryptor crates. Full provenance
+in each repo's `tests/data/README.md`; not in `issen/tests/data/` (env-gated,
+downloaded).
+- `bdetogo.raw` — BitLocker-To-Go, md5 `fcba22f9363388101ae66c741588bc45`, password
+  `bde-TEST`, method 0x8000 (AES-128-CBC + Elephant Diffuser). Oracle for
+  `bitlocker-core`; validated via `pybde`. URL:
+  <https://raw.githubusercontent.com/log2timeline/dfvfs/main/test_data/bdetogo.raw>
+- `fvdetest.qcow2` — CoreStorage/FileVault 2 (AES-XTS), md5
+  `dd7b1d584f2e07112ec7003d5fcd9864`, password `fvde-TEST`, CS partition at LBA 40.
+  Oracle for `filevault-core`; validated via `pyfvde`. URL:
+  <https://raw.githubusercontent.com/log2timeline/dfvfs/main/test_data/fvdetest.qcow2>
 
 ---
 
