@@ -2,9 +2,13 @@
 //!
 //! The verbs decide *what* to ask ([`crate::tquery`]); this module decides *how*
 //! to render — `text` or `json` — so both behave identically. Output is
-//! attacker-controlled evidence, so every emitted string is sanitized
-//! (control/bidi characters neutralized) and `json` goes through `serde_json`'s
-//! correct escaping rather than hand-built strings.
+//! attacker-controlled evidence, so every emitted string is sanitized through
+//! `jsonguard` — `tsv_safe` neutralizes CSV/TSV formula injection (a leading
+//! `=`/`+`/`-`/`@`) plus control/bidi in the tab-separated cells, `display_safe`
+//! strips control/bidi from the provenance/JSON strings — and `json` also goes
+//! through `serde_json`'s correct escaping rather than hand-built strings.
+
+use jsonguard::{display_safe, tsv_safe};
 
 use crate::tquery::QueryResult;
 
@@ -17,37 +21,20 @@ pub struct Provenance {
     pub filters: Vec<String>,
 }
 
-/// Strip/escape characters that could corrupt a terminal or smuggle a spoofed
-/// rendering into a report screenshot: C0/C1 control codes (except tab) and
-/// Unicode bidi-override codepoints. Returns a safe display string.
-#[must_use]
-pub fn sanitize(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for ch in s.chars() {
-        let is_bidi = matches!(
-            ch,
-            '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}' | '\u{200E}' | '\u{200F}'
-        );
-        let is_control = (ch.is_control() && ch != '\t') || is_bidi;
-        if is_control {
-            out.push_str(&format!("\\u{{{:04x}}}", ch as u32));
-        } else {
-            out.push(ch);
-        }
-    }
-    out
-}
-
 /// Render to plain text: a provenance line, the column headers, the rows, and
 /// any empty-vs-absent diagnostic.
 #[must_use]
 pub fn render_text(result: &QueryResult, prov: &Provenance) -> String {
     let mut out = String::new();
-    out.push_str(&format!("# db: {}\n", sanitize(&prov.db_path)));
+    out.push_str(&format!("# db: {}\n", display_safe(prov.db_path.as_str())));
     if prov.filters.is_empty() {
         out.push_str("# filters: (none)\n");
     } else {
-        let joined: Vec<String> = prov.filters.iter().map(|f| sanitize(f)).collect();
+        let joined: Vec<String> = prov
+            .filters
+            .iter()
+            .map(|f| display_safe(f.as_str()).to_string())
+            .collect();
         out.push_str(&format!("# filters: {}\n", joined.join(" AND ")));
     }
     out.push_str(&format!("# rows: {}\n", result.row_count));
@@ -60,7 +47,7 @@ pub fn render_text(result: &QueryResult, prov: &Provenance) -> String {
             let cells: Vec<String> = result
                 .columns
                 .iter()
-                .map(|c| sanitize(c.values.get(i).map_or("", |v| v.as_str())))
+                .map(|c| tsv_safe(c.values.get(i).map_or("", |v| v.as_str())).to_string())
                 .collect();
             out.push_str(&cells.join("\t"));
             out.push('\n');
@@ -81,7 +68,9 @@ pub fn render_json(result: &QueryResult, prov: &Provenance) -> String {
             for c in &result.columns {
                 obj.insert(
                     c.name.clone(),
-                    serde_json::Value::String(sanitize(c.values.get(i).map_or("", |v| v.as_str()))),
+                    serde_json::Value::String(
+                        display_safe(c.values.get(i).map_or("", |v| v.as_str())).to_string(),
+                    ),
                 );
             }
             serde_json::Value::Object(obj)
@@ -139,12 +128,23 @@ mod tests {
     }
 
     #[test]
-    fn sanitize_neutralises_bidi_and_control() {
-        let evil = "ab\u{202E}cd\u{0007}ef";
-        let safe = sanitize(evil);
-        assert!(!safe.contains('\u{202E}'));
-        assert!(!safe.contains('\u{0007}'));
-        assert!(safe.contains("ab"));
+    fn render_neutralises_bidi_and_control() {
+        let r = result_with(
+            1,
+            vec![Column {
+                name: "x".into(),
+                values: vec!["ab\u{202E}cd\u{0007}ef".into()],
+            }],
+            vec![],
+        );
+        let prov = Provenance {
+            db_path: "x.duckdb".into(),
+            filters: vec![],
+        };
+        let out = render_text(&r, &prov);
+        assert!(!out.contains('\u{202E}'), "bidi override survived: {out:?}");
+        assert!(!out.contains('\u{0007}'), "control char survived: {out:?}");
+        assert!(out.contains("abcdef"));
     }
 
     #[test]
