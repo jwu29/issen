@@ -3165,6 +3165,8 @@ checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 [[package]]
 name = "forensic-hashdb"
 version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e4d9a1059f6221f58d4c23c2ac1fd93e04937e75003aa42653ef8ccbf0fa5f36"
 dependencies = [
  "memmap2",
 ]
