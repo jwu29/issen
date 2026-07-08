@@ -5390,6 +5390,7 @@ dependencies = [
  "issen-core",
  "issen-correlation",
  "jiff",
+ "jsonguard",
  "rayon",
  "rusqlite",
  "serde",
@@ -5635,6 +5636,12 @@ dependencies = [
  "futures-util",
  "wasm-bindgen",
 ]
+
+[[package]]
+name = "jsonguard"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bca1ea292f95a3c50973d0f4034d110744e781864784b3a37b3072426f0719ec"
 
 [[package]]
 name = "jsonwebtoken"
