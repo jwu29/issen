@@ -148,6 +148,29 @@ mod tests {
     }
 
     #[test]
+    fn text_render_neutralises_csv_formula_injection() {
+        let r = result_with(
+            1,
+            vec![Column {
+                name: "app".into(),
+                values: vec!["=SUM(1+1)".into()],
+            }],
+            vec![],
+        );
+        let prov = Provenance {
+            db_path: "x.duckdb".into(),
+            filters: vec![],
+        };
+        let out = render_text(&r, &prov);
+        // A cell that opens with a formula sigil must be prefixed so a spreadsheet
+        // opening the TSV cannot execute it.
+        assert!(
+            out.contains("'=SUM(1+1)"),
+            "formula injection not neutralised: {out}"
+        );
+    }
+
+    #[test]
     fn text_render_carries_provenance_and_rows() {
         let r = result_with(
             1,

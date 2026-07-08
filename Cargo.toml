@@ -74,6 +74,7 @@ authors = ["Issen Contributors"]
 [workspace.dependencies]
 # Internal crates (path dependencies)
 forensicnomicon  = "1.1"
+jsonguard        = "0.2"
 forensic-pivot   = { path = "crates/forensic-pivot" }
 issen-core       = { path = "crates/issen-core" }
 issen-fswalker   = { path = "crates/issen-fswalker" }

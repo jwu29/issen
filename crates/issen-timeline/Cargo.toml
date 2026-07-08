@@ -11,6 +11,7 @@ repository.workspace = true
 issen-core = { workspace = true }
 issen-correlation = { workspace = true }
 forensicnomicon = { workspace = true }
+jsonguard = { workspace = true }
 duckdb = { workspace = true }
 rusqlite = { workspace = true }
 rayon = { workspace = true }
