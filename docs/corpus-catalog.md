@@ -44,6 +44,7 @@ download/regenerate per the provenance notes; they are not committed._
 | BitLocker `bitlocker-1.dd` — AES-128-CBC (0x8002) (`bitlocker-forensic`) | 100 MB | REAL-ext | picoCTF 2025 |
 | BitLocker `vault.raw` — XTS-128 (0x8004) (`bitlocker-forensic`) | 2 GB | REAL-ext | BelkaCTF6 (**not redistributable**) |
 | BitLocker `m8003/m8004/m8005.raw` — AES-256-CBC / XTS-128 / XTS-256 | 133 MB ea. | SYNTHETIC | self-minted (manage-bde) |
+| BitLocker `sk8004.raw` + `.BEK` — startup-key (0x0200), XTS-128 | 128 MB | SYNTHETIC | self-minted (manage-bde -StartupKey) |
 
 **Encryption-layer Tier-1 oracles (dfvfs, Apache-2.0).** Third-party images with
 *published* unlock keys — genuine Tier-1 for the decryptor crates. Full provenance
@@ -74,6 +75,13 @@ downloaded).
   (XTS-128) rk `435743-…-447194`; m8005 = **0x8005** (XTS-256) rk `031174-…-262174`.
   Ground truth: `/tmp/bde-mint-oracle/GROUND-TRUTH.md`. (0x8000 = the dfvfs `bdetogo.raw`
   above; 0x8001 AES-256-CBC+diffuser is deferred — Vista/7-only, un-mintable on Win11.)
+- `sk8004.raw` + `<GUID>.BEK` — **Tier-2 self-minted** startup-key oracle (Parallels
+  Win11 `manage-bde -protectors -add -StartupKey`), md5 `d12f27801f52256cc3a900820cc1466d`,
+  partition @ byte 65536, method **0x8004** (XTS-128). Protectors: **startup key**
+  (`0x0200`, external-key GUID `F8A2B017-…`, key in the `.BEK`) + recovery safety net
+  `154583-…-073667`. `pybde read_startup_key` verified; oracle for
+  `bitlocker-core::unlock_with_startup_key`. Ground truth:
+  `/tmp/bde-startupkey-oracle/GROUND-TRUTH.md`.
 
 ---
 
