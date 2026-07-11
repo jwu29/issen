@@ -711,10 +711,12 @@ every fleet repo inherits them and rotation is one update:
    one `v*` tag fans out to **every** channel — put the `wheels` + `publish-wheels` jobs *in*
    `release.yml`, not a parallel `py-v*` workflow; a `ci.yml` guard enforces `bindings/` version ==
    crate version (lockstep); make `publish-crate` idempotent (skip if the version is already on
-   crates.io) so a re-tag ships only the missing channel. **PyPI auth = Trusted Publishing (OIDC), the
-   fleet standard** — `publish-wheels` carries `id-token: write` + `pypa/gh-action-pypi-publish`, no
-   `PYPI_API_TOKEN` secret; one-time per repo, register the repo + `release.yml` as a Trusted Publisher
-   on pypi.org (project → Publishing). General pattern in the release skill.
+   crates.io) so a re-tag ships only the missing channel. **PyPI auth: `PYPI_API_TOKEN` secret** —
+   `publish-wheels` uses `pypa/gh-action-pypi-publish` with `password: ${{ secrets.PYPI_API_TOKEN }}`;
+   set it once from the token in `~/.pypirc` (`gh secret set PYPI_API_TOKEN -R <org>/<repo>`, or org-wide
+   like the other release secrets). (OIDC Trusted Publishing — `id-token: write`, no stored secret — is
+   the alternative if you'd rather not manage a token; it needs a one-time trusted-publisher
+   registration on pypi.org.) General pattern in the release skill.
 
 ### crates.io versioning rule
 
