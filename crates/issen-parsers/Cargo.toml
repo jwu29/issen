@@ -39,6 +39,7 @@ issen-parser-setupapi = { workspace = true }
 issen-parser-shellbags = { workspace = true }
 issen-parser-shimcache = { workspace = true }
 issen-parser-srum = { workspace = true }
+issen-browser = { workspace = true }
 issen-parser-svcdiff = { workspace = true }
 issen-parser-trash = { workspace = true }
 issen-parser-typedurls = { workspace = true }

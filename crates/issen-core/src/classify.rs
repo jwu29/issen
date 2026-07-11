@@ -103,6 +103,24 @@ pub fn srum(path: &Path) -> bool {
     name_full(path).is_some_and(|(name, _)| name == "srudb.dat")
 }
 
+/// Browser history database — Chromium `History` (the path must name a Chromium
+/// vendor), Firefox `places.sqlite`, or Safari `History.db` (under a Safari
+/// path). Mirrors `browser_core::detect_browser`'s history detection so the
+/// selector pre-filter and the parser agree on what is a browser history file.
+#[must_use]
+pub fn browser_history(path: &Path) -> bool {
+    name_full(path).is_some_and(|(name, full)| {
+        name == "places.sqlite"
+            || (name == "history"
+                && [
+                    "chrome", "chromium", "edge", "brave", "opera", "vivaldi", "arc",
+                ]
+                .iter()
+                .any(|v| full.contains(v)))
+            || (name == "history.db" && full.contains("safari"))
+    })
+}
+
 /// Linux auth log (`auth.log` + rotated `auth.log.N`).
 #[must_use]
 pub fn auth_log(path: &Path) -> bool {
@@ -230,6 +248,12 @@ mod tests {
         assert!(
             pe_suspicious(p("/Users/x/AppData/evil.exe"))
                 && !pe_suspicious(p("/Windows/System32/svchost.exe"))
+        );
+        assert!(
+            browser_history(p(
+                "/Users/u/AppData/Local/Google/Chrome/User Data/Default/History"
+            )) && browser_history(p("/h/.mozilla/firefox/x.default/places.sqlite"))
+                && !browser_history(p("/x/History")) // no vendor in path -> not a browser history
         );
     }
 

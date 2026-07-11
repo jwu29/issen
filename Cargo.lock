@@ -4546,6 +4546,9 @@ dependencies = [
  "browser-forensic-core",
  "browser-forensic-firefox",
  "browser-forensic-safari",
+ "inventory",
+ "issen-core",
+ "jiff",
  "rusqlite",
  "serde",
  "serde_json",
@@ -5225,6 +5228,7 @@ dependencies = [
 name = "issen-parsers"
 version = "0.1.0"
 dependencies = [
+ "issen-browser",
  "issen-parser-amcache",
  "issen-parser-comhijack",
  "issen-parser-dcc2",

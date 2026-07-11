@@ -10,6 +10,17 @@ pub use browser_safari::parse_history as parse_safari_history;
 use anyhow::Result;
 use std::path::Path;
 
+use issen_core::artifacts::ArtifactType;
+use issen_core::classify;
+use issen_core::error::RtError;
+use issen_core::plugin::registry::ParserRegistration;
+use issen_core::plugin::selector as sel;
+use issen_core::plugin::traits::{
+    DataSource, EventEmitter, ForensicParser, ParseOptions, ParseStats, ParserCapabilities,
+};
+use issen_core::timeline::event::{EventType, TimelineEvent};
+use issen_core::ActivityCategory;
+
 /// Detect the browser family from `path` and dispatch to the appropriate
 /// history parser. Returns an error if the browser cannot be detected or
 /// the file cannot be parsed.
@@ -33,20 +44,118 @@ pub fn parse_browser_history(path: &Path) -> Result<Vec<BrowserEvent>> {
 pub struct BrowserParser;
 
 impl BrowserParser {
-    /// `true` if `path` is a recognized browser history artifact.
+    /// `true` if `path` is a recognized browser history artifact (per
+    /// `browser_core::detect_browser`).
     #[must_use]
-    pub fn can_parse(&self, _path: &Path) -> bool {
-        false // stub — implemented in GREEN
+    pub fn can_parse(&self, path: &Path) -> bool {
+        detect_browser(path).is_some()
     }
 
     /// Parse a browser history file into timeline events. Returns `Err` if the
     /// browser family cannot be detected or the underlying SQLite read fails.
-    pub fn parse_path(
-        &self,
-        _path: &Path,
-    ) -> Result<Vec<issen_core::timeline::event::TimelineEvent>> {
-        Ok(Vec::new()) // stub — implemented in GREEN
+    pub fn parse_path(&self, path: &Path) -> Result<Vec<TimelineEvent>> {
+        let evidence_source = path.to_string_lossy().into_owned();
+        let events = parse_browser_history(path)?
+            .into_iter()
+            .map(|e| browser_event_to_timeline(e, &evidence_source))
+            .collect();
+        Ok(events)
     }
+}
+
+/// Convert a browser-forensic [`BrowserEvent`] into a canonical [`TimelineEvent`]
+/// tagged with the CADET `BrowserActivity` lens, carrying the browser family,
+/// artifact kind, and every source attribute (url/title/visit_count/…) as
+/// metadata so nothing the parser recovered is dropped at the wrapper boundary.
+fn browser_event_to_timeline(event: BrowserEvent, evidence_source: &str) -> TimelineEvent {
+    let ts_display = jiff::Timestamp::from_nanosecond(i128::from(event.timestamp_ns))
+        .map(|t| t.to_string())
+        .unwrap_or_default();
+    let mut te = TimelineEvent::new(
+        event.timestamp_ns,
+        ts_display,
+        EventType::Other(format!("Browser{}", event.artifact)),
+        ArtifactType::BrowserHistory,
+        evidence_source.to_string(),
+        event.description,
+        evidence_source.to_string(),
+    )
+    .with_activity_category(ActivityCategory::BrowserActivity)
+    .with_metadata("browser", serde_json::json!(event.browser.to_string()))
+    .with_metadata(
+        "artifact_kind",
+        serde_json::json!(event.artifact.to_string()),
+    );
+    for (key, value) in event.attrs {
+        te = te.with_metadata(key, value);
+    }
+    te
+}
+
+impl ForensicParser for BrowserParser {
+    fn name(&self) -> &'static str {
+        "Browser History Parser"
+    }
+
+    fn supported_artifacts(&self) -> &[ArtifactType] {
+        &[ArtifactType::BrowserHistory]
+    }
+
+    fn parse(
+        &self,
+        input: &dyn DataSource,
+        emitter: &dyn EventEmitter,
+        _opts: &ParseOptions,
+    ) -> Result<ParseStats, RtError> {
+        // Browser history is a SQLite database: the parser seeks across B-tree
+        // pages, so it needs random-access *file* semantics, not the streaming
+        // byte view. Drive the real parse through the source path; a byte-only
+        // source (no path) yields no events rather than failing.
+        let Some(path) = input.source_path() else {
+            return Ok(ParseStats::new());
+        };
+        let events = self
+            .parse_path(path)
+            .map_err(|e| RtError::InvalidData(format!("browser history parse failed: {e}")))?;
+        let mut stats = ParseStats::new();
+        stats.events_emitted = events.len() as u64;
+        stats.bytes_processed = input.len();
+        emitter.emit_batch(events)?;
+        Ok(stats)
+    }
+
+    fn capabilities(&self) -> ParserCapabilities {
+        ParserCapabilities {
+            max_memory_bytes: Some(128 * 1024 * 1024), // 128 MiB
+            streaming: false,
+            deterministic: true,
+        }
+    }
+}
+
+// Compile-time registration with the parser inventory. Disk-image collection
+// pulls the Chrome/Edge `Default` profile History DBs; the `matches` classifier
+// catches browser history files from any source (loose files, other profiles,
+// Firefox/Safari) during ingestion.
+inventory::submit! {
+    ParserRegistration { create: || Box::new(BrowserParser), selector: sel::ArtifactSelector {
+            artifact_type: ArtifactType::BrowserHistory,
+            matches: classify::browser_history,
+            priority: 80,
+            disk_sources: &[
+                sel::DiskSource::Ntfs(sel::NtfsLoc::PerSubdirSweep {
+                    parent: r"\Users",
+                    rel: r"AppData\Local\Google\Chrome\User Data\Default",
+                    name: sel::NameMatch::Suffix("History"),
+                }),
+                sel::DiskSource::Ntfs(sel::NtfsLoc::PerSubdirSweep {
+                    parent: r"\Users",
+                    rel: r"AppData\Local\Microsoft\Edge\User Data\Default",
+                    name: sel::NameMatch::Suffix("History"),
+                }),
+            ],
+            cost: sel::CostTier::Default,
+        } }
 }
 
 #[cfg(test)]
