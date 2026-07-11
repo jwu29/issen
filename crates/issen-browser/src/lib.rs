@@ -27,6 +27,28 @@ pub fn parse_browser_history(path: &Path) -> Result<Vec<BrowserEvent>> {
     }
 }
 
+/// Issen browser-history parser: recognizes a browser artifact file, dispatches
+/// it to the matching family parser, and converts each [`BrowserEvent`] into a
+/// [`issen_core::timeline::event::TimelineEvent`] for the correlation timeline.
+pub struct BrowserParser;
+
+impl BrowserParser {
+    /// `true` if `path` is a recognized browser history artifact.
+    #[must_use]
+    pub fn can_parse(&self, _path: &Path) -> bool {
+        false // stub — implemented in GREEN
+    }
+
+    /// Parse a browser history file into timeline events. Returns `Err` if the
+    /// browser family cannot be detected or the underlying SQLite read fails.
+    pub fn parse_path(
+        &self,
+        _path: &Path,
+    ) -> Result<Vec<issen_core::timeline::event::TimelineEvent>> {
+        Ok(Vec::new()) // stub — implemented in GREEN
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -103,5 +125,82 @@ mod tests {
 
         let events = parse_firefox_history(f.path()).expect("parse");
         assert!(events.is_empty());
+    }
+
+    #[test]
+    fn browser_parser_recognizes_history_files() {
+        let p = BrowserParser;
+        // Chromium history: path names the vendor, file is `History`.
+        assert!(p.can_parse(Path::new(
+            "/Users/u/AppData/Local/Google/Chrome/User Data/Default/History"
+        )));
+        // Firefox: `places.sqlite`.
+        assert!(p.can_parse(Path::new(
+            "/home/u/.mozilla/firefox/abc.default/places.sqlite"
+        )));
+        // Non-browser file is rejected.
+        assert!(!p.can_parse(Path::new("/tmp/random.db")));
+    }
+
+    #[test]
+    fn browser_parser_converts_chrome_history_to_timeline_events() {
+        use issen_core::artifacts::ArtifactType;
+        use issen_core::ActivityCategory;
+        use rusqlite::{params, Connection};
+
+        // A Chrome `History` DB under a path containing "Chrome" so
+        // detect_browser identifies the Chromium family.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let chrome_dir = dir.path().join("Chrome").join("User Data").join("Default");
+        std::fs::create_dir_all(&chrome_dir).expect("mkdir");
+        let db = chrome_dir.join("History");
+        let conn = Connection::open(&db).expect("open");
+        conn.execute_batch(
+            "CREATE TABLE urls (id INTEGER PRIMARY KEY, url TEXT NOT NULL, \
+             title TEXT DEFAULT '', visit_count INTEGER DEFAULT 0 NOT NULL, \
+             last_visit_time INTEGER NOT NULL);",
+        )
+        .expect("schema");
+        conn.execute(
+            "INSERT INTO urls (url, title, visit_count, last_visit_time) \
+             VALUES (?1, ?2, ?3, ?4)",
+            params![
+                "https://example.com/",
+                "Example",
+                3_i64,
+                13_350_000_000_000_000_i64
+            ],
+        )
+        .expect("insert");
+        drop(conn);
+
+        let events = BrowserParser.parse_path(&db).expect("parse");
+        assert_eq!(events.len(), 1, "one visited URL -> one event");
+        let e = &events[0];
+        assert_eq!(e.source, ArtifactType::BrowserHistory);
+        assert_eq!(e.activity_category, Some(ActivityCategory::BrowserActivity));
+        assert!(
+            e.description.contains("example.com"),
+            "description carries the URL: {}",
+            e.description
+        );
+        assert_eq!(
+            e.metadata.get("url").and_then(serde_json::Value::as_str),
+            Some("https://example.com/")
+        );
+        assert!(e.timestamp_ns > 0, "webkit timestamp converted to unix ns");
+    }
+
+    #[test]
+    fn browser_parser_is_registered_in_inventory() {
+        use issen_core::artifacts::ArtifactType;
+        use issen_core::plugin::registry::ParserRegistration;
+        let found = inventory::iter::<ParserRegistration>
+            .into_iter()
+            .any(|r| r.selector.artifact_type == ArtifactType::BrowserHistory);
+        assert!(
+            found,
+            "BrowserParser must be registered for ArtifactType::BrowserHistory"
+        );
     }
 }

@@ -8,10 +8,13 @@ description = "Browser forensic integration layer for Issen"
 repository.workspace = true
 
 [dependencies]
+issen-core      = { workspace = true }
 browser-core    = { workspace = true }
 browser-chrome  = { workspace = true }
 browser-firefox = { workspace = true }
 browser-safari  = { workspace = true }
+inventory       = { workspace = true }
+jiff            = { workspace = true }
 anyhow          = { workspace = true }
 serde           = { workspace = true }
 serde_json      = { workspace = true }
