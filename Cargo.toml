@@ -58,6 +58,7 @@ members = [
     "crates/issen-disk",
     "crates/issen-qcow2",
     "crates/issen-iso",
+    "crates/issen-dmg",
     "crates/issen-aff4",
     "crates/forensic-pivot",
     "crates/issen-wsl",
@@ -106,6 +107,7 @@ ext4fs-core      = "0.1"
 apfs-core        = "0.1"
 issen-qcow2      = { path = "crates/issen-qcow2" }
 issen-iso        = { path = "crates/issen-iso" }
+issen-dmg        = { path = "crates/issen-dmg" }
 issen-aff4       = { path = "crates/issen-aff4" }
 issen-shrinkpath = { path = "crates/issen-shrinkpath" }
 issen-parser-pe      = { path = "crates/parsers/issen-parser-pe" }
@@ -231,6 +233,7 @@ vhdx         = { version = "0.3.0", package = "vhdx-core" }
 vmdk         = { version = "0.8", package = "vmdk-core" }
 qcow2        = { version = "0.3.1", package = "qcow2-core" }
 iso9660-forensic = "0.7"
+dmg-core     = "0.1"
 aff4         = "0.2.0"
 evtx         = { version = "0.11", default-features = false }
 mft          = "0.6"

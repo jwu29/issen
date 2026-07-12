@@ -5098,6 +5098,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "issen-dmg"
+version = "0.1.0"
+dependencies = [
+ "dmg-core",
+ "inventory",
+ "issen-core",
+ "issen-unpack",
+ "tempfile",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "issen-evtx"
 version = "0.1.0"
 dependencies = [
