@@ -158,6 +158,70 @@ inventory::submit! {
         } }
 }
 
+/// `true` if `path`'s base name is a Chromium SNSS session/tab-restore file
+/// (case-insensitive): the fixed names `Current Session`/`Last Session`/
+/// `Current Tabs`/`Last Tabs`, or the numbered `Session_<n>`/`Tabs_<n>`/
+/// `Apps_<n>` variants Chrome/Edge/Brave write under a profile's `Sessions`
+/// directory.
+///
+/// Declared as a bare `fn` (not a closure) so it satisfies the selector's
+/// `matches: fn(&Path) -> bool` contract and stays self-contained in this crate.
+#[must_use]
+pub fn is_snss_session_file(path: &Path) -> bool {
+    // RED stub: real classification lands in GREEN.
+    let _ = path;
+    false
+}
+
+/// Issen browser-session parser: recognizes a Chromium SNSS session / tab-restore
+/// file and replays it into per-tab [`TimelineEvent`]s, complementing
+/// [`BrowserParser`] (history) under the same browser umbrella.
+pub struct SessionParser;
+
+impl SessionParser {
+    /// `true` if `path` is a recognized SNSS session/tab file.
+    #[must_use]
+    pub fn can_parse(&self, path: &Path) -> bool {
+        is_snss_session_file(path)
+    }
+
+    /// Parse an SNSS session/tab-restore file into timeline events.
+    ///
+    /// RED stub: returns an empty vector until the GREEN implementation.
+    pub fn parse_path(&self, path: &Path) -> Result<Vec<TimelineEvent>> {
+        let _ = path;
+        Ok(Vec::new())
+    }
+}
+
+impl ForensicParser for SessionParser {
+    fn name(&self) -> &'static str {
+        "Browser Session Parser"
+    }
+
+    fn supported_artifacts(&self) -> &[ArtifactType] {
+        &[ArtifactType::BrowserHistory]
+    }
+
+    fn parse(
+        &self,
+        _input: &dyn DataSource,
+        _emitter: &dyn EventEmitter,
+        _opts: &ParseOptions,
+    ) -> Result<ParseStats, RtError> {
+        // RED stub.
+        Ok(ParseStats::new())
+    }
+
+    fn capabilities(&self) -> ParserCapabilities {
+        ParserCapabilities {
+            max_memory_bytes: Some(64 * 1024 * 1024),
+            streaming: false,
+            deterministic: true,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -311,5 +375,61 @@ mod tests {
             found,
             "BrowserParser must be registered for ArtifactType::BrowserHistory"
         );
+    }
+
+    #[test]
+    fn session_classifier_recognizes_snss_filenames() {
+        // Fixed session/tab names Chromium writes.
+        assert!(is_snss_session_file(Path::new(
+            "/Users/u/AppData/Local/Google/Chrome/User Data/Default/Sessions/Current Session"
+        )));
+        assert!(is_snss_session_file(Path::new("Last Tabs")));
+        // Numbered variants.
+        assert!(is_snss_session_file(Path::new("Session_13")));
+        assert!(is_snss_session_file(Path::new("Apps_1")));
+        // Non-session files are rejected.
+        assert!(!is_snss_session_file(Path::new("History")));
+        assert!(!is_snss_session_file(Path::new("/tmp/random.db")));
+    }
+
+    #[test]
+    fn session_parser_is_registered_in_inventory() {
+        use issen_core::artifacts::ArtifactType;
+        use issen_core::plugin::registry::ParserRegistration;
+        // Both the history parser and the session parser register under
+        // BrowserHistory — proving the session artifact is wired alongside history.
+        let count = inventory::iter::<ParserRegistration>
+            .into_iter()
+            .filter(|r| r.selector.artifact_type == ArtifactType::BrowserHistory)
+            .count();
+        assert!(
+            count >= 2,
+            "expected >=2 BrowserHistory registrations (history + session), got {count}"
+        );
+    }
+
+    #[test]
+    fn session_parser_graceful_on_truncated_file() {
+        // A session file is a Chromium SNSS pickle stream; we do not fabricate
+        // its bytes here (the format is easy to get wrong). snss-core's own tests
+        // cover deep-parse correctness. The wrapper must merely not panic on a
+        // truncated/empty file: Ok(empty) or Err are both acceptable.
+        use std::io::Write;
+        let mut f = tempfile::NamedTempFile::new().expect("tempfile");
+        // Fewer bytes than an SNSS header — truncated by construction.
+        f.write_all(b"SN").expect("write");
+        let result = SessionParser.parse_path(f.path());
+        if let Ok(events) = result {
+            assert!(events.is_empty(), "truncated file should yield no events");
+        }
+    }
+
+    #[test]
+    fn session_parser_supports_browser_history_artifact() {
+        let p = SessionParser;
+        assert_eq!(p.supported_artifacts(), &[ArtifactType::BrowserHistory]);
+        assert_eq!(p.name(), "Browser Session Parser");
+        assert!(!p.capabilities().streaming);
+        assert!(p.capabilities().deterministic);
     }
 }
