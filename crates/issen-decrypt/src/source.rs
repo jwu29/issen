@@ -27,10 +27,13 @@ use crate::adapter::DataSourceReader;
 /// [`DecryptedSource`] read path normalizes both to the `DataSource` contract
 /// (bytes-read count, clamped at the logical end).
 enum UnlockedVolume {
-    BitLocker(BdeVolume<DataSourceReader>),
-    Luks(LuksPayload<DataSourceReader>),
-    VeraCrypt(VeraVolume<DataSourceReader>),
-    FileVault(FvdeVolume<DataSourceReader>),
+    // Boxed: the four decryptor states differ widely in size (VeraCrypt/LUKS
+    // carry Vec master keys + cipher chains), so box each to keep the enum small
+    // and avoid `clippy::large_enum_variant`.
+    BitLocker(Box<BdeVolume<DataSourceReader>>),
+    Luks(Box<LuksPayload<DataSourceReader>>),
+    VeraCrypt(Box<VeraVolume<DataSourceReader>>),
+    FileVault(Box<FvdeVolume<DataSourceReader>>),
 }
 
 impl UnlockedVolume {
@@ -74,7 +77,7 @@ impl DecryptedSource {
         self.format
     }
 
-    pub(crate) fn new(volume: UnlockedVolume, format: crate::FdeFormat) -> Self {
+    fn new(volume: UnlockedVolume, format: crate::FdeFormat) -> Self {
         let len = volume.len();
         Self {
             volume: Mutex::new(volume),
@@ -88,19 +91,28 @@ impl DecryptedSource {
 // `UnlockedVolume` enum can stay private to the crate's read path).
 impl DecryptedSource {
     pub(crate) fn from_bitlocker(v: BdeVolume<DataSourceReader>) -> Self {
-        Self::new(UnlockedVolume::BitLocker(v), crate::FdeFormat::BitLocker)
+        Self::new(
+            UnlockedVolume::BitLocker(Box::new(v)),
+            crate::FdeFormat::BitLocker,
+        )
     }
 
     pub(crate) fn from_luks(v: LuksPayload<DataSourceReader>) -> Self {
-        Self::new(UnlockedVolume::Luks(v), crate::FdeFormat::Luks)
+        Self::new(UnlockedVolume::Luks(Box::new(v)), crate::FdeFormat::Luks)
     }
 
     pub(crate) fn from_veracrypt(v: VeraVolume<DataSourceReader>) -> Self {
-        Self::new(UnlockedVolume::VeraCrypt(v), crate::FdeFormat::VeraCrypt)
+        Self::new(
+            UnlockedVolume::VeraCrypt(Box::new(v)),
+            crate::FdeFormat::VeraCrypt,
+        )
     }
 
     pub(crate) fn from_filevault(v: FvdeVolume<DataSourceReader>) -> Self {
-        Self::new(UnlockedVolume::FileVault(v), crate::FdeFormat::FileVault)
+        Self::new(
+            UnlockedVolume::FileVault(Box::new(v)),
+            crate::FdeFormat::FileVault,
+        )
     }
 }
 

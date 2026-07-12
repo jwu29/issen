@@ -5,7 +5,7 @@
 //! fabricated decodable ciphertext. Real unlock is validated by the env-gated
 //! oracle tests in `oracle.rs`.
 
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::unused_io_amount)]
 
 use issen_core::error::RtError;
 use issen_core::plugin::traits::DataSource;
@@ -141,9 +141,12 @@ fn unlock_rejects_clear_key_for_filevault() {
 
 #[test]
 fn detect_and_unlock_plaintext_is_ok_none() {
-    // Random bytes: no magic, and a VeraCrypt try-unlock with a password fails,
-    // so the source is reported as "no FDE" (Ok(None)) — not an error.
-    let bytes: Vec<u8> = (0..4096u32).map(|i| (i % 256) as u8).collect();
+    // A short plaintext source: no magic, and it is below VeraCrypt's minimum
+    // header size, so the deniable VeraCrypt try-unlock declines immediately
+    // (VeraError::TooSmall) rather than running its expensive PBKDF2 brute-force.
+    // The bridge reports "no FDE" (Ok(None)) — not an error. (The costly full
+    // VeraCrypt KDF path is exercised by the real oracle in `oracle.rs`.)
+    let bytes: Vec<u8> = (0..256u32).map(|i| (i % 256) as u8).collect();
     let factory = move || -> Box<dyn DataSource> { Box::new(MemSource(bytes.clone())) };
     let cred = Credential::Password("whatever".to_string());
     let result = detect_and_unlock(factory, &cred).expect("no I/O error");

@@ -11,7 +11,7 @@
 //!   VC_ORACLE         (veracrypt `vc_1-sha512-xts-aes`, password "aaaaaaaaaaaa")
 //!   FVDE_ORACLE_IMAGE (filevault `fvde_cs_p1.raw`, password "fvde-TEST")
 
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::unused_io_amount)]
 
 use std::fs;
 use std::path::PathBuf;

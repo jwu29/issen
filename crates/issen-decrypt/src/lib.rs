@@ -37,6 +37,11 @@
 //! # }
 //! ```
 
+#![cfg_attr(
+    test,
+    allow(clippy::unwrap_used, clippy::expect_used, clippy::unused_io_amount)
+)]
+
 mod adapter;
 mod detect;
 mod error;

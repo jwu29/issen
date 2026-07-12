@@ -39,16 +39,18 @@ const CS_SIG_OFFSET: u64 = 88;
 /// for plaintext / unrecognized data. A short read is treated as "signature
 /// absent" — never a panic (the source may be smaller than any header).
 #[must_use]
-pub fn detect_fde(_source: &dyn DataSource) -> Option<FdeFormat> {
-    // RED stub — no detection yet.
-    let _ = (
-        BDE_SIG_OFFSET,
-        &BDE_SIG_FVE,
-        &BDE_SIG_TO_GO,
-        &LUKS_MAGIC,
-        CS_SIG_OFFSET,
-        &CS_SIG,
-    );
+pub fn detect_fde(source: &dyn DataSource) -> Option<FdeFormat> {
+    if has_signature(source, BDE_SIG_OFFSET, &BDE_SIG_FVE)
+        || has_signature(source, BDE_SIG_OFFSET, &BDE_SIG_TO_GO)
+    {
+        return Some(FdeFormat::BitLocker);
+    }
+    if has_signature(source, 0, &LUKS_MAGIC) {
+        return Some(FdeFormat::Luks);
+    }
+    if has_signature(source, CS_SIG_OFFSET, &CS_SIG) {
+        return Some(FdeFormat::FileVault);
+    }
     None
 }
 

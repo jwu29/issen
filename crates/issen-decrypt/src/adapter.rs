@@ -39,7 +39,7 @@ impl Read for DataSourceReader {
         let n = self
             .inner
             .read_at(self.pos, buf)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+            .map_err(|e| io::Error::other(e.to_string()))?;
         // read_at never advances the cursor; a short read at EOF is correct.
         self.pos = self.pos.saturating_add(n as u64);
         Ok(n)
