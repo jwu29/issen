@@ -227,6 +227,37 @@ pub const WINDOWS_USER_FILES: &[&str] = &[
 pub const WINDOWS_USER_LNK_DIRS: &[&str] =
     &[r"AppData\Roaming\Microsoft\Windows\Recent", "Desktop"];
 
+/// The standard high-value Linux triage artifacts, by ext4 path.
+///
+/// A documented spec (like [`WINDOWS_TRIAGE_PATHS`]); [`collect_ext4`] returns
+/// whichever are present. Per-user `\/home\/*\/.bash_history` needs directory
+/// enumeration and is a future enhancement — only `\/root\/.bash_history` is
+/// covered as a fixed path today.
+pub const LINUX_TRIAGE_PATHS: &[&str] = &[
+    "/etc/passwd",
+    "/etc/group",
+    "/etc/hostname",
+    "/etc/os-release",
+    "/var/log/auth.log",
+    "/var/log/syslog",
+    "/var/log/wtmp",
+    "/var/log/btmp",
+    "/etc/crontab",
+    "/root/.bash_history",
+];
+
+/// The standard high-value macOS triage artifacts, by APFS path.
+///
+/// A documented spec (like [`WINDOWS_TRIAGE_PATHS`]); [`collect_apfs`] returns
+/// whichever are present. Per-user `\/Users\/*\/.zsh_history` needs directory
+/// enumeration and is a future enhancement.
+pub const MACOS_TRIAGE_PATHS: &[&str] = &[
+    "/private/var/log/system.log",
+    "/private/etc/passwd",
+    "/private/var/db/.AppleSetupDone",
+    "/private/var/log/install.log",
+];
+
 /// Extract the standard Windows triage artifacts — the fixed
 /// [`WINDOWS_TRIAGE_PATHS`] plus the [`WINDOWS_TRIAGE_GLOBS`] directory sweeps —
 /// from every NTFS partition in the disk image.
@@ -732,6 +763,49 @@ fn open_volume(
     let reader = DataSourceReader::new(source);
     let part = OffsetReader::new(reader, window.offset, window.length).map_err(to_disk)?;
     NtfsFs::open(part).map_err(to_disk)
+}
+
+/// Collect the triage `paths` from the ext4 volume at `window` over `source`.
+///
+/// The non-NTFS companion to [`extract_ntfs_sources`]: wraps `source`+`window`
+/// as a positioned reader, opens the ext4 filesystem, and reads each `paths`
+/// entry into an [`ExtractedFile`]. A path that is absent is skipped
+/// (degrade-to-empty per file); a failure to OPEN the volume is a loud
+/// [`DiskError`] (fail-loud on bootstrap), never a silent empty result.
+///
+/// # Errors
+///
+/// [`DiskError`] if the ext4 volume can't be opened, or a read fails for a
+/// reason other than a path being absent.
+pub fn collect_ext4(
+    _source: &dyn DataSource,
+    _window: PartitionWindow,
+    _paths: &[&str],
+    _caps: ExtractCaps,
+) -> Result<ExtractOutcome, DiskError> {
+    // RED stub — replaced in GREEN.
+    Ok(ExtractOutcome::default())
+}
+
+/// Collect the triage `paths` from the APFS volume at `window` over `source`.
+///
+/// The macOS companion to [`collect_ext4`]: wraps `source`+`window` as a
+/// positioned reader, opens the APFS container + its first volume, and reads
+/// each `paths` entry into an [`ExtractedFile`]. A path that is absent is
+/// skipped; a failure to OPEN the container/volume is a loud [`DiskError`].
+///
+/// # Errors
+///
+/// [`DiskError`] if the APFS container/volume can't be opened, or a read fails
+/// for a reason other than a path being absent.
+pub fn collect_apfs(
+    _source: &dyn DataSource,
+    _window: PartitionWindow,
+    _paths: &[&str],
+    _caps: ExtractCaps,
+) -> Result<ExtractOutcome, DiskError> {
+    // RED stub — replaced in GREEN.
+    Ok(ExtractOutcome::default())
 }
 
 /// Read each of `paths` into `acc`, enforcing the per-file byte and global
