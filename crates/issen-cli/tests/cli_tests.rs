@@ -57,7 +57,6 @@ fn test_ingest_empty_directory() {
 
     issen_cmd()
         .args([
-            "ingest",
             &dir.path().to_string_lossy(),
             "-o",
             &db_path.to_string_lossy(),
@@ -106,7 +105,6 @@ fn test_info_on_empty_db() {
     // First ingest to create the DB.
     issen_cmd()
         .args([
-            "ingest",
             &evidence_dir.path().to_string_lossy(),
             "-o",
             &db_path.to_string_lossy(),
@@ -132,7 +130,6 @@ fn test_timeline_no_events() {
     // Ingest empty dir to create DB.
     issen_cmd()
         .args([
-            "ingest",
             &evidence_dir.path().to_string_lossy(),
             "-o",
             &db_path.to_string_lossy(),
@@ -184,12 +181,9 @@ fn test_ingest_usnjrnl_and_query() {
     // Ingest.
     issen_cmd()
         .args([
-            "ingest",
             &evidence_dir.path().to_string_lossy(),
             "-o",
             &db_path.to_string_lossy(),
-            "-s",
-            "test-case",
         ])
         .assert()
         .success()
@@ -227,7 +221,6 @@ fn test_ingest_and_export_sqlite() {
     // Ingest.
     issen_cmd()
         .args([
-            "ingest",
             &evidence_dir.path().to_string_lossy(),
             "-o",
             &db_path.to_string_lossy(),
@@ -616,12 +609,7 @@ fn test_timeline_flagged_json_empty() {
     std::fs::create_dir(&evidence).unwrap();
 
     issen_cmd()
-        .args([
-            "ingest",
-            evidence.to_str().unwrap(),
-            "-o",
-            db.to_str().unwrap(),
-        ])
+        .args([evidence.to_str().unwrap(), "-o", db.to_str().unwrap()])
         .assert()
         .success();
 
@@ -670,12 +658,7 @@ fn test_timeline_flagged_empty_db() {
     std::fs::create_dir(&evidence).unwrap();
 
     issen_cmd()
-        .args([
-            "ingest",
-            evidence.to_str().unwrap(),
-            "-o",
-            db.to_str().unwrap(),
-        ])
+        .args([evidence.to_str().unwrap(), "-o", db.to_str().unwrap()])
         .assert()
         .success();
 
@@ -843,7 +826,6 @@ fn test_info_shows_no_findings_on_empty_db() {
     // Ingest empty evidence to create the DB.
     issen_cmd()
         .args([
-            "ingest",
             &evidence_dir.path().to_string_lossy(),
             "-o",
             &db_path.to_string_lossy(),
@@ -1036,7 +1018,6 @@ fn test_report_with_case_id_and_examiner() {
     // Create DB via ingest.
     issen_cmd()
         .args([
-            "ingest",
             &evidence_dir.path().to_string_lossy(),
             "-o",
             &db_path.to_string_lossy(),
@@ -1290,7 +1271,6 @@ fn version_flag_shows_version() {
 #[test]
 fn all_subcommands_help_exits_success() {
     for sub in &[
-        "ingest",
         "timeline",
         "info",
         "scan",
@@ -1377,7 +1357,6 @@ fn timeline_multi_flag_descending_limit() {
     // Create DB via ingest.
     issen_cmd()
         .args([
-            "ingest",
             &evidence_dir.path().to_string_lossy(),
             "-o",
             &db_path.to_string_lossy(),
@@ -1405,7 +1384,6 @@ fn timeline_multi_flag_event_type_and_source() {
 
     issen_cmd()
         .args([
-            "ingest",
             &evidence_dir.path().to_string_lossy(),
             "-o",
             &db_path.to_string_lossy(),
@@ -1491,7 +1469,6 @@ fn report_multi_flag_case_id_examiner_max_events() {
 
     issen_cmd()
         .args([
-            "ingest",
             &evidence_dir.path().to_string_lossy(),
             "-o",
             &db_path.to_string_lossy(),
@@ -1526,7 +1503,6 @@ fn timeline_flagged_json_output_is_valid_json() {
 
     issen_cmd()
         .args([
-            "ingest",
             &evidence_dir.path().to_string_lossy(),
             "-o",
             &db_path.to_string_lossy(),
@@ -1639,12 +1615,9 @@ fn full_pipeline_ingest_timeline_report() {
     // Step 1: ingest.
     issen_cmd()
         .args([
-            "ingest",
             &evidence_dir.path().to_string_lossy(),
             "-o",
             &db_path.to_string_lossy(),
-            "-s",
-            "PIPELINE-CASE-001",
         ])
         .assert()
         .success()
@@ -1699,7 +1672,6 @@ fn timeline_format_json_produces_valid_json() {
 
     issen_cmd()
         .args([
-            "ingest",
             &evidence_dir.path().to_string_lossy(),
             "-o",
             &db_path.to_string_lossy(),
@@ -1737,7 +1709,6 @@ fn timeline_format_json_empty_db_produces_empty_array() {
 
     issen_cmd()
         .args([
-            "ingest",
             &evidence_dir.path().to_string_lossy(),
             "-o",
             &db_path.to_string_lossy(),
@@ -1816,8 +1787,7 @@ fn verbose_flag_with_scan_subcommand() {
     std::fs::write(&target, b"test content").unwrap();
 
     issen_cmd()
-        .arg("-v")
-        .args(["scan", target.to_str().unwrap()])
+        .args(["scan", "-v", target.to_str().unwrap()])
         .assert()
         .success();
 }
@@ -1947,7 +1917,6 @@ fn ingest_without_source_flag_still_works() {
 
     issen_cmd()
         .args([
-            "ingest",
             &dir.path().to_string_lossy(),
             "-o",
             &db_path.to_string_lossy(),
