@@ -190,11 +190,15 @@ pub fn render_at(timestamp_ns: i64, cfg: &TimeRenderConfig) -> String {
                     r.hour_pillar,
                     r.solar_term
                 ),
-                Err(_) => instant.to_rfc3339().unwrap_or_else(|| "invalid".to_string()),
+                Err(_) => instant
+                    .to_rfc3339()
+                    .unwrap_or_else(|| "invalid".to_string()),
             }
         }
         Calendar::Civil => match &cfg.format {
-            None => instant.render(&cfg.zone).unwrap_or_else(|| "invalid".to_string()),
+            None => instant
+                .render(&cfg.zone)
+                .unwrap_or_else(|| "invalid".to_string()),
             Some(fmt) => render_with_format(timestamp_ns, &cfg.zone, fmt),
         },
     }
@@ -373,7 +377,10 @@ mod tests {
         let ns: i64 = 1_577_836_800_000_000_000;
 
         // UTC / RFC 3339 (the default).
-        assert_eq!(render_at(ns, &TimeRenderConfig::default()), "2020-01-01T00:00:00Z");
+        assert_eq!(
+            render_at(ns, &TimeRenderConfig::default()),
+            "2020-01-01T00:00:00Z"
+        );
 
         // A named IANA zone, resolved DST-correct per instant (Tokyo = UTC+9).
         let tokyo = TimeRenderConfig {
