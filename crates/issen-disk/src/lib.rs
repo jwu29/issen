@@ -62,12 +62,13 @@ pub fn find_ntfs_partitions(source: &dyn DataSource) -> Result<Vec<PartitionWind
 }
 
 /// Partitions split by triage support: the NTFS volumes issen extracts, plus
-/// recognized-but-untriaged filesystems as `(filesystem, byte-offset)` pairs.
-type PartitionClass = (Vec<PartitionWindow>, Vec<(&'static str, u64)>);
+/// recognized non-NTFS filesystems as `(filesystem, window)` pairs (the window
+/// carries offset + length so a non-NTFS collector can open the volume).
+type PartitionClass = (Vec<PartitionWindow>, Vec<(&'static str, PartitionWindow)>);
 
 /// Enumerate the source's partitions and split them into NTFS volumes (which
-/// issen triages) and recognized-but-untriaged filesystems — each returned as
-/// `(filesystem, byte-offset)`. The candidate windows come from the partition
+/// issen triages) and recognized non-NTFS filesystems — each returned as
+/// `(filesystem, window)`. The candidate windows come from the partition
 /// table; a window is NTFS iff its boot sector parses, else it is probed for a
 /// known non-NTFS magic via [`detect_filesystem`].
 ///
@@ -122,7 +123,7 @@ fn classify_partitions(source: &dyn DataSource) -> Result<PartitionClass, DiskEr
         if window_is_ntfs(source, w)? {
             ntfs.push(w);
         } else if let Some(fs) = detect_filesystem(source, w)? {
-            unsupported.push((fs, w.offset));
+            unsupported.push((fs, w));
         }
     }
     Ok((ntfs, unsupported))
@@ -306,18 +307,6 @@ pub fn collect_with_caps(
 ) -> Result<ExtractOutcome, DiskError> {
     let mut acc = Accumulator::new(caps);
     let (ntfs_windows, unsupported) = classify_partitions(source)?;
-    // A disk with NO NTFS volume but a recognized non-NTFS filesystem produces
-    // zero artifacts — record that LOUDLY so the empty result is distinguishable
-    // from a clean image (the Big Sur "✔ 0 events" gap). Skipped when NTFS
-    // partitions exist, since APFS/ext/HFS companions on a Windows disk are noise.
-    if ntfs_windows.is_empty() {
-        for (filesystem, offset) in unsupported {
-            acc.record(ExtractionLimit::UnsupportedFilesystem {
-                filesystem: filesystem.to_string(),
-                offset,
-            });
-        }
-    }
     for window in ntfs_windows {
         if acc.global_full() {
             // The global cap is exhausted with partitions still unread — a
@@ -332,7 +321,71 @@ pub fn collect_with_caps(
         let mut fs = open_volume(source, window)?;
         extract_sources_into(&mut fs, window, sources, &mut acc)?;
     }
+    // Non-NTFS filesystems: ext4 (Linux) and APFS (macOS) get their own triage
+    // path lists; HFS+ is deferred (recorded loudly, not collected). Each opens
+    // its volume via `collect_ext4`/`collect_apfs` and the results are folded
+    // through the SAME caps accumulator so the global cap applies uniformly.
+    for (filesystem, window) in unsupported {
+        if acc.global_full() {
+            break;
+        }
+        match filesystem {
+            "ext" => collect_non_ntfs_into(
+                collect_ext4(source, window, LINUX_TRIAGE_PATHS, acc.caps),
+                filesystem,
+                window,
+                &mut acc,
+            ),
+            "APFS" => collect_non_ntfs_into(
+                collect_apfs(source, window, MACOS_TRIAGE_PATHS, acc.caps),
+                filesystem,
+                window,
+                &mut acc,
+            ),
+            // HFS+ (and any future recognized-but-unhandled fs): record the gap
+            // LOUDLY so a zero-artifact macOS-legacy image is distinguishable
+            // from a clean image, rather than a silent empty result.
+            _ => acc.record(ExtractionLimit::UnsupportedFilesystem {
+                filesystem: filesystem.to_string(),
+                offset: window.offset,
+            }),
+        }
+    }
     Ok(acc.out)
+}
+
+/// Fold a non-NTFS collector's [`ExtractOutcome`] into the shared caps
+/// accumulator: accepted files re-run the byte/global cap checks, and any
+/// [`ExtractionLimit`]s the collector recorded are merged so a cap hit inside a
+/// non-NTFS volume surfaces loudly on the aggregate result.
+///
+/// A per-volume open/read failure must not abort the whole disk's collection
+/// (other partitions may still triage), so it is recorded as an
+/// [`ExtractionLimit::UnsupportedFilesystem`] naming the detected `filesystem`
+/// and its `window.offset` — a LOUD diagnostic distinguishable from a clean
+/// image — rather than propagated, mirroring the per-partition best-effort
+/// posture of the NTFS path.
+fn collect_non_ntfs_into(
+    outcome: Result<ExtractOutcome, DiskError>,
+    filesystem: &'static str,
+    window: PartitionWindow,
+    acc: &mut Accumulator,
+) {
+    let Ok(outcome) = outcome else {
+        acc.record(ExtractionLimit::UnsupportedFilesystem {
+            filesystem: filesystem.to_string(),
+            offset: window.offset,
+        });
+        return;
+    };
+    for file in outcome.files {
+        if !acc.accept(file) {
+            break;
+        }
+    }
+    for limit in outcome.limits {
+        acc.record(limit);
+    }
 }
 
 /// Dispatch each [`NtfsLoc`] to its capped worker over one open volume.
@@ -778,13 +831,46 @@ fn open_volume(
 /// [`DiskError`] if the ext4 volume can't be opened, or a read fails for a
 /// reason other than a path being absent.
 pub fn collect_ext4(
-    _source: &dyn DataSource,
-    _window: PartitionWindow,
-    _paths: &[&str],
-    _caps: ExtractCaps,
+    source: &dyn DataSource,
+    window: PartitionWindow,
+    paths: &[&str],
+    caps: ExtractCaps,
 ) -> Result<ExtractOutcome, DiskError> {
-    // RED stub — replaced in GREEN.
-    Ok(ExtractOutcome::default())
+    use ext4fs::error::Ext4Error;
+
+    // Fail LOUD on a bad bootstrap: an ext4 volume that won't open is a hard
+    // error, never absorbed into an empty "no files" result.
+    let reader =
+        ntfs_core::OffsetReader::new(DataSourceReader::new(source), window.offset, window.length)
+            .map_err(|e| DiskError::Ntfs(e.to_string()))?;
+    let mut fs = ext4fs::Ext4Fs::open(reader)
+        .map_err(|e| DiskError::Source(format!("ext4 open at offset {}: {e}", window.offset)))?;
+
+    let mut acc = Accumulator::new(caps);
+    for &path in paths {
+        if acc.global_full() {
+            acc.record(ExtractionLimit::TooManyFiles {
+                pattern: "<global>".to_string(),
+                cap: acc.caps.max_files_global,
+            });
+            break;
+        }
+        match fs.read_file(path) {
+            Ok(data) => {
+                if !acc.accept(ExtractedFile {
+                    path: path.to_string(),
+                    data,
+                    partition_offset: window.offset,
+                }) {
+                    break;
+                }
+            }
+            // The artifact simply isn't on this image — expected during triage.
+            Err(Ext4Error::PathNotFound(_)) => {}
+            Err(e) => return Err(DiskError::Source(format!("ext4 read {path}: {e}"))),
+        }
+    }
+    Ok(acc.out)
 }
 
 /// Collect the triage `paths` from the APFS volume at `window` over `source`.
@@ -799,13 +885,71 @@ pub fn collect_ext4(
 /// [`DiskError`] if the APFS container/volume can't be opened, or a read fails
 /// for a reason other than a path being absent.
 pub fn collect_apfs(
-    _source: &dyn DataSource,
-    _window: PartitionWindow,
-    _paths: &[&str],
-    _caps: ExtractCaps,
+    source: &dyn DataSource,
+    window: PartitionWindow,
+    paths: &[&str],
+    caps: ExtractCaps,
 ) -> Result<ExtractOutcome, DiskError> {
-    // RED stub — replaced in GREEN.
-    Ok(ExtractOutcome::default())
+    use apfs_core::{
+        dir::open_path, extent::read_data, volume::ApfsVolume, ApfsContainer, ApfsError,
+    };
+
+    let to_disk = |ctx: &str, e: ApfsError| {
+        DiskError::Source(format!("apfs {ctx} at offset {}: {e}", window.offset))
+    };
+
+    // Fail LOUD on a bad bootstrap: the container superblock, its volume list,
+    // and the first volume must all resolve, or this is a hard error — never an
+    // empty "no files" result masquerading as a clean image.
+    let reader =
+        ntfs_core::OffsetReader::new(DataSourceReader::new(source), window.offset, window.length)
+            .map_err(|e| DiskError::Ntfs(e.to_string()))?;
+    let mut container = ApfsContainer::open(reader).map_err(|e| to_disk("container open", e))?;
+    let block_size = container.superblock().block_size as usize;
+    let addrs = container
+        .volume_superblock_addrs()
+        .map_err(|e| to_disk("volume enumeration", e))?;
+    // Triage the first (primary) volume — the boot/system volume of the group.
+    let first = *addrs.first().ok_or_else(|| {
+        DiskError::Source(format!(
+            "apfs container at offset {} has no volumes",
+            window.offset
+        ))
+    })?;
+
+    let mut r = container.into_reader();
+    let mut vol_block = vec![0u8; block_size];
+    let vol_off = first.saturating_mul(block_size as u64);
+    r.seek(SeekFrom::Start(vol_off))?;
+    r.read_exact(&mut vol_block)?;
+    let volume = ApfsVolume::parse(&vol_block).map_err(|e| to_disk("volume superblock", e))?;
+
+    let mut acc = Accumulator::new(caps);
+    for &path in paths {
+        if acc.global_full() {
+            acc.record(ExtractionLimit::TooManyFiles {
+                pattern: "<global>".to_string(),
+                cap: acc.caps.max_files_global,
+            });
+            break;
+        }
+        let inode = match open_path(&mut r, &volume, path, block_size) {
+            Ok(inode) => inode,
+            // A path component that doesn't resolve is an absent artifact — skip.
+            Err(ApfsError::OmapUnresolved { .. }) => continue,
+            Err(e) => return Err(to_disk(&format!("open {path}"), e)),
+        };
+        let data = read_data(&mut r, &volume, &inode, block_size)
+            .map_err(|e| to_disk(&format!("read {path}"), e))?;
+        if !acc.accept(ExtractedFile {
+            path: path.to_string(),
+            data,
+            partition_offset: window.offset,
+        }) {
+            break;
+        }
+    }
+    Ok(acc.out)
 }
 
 /// Read each of `paths` into `acc`, enforcing the per-file byte and global
