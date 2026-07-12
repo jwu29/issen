@@ -304,6 +304,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "argon2"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3c3610892ee6e0cbce8ae2700349fcf8f98adb0dbfbee85aec3c9179d29cc072"
+dependencies = [
+ "base64ct",
+ "blake2",
+ "cpufeatures 0.2.17",
+ "password-hash",
+]
+
+[[package]]
 name = "array-bytes"
 version = "7.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1028,6 +1040,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "bitlocker-core"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "95508c4c8c9304a684e6c701ce1b09e7a8dcd74179bdb266145656550d266bab"
+dependencies = [
+ "aes 0.8.4",
+ "cbc 0.1.2",
+ "ccm",
+ "elephant-diffuser",
+ "sha2 0.10.9",
+ "thiserror 2.0.18",
+ "xts-mode",
+]
+
+[[package]]
 name = "bitmask"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1052,6 +1079,15 @@ dependencies = [
  "radium",
  "tap",
  "wyz",
+]
+
+[[package]]
+name = "blake2"
+version = "0.10.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "46502ad458c9a52b69d4d4d32775c788b7a1b85e8bc9d482d92250fc0e3f8efe"
+dependencies = [
+ "digest 0.10.7",
 ]
 
 [[package]]
@@ -1401,6 +1437,18 @@ dependencies = [
  "jobserver",
  "libc",
  "shlex",
+]
+
+[[package]]
+name = "ccm"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9ae3c82e4355234767756212c570e29833699ab63e6ffd161887314cc5b43847"
+dependencies = [
+ "aead",
+ "cipher 0.4.4",
+ "ctr",
+ "subtle",
 ]
 
 [[package]]
@@ -2709,6 +2757,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "elephant-diffuser"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d246071fb905616571e8938218dae0a538a89c2239ef4f07566db776786771ae"
+
+[[package]]
 name = "elliptic-curve"
 version = "0.13.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3085,6 +3139,23 @@ dependencies = [
  "cfg-if",
  "filetime",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "filevault-core"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ea3c2d10ec70b038e52b11c6bd4790f5e28cbd2c0ca9369238b8cb1e4aeeae22"
+dependencies = [
+ "aes 0.8.4",
+ "aes-kw",
+ "base64 0.22.1",
+ "hmac",
+ "pbkdf2",
+ "sha2 0.10.9",
+ "thiserror 2.0.18",
+ "uuid",
+ "xts-mode",
 ]
 
 [[package]]
@@ -4669,6 +4740,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "issen-decrypt"
+version = "0.1.0"
+dependencies = [
+ "bitlocker-core",
+ "filevault-core",
+ "issen-core",
+ "luks-core",
+ "sha2 0.10.9",
+ "thiserror 2.0.18",
+ "veracrypt-core",
+]
+
+[[package]]
 name = "issen-disk"
 version = "0.1.0"
 dependencies = [
@@ -6036,6 +6120,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "112b39cec0b298b6c1999fee3e31427f74f676e4cb9879ed1a121b43661a4154"
 
 [[package]]
+name = "luks-core"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8e53a5ff475bf8dd0313e89910d4c0b4490f4818b2278ca1535723588175872f"
+dependencies = [
+ "aes 0.8.4",
+ "argon2",
+ "base64 0.22.1",
+ "hmac",
+ "pbkdf2",
+ "serde_json",
+ "sha1",
+ "sha2 0.10.9",
+ "thiserror 2.0.18",
+ "xts-mode",
+]
+
+[[package]]
 name = "lz4_flex"
 version = "0.11.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7224,6 +7326,17 @@ dependencies = [
  "regex-syntax 0.7.5",
  "structmeta",
  "syn 2.0.118",
+]
+
+[[package]]
+name = "password-hash"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "346f04948ba92c43e8469c1ee6736c7563d71012b17d40745260fe106aac2166"
+dependencies = [
+ "base64ct",
+ "rand_core 0.6.4",
+ "subtle",
 ]
 
 [[package]]
@@ -8596,6 +8709,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ripemd"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bd124222d17ad93a644ed9d011a40f4fb64aa54275c08cc216524a9ea82fb09f"
+dependencies = [
+ "digest 0.10.7",
+]
+
+[[package]]
 name = "rkyv"
 version = "0.7.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9269,6 +9391,16 @@ dependencies = [
  "ryu",
  "serde",
  "unsafe-libyaml",
+]
+
+[[package]]
+name = "serpent"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9612829855a70388e7d28342d16fd0d00ab792f9fd82dec0faf797ffc4abbb52"
+dependencies = [
+ "byteorder",
+ "cipher 0.4.4",
 ]
 
 [[package]]
@@ -9949,6 +10081,15 @@ name = "stem-branch"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6359b4f4bbc07680d63a49cac8991d2e0acced7d24b5624aad174e5a8629cfd"
+
+[[package]]
+name = "streebog"
+version = "0.10.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9e7fe6ed8a42cec360e070309427bb7959e102849b0dbaa7de19d5b9860bd536"
+dependencies = [
+ "digest 0.10.7",
+]
 
 [[package]]
 name = "string_cache"
@@ -10891,6 +11032,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2df906b07856748fa3f6e0ad0cbaa047052d4a7dd609e231c4f72cee8c36f31"
 
 [[package]]
+name = "twofish"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a78e83a30223c757c3947cd144a31014ff04298d8719ae10d03c31c0448c8013"
+dependencies = [
+ "cipher 0.4.4",
+]
+
+[[package]]
 name = "twox-hash"
 version = "2.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11165,6 +11315,26 @@ checksum = "c8509489e2a7ee219522238ad45fd370bec6808811ac15ac6b07453804e77659"
 dependencies = [
  "serde",
  "thin-vec",
+]
+
+[[package]]
+name = "veracrypt-core"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ebe815c32893435e15f45e89f43e2cd59d0164ebadea91a04bf96aa54088f3fd"
+dependencies = [
+ "aes 0.8.4",
+ "crc32fast",
+ "hmac",
+ "pbkdf2",
+ "ripemd",
+ "serpent",
+ "sha2 0.10.9",
+ "streebog",
+ "thiserror 2.0.18",
+ "twofish",
+ "whirlpool",
+ "xts-mode",
 ]
 
 [[package]]
@@ -11636,6 +11806,15 @@ dependencies = [
  "home",
  "once_cell",
  "rustix 0.38.44",
+]
+
+[[package]]
+name = "whirlpool"
+version = "0.10.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1ae50671d985c15b3214c7d969b8b520759fb3c8682444bec15ef775335a05c"
+dependencies = [
+ "digest 0.10.7",
 ]
 
 [[package]]
