@@ -61,6 +61,7 @@ members = [
     "crates/issen-aff4",
     "crates/forensic-pivot",
     "crates/issen-wsl",
+    "crates/issen-decrypt",
     "xtask",
 ]
 
@@ -77,6 +78,12 @@ forensicnomicon  = "1.1"
 jsonguard        = "0.2"
 forensic-pivot   = { path = "crates/forensic-pivot" }
 issen-core       = { path = "crates/issen-core" }
+issen-decrypt    = { path = "crates/issen-decrypt" }
+# Full-disk-encryption core decryptors (crates.io) — the FDE bridge deps.
+bitlocker-core   = "0.3"
+luks-core        = "0.1"
+veracrypt-core   = "0.2"
+filevault-core   = "0.1"
 issen-fswalker   = { path = "crates/issen-fswalker" }
 issen-plugin-sdk = { path = "crates/issen-plugin-sdk" }
 issen-timeline   = { path = "crates/issen-timeline" }
