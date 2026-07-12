@@ -75,9 +75,13 @@ impl DmgDataSource {
     ///
     /// # Errors
     /// [`DmgError`] if the source is not a valid UDIF container.
-    pub fn open_reader(_reader: Box<dyn ReadSeekSend>) -> Result<Self, DmgError> {
-        // RED stub: not yet decoding the UDIF container.
-        Err(DmgError::InvalidDmg("not implemented".into()))
+    pub fn open_reader(reader: Box<dyn ReadSeekSend>) -> Result<Self, DmgError> {
+        let reader = dmg::DmgReader::open(reader)?;
+        let size = reader.virtual_disk_size();
+        Ok(Self {
+            reader: Mutex::new(reader),
+            size,
+        })
     }
 }
 
@@ -129,9 +133,11 @@ impl CollectionProvider for DmgProvider {
             Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(Confidence::None),
             Err(e) => return Err(RtError::Io(e)),
         }
-        // RED stub: format recognition not yet wired.
-        let _ = &magic;
-        Ok(Confidence::None)
+        if &magic == b"koly" {
+            Ok(Confidence::High)
+        } else {
+            Ok(Confidence::None)
+        }
     }
 
     fn open(&self, path: &Path) -> Result<CollectionManifest, RtError> {
