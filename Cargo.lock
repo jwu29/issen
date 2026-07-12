@@ -4552,6 +4552,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "snss-core",
  "tempfile",
 ]
 

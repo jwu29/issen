@@ -168,9 +168,41 @@ inventory::submit! {
 /// `matches: fn(&Path) -> bool` contract and stays self-contained in this crate.
 #[must_use]
 pub fn is_snss_session_file(path: &Path) -> bool {
-    // RED stub: real classification lands in GREEN.
-    let _ = path;
-    false
+    let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+        return false;
+    };
+    let lc = name.to_ascii_lowercase();
+    matches!(
+        lc.as_str(),
+        "current session" | "last session" | "current tabs" | "last tabs"
+    ) || lc.starts_with("session_")
+        || lc.starts_with("tabs_")
+        || lc.starts_with("apps_")
+}
+
+/// Pick the SNSS replay [`Dialect`] from a file's base name: `Tabs_*`/`Current
+/// Tabs`/`Last Tabs` are the recently-closed restore list (`Dialect::Tabs`);
+/// everything else the classifier accepts (`Session_*`, `Apps_*`, `Current
+/// Session`, `Last Session`) uses `Dialect::Session`.
+fn dialect_for(path: &Path) -> snss::Dialect {
+    let lc = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if lc == "current tabs" || lc == "last tabs" || lc.starts_with("tabs_") {
+        snss::Dialect::Tabs
+    } else {
+        snss::Dialect::Session
+    }
+}
+
+/// Nanoseconds since the Unix epoch for a [`std::time::SystemTime`], or `None`
+/// for times at/before the epoch (a session snapshot with no activity time).
+fn systemtime_to_unix_ns(t: std::time::SystemTime) -> Option<i64> {
+    t.duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .and_then(|d| i64::try_from(d.as_nanos()).ok())
 }
 
 /// Issen browser-session parser: recognizes a Chromium SNSS session / tab-restore
@@ -187,11 +219,83 @@ impl SessionParser {
 
     /// Parse an SNSS session/tab-restore file into timeline events.
     ///
-    /// RED stub: returns an empty vector until the GREEN implementation.
+    /// Reads the SNSS command stream, replays it into per-window tab state (the
+    /// [`Dialect`](snss::Dialect) chosen from the filename), and emits one
+    /// [`TimelineEvent`] per tab carrying that tab's current navigation. A file
+    /// with no recoverable windows/tabs yields an empty vector.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file cannot be opened or is not a valid SNSS
+    /// command stream (a truncated/foreign file is rejected by `read_records`).
     pub fn parse_path(&self, path: &Path) -> Result<Vec<TimelineEvent>> {
-        let _ = path;
-        Ok(Vec::new())
+        let evidence_source = path.to_string_lossy().into_owned();
+        let file = std::fs::File::open(path)?;
+        let stream = snss::read_records(file)
+            .map_err(|e| anyhow::anyhow!("SNSS read failed for {}: {e}", path.display()))?;
+        let replayed = snss::replay(&stream, dialect_for(path));
+
+        let mut events = Vec::new();
+        for window in replayed.windows {
+            let (ts_ns, snapshot) = match window.last_active.and_then(systemtime_to_unix_ns) {
+                Some(ns) => (ns, false),
+                None => (0, true),
+            };
+            for tab in &window.tabs {
+                events.push(session_tab_to_timeline(
+                    &window,
+                    tab,
+                    ts_ns,
+                    snapshot,
+                    &evidence_source,
+                ));
+            }
+        }
+        Ok(events)
     }
+}
+
+/// Convert one replayed SNSS tab (its current navigation) into a canonical
+/// [`TimelineEvent`] tagged with the CADET `BrowserActivity` lens, preserving
+/// url/title/tab & window ids/pinned state/history depth as metadata so nothing
+/// the replay recovered is dropped at the wrapper boundary.
+fn session_tab_to_timeline(
+    window: &snss::Window,
+    tab: &snss::Tab,
+    ts_ns: i64,
+    snapshot: bool,
+    evidence_source: &str,
+) -> TimelineEvent {
+    let nav = tab.current_nav();
+    let ts_display = jiff::Timestamp::from_nanosecond(i128::from(ts_ns))
+        .map(|t| t.to_string())
+        .unwrap_or_default();
+    let description = if nav.title.is_empty() {
+        nav.url.clone()
+    } else {
+        format!("{} — {}", nav.title, nav.url)
+    };
+    let mut te = TimelineEvent::new(
+        ts_ns,
+        ts_display,
+        EventType::Other("BrowserSession".into()),
+        ArtifactType::BrowserHistory,
+        evidence_source.to_string(),
+        description,
+        evidence_source.to_string(),
+    )
+    .with_activity_category(ActivityCategory::BrowserActivity)
+    .with_metadata("url", serde_json::json!(nav.url))
+    .with_metadata("title", serde_json::json!(nav.title))
+    .with_metadata("tab_id", serde_json::json!(tab.id))
+    .with_metadata("window_id", serde_json::json!(window.id))
+    .with_metadata("pinned", serde_json::json!(tab.pinned))
+    .with_metadata("history_depth", serde_json::json!(tab.history.len()));
+    if snapshot {
+        // A session file is a state snapshot; some windows carry no activity time.
+        te = te.with_metadata("timestamp_source", serde_json::json!("state-snapshot"));
+    }
+    te
 }
 
 impl ForensicParser for SessionParser {
@@ -205,12 +309,24 @@ impl ForensicParser for SessionParser {
 
     fn parse(
         &self,
-        _input: &dyn DataSource,
-        _emitter: &dyn EventEmitter,
+        input: &dyn DataSource,
+        emitter: &dyn EventEmitter,
         _opts: &ParseOptions,
     ) -> Result<ParseStats, RtError> {
-        // RED stub.
-        Ok(ParseStats::new())
+        // SNSS replay needs the file (dialect is chosen from its name, and the
+        // reader consumes the whole stream), so drive the parse through the
+        // source path; a byte-only source (no path) yields no events.
+        let Some(path) = input.source_path() else {
+            return Ok(ParseStats::new());
+        };
+        let events = self
+            .parse_path(path)
+            .map_err(|e| RtError::InvalidData(format!("browser session parse failed: {e}")))?;
+        let mut stats = ParseStats::new();
+        stats.events_emitted = events.len() as u64;
+        stats.bytes_processed = input.len();
+        emitter.emit_batch(events)?;
+        Ok(stats)
     }
 
     fn capabilities(&self) -> ParserCapabilities {
@@ -220,6 +336,42 @@ impl ForensicParser for SessionParser {
             deterministic: true,
         }
     }
+}
+
+// Compile-time registration with the parser inventory — the second BrowserHistory
+// registration (alongside `BrowserParser`), surfacing Chromium session & tab-
+// restore artifacts. Disk-image collection sweeps each Chrome/Edge profile's
+// `Sessions` directory for `Session_*` and `Tabs_*` files; the `matches`
+// classifier catches session/tab files from any source during ingestion.
+inventory::submit! {
+    ParserRegistration { create: || Box::new(SessionParser), selector: sel::ArtifactSelector {
+            artifact_type: ArtifactType::BrowserHistory,
+            matches: is_snss_session_file,
+            priority: 80,
+            disk_sources: &[
+                sel::DiskSource::Ntfs(sel::NtfsLoc::PerSubdirSweep {
+                    parent: r"\Users",
+                    rel: r"AppData\Local\Google\Chrome\User Data\Default\Sessions",
+                    name: sel::NameMatch::Prefix("Session"),
+                }),
+                sel::DiskSource::Ntfs(sel::NtfsLoc::PerSubdirSweep {
+                    parent: r"\Users",
+                    rel: r"AppData\Local\Google\Chrome\User Data\Default\Sessions",
+                    name: sel::NameMatch::Prefix("Tabs"),
+                }),
+                sel::DiskSource::Ntfs(sel::NtfsLoc::PerSubdirSweep {
+                    parent: r"\Users",
+                    rel: r"AppData\Local\Microsoft\Edge\User Data\Default\Sessions",
+                    name: sel::NameMatch::Prefix("Session"),
+                }),
+                sel::DiskSource::Ntfs(sel::NtfsLoc::PerSubdirSweep {
+                    parent: r"\Users",
+                    rel: r"AppData\Local\Microsoft\Edge\User Data\Default\Sessions",
+                    name: sel::NameMatch::Prefix("Tabs"),
+                }),
+            ],
+            cost: sel::CostTier::Default,
+        } }
 }
 
 #[cfg(test)]

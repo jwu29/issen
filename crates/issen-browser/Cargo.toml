@@ -13,6 +13,7 @@ browser-core    = { workspace = true }
 browser-chrome  = { workspace = true }
 browser-firefox = { workspace = true }
 browser-safari  = { workspace = true }
+snss-core       = { workspace = true }
 inventory       = { workspace = true }
 jiff            = { workspace = true }
 anyhow          = { workspace = true }

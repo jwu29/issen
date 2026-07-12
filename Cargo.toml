@@ -209,6 +209,7 @@ sevenz-rust  = "0.6"
 # Forensic artifact parsers
 srum-parser      = "0.3.0"
 srum-core        = "0.2.0"
+snss-core        = "0.1"
 segb             = { version = "0.2", package = "segb-core" }
 segb-forensic    = "0.2"
 useract-forensic = "0.4"
