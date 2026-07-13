@@ -630,7 +630,12 @@ fn dir_is_tmpfs(dir: &Path) -> bool {
     // Off Linux the magics don't match, which is the correct conservative default
     // (macOS/Windows default temp dirs are disk-backed).
     rustix::fs::statfs(dir)
-        .map(|s| is_ram_backed_fstype(s.f_type as i64))
+        // `f_type` is `i64` on 64-bit Linux (cast is a no-op there) but `u32` on
+        // macOS/BSD, where the cast is load-bearing — so it must stay.
+        .map(|s| {
+            #[allow(clippy::unnecessary_cast)]
+            is_ram_backed_fstype(s.f_type as i64)
+        })
         .unwrap_or(false)
 }
 

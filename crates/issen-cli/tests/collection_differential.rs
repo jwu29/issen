@@ -93,6 +93,21 @@ fn hardcoded_keys() -> BTreeSet<String> {
     // cross-file $MFT/$MFTMirr integrity check has both files. It is NOT parsed as
     // an MFT (classify::mft excludes it); no legacy const carried it.
     keys.insert(r"fixed:\$MFTMirr".to_string());
+    // Browser history: collected ONLY via the browser selector's disk_sources
+    // (per-user Chrome/Edge `Default\History` SQLite DBs). Like Jump Lists, browser
+    // artifacts were never collected before the selector model, so the selector is
+    // the single source of truth and the expected target is added here, not to a
+    // frozen const.
+    keys.insert(
+        r"sweep:\Users:AppData\Local\Google\Chrome\User Data\Default:suffix:History".to_string(),
+    );
+    keys.insert(
+        r"sweep:\Users:AppData\Local\Microsoft\Edge\User Data\Default:suffix:History".to_string(),
+    );
+    // $Recycle.Bin $R deleted-content files: collected via the Trash parser's
+    // second disk_source (the $I index sibling gives the original path/size; the
+    // $R holds the recovered content). No legacy const carried $R.
+    keys.insert(r"sweep:\$Recycle.Bin::prefix:$r".to_string());
     keys
 }
 
