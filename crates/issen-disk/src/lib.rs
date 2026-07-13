@@ -61,6 +61,39 @@ pub fn find_ntfs_partitions(source: &dyn DataSource) -> Result<Vec<PartitionWind
     Ok(classify_partitions(source)?.0)
 }
 
+/// Recognized non-NTFS filesystems in the disk image behind `source`, each as
+/// `(filesystem, byte-offset)` — the Linux/macOS-detection primitive.
+///
+/// Returns the `ext` / `APFS` / `HFS+` partitions [`detect_filesystem`]
+/// recognizes (NTFS and FAT/empty companions are excluded). A caller keys the
+/// Linux-analysis stage on this: a source reporting an `ext` (or APFS/HFS+)
+/// filesystem is Linux/macOS evidence, regardless of whether the disk leg can
+/// yet extract its files.
+///
+/// # Errors
+///
+/// [`DiskError::Disk`] if the partition table can't be analysed, or
+/// [`DiskError::Source`] on a read failure.
+pub fn detect_disk_filesystems(
+    _source: &dyn DataSource,
+) -> Result<Vec<(&'static str, u64)>, DiskError> {
+    // RED stub — real body lands in the GREEN commit.
+    Ok(Vec::new())
+}
+
+/// `true` if `source` holds a recognized Linux/Unix-style filesystem (`ext`),
+/// so the Linux analysis applies. APFS/HFS+ are macOS filesystems — recognized
+/// by [`detect_disk_filesystems`] but not treated as Linux here.
+///
+/// # Errors
+///
+/// Propagates [`detect_disk_filesystems`] errors.
+pub fn is_linux_disk(source: &dyn DataSource) -> Result<bool, DiskError> {
+    Ok(detect_disk_filesystems(source)?
+        .iter()
+        .any(|(fs, _)| *fs == "ext"))
+}
+
 /// Partitions split by triage support: the NTFS volumes issen extracts, plus
 /// recognized-but-untriaged filesystems as `(filesystem, byte-offset)` pairs.
 type PartitionClass = (Vec<PartitionWindow>, Vec<(&'static str, u64)>);
@@ -2224,6 +2257,52 @@ mod tests {
             )),
             "an APFS-only disk must record an UnsupportedFilesystem diagnostic, got {:?}",
             outcome.limits
+        );
+    }
+
+    /// An MBR disk whose partition carries an ext2/3/4 superblock (s_magic
+    /// 0xEF53 at offset 1080) instead of an NTFS boot sector — a Linux image.
+    fn disk_with_ext(lba_start: u32, lba_count: u32) -> VecSource {
+        let total = (lba_start + lba_count) as usize * SECTOR;
+        let mut disk = vec![0u8; total];
+        disk[..SECTOR].copy_from_slice(&mbr_one_ntfs(lba_start, lba_count));
+        let off = lba_start as usize * SECTOR;
+        // s_magic 0xEF53 little-endian at partition offset + 1080.
+        disk[off + 1080] = 0x53;
+        disk[off + 1081] = 0xEF;
+        VecSource(disk)
+    }
+
+    #[test]
+    fn detect_disk_filesystems_reports_ext_partition() {
+        // A Linux ext disk is recognized as an `ext` filesystem, so the
+        // Linux-analysis stage can key on it.
+        let src = disk_with_ext(2048, 64);
+        let fss = detect_disk_filesystems(&src).expect("detect");
+        assert!(
+            fss.iter().any(|(fs, _)| *fs == "ext"),
+            "an ext disk must be reported as ext, got {fss:?}"
+        );
+        assert!(is_linux_disk(&src).expect("is_linux"));
+    }
+
+    #[test]
+    fn detect_disk_filesystems_reports_apfs_but_not_linux() {
+        // APFS is recognized (macOS), but is_linux_disk is false — APFS/HFS+ are
+        // not Linux filesystems.
+        let src = disk_with_apfs(2048, 64);
+        let fss = detect_disk_filesystems(&src).expect("detect");
+        assert!(fss.iter().any(|(fs, _)| *fs == "APFS"));
+        assert!(!is_linux_disk(&src).expect("is_linux"));
+    }
+
+    #[test]
+    fn ntfs_disk_is_not_linux_and_reports_no_extra_filesystem() {
+        let src = disk_with_volume(2048);
+        assert!(!is_linux_disk(&src).expect("is_linux"));
+        assert!(
+            detect_disk_filesystems(&src).expect("detect").is_empty(),
+            "an NTFS disk reports no recognized non-NTFS filesystem"
         );
     }
 
