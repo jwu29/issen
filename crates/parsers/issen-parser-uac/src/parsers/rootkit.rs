@@ -369,9 +369,21 @@ pub fn scan_rootkit_indicators(root: &std::path::Path) -> Vec<RootkitFinding> {
 /// a dead image and are deliberately NOT attempted here (see
 /// `issen_cli::linux_analysis` for the full live-vs-dead classification).
 #[must_use]
-pub fn scan_filesystem_rootkit_indicators(_fs_root: &std::path::Path) -> Vec<RootkitFinding> {
-    // RED stub — real body lands in the GREEN commit.
-    Vec::new()
+pub fn scan_filesystem_rootkit_indicators(fs_root: &std::path::Path) -> Vec<RootkitFinding> {
+    let mut findings = Vec::new();
+
+    // /etc/ld.so.preload — the real on-disk file (chkrootkit merely copied it).
+    let ld_preload_path = fs_root.join("etc/ld.so.preload");
+    if let Ok(content) = std::fs::read_to_string(&ld_preload_path) {
+        findings.extend(parse_ld_preload(&content));
+    }
+
+    // PAM credential staging files in temp directories. scan_pam_credential_staging
+    // already probes bare `tmp` / `var/tmp` / `dev/shm` / `run` (not only the
+    // `live_response/`-prefixed variants), so it works directly on a disk root.
+    findings.extend(scan_pam_credential_staging(fs_root));
+
+    findings
 }
 
 #[cfg(test)]
