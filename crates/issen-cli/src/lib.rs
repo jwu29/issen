@@ -145,6 +145,12 @@ pub struct Cli {
     #[arg(long)]
     rerun: bool,
 
+    /// Output format for a UAC-collection case: narrative (default, human
+    /// analysis + supertimeline), jsonl (one timeline event per line), or csv.
+    /// Ignored for disk/memory evidence.
+    #[arg(long, value_name = "FORMAT")]
+    format: Option<String>,
+
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -1014,7 +1020,13 @@ pub fn run() -> ExitCode {
         }
     } else {
         // Bare front door: `issen <evidence…>` — the resumable pipeline.
-        commands::pipeline_run::run(&cli.evidence, cli.output.as_deref(), cli.verbose, cli.rerun)
+        commands::pipeline_run::run(
+            &cli.evidence,
+            cli.output.as_deref(),
+            cli.verbose,
+            cli.rerun,
+            cli.format.as_deref(),
+        )
     };
 
     match result {
