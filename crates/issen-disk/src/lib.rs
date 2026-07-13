@@ -75,10 +75,9 @@ pub fn find_ntfs_partitions(source: &dyn DataSource) -> Result<Vec<PartitionWind
 /// [`DiskError::Disk`] if the partition table can't be analysed, or
 /// [`DiskError::Source`] on a read failure.
 pub fn detect_disk_filesystems(
-    _source: &dyn DataSource,
+    source: &dyn DataSource,
 ) -> Result<Vec<(&'static str, u64)>, DiskError> {
-    // RED stub — real body lands in the GREEN commit.
-    Ok(Vec::new())
+    Ok(classify_partitions(source)?.1)
 }
 
 /// `true` if `source` holds a recognized Linux/Unix-style filesystem (`ext`),
