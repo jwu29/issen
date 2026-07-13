@@ -55,3 +55,60 @@ regardless of source**:
   captures) have no disk-image equivalent — the analysis must degrade gracefully
   per-artifact (already the pattern), surfacing whatever the source provides
   rather than failing when a UAC-only artifact is absent.
+
+## Implementation status (2026-07) — partial seam + documented blocker
+
+An investigation for the first draft found the ADR's core premise —
+"the ext4/APFS Disk-leg ingest extracts Linux filesystem artifacts into the
+case DB" — is **not yet true**, and that two independent gaps block full
+disk-image parity. Rather than force a half-wired stage, this branch lands the
+clean, tested seam and documents the blocker.
+
+### The live-vs-dead contract (implemented)
+
+A UAC collection captures **live-response** artifacts a **dead** disk image does
+not contain. Each indicator is classified once, in `issen_cli::linux_analysis`:
+
+| Indicator | Data source | On a dead disk image |
+|---|---|---|
+| `ld_preload` (`/etc/ld.so.preload` injection) | on-disk file | **runs** |
+| `pam_credential_staging` (`/tmp`,`/var/tmp`,`/dev/shm`,`/run`) | on-disk files | **runs** |
+| `hidden_processes` (`/proc` vs `ps`) | live capture | skipped — unavailable |
+| `kernel_module` (`lsmod`) | live capture | skipped — unavailable |
+| `kernel_taint` (`/proc/sys/kernel/tainted`) | live capture | skipped — unavailable |
+| `env_injection` (`LD_PRELOAD` in live env) | live capture | skipped — unavailable |
+| `network` (`ss`/`netstat`) | live capture | skipped — unavailable |
+| `cpu_anomaly` (`top`) | live capture | skipped — unavailable |
+
+`run_dead_disk_analysis(fs_root)` runs the dead-disk-derivable rows over any
+Linux filesystem root and names the live-only rows as "not available for
+dead-disk evidence" — never fabricated, never an error. The filesystem-derivable
+scan is `issen_parser_uac::parsers::rootkit::scan_filesystem_rootkit_indicators`,
+which reads canonical on-disk paths (`/etc/ld.so.preload`, real temp dirs),
+distinct from the UAC-layout `scan_rootkit_indicators`. The Linux-evidence
+detection primitive is `issen_disk::detect_disk_filesystems` / `is_linux_disk`.
+
+### The blocker (why the front-door stage-dispatch is deferred)
+
+1. **The disk leg extracts no ext4/APFS/HFS+ files.** `issen-disk` only *detects*
+   a non-NTFS filesystem (records `ExtractionLimit::UnsupportedFilesystem`); it
+   has no ext reader wired (the fleet's `ext4fs-forensic` is not a dependency), so
+   no Linux filesystem root is ever produced for the detectors to read. There is
+   nothing on a disk image for `run_dead_disk_analysis` to point `fs_root` at.
+2. **`commands::analyse` re-parses a UAC directory layout, not the case-DB
+   artifact set.** It opens the collection via `UacProvider::open()` and reads
+   hardcoded relative paths off `extracted_root`; it never touches the case DB.
+   So there is no shared "case-DB artifact set" both legs feed the detectors —
+   driving analysis from a disk image needs the detectors refactored onto a
+   filesystem-root seam (started: `scan_filesystem_rootkit_indicators`).
+
+### Remaining work (to reach full disk-image parity)
+
+- Wire `ext4fs-forensic` into the disk leg so an ext image extracts
+  `/etc/ld.so.preload`, `/tmp`,`/var/tmp`,`/dev/shm`,`/run`, and the persistence
+  surfaces (`/etc/cron.*`, `/etc/systemd/system`, SUID sweep, `/var/log/auth.log`)
+  into a filesystem root (or the case DB).
+- Add a post-ingest Linux-analysis stage that, when `is_linux_disk` (or a Linux
+  UAC collection) holds, calls `run_dead_disk_analysis` over that root.
+- Extend the dead-disk indicator set beyond the two implemented (cron/systemd
+  persistence, SUID, auth/syslog) as the extraction surface grows.
