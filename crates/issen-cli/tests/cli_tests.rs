@@ -2407,3 +2407,445 @@ fn session_nonexistent_dir_exits_success_with_empty_sessions() {
         .success()
         .stdout(predicate::str::contains("\"sessions\""));
 }
+
+// ── UAC-collection analysis (front-door regression signal) ───────────────────
+//
+// The front-door CLI redesign dropped `EvidenceKind::Collection`. The old
+// `analyse`/`supertimeline`/`pivot` verbs consumed a UAC collection dir/`.tar.gz`
+// and ran `issen_parser_uac` / `run_auto`; those verbs are gone and the bare
+// front door classifies only Disk/Memory, so UAC-collection analysis is
+// CLI-unreachable. Commit 6d5e19e removed these ~16 tests, hiding the gap. The
+// owner ruled that a REGRESSION, not an intentional removal, so the tests are
+// restored — re-pointed to the bare front-door collection form
+// (`issen <collection> -o <db>`) where collection analysis SHOULD run — and left
+// FAILING to document the gap. See docs/decisions/0014-frontdoor-collection-evidence.md.
+
+/// Build a UAC fixture that contains a zero-byte Security.evtx file.
+/// `issen` must not panic on it and must render the EVTX section header.
+fn build_uac_fixture_with_evtx(dest: &std::path::Path) -> std::path::PathBuf {
+    use flate2::write::GzEncoder;
+    use flate2::Compression;
+
+    let files: &[(&str, &[u8])] = &[
+        (
+            "uac.log",
+            b"2026-03-24 23:40:43 UTC - UAC collection started\nLinux vbox-linux\n",
+        ),
+        ("chkrootkit/etc_ld_so_preload.txt", b""),
+        ("live_response/process/hidden_pids_for_ps_command.txt", b""),
+        ("live_response/network/.keep", b""),
+        ("live_response/system/env.txt", b"PATH=/usr/bin:/bin\n"),
+        (
+            "live_response/system/lsmod.txt",
+            b"Module                  Size  Used by\next4                  729088  2\n",
+        ),
+        (
+            "live_response/system/cat_proc_sys_kernel_tainted.txt",
+            b"0\n",
+        ),
+        // Zero-byte EVTX file — parser must not panic
+        ("Windows/System32/winevt/Logs/Security.evtx", b""),
+    ];
+
+    let archive_path = dest.join("uac-windows-evtx-20260324234043.tar.gz");
+    let file = std::fs::File::create(&archive_path).expect("create archive");
+    let gz = GzEncoder::new(file, Compression::default());
+    let mut builder = tar::Builder::new(gz);
+
+    for (rel_path, content) in files {
+        let mut header = tar::Header::new_gnu();
+        header.set_size(content.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        let archive_path_str = format!("uac-windows-evtx-20260324234043/{rel_path}");
+        builder
+            .append_data(&mut header, &archive_path_str, *content)
+            .expect("append file");
+    }
+
+    builder.finish().expect("finish tar");
+    archive_path
+}
+
+// REGRESSION (front-door dropped EvidenceKind::Collection): UAC-collection analysis is CLI-unreachable — the bare pipeline classifies only Disk/Memory. Passes once collection routing → run_auto is wired. See docs/decisions/0014-frontdoor-collection-evidence.md.
+/// The front door over a synthetic UAC collection must exit 0, print the
+/// analysis section headers, hedge its language, and NOT assert exact hook
+/// function names as fact. (Was `issen analyse <collection>`.)
+#[test]
+fn analyse_synthetic_fixture_emits_expected_sections() {
+    let dir = TempDir::new().expect("tmpdir");
+    let out_dir = TempDir::new().expect("tmpdir for db");
+    let db_path = out_dir.path().join("case.duckdb");
+    let archive = build_synthetic_uac_fixture(dir.path());
+
+    let output = issen_cmd()
+        .args([archive.to_str().unwrap(), "-o", &db_path.to_string_lossy()])
+        .output()
+        .expect("run issen front door");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "front door should exit 0\nstdout: {stdout}\nstderr: {stderr}"
+    );
+    assert!(
+        stdout.contains("ROOTKIT INDICATORS"),
+        "missing ROOTKIT INDICATORS section\n{stdout}"
+    );
+    assert!(
+        stdout.contains("HIDDEN PROCESSES"),
+        "missing HIDDEN PROCESSES section\n{stdout}"
+    );
+    assert!(
+        stdout.contains("CORRELATION FINDINGS"),
+        "missing CORRELATION FINDINGS section — rootkit+miner+pool rule did not fire\n{stdout}"
+    );
+    let has_calibrated = stdout.contains("consistent with")
+        || stdout.contains("likely")
+        || stdout.contains("may enable");
+    assert!(
+        has_calibrated,
+        "explanation must use calibrated language ('consistent with', 'likely', or 'may enable')\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("readdir"),
+        "output must not claim readdir hook without YARA evidence\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("getdents"),
+        "output must not claim getdents hook without YARA evidence\n{stdout}"
+    );
+    assert!(
+        stdout.contains("analysis complete"),
+        "missing analysis complete footer\n{stdout}"
+    );
+}
+
+// REGRESSION (front-door dropped EvidenceKind::Collection): UAC-collection analysis is CLI-unreachable — the bare pipeline classifies only Disk/Memory. Passes once collection routing → run_auto is wired. See docs/decisions/0014-frontdoor-collection-evidence.md.
+/// The front-door narrative must reference the ld.so.preload library path.
+/// (Was `issen analyse <collection>`.)
+#[test]
+fn analyse_synthetic_fixture_shows_rootkit_evidence() {
+    let dir = TempDir::new().expect("tmpdir");
+    let out_dir = TempDir::new().expect("tmpdir for db");
+    let db_path = out_dir.path().join("case.duckdb");
+    let archive = build_synthetic_uac_fixture(dir.path());
+
+    issen_cmd()
+        .args([archive.to_str().unwrap(), "-o", &db_path.to_string_lossy()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("libymv"));
+}
+
+// REGRESSION (front-door dropped EvidenceKind::Collection): UAC-collection analysis is CLI-unreachable — the bare pipeline classifies only Disk/Memory. Passes once collection routing → run_auto is wired. See docs/decisions/0014-frontdoor-collection-evidence.md.
+/// The front door must show PID 977 in the hidden process section.
+/// (Was `issen analyse <collection>`.)
+#[test]
+fn analyse_synthetic_fixture_shows_hidden_pid() {
+    let dir = TempDir::new().expect("tmpdir");
+    let out_dir = TempDir::new().expect("tmpdir for db");
+    let db_path = out_dir.path().join("case.duckdb");
+    let archive = build_synthetic_uac_fixture(dir.path());
+
+    issen_cmd()
+        .args([archive.to_str().unwrap(), "-o", &db_path.to_string_lossy()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("977"));
+}
+
+// REGRESSION (front-door dropped EvidenceKind::Collection): UAC-collection analysis is CLI-unreachable — the bare pipeline classifies only Disk/Memory. Passes once collection routing → run_auto is wired. See docs/decisions/0014-frontdoor-collection-evidence.md.
+/// The front door must show unix socket paths for a hidden process that has
+/// proc/<PID>/net/unix.txt in the collection. (Was `issen analyse <collection>`.)
+#[test]
+fn analyse_shows_unix_socket_paths_for_hidden_process() {
+    let dir = TempDir::new().expect("tmpdir");
+    let out_dir = TempDir::new().expect("tmpdir for db");
+    let db_path = out_dir.path().join("case.duckdb");
+    let archive = build_uac_with_desktop_masquerade(dir.path());
+
+    let output = issen_cmd()
+        .args([archive.to_str().unwrap(), "-o", &db_path.to_string_lossy()])
+        .output()
+        .expect("run issen front door");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "front door must exit 0\n{stdout}");
+    assert!(
+        stdout.contains("journal") || stdout.contains("dbus") || stdout.contains("pipewire"),
+        "output must show at least one unix socket path for PID 977\n{stdout}"
+    );
+}
+
+// REGRESSION (front-door dropped EvidenceKind::Collection): UAC-collection analysis is CLI-unreachable — the bare pipeline classifies only Disk/Memory. Passes once collection routing → run_auto is wired. See docs/decisions/0014-frontdoor-collection-evidence.md.
+/// The front door must emit a DESKTOP MASQUERADE indicator when a hidden process
+/// connects to >=2 system-daemon unix sockets. (Was `issen analyse <collection>`.)
+#[test]
+fn analyse_shows_desktop_masquerade_indicator() {
+    let dir = TempDir::new().expect("tmpdir");
+    let out_dir = TempDir::new().expect("tmpdir for db");
+    let db_path = out_dir.path().join("case.duckdb");
+    let archive = build_uac_with_desktop_masquerade(dir.path());
+
+    let output = issen_cmd()
+        .args([archive.to_str().unwrap(), "-o", &db_path.to_string_lossy()])
+        .output()
+        .expect("run issen front door");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "front door must exit 0\n{stdout}");
+    assert!(
+        stdout.contains("desktop masquerade") || stdout.contains("DESKTOP MASQUERADE"),
+        "output must flag desktop masquerade for PID 977\n{stdout}"
+    );
+}
+
+// REGRESSION (front-door dropped EvidenceKind::Collection): UAC-collection analysis is CLI-unreachable — the bare pipeline classifies only Disk/Memory. Passes once collection routing → run_auto is wired. See docs/decisions/0014-frontdoor-collection-evidence.md.
+/// `issen --color=always <collection>` must emit ANSI escape codes in output.
+/// (Was `issen --color=always analyse <collection>`.)
+#[test]
+fn analyse_color_always_emits_ansi() {
+    let dir = TempDir::new().expect("tmpdir");
+    let out_dir = TempDir::new().expect("tmpdir for db");
+    let db_path = out_dir.path().join("case.duckdb");
+    let archive = build_uac_with_desktop_masquerade(dir.path());
+
+    let output = issen_cmd()
+        .args([
+            "--color=always",
+            archive.to_str().unwrap(),
+            "-o",
+            &db_path.to_string_lossy(),
+        ])
+        .output()
+        .expect("run issen front door");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "front door must exit 0\n{stdout}");
+    assert!(
+        stdout.contains('\x1b'),
+        "--color=always must emit ANSI escape codes\n{stdout}"
+    );
+}
+
+// REGRESSION (front-door dropped EvidenceKind::Collection): UAC-collection analysis is CLI-unreachable — the bare pipeline classifies only Disk/Memory. Passes once collection routing → run_auto is wired. See docs/decisions/0014-frontdoor-collection-evidence.md.
+/// When the collection contains .evtx files, the front door must print the
+/// WINDOWS EVENT LOG SESSIONS section header. (Was `issen analyse <collection>`.)
+#[test]
+fn analyse_shows_evtx_session_section_when_evtx_present() {
+    let dir = TempDir::new().expect("tmpdir");
+    let out_dir = TempDir::new().expect("tmpdir for db");
+    let db_path = out_dir.path().join("case.duckdb");
+    let archive = build_uac_fixture_with_evtx(dir.path());
+
+    let output = issen_cmd()
+        .args([archive.to_str().unwrap(), "-o", &db_path.to_string_lossy()])
+        .output()
+        .expect("run issen front door");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "front door should exit 0\nstdout: {stdout}\nstderr: {stderr}"
+    );
+    assert!(
+        stdout.contains("WINDOWS EVENT LOG SESSIONS"),
+        "missing WINDOWS EVENT LOG SESSIONS section when evtx present\n{stdout}"
+    );
+}
+
+// REGRESSION (front-door dropped EvidenceKind::Collection): UAC-collection analysis is CLI-unreachable — the bare pipeline classifies only Disk/Memory. Passes once collection routing → run_auto is wired. See docs/decisions/0014-frontdoor-collection-evidence.md.
+/// The super-timeline over a UAC collection must expose a COLLECTION-derived
+/// timeline. (Was `issen supertimeline --help`, which advertised the COLLECTION arg.)
+#[test]
+fn supertimeline_command_exists_with_collection_arg() {
+    let dir = TempDir::new().expect("tmpdir");
+    let out_dir = TempDir::new().expect("tmpdir for db");
+    let db_path = out_dir.path().join("case.duckdb");
+    let archive = build_synthetic_uac_fixture(dir.path());
+
+    issen_cmd()
+        .args([archive.to_str().unwrap(), "-o", &db_path.to_string_lossy()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("COLLECTION"));
+}
+
+// REGRESSION (front-door dropped EvidenceKind::Collection): UAC-collection analysis is CLI-unreachable — the bare pipeline classifies only Disk/Memory. Passes once collection routing → run_auto is wired. See docs/decisions/0014-frontdoor-collection-evidence.md.
+/// Super-timeline `--format jsonl` over a UAC collection must emit valid JSON
+/// Lines. (Was `issen supertimeline <collection> --format jsonl`.)
+#[test]
+fn supertimeline_jsonl_output_is_valid() {
+    let dir = TempDir::new().expect("tmpdir");
+    let out_dir = TempDir::new().expect("tmpdir for db");
+    let db_path = out_dir.path().join("case.duckdb");
+    let archive = build_synthetic_uac_fixture(dir.path());
+
+    let output = issen_cmd()
+        .args([
+            archive.to_str().unwrap(),
+            "-o",
+            &db_path.to_string_lossy(),
+            "--format",
+            "jsonl",
+        ])
+        .output()
+        .expect("front door command should run");
+
+    assert!(output.status.success(), "front door jsonl must exit 0");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for line in stdout.lines().filter(|l| !l.trim().is_empty()) {
+        serde_json::from_str::<serde_json::Value>(line)
+            .unwrap_or_else(|e| panic!("invalid JSON line: {e}\n  line: {line}"));
+    }
+}
+
+// REGRESSION (front-door dropped EvidenceKind::Collection): UAC-collection analysis is CLI-unreachable — the bare pipeline classifies only Disk/Memory. Passes once collection routing → run_auto is wired. See docs/decisions/0014-frontdoor-collection-evidence.md.
+/// Super-timeline `--format csv` over a UAC collection must emit the standard
+/// headers on the first line. (Was `issen supertimeline <collection> --format csv`.)
+#[test]
+fn supertimeline_csv_output_has_correct_headers() {
+    let dir = TempDir::new().expect("tmpdir");
+    let out_dir = TempDir::new().expect("tmpdir for db");
+    let db_path = out_dir.path().join("case.duckdb");
+    let archive = build_synthetic_uac_fixture(dir.path());
+
+    let output = issen_cmd()
+        .args([
+            archive.to_str().unwrap(),
+            "-o",
+            &db_path.to_string_lossy(),
+            "--format",
+            "csv",
+        ])
+        .output()
+        .expect("front door command should run");
+
+    assert!(output.status.success(), "front door csv must exit 0");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let first_line = stdout.lines().next().unwrap_or("");
+    assert!(
+        first_line.contains("timestamp") && first_line.contains("event_type"),
+        "CSV header must contain 'timestamp' and 'event_type', got: {first_line}"
+    );
+}
+
+// REGRESSION (front-door dropped EvidenceKind::Collection): UAC-collection analysis is CLI-unreachable — the bare pipeline classifies only Disk/Memory. Passes once collection routing → run_auto is wired. See docs/decisions/0014-frontdoor-collection-evidence.md.
+/// When the collection carries evidence consistent with temporal-discrepancy
+/// patterns, the super-timeline must include a TEMPORAL FINDINGS section.
+/// (Was `issen supertimeline <collection>`.)
+#[test]
+fn supertimeline_temporal_findings_appear_in_output() {
+    let dir = TempDir::new().expect("tmpdir");
+    let out_dir = TempDir::new().expect("tmpdir for db");
+    let db_path = out_dir.path().join("case.duckdb");
+    let archive = build_synthetic_uac_fixture(dir.path());
+
+    issen_cmd()
+        .args([archive.to_str().unwrap(), "-o", &db_path.to_string_lossy()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("TEMPORAL"));
+}
+
+// REGRESSION (front-door dropped EvidenceKind::Collection): UAC-collection analysis is CLI-unreachable — the bare pipeline classifies only Disk/Memory. Passes once collection routing → run_auto is wired. See docs/decisions/0014-frontdoor-collection-evidence.md.
+/// Running the front door over a rootkit-concealed-miner collection must fire the
+/// bundled forensic-pivot xmrig rule. (Was `issen pivot --help` listing sync/rules/eval;
+/// the pivot pack now has no CLI successor over a collection.)
+#[test]
+fn pivot_help_exits_success() {
+    let dir = TempDir::new().expect("tmpdir");
+    let out_dir = TempDir::new().expect("tmpdir for db");
+    let db_path = out_dir.path().join("case.duckdb");
+    let archive = build_synthetic_uac_fixture(dir.path());
+
+    issen_cmd()
+        .args([archive.to_str().unwrap(), "-o", &db_path.to_string_lossy()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("pivot.miner.xmrig-process"));
+}
+
+// REGRESSION (front-door dropped EvidenceKind::Collection): UAC-collection analysis is CLI-unreachable — the bare pipeline classifies only Disk/Memory. Passes once collection routing → run_auto is wired. See docs/decisions/0014-frontdoor-collection-evidence.md.
+/// The forensic-pivot pack must run automatically during a collection case.
+/// (Was `issen pivot sync --help`; feed sync is now automatic, but the pivot pack
+/// evaluation over a collection has no CLI successor.)
+#[test]
+fn pivot_sync_help_exits_success() {
+    let dir = TempDir::new().expect("tmpdir");
+    let out_dir = TempDir::new().expect("tmpdir for db");
+    let db_path = out_dir.path().join("case.duckdb");
+    let archive = build_synthetic_uac_fixture(dir.path());
+
+    issen_cmd()
+        .args([archive.to_str().unwrap(), "-o", &db_path.to_string_lossy()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("pivot.miner.xmrig-process"));
+}
+
+// REGRESSION (front-door dropped EvidenceKind::Collection): UAC-collection analysis is CLI-unreachable — the bare pipeline classifies only Disk/Memory. Passes once collection routing → run_auto is wired. See docs/decisions/0014-frontdoor-collection-evidence.md.
+/// The bundled forensic-pivot rules (incl. the xmrig rule) must apply during a
+/// collection case. (Was `issen pivot rules`, which listed the bundled rules; the
+/// `rules` verb now surfaces the temporal.* engine, not the forensic-pivot pack.)
+#[test]
+fn pivot_rules_shows_bundled_rules() {
+    let dir = TempDir::new().expect("tmpdir");
+    let out_dir = TempDir::new().expect("tmpdir for db");
+    let db_path = out_dir.path().join("case.duckdb");
+    let archive = build_synthetic_uac_fixture(dir.path());
+
+    issen_cmd()
+        .args([archive.to_str().unwrap(), "-o", &db_path.to_string_lossy()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("pivot.miner.xmrig-process"));
+}
+
+// REGRESSION (front-door dropped EvidenceKind::Collection): UAC-collection analysis is CLI-unreachable — the bare pipeline classifies only Disk/Memory. Passes once collection routing → run_auto is wired. See docs/decisions/0014-frontdoor-collection-evidence.md.
+/// A benign collection (no miner evidence) must NOT fire the xmrig pivot rule.
+/// (Was `issen pivot eval <empty-json>` → "No findings"; the empty EVTX-only
+/// collection carries no rootkit/miner evidence.)
+#[test]
+fn pivot_eval_empty_evidence_no_findings() {
+    let dir = TempDir::new().expect("tmpdir");
+    let out_dir = TempDir::new().expect("tmpdir for db");
+    let db_path = out_dir.path().join("case.duckdb");
+    let archive = build_uac_fixture_with_evtx(dir.path());
+
+    let output = issen_cmd()
+        .args([archive.to_str().unwrap(), "-o", &db_path.to_string_lossy()])
+        .output()
+        .expect("run issen front door");
+
+    assert!(output.status.success(), "front door must exit 0");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.contains("pivot.miner.xmrig-process"),
+        "benign collection must not fire the xmrig pivot rule\n{stdout}"
+    );
+}
+
+// REGRESSION (front-door dropped EvidenceKind::Collection): UAC-collection analysis is CLI-unreachable — the bare pipeline classifies only Disk/Memory. Passes once collection routing → run_auto is wired. See docs/decisions/0014-frontdoor-collection-evidence.md.
+/// A collection carrying xmrig-consistent miner evidence must fire the xmrig
+/// forensic-pivot rule. (Was `issen pivot eval <xmrig-evidence.json>`; the pivot
+/// pack now has no CLI path over a collection.)
+#[test]
+fn pivot_eval_matching_evidence_emits_finding() {
+    let dir = TempDir::new().expect("tmpdir");
+    let out_dir = TempDir::new().expect("tmpdir for db");
+    let db_path = out_dir.path().join("case.duckdb");
+    let archive = build_synthetic_uac_fixture(dir.path());
+
+    issen_cmd()
+        .args([archive.to_str().unwrap(), "-o", &db_path.to_string_lossy()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("pivot.miner.xmrig-process"));
+}
