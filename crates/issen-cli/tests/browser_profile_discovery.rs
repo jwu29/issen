@@ -106,3 +106,60 @@ fn directory_ingest_does_not_double_count_default_profile() {
         "one Default History file must produce exactly one event (no duplicate)",
     );
 }
+
+/// A Chromium `History` embedded by an Electron app (Slack) — its path carries
+/// NO browser vendor token, so the path-based classifier misses it entirely.
+/// Content-based detection (SQLite `urls` table) discovers and parses it anyway
+/// (ADR 0017 Phase 3), so its visited URL lands in the timeline.
+#[test]
+fn directory_ingest_discovers_off_path_electron_history_by_content() {
+    let home = tempfile::tempdir().expect("home tempdir");
+    // Slack embeds Chromium; no "chrome"/"edge"/… token anywhere in this path.
+    let slack = home
+        .path()
+        .join("Users/carol/AppData/Roaming/Slack/Partitions/default");
+    std::fs::create_dir_all(&slack).expect("mkdir Slack partition");
+    let url = "https://electron-embedded.example/";
+    write_chrome_history(&slack.join("History"), url);
+
+    let db = home.path().join("case.duckdb");
+    let evidence = [home.path().to_path_buf()];
+    commands::ingest::run(
+        &evidence, &db, None, None, false, None, None, None, None, false, false, false,
+    )
+    .expect("directory ingest");
+
+    let store = TimelineStore::open(&db).expect("open case db");
+    assert_eq!(
+        events_matching(&store, url),
+        1,
+        "an off-path Electron-embedded Chromium History must be found by content",
+    );
+}
+
+/// A Chromium `History` deliberately renamed to hide it (`evidence.dat`, no
+/// vendor token, non-canonical filename) — anti-forensic relocation. The path
+/// classifier cannot see it; content detection recovers its `urls` visits into
+/// the timeline.
+#[test]
+fn directory_ingest_discovers_renamed_history_by_content() {
+    let home = tempfile::tempdir().expect("home tempdir");
+    let stash = home.path().join("stash");
+    std::fs::create_dir_all(&stash).expect("mkdir stash");
+    let url = "https://renamed-evidence.example/";
+    write_chrome_history(&stash.join("evidence.dat"), url);
+
+    let db = home.path().join("case.duckdb");
+    let evidence = [home.path().to_path_buf()];
+    commands::ingest::run(
+        &evidence, &db, None, None, false, None, None, None, None, false, false, false,
+    )
+    .expect("directory ingest");
+
+    let store = TimelineStore::open(&db).expect("open case db");
+    assert_eq!(
+        events_matching(&store, url),
+        1,
+        "a renamed Chromium History (evidence.dat) must be found by its schema",
+    );
+}
