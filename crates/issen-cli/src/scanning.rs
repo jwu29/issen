@@ -353,6 +353,135 @@ pub fn engine_from_cached_feeds(feed_cache_dir: &Path) -> ScanEngine {
     }
 }
 
+/// Build the front door's Scan-stage engine as the cached-feed defaults PLUS any
+/// user-supplied custom rule files layered ON TOP. The custom rules are additive:
+/// they extend the default (bundled-signatures + cached-feeds) engine, never
+/// replace it. When every argument is `None`, this is exactly
+/// [`engine_from_cached_feeds`] — the default-on behavior is unchanged.
+///
+/// Reuses [`load_custom_rules`] for the file-loading, the same logic the `scan`
+/// verb applies to loose-file scanning (one concept, one code path).
+///
+/// # Errors
+/// Propagates a rule-file load/compile failure (missing file, unparsable YARA,
+/// empty rules directory) so a mistyped `--yara-rules`/`--sigma-rules` path fails
+/// loud rather than silently scanning with the defaults only.
+pub fn engine_from_cached_feeds_plus(
+    feed_cache_dir: &Path,
+    yara_rules: Option<&Path>,
+    sigma_rules: Option<&Path>,
+    hash_iocs: Option<&[std::path::PathBuf]>,
+    network_iocs: Option<&[std::path::PathBuf]>,
+) -> anyhow::Result<ScanEngine> {
+    let engine = engine_from_cached_feeds(feed_cache_dir);
+    load_custom_rules(engine, yara_rules, sigma_rules, hash_iocs, network_iocs)
+}
+
+/// Layer custom rule files onto an existing [`ScanEngine`]: compile a YARA file
+/// or directory, load a Sigma rule or directory, and add hash / network IOC
+/// stores. Each argument is optional; a `None` leaves that engine facet untouched
+/// (so the caller's base engine — cached feeds or empty — is preserved).
+///
+/// This is the single loader shared by the front-door Scan stage and the `scan`
+/// verb, so both interpret a `--yara-rules`/`--sigma-rules` path identically.
+///
+/// # Errors
+/// Fails on an unreadable/uncompilable rule file, an empty YARA directory, or an
+/// IOC file that cannot be parsed.
+pub fn load_custom_rules(
+    mut engine: ScanEngine,
+    yara_rules: Option<&Path>,
+    sigma_rules: Option<&Path>,
+    hash_iocs: Option<&[std::path::PathBuf]>,
+    network_iocs: Option<&[std::path::PathBuf]>,
+) -> anyhow::Result<ScanEngine> {
+    use anyhow::Context as _;
+    use issen_signatures::engines::ioc_hash::HashFeed;
+    use issen_signatures::engines::ioc_network::NetworkIocStore;
+    use issen_signatures::engines::yara::YaraEngine;
+
+    // YARA: a single file or every .yar/.yara in a directory.
+    if let Some(rules_path) = yara_rules {
+        let yara = if rules_path.is_dir() {
+            let mut sources = Vec::new();
+            for entry in std::fs::read_dir(rules_path)
+                .with_context(|| format!("reading YARA rules dir: {}", rules_path.display()))?
+            {
+                let entry = entry?;
+                let path = entry.path();
+                if path.is_file() {
+                    let ext = path.extension().and_then(|e| e.to_str());
+                    if matches!(ext, Some("yar" | "yara")) {
+                        sources.push(std::fs::read_to_string(&path)?);
+                    }
+                }
+            }
+            let refs: Vec<&str> = sources.iter().map(std::string::String::as_str).collect();
+            if refs.is_empty() {
+                anyhow::bail!("No .yar/.yara files found in {}", rules_path.display());
+            }
+            YaraEngine::from_sources(&refs).with_context(|| "compiling YARA rules")?
+        } else {
+            YaraEngine::from_file(rules_path)
+                .with_context(|| format!("loading YARA rules from {}", rules_path.display()))?
+        };
+        tracing::info!(rules = yara.rule_count(), "custom YARA engine loaded");
+        engine = engine.with_yara(yara);
+    }
+
+    // Sigma: a single rule file or every rule in a directory.
+    if let Some(sigma_path) = sigma_rules {
+        let mut sigma = issen_signatures::engines::sigma::SigmaEngine::new();
+        if sigma_path.is_dir() {
+            let count = sigma
+                .load_rules_dir(sigma_path)
+                .with_context(|| format!("loading Sigma rules from {}", sigma_path.display()))?;
+            tracing::info!(rules = count, "custom Sigma engine loaded from directory");
+        } else {
+            let yaml = std::fs::read_to_string(sigma_path)?;
+            sigma
+                .load_rule(&yaml)
+                .with_context(|| format!("loading Sigma rule from {}", sigma_path.display()))?;
+            tracing::info!("custom Sigma engine loaded 1 rule");
+        }
+        engine = engine.with_sigma(sigma);
+    }
+
+    // Hash IOC files → one store each.
+    if let Some(hash_files) = hash_iocs {
+        for path in hash_files {
+            let mut store = HashFeed::new(
+                path.file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("hash-iocs"),
+            );
+            let count = store
+                .load_bad_from_file(path)
+                .with_context(|| format!("loading hash IOCs from {}", path.display()))?;
+            tracing::info!(count, source = %path.display(), "custom hash IOC store loaded");
+            engine.add_hash_store(store);
+        }
+    }
+
+    // Network IOC files → one store each.
+    if let Some(net_files) = network_iocs {
+        for path in net_files {
+            let mut store = NetworkIocStore::new(
+                path.file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("network-iocs"),
+            );
+            let count = store
+                .load_from_file(path)
+                .with_context(|| format!("loading network IOCs from {}", path.display()))?;
+            tracing::info!(count, source = %path.display(), "custom network IOC store loaded");
+            engine.add_network_store(store);
+        }
+    }
+
+    Ok(engine)
+}
+
 /// Known metadata field names that may contain IP addresses.
 const IP_FIELDS: &[&str] = &[
     "SourceIp",
@@ -1215,6 +1344,82 @@ detection:
             "the timestomp finding must be persisted to scan_findings, got {} rows",
             rows.len()
         );
+    }
+
+    #[test]
+    fn engine_from_cached_feeds_plus_layers_custom_rules() {
+        // The additive contract, proven deterministically: over an empty feed
+        // cache (no cached defaults), `engine_from_cached_feeds_plus` with a
+        // custom YARA rule yields an engine that BOTH carries the custom YARA
+        // rule AND still drives the always-on feed-independent detectors
+        // (timestomp) — the exact "defaults stay on, custom rules ADD" behavior
+        // the front door promises. No hand-rolled MFT: the timestomp fixture is
+        // the same `timestomped_file_create` the phase tests use.
+        let empty_cache = tempfile::tempdir().unwrap();
+        let yar_dir = tempfile::tempdir().unwrap();
+        let rule = yar_dir.path().join("detect.yar");
+        std::fs::write(
+            &rule,
+            r#"rule additive_detect { strings: $s = "MALICIOUS_MARKER" condition: $s }"#,
+        )
+        .unwrap();
+
+        let engine = engine_from_cached_feeds_plus(
+            empty_cache.path(),
+            Some(rule.as_path()),
+            None,
+            None,
+            None,
+        )
+        .expect("custom rules layer on cleanly");
+        assert_eq!(
+            engine.stats().yara_rules,
+            1,
+            "the custom YARA rule must be present on the engine"
+        );
+
+        // Drive the scan phase: a suspect file (custom YARA hit) plus a
+        // timestomped FileCreate (always-on default detector). Both fire → the
+        // custom rule ADDED to the still-running defaults.
+        let evidence = tempfile::tempdir().unwrap();
+        let artifact = "suspect.bin";
+        std::fs::write(
+            evidence.path().join(artifact),
+            b"this file has MALICIOUS_MARKER inside",
+        )
+        .unwrap();
+        let yara_event = TimelineEvent::new(
+            1_700_000_000_000_000_000,
+            "2023-11-14T22:13:20Z".to_string(),
+            EventType::FileCreate,
+            ArtifactType::UsnJournal,
+            artifact.to_string(),
+            "File created".to_string(),
+            "case-001".to_string(),
+        );
+        let events = vec![yara_event, timestomped_file_create()];
+
+        let (findings, _summary) = run_scan_phase(&events, &engine, evidence.path());
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.engine == "YARA" && f.rule_name == "additive_detect"),
+            "the custom YARA rule must fire (the flag ADDED it)"
+        );
+        assert!(
+            findings.iter().any(|f| f.engine == "Timestomp"),
+            "the always-on default timestomp detector must still fire (defaults stay ON)"
+        );
+    }
+
+    #[test]
+    fn engine_from_cached_feeds_plus_no_custom_rules_matches_default() {
+        // No flags → identical to engine_from_cached_feeds (default-on unchanged).
+        let empty_cache = tempfile::tempdir().unwrap();
+        let engine =
+            engine_from_cached_feeds_plus(empty_cache.path(), None, None, None, None).unwrap();
+        assert_eq!(engine.stats().yara_rules, 0);
+        assert_eq!(engine.stats().sigma_rules, 0);
     }
 
     #[test]
