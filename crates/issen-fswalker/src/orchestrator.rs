@@ -993,15 +993,6 @@ mod tests {
         use std::collections::HashSet;
         use std::sync::{Arc, Mutex};
 
-        // A single-core box cannot exhibit cross-thread parsing — skip cleanly.
-        if std::thread::available_parallelism()
-            .map(std::num::NonZeroUsize::get)
-            .unwrap_or(1)
-            < 2
-        {
-            return;
-        }
-
         struct ThreadMock {
             kind: ArtifactType,
             seen: Arc<Mutex<HashSet<std::thread::ThreadId>>>,
@@ -1036,6 +1027,15 @@ mod tests {
             }
         }
 
+        // A single-core box cannot exhibit cross-thread parsing — skip cleanly.
+        if std::thread::available_parallelism()
+            .map(std::num::NonZeroUsize::get)
+            .unwrap_or(1)
+            < 2
+        {
+            return;
+        }
+
         let dir = tempfile::tempdir().expect("tmp");
         let mut artifacts = Vec::new();
         for i in 0..32 {
@@ -1052,7 +1052,7 @@ mod tests {
             seen: seen.clone(),
         })];
         let progress = ProgressReporter::new();
-        parse_into_jobs(
+        let _ = parse_into_jobs(
             &artifacts,
             &parsers,
             &progress,

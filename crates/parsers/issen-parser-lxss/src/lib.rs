@@ -68,7 +68,12 @@ pub fn events_from_bytes(bytes: &[u8], hive_name: &str, source_id: &str) -> Vec<
             // The Lxss subkey's LastWriteTime ≈ when the distro was registered.
             let (ts_ns, ts_display) = e.last_written.map_or_else(
                 || (0, "unknown".to_string()),
-                |dt| (i64::try_from(dt.as_nanosecond()).unwrap_or(0), dt.to_string()),
+                |dt| {
+                    (
+                        i64::try_from(dt.as_nanosecond()).unwrap_or(0),
+                        dt.to_string(),
+                    )
+                },
             );
             let vhdx = e.vhdx_path().map(|p| p.to_string_lossy().into_owned());
             TimelineEvent::new(

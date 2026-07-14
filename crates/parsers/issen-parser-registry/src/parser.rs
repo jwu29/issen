@@ -822,7 +822,10 @@ mod tests {
     /// key-write timestamp. Skips cleanly when the corpus is absent.
     #[test]
     fn eol_end_date_flags_known_eol_os() {
-        assert_eq!(eol_end_date(Some("Windows 7 Professional")), Some("2020-01-14"));
+        assert_eq!(
+            eol_end_date(Some("Windows 7 Professional")),
+            Some("2020-01-14")
+        );
         assert_eq!(eol_end_date(Some("Windows 11 Pro")), None);
         assert_eq!(eol_end_date(None), None);
     }

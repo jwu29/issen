@@ -183,12 +183,16 @@ pub fn memory_fingerprint(dumps: &[(String, u64)]) -> String {
     fingerprint(&parts)
 }
 
-/// What kind of evidence a path holds, for routing to the disk chain vs the
-/// memory leg.
+/// What kind of evidence a path holds, for routing to the disk chain, the
+/// memory leg, or the UAC-collection analysis leg.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EvidenceKind {
     Disk,
     Memory,
+    /// A UAC (or supported) collection — a directory or archive of loose
+    /// forensic artifacts. Routed to `run_auto` + the rootkit / hidden-process /
+    /// supertimeline / pivot analysis, not the disk-image leg.
+    Collection,
 }
 
 /// Opt-out / control flags on the bare front door.
