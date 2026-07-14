@@ -19,10 +19,10 @@ jiff            = { workspace = true }
 anyhow          = { workspace = true }
 serde           = { workspace = true }
 serde_json      = { workspace = true }
+rusqlite        = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
-rusqlite = { workspace = true }
 
 [lints]
 workspace = true

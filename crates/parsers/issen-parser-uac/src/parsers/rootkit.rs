@@ -353,6 +353,39 @@ pub fn scan_rootkit_indicators(root: &std::path::Path) -> Vec<RootkitFinding> {
     findings
 }
 
+/// Scan the **filesystem-derivable** rootkit indicators from a plain Linux
+/// filesystem root — the subset that survives on a DEAD disk image (no
+/// live-response capture present).
+///
+/// Unlike [`scan_rootkit_indicators`], which reads a UAC collection's
+/// `live_response/` / `chkrootkit/` capture layout, this reads canonical
+/// on-disk Linux paths (`/etc/ld.so.preload`, and the temp directories a PAM
+/// hook stages credentials in). It is the disk-image counterpart used when the
+/// evidence is a mounted/extracted ext4/APFS/HFS+ filesystem rather than a
+/// live-response collection.
+///
+/// The live-only checks — `lsmod` (loaded modules), `/proc/sys/kernel/tainted`,
+/// the process environment, running-process/network snapshots — are absent from
+/// a dead image and are deliberately NOT attempted here (see
+/// `issen_cli::linux_analysis` for the full live-vs-dead classification).
+#[must_use]
+pub fn scan_filesystem_rootkit_indicators(fs_root: &std::path::Path) -> Vec<RootkitFinding> {
+    let mut findings = Vec::new();
+
+    // /etc/ld.so.preload — the real on-disk file (chkrootkit merely copied it).
+    let ld_preload_path = fs_root.join("etc/ld.so.preload");
+    if let Ok(content) = std::fs::read_to_string(&ld_preload_path) {
+        findings.extend(parse_ld_preload(&content));
+    }
+
+    // PAM credential staging files in temp directories. scan_pam_credential_staging
+    // already probes bare `tmp` / `var/tmp` / `dev/shm` / `run` (not only the
+    // `live_response/`-prefixed variants), so it works directly on a disk root.
+    findings.extend(scan_pam_credential_staging(fs_root));
+
+    findings
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -678,6 +711,82 @@ mod tests {
     fn scan_rootkit_indicators_empty_dir() {
         let dir = tempfile::tempdir().expect("tmpdir");
         assert!(scan_rootkit_indicators(dir.path()).is_empty());
+    }
+
+    // =====================================================================
+    // scan_filesystem_rootkit_indicators — the DEAD-DISK subset:
+    //   Input: a plain Linux filesystem root (extracted/mounted disk image)
+    //   Output: the filesystem-derivable findings only (ld.so.preload + PAM
+    //           staging), reading canonical /etc and /tmp paths — NOT the UAC
+    //           live_response/chkrootkit capture layout.
+    // =====================================================================
+
+    #[test]
+    fn fs_rootkit_reads_real_etc_ld_so_preload() {
+        // A masqueraded rootkit library injected via the real on-disk
+        // /etc/ld.so.preload must be flagged from a dead filesystem root.
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("etc")).expect("mkdir etc");
+        std::fs::write(
+            root.join("etc/ld.so.preload"),
+            "/usr/local/lib/libjynx.so\n",
+        )
+        .expect("write ld.so.preload");
+
+        let findings = scan_filesystem_rootkit_indicators(root);
+        assert!(
+            findings.iter().any(|f| f.check == "ld_preload"),
+            "must flag ld.so.preload injection from the on-disk /etc path"
+        );
+        // libjynx is a known rootkit lib → Critical.
+        assert!(findings
+            .iter()
+            .any(|f| f.check == "ld_preload" && f.severity == RootkitSeverity::Critical));
+    }
+
+    #[test]
+    fn fs_rootkit_detects_pam_staging_on_disk_root() {
+        // PAM credential staging under the real /tmp of a disk image.
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("tmp")).expect("mkdir tmp");
+        std::fs::write(root.join("tmp/.cache_lock"), "1000:1:password:hunter2\n")
+            .expect("write staging");
+
+        let findings = scan_filesystem_rootkit_indicators(root);
+        assert!(
+            findings.iter().any(|f| f.check == "pam_credential_staging"),
+            "must detect PAM staging under the disk /tmp"
+        );
+    }
+
+    #[test]
+    fn fs_rootkit_skips_live_only_lsmod_layout() {
+        // A UAC-shaped live_response/system/lsmod.txt is a LIVE capture; a dead
+        // disk image never contains it, so the filesystem scanner must NOT read
+        // it (that indicator is classified live-only). A tree carrying ONLY the
+        // live-response lsmod yields no filesystem findings.
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("live_response/system")).expect("mkdir");
+        std::fs::write(
+            root.join("live_response/system/lsmod.txt"),
+            "Module                  Size  Used by\ndiamorphine            16384  0\n",
+        )
+        .expect("write lsmod");
+
+        let findings = scan_filesystem_rootkit_indicators(root);
+        assert!(
+            findings.is_empty(),
+            "live-only lsmod must be ignored by the dead-disk scanner, got {findings:?}"
+        );
+    }
+
+    #[test]
+    fn fs_rootkit_empty_disk_root_is_clean() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        assert!(scan_filesystem_rootkit_indicators(dir.path()).is_empty());
     }
 
     // =====================================================================

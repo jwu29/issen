@@ -507,7 +507,9 @@ fn run_lateral_move<E: EventView>(events: &[E]) -> Vec<Correlation> {
 /// (name-level, since `EventView` carries no PID) and applies
 /// `forensicnomicon::process_lifetime::is_short_lived`. A component signal for
 /// the composite network-risk score.
-fn short_lived_process_names<E: EventView>(events: &[E]) -> std::collections::HashSet<(String, String)> {
+fn short_lived_process_names<E: EventView>(
+    events: &[E],
+) -> std::collections::HashSet<(String, String)> {
     use std::collections::{BTreeMap, HashSet};
     // (host, process) -> start / exit timestamps.
     let mut execs: BTreeMap<(String, String), Vec<i64>> = BTreeMap::new();
@@ -668,10 +670,11 @@ fn run_network_risk<E: EventView>(events: &[E]) -> Vec<Correlation> {
             .collect();
         for r in e.entity_refs() {
             if let EntityRef::Ip(ip) = r {
-                groups
-                    .entry((host.clone(), ip.clone()))
-                    .or_default()
-                    .push((ts, e.id(), procs.clone()));
+                groups.entry((host.clone(), ip.clone())).or_default().push((
+                    ts,
+                    e.id(),
+                    procs.clone(),
+                ));
             }
         }
     }
@@ -889,13 +892,21 @@ mod tests {
     fn beaconing_ignores_irregular_connections() {
         let gaps = [5_i64, 3600, 40, 900, 7200];
         let mut ts = 2_000_000_000_000_i64;
-        let mut events = vec![Ev::new(1, ts, "NetworkConnect", "DC01", EventSource::Memory)
-            .ent(EntityRef::Ip("198.51.100.9".to_string()))];
+        let mut events = vec![
+            Ev::new(1, ts, "NetworkConnect", "DC01", EventSource::Memory)
+                .ent(EntityRef::Ip("198.51.100.9".to_string())),
+        ];
         for (i, g) in gaps.iter().enumerate() {
             ts += g * 1_000_000_000;
             events.push(
-                Ev::new(i as u64 + 2, ts, "NetworkConnect", "DC01", EventSource::Memory)
-                    .ent(EntityRef::Ip("198.51.100.9".to_string())),
+                Ev::new(
+                    i as u64 + 2,
+                    ts,
+                    "NetworkConnect",
+                    "DC01",
+                    EventSource::Memory,
+                )
+                .ent(EntityRef::Ip("198.51.100.9".to_string())),
             );
         }
         assert!(!has_code(&run_correlations(&events), "NET-BEACON-PERIODIC"));
@@ -907,8 +918,14 @@ mod tests {
     fn beaconing_ignores_single_snapshot_same_timestamp() {
         let events: Vec<Ev> = (0u64..6)
             .map(|i| {
-                Ev::new(i + 1, 9_000_000_000_000, "NetworkConnect", "DC01", EventSource::Memory)
-                    .ent(EntityRef::Ip("203.0.113.7".to_string()))
+                Ev::new(
+                    i + 1,
+                    9_000_000_000_000,
+                    "NetworkConnect",
+                    "DC01",
+                    EventSource::Memory,
+                )
+                .ent(EntityRef::Ip("203.0.113.7".to_string()))
             })
             .collect();
         assert!(!has_code(&run_correlations(&events), "NET-BEACON-PERIODIC"));
@@ -960,11 +977,23 @@ mod tests {
     #[test]
     fn short_lived_process_is_detected() {
         let events = vec![
-            Ev::new(1, 1_000_000_000_000, "ProcessExec", "DC01", EventSource::Evtx)
-                .ent(EntityRef::Process("dropper.exe".to_string())),
+            Ev::new(
+                1,
+                1_000_000_000_000,
+                "ProcessExec",
+                "DC01",
+                EventSource::Evtx,
+            )
+            .ent(EntityRef::Process("dropper.exe".to_string())),
             // exits 5s later → short-lived
-            Ev::new(2, 1_000_000_000_000 + 5 * 1_000_000_000, "ProcessExit", "DC01", EventSource::Evtx)
-                .ent(EntityRef::Process("dropper.exe".to_string())),
+            Ev::new(
+                2,
+                1_000_000_000_000 + 5 * 1_000_000_000,
+                "ProcessExit",
+                "DC01",
+                EventSource::Evtx,
+            )
+            .ent(EntityRef::Process("dropper.exe".to_string())),
         ];
         let set = short_lived_process_names(&events);
         assert!(set.contains(&("DC01".to_string(), "dropper.exe".to_string())));
@@ -973,19 +1002,37 @@ mod tests {
     #[test]
     fn long_lived_process_is_not_short_lived() {
         let events = vec![
-            Ev::new(1, 1_000_000_000_000, "ProcessExec", "DC01", EventSource::Evtx)
-                .ent(EntityRef::Process("service.exe".to_string())),
+            Ev::new(
+                1,
+                1_000_000_000_000,
+                "ProcessExec",
+                "DC01",
+                EventSource::Evtx,
+            )
+            .ent(EntityRef::Process("service.exe".to_string())),
             // exits 1h later
-            Ev::new(2, 1_000_000_000_000 + 3600 * 1_000_000_000, "ProcessExit", "DC01", EventSource::Evtx)
-                .ent(EntityRef::Process("service.exe".to_string())),
+            Ev::new(
+                2,
+                1_000_000_000_000 + 3600 * 1_000_000_000,
+                "ProcessExit",
+                "DC01",
+                EventSource::Evtx,
+            )
+            .ent(EntityRef::Process("service.exe".to_string())),
         ];
         assert!(short_lived_process_names(&events).is_empty());
     }
 
     #[test]
     fn exec_without_exit_is_not_short_lived() {
-        let events = vec![Ev::new(1, 1_000_000_000_000, "ProcessExec", "DC01", EventSource::Evtx)
-            .ent(EntityRef::Process("still-running.exe".to_string()))];
+        let events = vec![Ev::new(
+            1,
+            1_000_000_000_000,
+            "ProcessExec",
+            "DC01",
+            EventSource::Evtx,
+        )
+        .ent(EntityRef::Process("still-running.exe".to_string()))];
         assert!(short_lived_process_names(&events).is_empty());
     }
 
@@ -1024,12 +1071,24 @@ mod tests {
         // Add a short-lived owning process (exec+exit 5s apart) named on the connections.
         let mut events = beacon_to_unknown_events(Some("mal.exe"));
         events.push(
-            Ev::new(100, 900_000_000_000, "ProcessExec", "DC01", EventSource::Evtx)
-                .ent(EntityRef::Process("mal.exe".to_string())),
+            Ev::new(
+                100,
+                900_000_000_000,
+                "ProcessExec",
+                "DC01",
+                EventSource::Evtx,
+            )
+            .ent(EntityRef::Process("mal.exe".to_string())),
         );
         events.push(
-            Ev::new(101, 905_000_000_000, "ProcessExit", "DC01", EventSource::Evtx)
-                .ent(EntityRef::Process("mal.exe".to_string())),
+            Ev::new(
+                101,
+                905_000_000_000,
+                "ProcessExit",
+                "DC01",
+                EventSource::Evtx,
+            )
+            .ent(EntityRef::Process("mal.exe".to_string())),
         );
         let corrs = run_correlations(&events);
         let c = corrs
@@ -1043,10 +1102,22 @@ mod tests {
     fn no_composite_for_single_signal() {
         // Two irregular connections to an unknown IP: unknown only (1 signal).
         let events = vec![
-            Ev::new(1, 1_000_000_000_000, "NetworkConnect", "DC01", EventSource::Memory)
-                .ent(EntityRef::Ip("203.0.113.7".to_string())),
-            Ev::new(2, 1_000_000_000_000 + 7 * 1_000_000_000, "NetworkConnect", "DC01", EventSource::Memory)
-                .ent(EntityRef::Ip("203.0.113.7".to_string())),
+            Ev::new(
+                1,
+                1_000_000_000_000,
+                "NetworkConnect",
+                "DC01",
+                EventSource::Memory,
+            )
+            .ent(EntityRef::Ip("203.0.113.7".to_string())),
+            Ev::new(
+                2,
+                1_000_000_000_000 + 7 * 1_000_000_000,
+                "NetworkConnect",
+                "DC01",
+                EventSource::Memory,
+            )
+            .ent(EntityRef::Ip("203.0.113.7".to_string())),
         ];
         assert!(!has_code(&run_correlations(&events), "NET-RISK-COMPOSITE"));
     }

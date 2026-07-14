@@ -44,8 +44,8 @@ pub mod tempdir;
 
 use std::path::{Path, PathBuf};
 
-use jiff::Timestamp;
 use issen_core::artifacts::ArtifactType;
+use jiff::Timestamp;
 
 /// How confident a provider is that it can handle a given file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

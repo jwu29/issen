@@ -14,7 +14,6 @@
     clippy::must_use_candidate
 )]
 
-use jiff::Timestamp;
 use issen_core::artifacts::ArtifactType;
 use issen_core::classify;
 use issen_core::error::RtError;
@@ -24,6 +23,7 @@ use issen_core::plugin::traits::{
     DataSource, EventEmitter, ForensicParser, ParseOptions, ParseStats, ParserCapabilities,
 };
 use issen_core::timeline::event::{EventType, TimelineEvent};
+use jiff::Timestamp;
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 

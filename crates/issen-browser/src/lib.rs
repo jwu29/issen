@@ -10,8 +10,13 @@ pub use browser_safari::parse_history as parse_safari_history;
 use anyhow::Result;
 use std::path::Path;
 
+pub mod detect;
+pub use detect::{
+    detect_browser_artifact, detect_browser_artifact_with_header, is_parseable_browser_artifact,
+    BrowserArtifactKind,
+};
+
 use issen_core::artifacts::ArtifactType;
-use issen_core::classify;
 use issen_core::error::RtError;
 use issen_core::plugin::registry::ParserRegistration;
 use issen_core::plugin::selector as sel;
@@ -30,11 +35,30 @@ use issen_core::ActivityCategory;
 /// Returns an error if the path cannot be identified as a known browser
 /// artifact or if the underlying SQLite query fails.
 pub fn parse_browser_history(path: &Path) -> Result<Vec<BrowserEvent>> {
-    match detect_browser(path) {
+    // Path first (cheap, and it identifies Safari, which shares no unique SQLite
+    // schema signature). When the path names no browser vendor — a renamed or
+    // off-path (Electron) History DB — fall back to content: the SQLite schema
+    // tells Chromium (`urls`) from Firefox (`moz_places`) with no path clue.
+    let family = detect_browser(path).or_else(|| family_from_content(path));
+    match family {
         Some(BrowserFamily::Chromium) => parse_chrome_history(path),
         Some(BrowserFamily::Firefox) => parse_firefox_history(path),
         Some(BrowserFamily::Safari) => parse_safari_history(path),
-        None => anyhow::bail!("cannot detect browser family from path: {}", path.display()),
+        None => anyhow::bail!(
+            "cannot detect browser family from path or content: {}",
+            path.display()
+        ),
+    }
+}
+
+/// Infer the browser family of a *history* database from its content when the
+/// path gives no vendor clue. Only the history kinds map to a family here — the
+/// history parser is the only consumer.
+fn family_from_content(path: &Path) -> Option<BrowserFamily> {
+    match detect_browser_artifact(path)? {
+        BrowserArtifactKind::ChromiumHistory => Some(BrowserFamily::Chromium),
+        BrowserArtifactKind::FirefoxPlaces => Some(BrowserFamily::Firefox),
+        _ => None,
     }
 }
 
@@ -44,11 +68,12 @@ pub fn parse_browser_history(path: &Path) -> Result<Vec<BrowserEvent>> {
 pub struct BrowserParser;
 
 impl BrowserParser {
-    /// `true` if `path` is a recognized browser history artifact (per
-    /// `browser_core::detect_browser`).
+    /// `true` if `path` is a recognized browser history artifact — by path (per
+    /// `browser_core::detect_browser`) OR by content (a history SQLite database
+    /// whatever its path/filename, catching off-path/Electron/renamed DBs).
     #[must_use]
     pub fn can_parse(&self, path: &Path) -> bool {
-        detect_browser(path).is_some()
+        is_parseable_browser_artifact(path)
     }
 
     /// Parse a browser history file into timeline events. Returns `Err` if the
@@ -136,11 +161,13 @@ impl ForensicParser for BrowserParser {
 // Compile-time registration with the parser inventory. Disk-image collection
 // pulls the Chrome/Edge `Default` profile History DBs; the `matches` classifier
 // catches browser history files from any source (loose files, other profiles,
-// Firefox/Safari) during ingestion.
+// Firefox/Safari) during ingestion — by path AND by content, so renamed /
+// off-path / Electron-embedded Chromium history DBs are found regardless of
+// filename or location (ADR 0017 Phase 3).
 inventory::submit! {
     ParserRegistration { create: || Box::new(BrowserParser), selector: sel::ArtifactSelector {
             artifact_type: ArtifactType::BrowserHistory,
-            matches: classify::browser_history,
+            matches: is_parseable_browser_artifact,
             priority: 80,
             disk_sources: &[
                 sel::DiskSource::Ntfs(sel::NtfsLoc::PerSubdirSweep {

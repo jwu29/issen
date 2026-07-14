@@ -45,13 +45,27 @@ fn feed_snapshot() -> String {
 
 /// Classify evidence by CONTENT, not just the path's own extension.
 ///
-/// A raw file is classified by its extension ([`pipeline::classify`]). An
-/// *archive* is classified by what it HOLDS: each member name is run through the
-/// same pure rule, and the archive routes to the memory leg if it contains a
-/// memory dump, else the disk leg. So a zipped `.mem` reaches the memory leg by
-/// its content — never by a filename special case — and the raw evidence
-/// archives "just work" without a manual extract.
+/// A raw file is classified by its extension ([`pipeline::classify`]). A
+/// *directory* or *archive* is classified by what it HOLDS:
+/// - a UAC collection (probed by structure — `uac.log` / `live_response/` — via
+///   [`is_uac_collection`]) routes to the collection leg, ahead of the
+///   default-to-disk, so it reaches `run_auto` + the rootkit/hidden/pivot
+///   analysis instead of being fed to `issen-unpack` as a disk image;
+/// - otherwise an archive's members are run through the same pure rule
+///   ([`pipeline::classify`]), routing to the memory leg if it holds a memory
+///   dump, else the disk leg where `issen-unpack` cracks the image out.
+///
+/// So a zipped `.mem` reaches the memory leg and a UAC `.tar.gz` reaches the
+/// collection leg by their content — never by a filename special case — while a
+/// real disk-image archive (`.E01` inside a `.zip`) still routes to disk.
 fn classify_evidence(path: &Path) -> Option<EvidenceKind> {
+    // A collection is recognized by its structure (directory layout or archive
+    // members), and wins over the extension default so a UAC .tar.gz stops being
+    // routed to the disk leg. Probed FIRST because the same .tar.gz extension
+    // otherwise maps to Disk.
+    if is_uac_collection(path) {
+        return Some(EvidenceKind::Collection);
+    }
     let by_ext = pipeline::classify(&path.to_string_lossy());
     // Only an archive needs a content peek; a raw file (incl. a real .E01/.mem)
     // is already decided by its own extension.
@@ -66,6 +80,20 @@ fn classify_evidence(path: &Path) -> Option<EvidenceKind> {
         Some(kinds) if kinds.contains(&EvidenceKind::Disk) => Some(EvidenceKind::Disk),
         _ => by_ext,
     }
+}
+
+/// `true` if `path` is a UAC collection (archive or directory), by STRUCTURE not
+/// extension. Delegates to the `UacProvider`'s content probe — the same probe
+/// `run_auto` uses to open it — so classification and parsing agree. A `Medium`
+/// or `High` confidence (UAC dirs present, or `uac.log` present) counts; `None`
+/// / `Low` / a probe error does not, leaving the caller's extension-based
+/// disk/memory routing intact for disk-image archives.
+fn is_uac_collection(path: &Path) -> bool {
+    use issen_unpack::{CollectionProvider as _, Confidence};
+    matches!(
+        issen_parser_uac::UacProvider.probe(path),
+        Ok(Confidence::Medium | Confidence::High)
+    )
 }
 
 /// `true` if `path`'s extension is an evidence-archive type (as opposed to a raw
@@ -154,11 +182,17 @@ fn find_mem_dumps(root: &Path) -> Vec<PathBuf> {
 /// # Errors
 /// Fails if no usable evidence is given, the case DB cannot be opened, or a
 /// stage errors (a failed stage stays resumable).
+#[allow(clippy::too_many_arguments)]
 pub fn run(
     evidence: &[PathBuf],
     output: Option<&Path>,
     verbose: bool,
     rerun: bool,
+    format: Option<&str>,
+    yara_rules: Option<&Path>,
+    sigma_rules: Option<&Path>,
+    hash_iocs: Option<&[PathBuf]>,
+    network_iocs: Option<&[PathBuf]>,
 ) -> anyhow::Result<()> {
     if evidence.is_empty() {
         anyhow::bail!(
@@ -170,6 +204,7 @@ pub fn run(
     // Classify + size each input.
     let mut disk: Vec<(PathBuf, u64)> = Vec::new();
     let mut mem: Vec<(PathBuf, u64)> = Vec::new();
+    let mut collections: Vec<PathBuf> = Vec::new();
     // Temp dirs holding .mem cracked out of memory archives. They must outlive
     // the memory stage, which run_bare drives below within this fn.
     let mut mem_dirs: Vec<tempfile::TempDir> = Vec::new();
@@ -177,6 +212,10 @@ pub fn run(
         let size = std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
         match classify_evidence(p) {
             Some(EvidenceKind::Disk) => disk.push((p.clone(), size)),
+            // A UAC collection: routed to the collection leg (run_auto + the
+            // rootkit / hidden-process / supertimeline / pivot analysis), not the
+            // disk-image leg, which would look for a disk image and find none.
+            Some(EvidenceKind::Collection) => collections.push(p.clone()),
             // A zipped memory dump: crack the .mem out so the memory leg's
             // dir-scan reads it (mirrors how the disk leg unpacks an E01).
             Some(EvidenceKind::Memory) if is_archive(p) => match extract_memory_archive(p) {
@@ -202,7 +241,7 @@ pub fn run(
     let _mem_dirs = mem_dirs;
     let has_disk = !disk.is_empty();
     let has_memory = !mem.is_empty();
-    if !has_disk && !has_memory {
+    if !has_disk && !has_memory && collections.is_empty() {
         anyhow::bail!("no usable evidence among the given paths");
     }
 
@@ -227,8 +266,15 @@ pub fn run(
     }
 
     // Deterministic case DB per evidence set, so a re-run finds it and resumes.
+    // Collections are part of the evidence set, so a collection-only case still
+    // gets a per-input DB path (two different collections never share one DB).
     let mut all = disk_fp_in.clone();
     all.extend(mem_fp_in.clone());
+    all.extend(
+        collections
+            .iter()
+            .map(|p| (p.to_string_lossy().into_owned(), 0u64)),
+    );
     let full = pipeline::ingest_fingerprint(&all);
     let case_id = full.get(..12).unwrap_or(full.as_str());
     let db_path = match output {
@@ -249,25 +295,218 @@ pub fn run(
         rerun,
         ..Flags::default()
     };
-    let applicable = pipeline::applicable_stages(has_disk, has_memory, &flags);
 
-    println!(
-        "issen: {} stage(s) for this case → {}",
-        applicable.len(),
-        db_path.display()
-    );
+    // Collection leg: ingest each collection's artifacts into the case DB via
+    // run_auto (the same walker the disk leg uses) and render the UAC-collection
+    // analysis — rootkit / hidden-process / masquerade / EVTX sessions, the
+    // supertimeline narrative + temporal findings, and the forensic-pivot pack.
+    // Reuses the analyse / supertimeline modules; does not rewrite them.
+    for collection in &collections {
+        run_collection_leg(collection, &db_path, format)?;
+    }
 
-    let executor = RealExecutor {
-        disk: disk.iter().map(|(p, _)| p.clone()).collect(),
-        mem: mem.iter().map(|(p, _)| p.clone()).collect(),
-        db_path: db_path.clone(),
-        verbose,
-        total: applicable.len(),
-        step: std::cell::Cell::new(0),
+    // Disk/memory legs — unchanged.
+    if has_disk || has_memory {
+        let applicable = pipeline::applicable_stages(has_disk, has_memory, &flags);
+
+        println!(
+            "issen: {} stage(s) for this case → {}",
+            applicable.len(),
+            db_path.display()
+        );
+
+        let executor = RealExecutor {
+            disk: disk.iter().map(|(p, _)| p.clone()).collect(),
+            mem: mem.iter().map(|(p, _)| p.clone()).collect(),
+            db_path: db_path.clone(),
+            verbose,
+            total: applicable.len(),
+            step: std::cell::Cell::new(0),
+            yara_rules: yara_rules.map(Path::to_path_buf),
+            sigma_rules: sigma_rules.map(Path::to_path_buf),
+            hash_iocs: hash_iocs.map(<[PathBuf]>::to_vec),
+            network_iocs: network_iocs.map(<[PathBuf]>::to_vec),
+        };
+
+        let report = pipeline::run_bare(&applicable, &flags, &current_fp, &recorder, &executor)?;
+        print_summary(&report, &db_path);
+    }
+    Ok(())
+}
+
+/// Analyse one UAC collection through the front door: ingest its artifacts into
+/// the case DB (via `run_auto`, exactly as the disk leg does), then render the
+/// collection analysis — analyse (rootkit / hidden-process / masquerade / EVTX +
+/// the forensic-pivot findings, incl. `pivot.miner.xmrig-process`) plus the
+/// supertimeline (COLLECTION-derived events + TEMPORAL FINDINGS).
+///
+/// Output selection follows `--format`:
+/// - `jsonl` / `csv` → the supertimeline machine view ONLY (a faithful,
+///   round-trippable stream; the human analyse banner would corrupt it);
+/// - anything else (default `narrative`) → the human analyse sections followed
+///   by the supertimeline narrative.
+///
+/// # Errors
+/// Fails only if opening the case DB for ingest fails; a per-artifact parse miss
+/// degrades to empty (the analysis still renders its section headers).
+fn run_collection_leg(
+    collection: &Path,
+    db_path: &Path,
+    format: Option<&str>,
+) -> anyhow::Result<()> {
+    // Ingest the collection's artifacts into the case DB so they land in the
+    // timeline (report/timeline verbs see them), mirroring the disk leg.
+    ingest_collection_into_db(collection, db_path)?;
+
+    match format {
+        Some("jsonl" | "csv") => {
+            // Machine view only — supertimeline emits the faithful stream.
+            crate::commands::supertimeline::run(collection, format.unwrap_or("narrative"))?;
+        }
+        _ => {
+            // Human view — a COLLECTION-case banner, the analyse sections
+            // (rootkit / hidden / masquerade / correlation / EVTX), the
+            // supertimeline narrative, then the forensic-pivot pack.
+            println!("═══ COLLECTION CASE — {} ═══", collection.display());
+            crate::commands::analyse::run(collection)?;
+            crate::commands::supertimeline::run(collection, "narrative")?;
+            render_applied_pivot_pack(collection);
+        }
+    }
+    Ok(())
+}
+
+/// Open the collection and render the forensic-pivot rule pack applied to it.
+///
+/// Builds forensic-pivot [`Evidence`](forensic_pivot::evidence::Evidence) from
+/// the collection's UAC artifacts (process names, network ports, ld.so.preload
+/// paths) and evaluates the bundled pack. When the collection carries any such
+/// evidence, the applied pack — every bundled rule id, including
+/// `pivot.miner.xmrig-process` — is listed, followed by the rules that fired. A
+/// benign collection (no rootkit / hidden-process / network indicators) yields
+/// no evidence, so the pack is not applied and its rule ids do not appear.
+fn render_applied_pivot_pack(collection: &Path) {
+    use issen_unpack::CollectionProvider as _;
+
+    let Ok(manifest) = issen_parser_uac::UacProvider.open(collection) else {
+        return; // cov:unreachable: analyse already opened this collection
+    };
+    let evidence = collection_pivot_evidence(&manifest.extracted_root);
+    if evidence.is_empty() {
+        return;
+    }
+    let rules = forensic_pivot::bundled_rules();
+    let findings =
+        forensic_pivot::PivotEngine::new(forensic_pivot::bundled_rules()).evaluate(&evidence);
+
+    println!("┌─ FORENSIC-PIVOT RULES (applied to this collection) ────");
+    for rule in &rules {
+        let fired = findings.iter().any(|f| f.rule_id == rule.id);
+        let mark = if fired { "[FIRED]" } else { "[applied]" };
+        println!("│  {mark} {}  {}", rule.id, rule.name);
+    }
+    println!();
+}
+
+/// Derive forensic-pivot evidence from a UAC collection's extracted root, using
+/// the same parsers `analyse` uses: rootkit ld.so.preload paths → `FilePath`,
+/// hidden-process names → `ProcessName`, and their connection ports → `Port`.
+fn collection_pivot_evidence(root: &Path) -> Vec<forensic_pivot::evidence::Evidence> {
+    use forensic_pivot::evidence::{Evidence, EvidenceKind, EvidenceSource};
+    use issen_parser_uac::parsers;
+    use std::collections::HashMap;
+
+    let mut out: Vec<Evidence> = Vec::new();
+    let mut next_id = {
+        let mut n = 0u32;
+        move |prefix: &str| {
+            n += 1;
+            format!("{prefix}-{n}")
+        }
+    };
+    let mut push = |kind: EvidenceKind, value: String, id: String| {
+        out.push(Evidence {
+            id,
+            source: EvidenceSource::Artifact,
+            kind,
+            value,
+            subject: None,
+            timestamp_ns: None,
+            confidence: 80,
+            attrs: HashMap::new(),
+        });
     };
 
-    let report = pipeline::run_bare(&applicable, &flags, &current_fp, &recorder, &executor)?;
-    print_summary(&report, &db_path);
+    for f in parsers::rootkit::scan_rootkit_indicators(root) {
+        push(EvidenceKind::FilePath, f.evidence, next_id("rk"));
+    }
+    let hidden = parsers::analyze_hidden_processes(root);
+    for finding in &hidden.findings {
+        if let Some(name) = &finding.process_name {
+            push(EvidenceKind::ProcessName, name.clone(), next_id("proc"));
+        }
+        for name in &finding.all_thread_names {
+            push(EvidenceKind::ProcessName, name.clone(), next_id("thr"));
+        }
+        for conn in &finding.connections {
+            if let Some(p) = conn.dst_port {
+                push(EvidenceKind::Port, p.to_string(), next_id("port"));
+            }
+            if let Some(p) = conn.src_port {
+                push(EvidenceKind::Port, p.to_string(), next_id("port"));
+            }
+        }
+    }
+    out
+}
+
+/// Walk a collection with `run_auto` and commit its parsed artifacts into the
+/// case DB, keyed by the collection path as the evidence source. The disk leg's
+/// full parallel/resumable machinery is unnecessary for a single collection, so
+/// this uses the flat, atomic path (`run_auto_parse_jobs` + `commit_parse_job`).
+fn ingest_collection_into_db(collection: &Path, db_path: &Path) -> anyhow::Result<()> {
+    use issen_core::plugin::ParseOptions;
+    use issen_fswalker::orchestrator::run_auto_parse_jobs;
+    use issen_fswalker::progress::ProgressReporter;
+
+    let store = TimelineStore::open(db_path)
+        .with_context(|| format!("opening {} for collection ingest", db_path.display()))?;
+    let source_id = collection.to_string_lossy().into_owned();
+    let progress = ProgressReporter::new();
+    let (units, result, _skipped) = run_auto_parse_jobs(
+        collection,
+        &progress,
+        &|_, _, _| false,
+        &ParseOptions::default(),
+    )
+    .map_err(|e| anyhow::anyhow!("parsing collection {}: {e}", collection.display()))?;
+    for unit in units {
+        let mut record = issen_timeline::ingest::ParseJobRecord::new(
+            &source_id,
+            &format!("{:?}", unit.artifact_type),
+            &unit.path.to_string_lossy(),
+            &unit.parser,
+            i64::try_from(unit.bytes).unwrap_or(i64::MAX),
+        );
+        record.complete = unit.completion.marks_complete();
+        let events: Vec<_> = unit
+            .events
+            .into_iter()
+            .map(|e| e.with_evidence_source(source_id.as_str()))
+            .collect();
+        store
+            .commit_parse_job(&record, &events)
+            .map_err(|e| anyhow::anyhow!("committing collection artifacts: {e}"))?;
+    }
+    // Progress to stderr: stdout carries the analysis / supertimeline output,
+    // which for `--format jsonl|csv` must be a clean machine stream.
+    eprintln!(
+        "issen: collection {} → {} artifacts, {} events → {}",
+        collection.display(),
+        result.artifacts_parsed,
+        result.total_events,
+        db_path.display()
+    );
     Ok(())
 }
 
@@ -325,6 +564,12 @@ struct RealExecutor {
     verbose: bool,
     total: usize,
     step: std::cell::Cell<usize>,
+    // Custom rule files layered onto the Scan stage's default engine (additive).
+    // `None` means "defaults only" — the Scan stage is byte-identical to before.
+    yara_rules: Option<PathBuf>,
+    sigma_rules: Option<PathBuf>,
+    hash_iocs: Option<Vec<PathBuf>>,
+    network_iocs: Option<Vec<PathBuf>>,
 }
 
 impl RealExecutor {
@@ -428,7 +673,25 @@ impl StageExecutor for RealExecutor {
                 let store = TimelineStore::open(&self.db_path)
                     .with_context(|| format!("opening {} for scan", self.db_path.display()))?;
                 let cache_dir = commands::ingest::default_feed_cache_dir();
-                let engine = crate::scanning::engine_from_cached_feeds(&cache_dir);
+                // Default engine = bundled signatures + cached feeds (always on).
+                // If the analyst supplied custom rule files, layer them ON TOP —
+                // additive, never a replacement. With no flags this reduces to
+                // `engine_from_cached_feeds` (unchanged default path).
+                let has_custom = self.yara_rules.is_some()
+                    || self.sigma_rules.is_some()
+                    || self.hash_iocs.is_some()
+                    || self.network_iocs.is_some();
+                let engine = if has_custom {
+                    crate::scanning::engine_from_cached_feeds_plus(
+                        &cache_dir,
+                        self.yara_rules.as_deref(),
+                        self.sigma_rules.as_deref(),
+                        self.hash_iocs.as_deref(),
+                        self.network_iocs.as_deref(),
+                    )?
+                } else {
+                    crate::scanning::engine_from_cached_feeds(&cache_dir)
+                };
                 let scan_root = self
                     .disk
                     .first()
@@ -518,5 +781,70 @@ mod tests {
         assert_eq!(mems.len(), 1, "the inner .mem is extracted");
         assert_eq!(mems[0].extension().and_then(|e| e.to_str()), Some("mem"));
         assert!(mems[0].exists(), "the extracted .mem is on disk");
+    }
+
+    /// Build a minimal UAC `.tar.gz` (a `uac.log` + `live_response/` entry) so
+    /// `UacProvider::probe` recognizes it — the self-identifying UAC signature.
+    fn uac_tar_gz(dir: &Path, name: &str) -> PathBuf {
+        let path = dir.join(name);
+        let f = std::fs::File::create(&path).unwrap();
+        let gz = flate2::write::GzEncoder::new(f, flate2::Compression::fast());
+        let mut b = tar::Builder::new(gz);
+        let members: &[(&str, &[u8])] = &[
+            ("uac-host/uac.log", b"UAC collection started\n"),
+            ("uac-host/live_response/system/env.txt", b"PATH=/bin\n"),
+        ];
+        for (name, data) in members {
+            let mut h = tar::Header::new_gnu();
+            h.set_size(data.len() as u64);
+            h.set_mode(0o644);
+            h.set_cksum();
+            b.append_data(&mut h, name, *data).unwrap();
+        }
+        b.finish().unwrap();
+        path
+    }
+
+    #[test]
+    fn classify_routes_a_uac_collection_archive_to_the_collection_leg() {
+        // A UAC .tar.gz — recognized by its self-identifying signature (uac.log
+        // + live_response/) — routes to the Collection leg, NOT the disk leg its
+        // .gz extension would otherwise pick.
+        let dir = tempfile::tempdir().unwrap();
+        let uac = uac_tar_gz(dir.path(), "uac-vbox-linux-20260324234043.tar.gz");
+        assert_eq!(classify_evidence(&uac), Some(EvidenceKind::Collection));
+        assert!(is_uac_collection(&uac));
+    }
+
+    #[test]
+    fn classify_keeps_disk_and_memory_archives_off_the_collection_leg() {
+        // The targeted UAC probe cannot misfire on a disk-image or memory
+        // archive: a UAC archive and an E01/.mem archive look nothing alike.
+        let dir = tempfile::tempdir().unwrap();
+        let diskzip = zip_with(dir.path(), "DC01-E01.zip", &["E01-DC01/CDrive.E01"]);
+        assert_eq!(classify_evidence(&diskzip), Some(EvidenceKind::Disk));
+        assert!(!is_uac_collection(&diskzip));
+
+        let memzip = zip_with(dir.path(), "DC01-memory.zip", &["citadeldc01.mem"]);
+        assert_eq!(classify_evidence(&memzip), Some(EvidenceKind::Memory));
+        assert!(!is_uac_collection(&memzip));
+
+        // A raw disk image is still Disk; a raw memory dump still Memory.
+        assert_eq!(
+            classify_evidence(Path::new("/x/CDrive.E01")),
+            Some(EvidenceKind::Disk)
+        );
+        assert_eq!(
+            classify_evidence(Path::new("/x/citadeldc01.mem")),
+            Some(EvidenceKind::Memory)
+        );
+    }
+
+    #[test]
+    fn collection_pivot_evidence_is_empty_without_indicators() {
+        // A collection root with no rootkit / hidden-process / network artifacts
+        // yields no pivot evidence, so the forensic-pivot pack is not applied.
+        let dir = tempfile::tempdir().unwrap();
+        assert!(collection_pivot_evidence(dir.path()).is_empty());
     }
 }
