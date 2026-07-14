@@ -1,6 +1,6 @@
 # 0017. Collapse issen's disk access onto forensic-vfs for filesystem-agnostic whole-disk content scanning
 
-Status: Accepted (program — executed in phases across repos)
+Status: Accepted (program — executed in phases across repos). Phase 3 landed.
 
 ## Context — the driving need
 
