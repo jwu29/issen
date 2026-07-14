@@ -71,6 +71,34 @@ carving/timeline-over-unallocated work.
    retire the NTFS-only extraction path; the ext4/APFS legs of ADR 0015 fall out of
    this for free.
 
+## Discovered state (2026-07) — further along, but cross-session
+
+Investigation found the adapter layer **already written**, not yet published:
+
+- **All four `FileSystem` adapters exist in local source** behind a `vfs` feature:
+  `ntfs-forensic/core/src/vfs.rs`, `ext4fs-forensic/ext4fs-core/src/vfs.rs`,
+  `apfs-forensic/core/src/vfs.rs`, `hfsplus-forensic/src/vfs.rs`
+  (`read_dir`/`read_at`/`deleted`/`unallocated` implemented). So Phases 1-2 are
+  substantially done by the fleet — the readers adopt the fleet pattern (reader
+  deps `forensic-vfs` core + `impl FileSystem` behind `vfs`).
+- **But the published crates lack it**: `ntfs-core 0.9.0`, `ext4fs-core 0.2.0`,
+  `apfs-core 0.2.0` carry no `vfs` feature. issen deps registry versions, so it
+  cannot consume the adapters until a fleet **publish** of the `vfs`-featured readers.
+- **`forensic-vfs-engine` is in-flight** on `feat/engine` — another session's active
+  work. The auto-detect/mount resolver isn't stable yet.
+
+Consequences for sequencing:
+
+- **Phase 3 (content-based detection) is independent** of all of the above — it is
+  issen-side, filesystem-agnostic, and immediately improves the *existing* recursive
+  fswalk (catches off-path/Electron/renamed browser DBs the path-based classifier
+  misses). Start here. It is also exactly what the future VFS scan will call.
+- **Phase 4-5 (whole-disk scan over `dyn FileSystem`, issen on the engine) are
+  gated** on (a) publishing the `vfs`-featured readers and (b) the engine landing —
+  a coordinated fleet step, not an issen-only change. issen can construct a
+  per-partition `Arc<dyn FileSystem>` directly from a `vfs`-featured reader (it
+  already detects the FS) without the full engine, once the readers are published.
+
 ## Consequences
 
 - Filesystem-agnostic whole-disk artifact discovery — browser data found by *what it
