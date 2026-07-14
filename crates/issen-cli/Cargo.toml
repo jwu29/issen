@@ -90,6 +90,8 @@ zip = { workspace = true }
 flate2 = { workspace = true }
 issen-disk = { workspace = true }
 predicates = { workspace = true }
+# browser_profile_discovery mints per-profile Chrome `History` SQLite fixtures.
+rusqlite = { workspace = true }
 tar = { workspace = true }
 tempfile = { workspace = true }
 # link_completeness drift gate parses the issen-parsers aggregator manifest.
