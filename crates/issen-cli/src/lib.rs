@@ -65,6 +65,7 @@ pub mod banner;
 pub mod commands;
 pub mod correlate_progress;
 pub mod ingest_progress;
+pub mod linux_analysis;
 pub mod parallel_sources;
 pub mod parsers;
 pub mod pipeline;
