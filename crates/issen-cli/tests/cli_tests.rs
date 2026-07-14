@@ -697,14 +697,145 @@ fn test_scan_auto_feeds_help() {
 // GAP flagged for the product owner. (Loose-file scanning still exposes these
 // flags on the surviving `scan` verb — see test_scan_help.)
 
-// `ingest --yara-rules <file>` / `ingest --sigma-rules <dir>` — injecting a
-// CUSTOM rule file at ingest time and asserting the "Scanning phase" /
-// "Total findings:" ingest-scan output — folded into the automatic Scan stage
-// (commit 74b2067). The bare pipeline auto-runs detection from bundled signatures
-// + cached feeds only; supplying a custom rule FILE to the pipeline was removed
-// by design (no per-flag control). GENUINE GAP flagged for the product owner:
-// custom-rule-driven scanning during a case has no CLI successor (the surviving
-// `scan` verb still takes --yara-rules/--sigma-rules for loose-file scanning).
+// ── Front-door custom-rule injection (restored, re-pointed) ──────────
+//
+// The default rules stay ON: the bare `issen <evidence…>` pipeline always runs
+// the automatic Scan stage (bundled signatures + cached feeds). These flags ADD
+// a user-supplied custom rule FILE on top of the defaults — additive override,
+// never a replacement. The four tests below were dropped when the old `ingest
+// --yara-rules/--sigma-rules` verb was folded into the front door; they are
+// restored here re-pointed at the bare front door + the new flags.
+
+#[test]
+fn test_frontdoor_help_shows_custom_rule_flags() {
+    issen_cmd()
+        .args(["--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--yara-rules"))
+        .stdout(predicate::str::contains("--sigma-rules"))
+        .stdout(predicate::str::contains("--hash-iocs"))
+        .stdout(predicate::str::contains("--network-iocs"));
+}
+
+#[test]
+fn test_frontdoor_with_yara_scan() {
+    let dir = TempDir::new().unwrap();
+    let db_dir = TempDir::new().unwrap();
+    let db_path = db_dir.path().join("test.duckdb");
+
+    // Write a YARA rule that matches our evidence file.
+    let rule_path = dir.path().join("detect.yar");
+    std::fs::write(
+        &rule_path,
+        r#"rule frontdoor_detect { strings: $s = "MALICIOUS_MARKER" condition: $s }"#,
+    )
+    .unwrap();
+
+    // Evidence directory with a $J USN record so the pipeline discovers the
+    // suspect.bin artifact, plus the real file so YARA can scan it.
+    let evidence_dir = dir.path().join("evidence");
+    std::fs::create_dir(&evidence_dir).unwrap();
+    let record = build_usn_v2_record("suspect.bin", 0x100, 42, 100, 0);
+    std::fs::write(evidence_dir.join("$J"), &record).unwrap();
+    std::fs::write(
+        evidence_dir.join("suspect.bin"),
+        b"this file has MALICIOUS_MARKER inside",
+    )
+    .unwrap();
+
+    // Bare front door + the new --yara-rules flag: the default Scan stage runs
+    // AND the custom rule is layered on, so the custom YARA rule fires.
+    issen_cmd()
+        .args([
+            evidence_dir.to_str().unwrap(),
+            "-o",
+            db_path.to_str().unwrap(),
+            "--yara-rules",
+            rule_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("scan findings:"));
+
+    // The custom YARA finding must be persisted to the case DB.
+    issen_cmd()
+        .args(["info", db_path.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Scan findings:"));
+}
+
+#[test]
+fn test_frontdoor_with_sigma_scan() {
+    let dir = TempDir::new().unwrap();
+    let db_dir = TempDir::new().unwrap();
+    let db_path = db_dir.path().join("test.duckdb");
+
+    // Write a Sigma rule that matches FileCreate events.
+    let sigma_dir = dir.path().join("sigma");
+    std::fs::create_dir(&sigma_dir).unwrap();
+    std::fs::write(
+        sigma_dir.join("test.yml"),
+        r"
+title: Test Sigma Rule
+id: test-frontdoor-sigma-001
+level: medium
+detection:
+    selection:
+        EventType: FileCreate
+    condition: selection
+",
+    )
+    .unwrap();
+
+    // Evidence directory with a $J so the pipeline produces FileCreate events.
+    let evidence_dir = dir.path().join("evidence");
+    std::fs::create_dir(&evidence_dir).unwrap();
+    let record = build_usn_v2_record("test.txt", 0x100, 42, 100, 0);
+    std::fs::write(evidence_dir.join("$J"), &record).unwrap();
+
+    // Front door + --sigma-rules: the flag is accepted and layered onto the
+    // default Scan stage.
+    issen_cmd()
+        .args([
+            evidence_dir.to_str().unwrap(),
+            "-o",
+            db_path.to_str().unwrap(),
+            "--sigma-rules",
+            sigma_dir.to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("scan findings:"));
+}
+
+#[test]
+fn test_frontdoor_no_rule_flags_default_scan_unchanged() {
+    // No flags: the bare front door still runs the default Scan stage and prints
+    // its findings line — proving no-flag behavior is byte-identical to today.
+    // (The additive contract — defaults + custom rules coexisting in one engine —
+    // is proven deterministically at the unit level in
+    // `scanning::tests::engine_from_cached_feeds_plus_layers_custom_rules`.)
+    let dir = TempDir::new().unwrap();
+    let db_dir = TempDir::new().unwrap();
+    let db_path = db_dir.path().join("test.duckdb");
+
+    let evidence_dir = dir.path().join("evidence");
+    std::fs::create_dir(&evidence_dir).unwrap();
+    let record = build_usn_v2_record("test.txt", 0x100, 42, 100, 0);
+    std::fs::write(evidence_dir.join("$J"), &record).unwrap();
+
+    issen_cmd()
+        .args([
+            evidence_dir.to_str().unwrap(),
+            "-o",
+            db_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("scan findings:"));
+}
 
 #[test]
 fn test_scan_auto_feeds_no_cached_feeds() {
@@ -749,13 +880,51 @@ fn test_info_shows_no_findings_on_empty_db() {
         .stdout(predicate::str::contains("Scan findings").not());
 }
 
-// `test_info_shows_findings_when_present` populated the case DB's findings via
-// `ingest --yara-rules <custom-file>`, then asserted `info` shows the summary.
-// That custom-rule ingest-scan mechanism was removed by design (findings now come
-// only from the automatic Scan stage's bundled signatures + cached feeds — commit
-// 74b2067), so there is no zero-config way to inject a deterministic synthetic
-// finding into the case DB for this test. GENUINE GAP flagged for the product
-// owner. (`info`'s findings-summary rendering itself is unchanged.)
+#[test]
+fn test_info_shows_findings_when_present() {
+    let dir = TempDir::new().unwrap();
+    let db_dir = TempDir::new().unwrap();
+    let db_path = db_dir.path().join("test.duckdb");
+
+    // Write a YARA rule that matches our evidence file.
+    let rule_path = dir.path().join("detect.yar");
+    std::fs::write(
+        &rule_path,
+        r#"rule info_detect { strings: $s = "MALICIOUS_MARKER" condition: $s }"#,
+    )
+    .unwrap();
+
+    // Evidence directory with a target file matching the YARA rule.
+    let evidence_dir = dir.path().join("evidence");
+    std::fs::create_dir(&evidence_dir).unwrap();
+    let record = build_usn_v2_record("suspect.bin", 0x100, 42, 100, 0);
+    std::fs::write(evidence_dir.join("$J"), &record).unwrap();
+    std::fs::write(
+        evidence_dir.join("suspect.bin"),
+        b"this file has MALICIOUS_MARKER inside",
+    )
+    .unwrap();
+
+    // Front door + --yara-rules seeds a deterministic finding into the case DB.
+    issen_cmd()
+        .args([
+            evidence_dir.to_str().unwrap(),
+            "-o",
+            db_path.to_str().unwrap(),
+            "--yara-rules",
+            rule_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // `info` then surfaces the findings summary (high-severity YARA match).
+    issen_cmd()
+        .args(["info", db_path.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Scan findings:"))
+        .stdout(predicate::str::contains("high"));
+}
 
 #[test]
 fn test_info_help() {
@@ -974,13 +1143,69 @@ fn test_report_with_max_events() {
     );
 }
 
-// `test_report_with_findings` populated the case DB's scan_findings via
-// `ingest --yara-rules <custom-file>` and asserted the report's findings section
-// carried that custom rule. The custom-rule ingest-scan mechanism was removed by
-// design (findings now come only from the automatic Scan stage's bundled
-// signatures + cached feeds — commit 74b2067), so there is no zero-config way to
-// inject a deterministic synthetic finding for this test. GENUINE GAP flagged for
-// the product owner. (The report's findings-section rendering is unchanged.)
+#[test]
+fn test_report_with_findings() {
+    let dir = TempDir::new().unwrap();
+    let db_dir = TempDir::new().unwrap();
+    let db_path = db_dir.path().join("test.duckdb");
+    let report_path = db_dir.path().join("report.html");
+
+    // Write YARA rule.
+    let rule_path = dir.path().join("detect.yar");
+    std::fs::write(
+        &rule_path,
+        r#"rule report_detect { strings: $s = "MALICIOUS_MARKER" condition: $s }"#,
+    )
+    .unwrap();
+
+    // Create evidence.
+    let evidence_dir = dir.path().join("evidence");
+    std::fs::create_dir(&evidence_dir).unwrap();
+    let record = build_usn_v2_record("suspect.bin", 0x100, 42, 100, 0);
+    std::fs::write(evidence_dir.join("$J"), &record).unwrap();
+    std::fs::write(
+        evidence_dir.join("suspect.bin"),
+        b"this file has MALICIOUS_MARKER inside",
+    )
+    .unwrap();
+
+    // Front door + --yara-rules populates scan_findings with the custom rule.
+    issen_cmd()
+        .args([
+            evidence_dir.to_str().unwrap(),
+            "-o",
+            db_path.to_str().unwrap(),
+            "--yara-rules",
+            rule_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    // Generate report.
+    issen_cmd()
+        .args([
+            "report",
+            db_path.to_str().unwrap(),
+            "-o",
+            report_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let html = std::fs::read_to_string(&report_path).expect("read report");
+    assert!(
+        html.contains("Scan Findings"),
+        "report should contain findings section"
+    );
+    assert!(
+        html.contains("report_detect"),
+        "report should contain YARA rule name"
+    );
+    assert!(
+        html.contains("severity-high"),
+        "report should contain severity styling"
+    );
+}
 
 // ── Remote-access subcommand tests ──────────────────────────────────
 

@@ -151,6 +151,29 @@ pub struct Cli {
     #[arg(long, value_name = "FORMAT")]
     format: Option<String>,
 
+    // --- Custom rule injection (additive; the default bundled/cached rules
+    // always run — these ADD user-supplied rule files on top). Same flag
+    // names/types as the `scan` verb (one concept, one name).
+    /// Path to a custom YARA rules file or directory, scanned in ADDITION to the
+    /// default bundled signatures + cached feeds (never a replacement).
+    #[arg(long, value_name = "PATH")]
+    yara_rules: Option<std::path::PathBuf>,
+
+    /// Path to a custom Sigma rule file or directory, evaluated in ADDITION to
+    /// the default bundled signatures + cached feeds (never a replacement).
+    #[arg(long, value_name = "PATH")]
+    sigma_rules: Option<std::path::PathBuf>,
+
+    /// Path to a custom hash IOC file (one hash per line), added ON TOP of the
+    /// default feeds. Repeatable.
+    #[arg(long, value_name = "PATH")]
+    hash_iocs: Option<Vec<std::path::PathBuf>>,
+
+    /// Path to a custom network IOC file (IPs/domains/CIDRs, one per line), added
+    /// ON TOP of the default feeds. Repeatable.
+    #[arg(long, value_name = "PATH")]
+    network_iocs: Option<Vec<std::path::PathBuf>>,
+
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -1019,13 +1042,20 @@ pub fn run() -> ExitCode {
             } => commands::session::run(&evtx_dir, &evtx_file, json),
         }
     } else {
-        // Bare front door: `issen <evidence…>` — the resumable pipeline.
+        // Bare front door: `issen <evidence…>` — the resumable pipeline. Custom
+        // rule files (when supplied) are layered ON TOP of the default bundled
+        // signatures + cached feeds in the Scan stage; with none, behavior is
+        // unchanged (default rules always run).
         commands::pipeline_run::run(
             &cli.evidence,
             cli.output.as_deref(),
             cli.verbose,
             cli.rerun,
             cli.format.as_deref(),
+            cli.yara_rules.as_deref(),
+            cli.sigma_rules.as_deref(),
+            cli.hash_iocs.as_deref(),
+            cli.network_iocs.as_deref(),
         )
     };
 

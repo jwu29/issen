@@ -182,12 +182,17 @@ fn find_mem_dumps(root: &Path) -> Vec<PathBuf> {
 /// # Errors
 /// Fails if no usable evidence is given, the case DB cannot be opened, or a
 /// stage errors (a failed stage stays resumable).
+#[allow(clippy::too_many_arguments)]
 pub fn run(
     evidence: &[PathBuf],
     output: Option<&Path>,
     verbose: bool,
     rerun: bool,
     format: Option<&str>,
+    yara_rules: Option<&Path>,
+    sigma_rules: Option<&Path>,
+    hash_iocs: Option<&[PathBuf]>,
+    network_iocs: Option<&[PathBuf]>,
 ) -> anyhow::Result<()> {
     if evidence.is_empty() {
         anyhow::bail!(
@@ -317,6 +322,10 @@ pub fn run(
             verbose,
             total: applicable.len(),
             step: std::cell::Cell::new(0),
+            yara_rules: yara_rules.map(Path::to_path_buf),
+            sigma_rules: sigma_rules.map(Path::to_path_buf),
+            hash_iocs: hash_iocs.map(<[PathBuf]>::to_vec),
+            network_iocs: network_iocs.map(<[PathBuf]>::to_vec),
         };
 
         let report = pipeline::run_bare(&applicable, &flags, &current_fp, &recorder, &executor)?;
@@ -555,6 +564,12 @@ struct RealExecutor {
     verbose: bool,
     total: usize,
     step: std::cell::Cell<usize>,
+    // Custom rule files layered onto the Scan stage's default engine (additive).
+    // `None` means "defaults only" — the Scan stage is byte-identical to before.
+    yara_rules: Option<PathBuf>,
+    sigma_rules: Option<PathBuf>,
+    hash_iocs: Option<Vec<PathBuf>>,
+    network_iocs: Option<Vec<PathBuf>>,
 }
 
 impl RealExecutor {
@@ -658,7 +673,25 @@ impl StageExecutor for RealExecutor {
                 let store = TimelineStore::open(&self.db_path)
                     .with_context(|| format!("opening {} for scan", self.db_path.display()))?;
                 let cache_dir = commands::ingest::default_feed_cache_dir();
-                let engine = crate::scanning::engine_from_cached_feeds(&cache_dir);
+                // Default engine = bundled signatures + cached feeds (always on).
+                // If the analyst supplied custom rule files, layer them ON TOP —
+                // additive, never a replacement. With no flags this reduces to
+                // `engine_from_cached_feeds` (unchanged default path).
+                let has_custom = self.yara_rules.is_some()
+                    || self.sigma_rules.is_some()
+                    || self.hash_iocs.is_some()
+                    || self.network_iocs.is_some();
+                let engine = if has_custom {
+                    crate::scanning::engine_from_cached_feeds_plus(
+                        &cache_dir,
+                        self.yara_rules.as_deref(),
+                        self.sigma_rules.as_deref(),
+                        self.hash_iocs.as_deref(),
+                        self.network_iocs.as_deref(),
+                    )?
+                } else {
+                    crate::scanning::engine_from_cached_feeds(&cache_dir)
+                };
                 let scan_root = self
                     .disk
                     .first()
