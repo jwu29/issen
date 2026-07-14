@@ -104,6 +104,16 @@ fn hardcoded_keys() -> BTreeSet<String> {
     keys.insert(
         r"sweep:\Users:AppData\Local\Microsoft\Edge\User Data\Default:suffix:History".to_string(),
     );
+    // Browser session/tab restore (SNSS): collected via the browser SessionParser's
+    // disk_sources — the per-user Chrome/Edge `Default\Sessions\Session_*`/`Tabs_*`
+    // files. Same selector-is-the-source-of-truth rationale as History; no legacy const.
+    for vendor in [
+        r"AppData\Local\Google\Chrome\User Data\Default\Sessions",
+        r"AppData\Local\Microsoft\Edge\User Data\Default\Sessions",
+    ] {
+        keys.insert(format!(r"sweep:\Users:{vendor}:prefix:Session"));
+        keys.insert(format!(r"sweep:\Users:{vendor}:prefix:Tabs"));
+    }
     // $Recycle.Bin $R deleted-content files: collected via the Trash parser's
     // second disk_source (the $I index sibling gives the original path/size; the
     // $R holds the recovered content). No legacy const carried $R.

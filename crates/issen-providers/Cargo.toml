@@ -20,6 +20,7 @@ issen-aff4 = { workspace = true }
 issen-archive = { workspace = true }
 issen-ad1 = { workspace = true }
 issen-dd = { workspace = true }
+issen-dmg = { workspace = true }
 issen-ewf = { workspace = true }
 issen-iso = { workspace = true }
 issen-qcow2 = { workspace = true }

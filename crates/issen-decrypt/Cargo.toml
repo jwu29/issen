@@ -1,0 +1,26 @@
+[package]
+name = "issen-decrypt"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license = "Apache-2.0"
+description = "Full-disk-encryption bridge for Issen: credential-agnostic detect + unlock (BitLocker/LUKS/VeraCrypt/FileVault) yielding a decrypted DataSource"
+repository.workspace = true
+
+[lib]
+name = "issen_decrypt"
+path = "src/lib.rs"
+
+[dependencies]
+issen-core     = { workspace = true }
+bitlocker-core = { workspace = true }
+luks-core      = { workspace = true }
+veracrypt-core = { workspace = true }
+filevault-core = { workspace = true }
+thiserror      = { workspace = true }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+sha2 = { workspace = true }

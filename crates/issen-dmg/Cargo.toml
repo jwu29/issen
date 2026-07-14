@@ -1,0 +1,25 @@
+[package]
+name = "issen-dmg"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license = "Apache-2.0"
+description = "Apple Disk Image (DMG/UDIF) container reader for the Issen forensic pipeline"
+repository.workspace = true
+
+[lib]
+name = "issen_dmg"
+path = "src/lib.rs"
+
+[dependencies]
+issen-core   = { workspace = true }
+issen-unpack = { workspace = true }
+inventory    = { workspace = true }
+dmg-core     = { workspace = true }
+thiserror    = { workspace = true }
+
+[dev-dependencies]
+tempfile     = { workspace = true }
+
+[lints]
+workspace = true
