@@ -702,6 +702,27 @@ checksums is Apple-authored.
 Generators (verbatim) + captured oracle output in `apfs-forensic/tests/data/README.md`; consumed by
 `apfs-forensic/core/tests/{object,container,checkpoint,container_open,omap,btree,btree_descend,volume_resolve,volume,fsrecord,inode,dir,extent,compression,xattr}.rs`.
 
+### C12 · btrfs-forensic — `tests/data/btrfs_superblock.bin` (4 KiB, committed) + gitignored 512 MiB image · REAL-self ✓
+btrfs P0 superblock fixture minted on Parallels "Ubuntu 24.04 (with Rosetta)" (`btrfs-progs v6.6.3`):
+`dd if=/dev/zero of=btrfs.img bs=1M count=512`; `mkfs.btrfs -f -L BTRFS_ORACLE --csum crc32c btrfs.img`;
+loop-mounted and populated with 3 known files (`small.txt`, `mid.bin` 64 KiB, `dir/sub/leaf.txt`),
+`sync`, unmounted. The committed **`btrfs_superblock.bin`** (MD5 `812c99bb8ddd898a011abcd3ac5c3bbe`)
+is the 4096-byte block at physical offset 0x10000 (`dd skip=65536 count=4096`); the full 512 MiB
+`btrfs.img` (MD5 `58cc07f6e3e7f950152e03ee71330477`) is **gitignored** (`/tests/data/*.img`) and
+consumed env-gated via `BTRFS_ORACLE_IMG`.
+- **Independent oracle = `btrfs inspect-internal dump-super -f`** (btrfs-progs, a different impl from
+  our reader), captured verbatim in `tests/data/btrfs.dump-super.txt`. **P0** asserts every field:
+  magic `_BHRfS_M`@0x40, csum_type 0(crc32c) + csum `0xd9136f60` `[match]`, fsid
+  `fe9599cb-e209-4d5c-b734-642c457fbc01`, generation 9, root(logical) 30720000, chunk_root 22036480,
+  sectorsize 4096, nodesize 16384, total_bytes 536870912, bytes_used 212992, num_devices 1,
+  incompat_flags 0x361, and the `sys_chunk_array` bootstrap (one SYSTEM|DUP entry, key
+  (256,228,22020096), 2 stripes @22020096/30408704, single-device DUP logical→physical map). Scalar
+  offsets were **verified byte-for-byte against dump-super** (the +0x18-shifted draft offsets in the
+  task brief, missing `log_root_transid`, were corrected). `btrfs.chunk-tree.txt`
+  (`dump-tree -b 22036480`) is committed as the **P1** chunk-tree walk oracle (deferred phase).
+Generators (verbatim) + dump-super ground truth in `btrfs-forensic/tests/data/README.md`; consumed by
+`btrfs-forensic/core/tests/superblock.rs`. (Repo `~/src/btrfs-forensic` is LOCAL-ONLY at P0.)
+
 ---
 
 ## D. Log / memory / application-artifact corpora
