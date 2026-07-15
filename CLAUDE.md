@@ -317,6 +317,7 @@ the migrated analyzers and `forensicnomicon::report` to aggregate findings into 
 
 **Naming / imports:**
 - If the bare `<x>` crate name is taken on crates.io by a third party we can co-exist with safely (obscure/ours), publish `<x>-core` with `[lib] name = "<x>"` so consumers write `use <x>::…`. If the bare name is a *popular* crate (e.g. `ntfs` = Colin Finck's), do **not** hijack the import — keep `<x>_core` (ntfs-core imports as `ntfs_core`).
+- **If `<x>-core` itself is taken** on crates.io by an *unrelated* third party (e.g. `zfs-core` = the `libzfs_core` FFI bindings), the reader publishes under the **`<repo>-core` form — `<x>-forensic-core`** — mirroring the generic-word `browser-forensic-core` case (self-describing on crates.io as "the core of the `<x>-forensic` suite"). Keep the import path `<x>_core` via `[lib] name = "<x>_core"` so consumers are unaffected; the analyzer stays `<x>-forensic`. (Reference: `zfs-forensic-core` reader + `zfs-forensic` analyzer.)
 - Reader = `<x>-core`, analyzer = `<x>-forensic`. Always.
 
 **Coverage gate:** each crate keeps 100% line coverage (`cargo llvm-cov --lib`, fail on any `DA:n,0`) **except lines annotated `// cov:unreachable`**. The analyzer's `audit_record`-style entry points are tested end-to-end (build a valid record, drive parse→extract→audit), not just the component helpers.
