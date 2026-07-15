@@ -74,4 +74,19 @@ Beneath those, the same **helpers are copy-pasted across the reader crates**: ne
 
 ## What collapsing these unlocks
 
-Hotspots 3, 6, 7, 8, 11 all dissolve by **retiring the standalone `forensic-vfs-engine` and rebasing `disk-forensic` onto `forensic-vfs`** (the Phase 0–3 work in the plan). Hotspots 1, 2, 5, 9 are **independent, low-risk wins** — a `forensic-bytes` crate, a `forensic-vfs` `ArchiveFs` base + `map_err!`/`PoisonMutex`, and routing date/hex/GUID through `forensicnomicon` — that can proceed in parallel with the architectural consolidation and immediately shrink every reader crate.
+Hotspots 3, 6, 7, 8, 11 all dissolve by **retiring the standalone `forensic-vfs-engine` and rebasing `disk-forensic` onto `forensic-vfs`** (the Phase 0–3 work in the plan). Hotspots 1, 2, 5, 9 looked like independent low-risk wins — but executing them taught a sharper lesson (below).
+
+## Refined value assessment (learned by executing #1 and #5)
+
+**Not every "hotspot" is worth collapsing.** Dedup value scales with the *size × complexity × bug-risk* of the copied code — dedup is a backstop, not a target (fleet discipline). After doing the work:
+
+| Hotspot | Verdict | Why |
+|---|---|---|
+| **#1 byte readers** | **DONE — high value** | ~10 *exact* copies of bounds-checked readers; consolidating into the published **`safe-read`** crate even surfaced + fixed a real OOB panic (ntfs `carve.rs`, a DoS). This is what a worth-it dedup looks like. |
+| **#5 temporal** | **Do NOT force** | The five reader sites are **not exact copies** — each has legitimate per-format semantics (FAT clamping + 2-second granularity, ISO fields, NTFS nanosecond truncation, ZIP 100 ns). Only the trivial epoch arithmetic is shared. Forcing one API loses per-format behavior or bloats `timeglyph` with every rounding/precision/fallibility variant, and risks subtle timestamp bugs — the worst kind in forensics. Deliverable instead: a `timeglyph::secs` surface for seconds-callers + the jiff-panic fix. |
+| **#9 hex/GUID** | **Low value** | Tiny per-crate formatters (~5 lines each), near-zero bug risk. Consolidating = churn across ~10 crates for trivial code. Skip unless a fleet `forensic-fmt` impl crate is wanted for other reasons. |
+| **#2/#7 `ArchiveFs` base** | **Medium — deferred** | A real win for the ad1/dar/zip archive adapters, but it must live in `forensic-vfs` and those adapters depend on the *published* `forensic-vfs 0.1`, so it's entangled with re-cutting that crate. |
+
+**Organizing principle (from the fleet owner):** knowledge → `forensicnomicon` (the knowledge hub); *implementations* → dedicated crates (`timeglyph` temporal, `safe-read` bytes, …). So the fleet dedup is: *knowledge duplication → collapse into `forensicnomicon`; algorithm duplication → collapse into the implementation crate that owns it* — but only where the copies are genuinely the same algorithm, not per-format variants wearing a shared name.
+
+**Conclusion:** the remaining *worth-it* work is the **architectural consolidation** (retire the duplicate engine, rebase `disk-forensic`, wire the registry, the FUSE `FileSystem→inode` adapter) — large, multi-session, and entangled with the WIP `forensic-vfs/crates/engine` branch — *not* mechanically collapsing the remaining low-value copy hotspots.
