@@ -629,8 +629,52 @@ the runtime confirmation. Deliberately exclude pagefile and pcap.
 Reference implementations (both verified end-to-end): **`blazehash`** and **`disk-forensic`** —
 `.github/workflows/release.yml` is byte-identical between them except for the binary/crate name and
 the Homebrew dispatch `event-type`. Copy from one of those, then apply the rules below. This applies
-to **apps/CLIs** (the `*4n6` binaries, `blazehash`, GUI tools) — published *libraries* only need the
-`crate` job, not the binary/Homebrew/apt/winget channels.
+to **apps/CLIs** (the `*4n6` binaries, `blazehash`, GUI tools) — the `v*` tag drives their binaries +
+Homebrew/apt/winget. **Library *crate* publishing to crates.io is NOT done by the `release.yml` `crate`
+job — it is release-plz's job** (next subsection); a repo that is both a lib and a CLI runs both
+(release-plz publishes the lib crates on merge to `main`; the `v*` tag ships the binary).
+
+### Library crate publishing — release-plz (PR-based, BINDING fleet standard)
+
+Every repo that publishes **library crates** to crates.io uses **release-plz**, not a hand-cut version
+bump and not the `release.yml` `crate` job. release-plz watches `main`, computes per-crate SemVer bumps
+from conventional-commit types, and opens a **release PR** that edits the `Cargo.toml` versions + writes
+the `CHANGELOG`s; **merging that PR publishes** (a dependency-ordered `cargo publish`). The PR is not
+code review — for a solo dev it is the reviewable, one-click checkpoint before an *irreversible*
+crates.io publish (versions yank-but-never-delete; names claimed forever), and it hands you the
+changelog for free. Full mechanics live in the `release` skill (`~/.claude/skills/release.md` →
+"release-plz (PR-based library publishing)"); this section is the binding policy + lived gotchas.
+Reference (verified end-to-end): **`forensicnomicon`** — facade `1.7.0` + core `1.2.0` + data `1.3.0`
+all published via one release PR.
+
+**Adopt it in a library repo with:**
+1. **`.github/workflows/release-plz.yml`** — two jobs, both on push to `main`, SHA-pinned actions:
+   `release-plz-pr` (`command: release-pr`) opens/updates the PR; `release-plz-release`
+   (`command: release`) publishes any crate whose `Cargo.toml` version is ahead of crates.io. Copy
+   forensicnomicon's verbatim.
+2. **`release-plz.toml`** with `release_commits = "^(feat|fix|perf|refactor|doc|revert)"` — the allowlist
+   that kills the changelog-churn release loop (`chore`/`ci`/`test`/`style`/`build` never release) and
+   skips release-plz's own release commits. For every **non-published** workspace member (build/codegen
+   tools like forensicnomicon's `ingest`) set `release = false` + `publish = false`, **mirrored** in its
+   `Cargo.toml` (release-plz cross-checks the two).
+3. **`CARGO_REGISTRY_TOKEN`** — the same ORG-level secret the tag pipeline already uses (fleet-wide, no
+   per-repo setup); delete any repo-level shadow copy (the shadowing trap above).
+4. A **`CHANGELOG.md`** seed per published crate (release-plz appends to it).
+
+**Discipline & gotchas (all lived on the forensicnomicon cut):**
+- **Conventional-commit types drive the bump** — `feat`→minor, `fix`→patch, breaking→major; `test`/
+  `chore`/`docs`-only work rides along without cutting a release.
+- **Merge the release PR with a MERGE commit, NOT squash** — squash rewrites the version-bump commit
+  release-plz keys on.
+- **An API-changing `feat` must regenerate the `public-api/*.txt` baseline in the SAME release**, or the
+  `public-api` tripwire turns the release PR red:
+  `cargo public-api -p <crate> --all-features --omit blanket-impls,auto-trait-impls,auto-derived-impls > public-api/<crate>.txt`
+  (pin the tool to the version in `public-api.yml`).
+- **release-plz's per-crate tags (`<crate>-v X.Y.Z`) must NOT match `release.yml`'s bare `v*` trigger** —
+  otherwise a library publish rebuilds binaries. Keep the binary pipeline on `v*` only; the two are
+  decoupled by design.
+- **Verify the publish landed** on crates.io (independent oracle — the crates.io JSON API needs a
+  `User-Agent`), never from a green run alone.
 
 ### What one `v*` tag delivers
 
