@@ -1,94 +1,95 @@
-# Fleet VFS Consolidation — Lessons Learned & Refactoring Plan
+# Fleet VFS Migration & Handoff
 
-**Date:** 2026-07-15
-**Scope:** `forensic-vfs`, `disk-forensic`, `4n6mount`, `issen`, and the reader crates.
-**Status:** Plan. Nothing below is committed as a decision yet; sequencing and scope are open for review.
+**Updated:** 2026-07-16
+**Scope:** `forensic-vfs`, the reader crates, `disk-forensic`, `4n6mount`, `issen`.
+**Status:** Current-state handoff. The contract + adapter layer is largely built and partly published; this doc hands the **remaining migration** (engine reconciliation, reader vfs re-add, consumer integration, duplicate retirement) to the session that owns the engine + reader release train.
 
 ## Executive summary
 
-The fleet has grown **three parallel abstractions for "open evidence and read its file tree,"** built independently:
+`forensic-vfs` is the fleet's **single VFS contract layer** — four traits every evidence reader implements behind an optional `vfs` feature:
 
-1. **`forensic-vfs`** (published 0.1.0) — the intended, sound VFS *contracts* leaf (`ImageSource`/`VolumeSystem`/`ContainerDecoder`/`CryptoLayer`/`FileSystem` + a probe `Registry`), with an in-progress engine at `forensic-vfs/crates/engine` (`feat/engine`, v0.0.0) that composes them into `Vfs::open(path) → Evidence`. ~10 reader crates already implement its contracts behind a `vfs` feature.
-2. **`disk-forensic`** — a separate `Read+Seek`-based stack (`container::open`, `analyse_disk`, `layout`, `logical::open`) that re-implements container decode + MBR/GPT/APM parsing **outside** `forensic-vfs`, over the *same* underlying parser crates. Consumed by `issen` and by the duplicate engine below.
-3. **`~/src/forensic-vfs-engine`** (standalone, unpublished) — a second engine, same crate name as #1's engine, built on `disk-forensic` + a bespoke `ForensicFs` trait ported from `4n6mount`. This is a **duplicate** created in a session that skipped searching for prior art.
+- `ImageSource` (positioned-read byte source), `VolumeSystem` (partitions), `CryptoLayer` (FDE), `FileSystem` (node-addressed tree).
 
-**Target:** one stack. `forensic-vfs` contracts + one engine; every reader on the contracts; `disk-forensic` becomes a forensic *reporting/triage* layer over `forensic-vfs` (keeping its unique findings/live-disk/CLI); `4n6mount` and `issen` consume the one engine; the standalone duplicate is retired.
+All four contracts now have **production, Tier-1-validated leaf implementations**, and the contract crate is **published at 0.2.0**. What remains is not contract work — it's (a) finishing the reader vfs re-add now that 0.2.0 is live, (b) reconciling the engine, (c) the **consumer-integration migration**: move `4n6mount` and `disk-forensic` onto forensic-vfs and **retire the two duplicate stacks** (the standalone `~/src/forensic-vfs-engine` and disk-forensic's parallel `Read+Seek` decode).
 
-## Current state (who does what)
+## Shipped & live (verified on crates.io / in tree)
 
-> Full evidence-anchored duplication inventory (every site cited `crate/file:line`, ranked hotspots → canonical home): [`fleet-duplication-inventory.md`](./fleet-duplication-inventory.md). The table below is the summary.
+- **`forensic-vfs 0.2.0`** — published. Additive over 0.1.0: `CryptoScheme::VeraCrypt`, `SeekPoolSource`, `SourceView` tail-magic helpers.
+- **`veracrypt-core 0.2.1`** — published; the `VeraCryptLayer` CryptoLayer adapter (vfs feature, dep `forensic-vfs 0.2`), merged to `main`.
+- **All 4 contracts covered:** ImageSource (7 containers: ewf/qcow2/vmdk/vhdx/dmg/vhd/aff4), VolumeSystem (GPT/MBR/APM), CryptoLayer (BitLocker/FileVault/VeraCrypt/LUKS — all decrypt-validated against real dfVFS/cryptsetup images via audited RustCrypto, no hand-rolled crypto), FileSystem (13: ntfs, fat+exFAT, ext4, apfs, hfsplus, xfs, iso9660, udf, zip, ad1, dar, btrfs).
+- **5 readers published v0.1.0 WITHOUT vfs** (deferred): `xfs-core`, `btrfs-core`, `zfs-forensic-core`, `ufs-core`, `refs-core` — cores live, repos tagged `v0.1.0`.
+- **`safe-read`** (panic-free-by-construction bounded readers) and **`forensic-vfs-mount`** (`MountFs`, the FileSystem→u64-inode adapter) — built.
+- **Docs:** the universal-reader paper (in forensic-vfs 0.2.0), PRD + 7 ADRs, README.
+- **README wording convention:** input-fuzzed = the headline/badge word; "panic-free" only as the qualified static half ("panic-free by lint") — codified in `issen/CLAUDE.md`, swept across 25 fleet READMEs.
 
-| Layer | `forensic-vfs` (+ engine) | `disk-forensic` | `~/src/forensic-vfs-engine` (dup) | `issen` | `4n6mount` |
-|---|---|---|---|---|---|
-| Container decode (E01/VMDK/…) | `ContainerDecoder`→`ImageSource` (EWF in-crate; VHD/VHDX/QCOW2/VMDK/DMG decoders live **in the engine crate**) | `container::open`→`OpenedImage{Read+Seek}` | uses `disk-forensic` | uses `disk-forensic` | via the dup engine |
-| Partition/volume (MBR/GPT/APM) | `VolumeSystem`/probes (in the engine) | `analyse_disk`→`DiskReport` + `layout` | its own `PartitionedFs`+`SlicedReader` | uses `disk-forensic` | via the dup engine |
-| Filesystem read | `FileSystem`/`DynFs` (ext4/ntfs/apfs/hfs/iso/fat+exfat/xfs/udf/dar/ad1) | `logical::open` (AD1/AFF4-L/DAR) | its own `ForensicFs` + 10 backends | `ntfs-core` directly + readers | via the dup engine |
-| Mount / triage / timeline | — (contracts only) | findings + report + live-disk + `disk4n6` CLI | — | triage + timeline + `issen` CLI | FUSE/Dokan + session overlay |
+## Done-but-unmerged adapters (on feature branches; dep already-published forensic-vfs; unsigned)
 
-Underlying parser crates (`mbr`/`gpt`/`apm-partition-*`, `ewf`/`vmdk`/`qcow2`/`vhdx`/`dmg`/`aff4`/`ad1`/`dar`) are the **same** under both #1 and #2 — the duplication is in the *facades*, not the parsers.
+Each is RED/GREEN, Tier-1 validated, ready to merge → re-sign → publish (like veracrypt):
 
-## Lessons learned (this session)
+| Contract | Crate | Branch |
+|---|---|---|
+| ImageSource | vhd-core | `feat/vhd-imagesource` |
+| ImageSource | aff4 (test-only→prod) | `feat/aff4-imagesource-production` |
+| VolumeSystem | gpt / mbr / apm-partition-core | `feat/{gpt,mbr,apm}-volumesystem` |
+| FileSystem | btrfs-core | `feat/btrfs-filesystem` |
+| CryptoLayer | bitlocker / filevault / luks-core | `feat/{bitlocker,filevault,luks}-cryptolayer` |
 
-1. **Research-first / DRY-via-search-first is non-negotiable, and I violated it repeatedly.** The standalone `forensic-vfs-engine` duplicated an existing in-progress crate *down to its name*; the "exFAT/zip/tar/7z have no fleet crate" claim was false (exFAT is in `fat-core`, `zip-forensic` exists) — asserted twice without running `ls ~/src`. **Rule: before building or claiming a crate/abstraction is absent, grep `~/src` and crates.io and say what was found.** A crate literally named `forensic-vfs`**-engine** was the signal I ignored.
-2. **Verify existence in the same breath as the claim.** "No fleet equivalent" from an earlier audit was repeated as fact. Audits summarize; they don't excuse a same-response `ls`/`grep` check before a factual assertion.
-3. **Hold on irreversible actions was correct and load-bearing.** Declining to `cargo publish` the (turns-out-duplicate) crate kept a permanent mistake off crates.io. Irreversible + outward-facing ⇒ explicit human authorization, every time.
-4. **Naming is architecture.** Two crates named `forensic-vfs-engine` is the tell. Reserve/registry crate names fleet-wide before creating a new one.
-5. **Salvage is real but partial.** Genuinely useful outputs survived: the AD1 `FileSystem` adapter (now in `ad1-core`, on-contract), the `disk-forensic` DAR backend + `ReadSeek: Send`, the tier-1 GPT+exFAT validation harness, and the `4n6mount` thinning *direction*. The bespoke `ForensicFs`/`SlicedReader`/`PartitionedFs` are superseded by `FileSystem`/`SubRange`/`VolumeSystem`.
-
-## Target architecture
+## Target architecture (unchanged, still the north star)
 
 ```mermaid
 flowchart TD
-    A["adapters::FileSource / SegmentSet<br/>(one open path; multi-segment handled once)"] --> B["ImageSource (DynSource)"]
-    B --> C["ContainerDecoder<br/>E01/VMDK/QCOW2/VHDX/DMG"]
+    A["adapters::FileSource / SeekPoolSource / SubRange"] --> B["ImageSource (DynSource)"]
+    B --> C["container readers: E01/VMDK/QCOW2/VHDX/DMG/VHD/AFF4"]
     C --> B
-    B --> D["VolumeSystem<br/>MBR/GPT/APM/VSS/APFS-store"]
+    B --> D["VolumeSystem: MBR/GPT/APM"]
     D --> B
-    B --> E["FileSystem (DynFs)<br/>ext4/ntfs/apfs/hfs/iso/fat/xfs/udf/dar/ad1/zip/tar/7z"]
-    F["forensic-vfs engine<br/>Vfs::open(path) → Evidence"] --> C
+    B --> K["CryptoLayer: BitLocker/LUKS/FileVault/VeraCrypt"]
+    K --> B
+    B --> E["FileSystem: ntfs/ext4/apfs/hfs/iso/fat/xfs/udf/zip/ad1/dar/btrfs/…"]
+    F["forensic-vfs engine (crates/engine)<br/>Vfs::open(path) → Evidence"] --> C
     F --> D
+    F --> K
     F --> E
     F --> G["issen: triage + timeline"]
-    F --> H["4n6mount: FUSE/Dokan mount adapter"]
-    F --> I["disk-forensic: findings + report + live-disk + CLI"]
+    F --> H["4n6mount: FUSE/Dokan via MountFs"]
+    F --> I["disk-forensic: findings + report + live-disk + disk4n6 CLI"]
 ```
 
-One engine composes the contracts; `issen`, `4n6mount`, and `disk-forensic` become **consumers** of it, each keeping only its unique top layer.
+One engine composes the contracts; `issen`, `4n6mount`, `disk-forensic` become **consumers**, each keeping only its unique top layer. Retire the standalone `forensic-vfs-engine` and disk-forensic's parallel decode.
 
-## Refactoring plan (sequenced — each step unblocks the next)
+## Remaining work — sequenced (each unblocks the next)
 
-**Phase 0 — Stop the bleeding (cheap, do first).**
-- Retire the standalone `~/src/forensic-vfs-engine` (do not publish). Salvage its on-contract pieces into the fleet (AD1 done). Record this decision as an ADR.
-- Reserve the `forensic-vfs-engine` crate name for the in-repo engine only.
+**Phase A — Reconcile the engine (BLOCKER; unblocks everything).**
+The forensic-vfs workspace currently does not resolve: `crates/engine` deps `xfs = { …, features = ["vfs"] }` (`crates/engine/Cargo.toml:17`) but `xfs-core` archived its `vfs` feature to publish first. Bring the engine's vfs deps back into lockstep with the readers' vfs re-add, or the workspace stays red (and `cargo publish -p forensic-vfs` needed the member temporarily excluded — see note below).
 
-**Phase 1 — Stabilize `forensic-vfs` (foundation; unblocks everything).**
-- Relocate the `VHD`/`VHDX`/`QCOW2`/`VMDK`/`DMG` `ContainerDecoder` impls out of `crates/engine` into each reader crate's `vfs` feature (mirroring EWF's in-crate `impl ImageSource`), so consumers depend on stable reader crates, not the WIP engine.
-- Add the **unified multi-segment source** layer to `forensic-vfs` adapters: a segment locator (first-segment path → ordered siblings for `.E01/.E02`, `.ad1/.ad2`, `.001/.002`) + a `ConcatSource`/source-set, so every reader opens from a `DynSource` and no reader globs the filesystem itself. Rebase AD1/EWF's path-open onto it.
-- Wire the engine's `default_registry()` (currently empty) with all container/volume/filesystem probes; get `Vfs::open` green on a real corpus.
+**Phase B — Re-add vfs to the 5 readers now that `forensic-vfs 0.2` is live.**
+The readers published v0.1.0 without vfs; their trees carry **no `vfs.rs`** except btrfs. Un-archive / write each `FileSystem` adapter (dep `forensic-vfs = "0.2"`), bump to `0.1.1`, republish.
+- **btrfs** — adapter exists on `feat/btrfs-filesystem` (this session); re-point its dep to the published `btrfs-core` + `forensic-vfs 0.2`.
+- **xfs/zfs/ufs/refs** — vfs adapters are archived/not-in-tree. **Owner: the session that archived them.** (Only btrfs was written by the contract session.)
 
-**Phase 2 — Complete format coverage on the contracts.**
-- **Done:** ext4, ntfs, apfs, hfsplus, iso, fat (+exFAT), xfs, udf, dar, ad1, ewf.
-- **In progress:** `zip` `FileSystem` adapter in `zip-forensic-core` (`vfs.rs`, mirroring dar/ad1).
-- **New crates needed:** `tar-forensic` (.gz/.bz2) and `sevenz-forensic` (.7z) — the only formats with no fleet crate — each a `*-core` reader + a `FileSystem` adapter.
+**Phase C — Merge + publish the done-but-unmerged adapters** (the table above), each `dep forensic-vfs 0.1/0.2`.
 
-**Phase 3 — Reconcile `disk-forensic`.**
-- Re-express `disk-forensic`'s middle on `forensic-vfs`: `container::open`→`ImageSource`, `analyse_disk`/`layout`→`VolumeSystem`, `logical::open`→`FileSystem` (readers already implement these). Keep its unique top — findings/report, the live-disk unified `PhysicalDisk` presentation, `disk4n6` CLI, AD1 (now `ad1-core`'s `Ad1Vfs`).
-- Net: `disk-forensic` becomes the forensic *reporting/triage* layer over the fleet VFS, not a parallel decode stack.
+**Phase D — Consumer integration (the "usable end-to-end" arc; retires the duplicates).**
+- **`4n6mount`** currently forwards to the standalone `~/src/forensic-vfs-engine` (feature flags `forensic-vfs-engine/ntfs`, `/ext4`, …). Rewire it onto the **canonical `crates/engine` + `MountFs`** (the FileSystem→inode adapter is already built in `forensic-vfs-mount`), then delete the standalone-engine dependence.
+- **`disk-forensic` (disk4n6)** has **no forensic-vfs dep** — re-express its middle on the contracts (`container::open`→`ImageSource`, `analyse_disk`/`layout`→`VolumeSystem`, `logical::open`→`FileSystem`), keeping its unique top (findings/report/live-disk/CLI). It becomes the reporting/triage layer over the VFS, not a parallel decode stack.
+- **Retire the standalone `forensic-vfs-engine`** once 4n6mount is off it (task: do-not-publish the duplicate).
+- **tar/7z** — new `*-core` reader crates + `FileSystem` adapters (logic currently lives in the standalone engine on the old `ForensicFs` trait); the only formats with no fleet crate.
 
-**Phase 4 — Consumers adopt the engine.**
-- **`4n6mount`:** build the missing `FileSystem → FUSE/inode` mount adapter (map `u64 ↔ FileId`, loop `read_at` for whole-file/ranged reads, interior mutability for `fuser`), then mount over `Vfs::open`. Delete its dependence on the retired standalone engine's `ForensicFs`.
-- **`issen`:** move triage + timeline onto `Vfs::open`/`DynFs` (bump off `disk-forensic 0.9`'s direct container/reader use to the engine), keeping its orchestration/timeline/report layers. This is the biggest consumer change and should follow Phases 1–3.
+**Cleanup.** Re-sign the unsigned session commits and push/merge (checklist below).
 
-## Gaps that need a decision (not just implementation)
+## Ownership (two sessions)
 
-- **`FileSystem → FUSE/inode` adapter home** — in the engine, in `4n6mount`, or a small shared `forensic-vfs-fuse` crate? Nothing provides it today.
-- **`tar`/`7z` crate creation** — confirm the `*-forensic` crate pattern (vs. folding into one `archive-forensic`).
-- **`disk-forensic`'s future identity** — first-class reporting/triage tool over `forensic-vfs`, or fold its unique bits into `issen`/`forensicnomicon` and retire it?
-- **CryptoLayer** — `forensic-vfs` defines `CryptoProbe`/`CryptoLayer` but no crate implements BitLocker/LUKS/FileVault; a gap if FDE handling is in scope.
+- **Contract/adapter session (this one):** built the four contracts' adapters + published `forensic-vfs 0.2.0` and `veracrypt-core 0.2.1`. Done. Remaining owned bits: merge/publish the done adapters (Phase C), btrfs vfs re-point (Phase B).
+- **Engine/release session (handed over here):** owns `crates/engine`, the 5 readers + their vfs re-add (Phase B for xfs/zfs/ufs/refs), the reconciliation (Phase A), and the consumer-integration migration (Phase D). **This doc hands the migration to that session.**
 
-## Done this session (on-contract, verified)
+## Key facts / gotchas for whoever executes
 
-- `ad1-core`: `impl forensic_vfs::FileSystem for Ad1Vfs` (`vfs` feature), TDD, 48 tests, merged to `main`.
-- `zip-forensic-core`: `FileSystem` adapter in progress (TDD).
-- `disk-forensic`: DAR logical backend + `ReadSeek: Send` (0.11.0, unpublished) — value depends on the Phase 3 reconciliation.
-- Tier-1 validation harness (`scripts/mint-partfs-fixture.sh`: real GPT + real exFAT read end-to-end) — reusable regardless of consolidation.
+- **Publishing forensic-vfs while the engine is red:** `crates/core` has zero engine/reader deps, so it was published by temporarily setting `members = ["crates/core"]` in the workspace root (reverted after). Once Phase A lands, publish cleanly without that.
+- **Version discipline:** `forensic-vfs 0.2.0` and `veracrypt-core 0.2.1` are taken; any republish needs a bump. `veracrypt-forensic` is `0.2.1` locally but `0.2.0` on crates.io (no functional change — vfs is core-only); republish for lockstep or leave.
+- **No hand-rolled crypto:** every CryptoLayer adapter wires the reader crate's audited RustCrypto; validated against real images (dfVFS `bdetogo.raw`/`fvdetest`, cryptsetup-minted LUKS, staged VeraCrypt cascades). Keep that bar.
+- **`MountFs`** (`forensic-vfs-mount`) is the ready FileSystem→FUSE/inode building block for the 4n6mount rewire.
+- **Unsigned session commits to re-sign** (`git rebase --exec 'git commit --amend --no-edit -S' <base>`): the `feat/*` adapter branches (gpt/mbr/apm/vhd/aff4/btrfs/bitlocker/filevault/luks), `veracrypt-forensic main`, and `forensic-vfs feat/engine` (⚠️ shared — coordinate before rewriting its history).
+
+## Superseded
+
+The bespoke `ForensicFs`/`SlicedReader`/`PartitionedFs` in the standalone engine are superseded by `FileSystem`/`SubRange`/`VolumeSystem`. The evidence-anchored duplication inventory is [`fleet-duplication-inventory.md`](./fleet-duplication-inventory.md).
