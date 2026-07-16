@@ -2,7 +2,7 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
+    tags: ["v[0-9]*"]
   # Manual trigger to test-build the binaries (incl. the heavy Windows MSI)
   # without publishing — the publish jobs below only run on tag pushes.
   workflow_dispatch:
