@@ -447,10 +447,18 @@ Redistribution: freely available for research; cite loghub (Zhu et al., ISSRE 20
 
 ## B. Disk-image / container-format fixtures
 
-### B1 · qcow2-forensic — `core/tests/data/cirros-0.6.3-x86_64-disk.img` (21 MB) · REAL-ext ✓
-CirrOS 0.6.3. Also synthetic qemu-img variants (backing file, snapshot, encryption) per
-`docs/validation.md`. Redistribution: CirrOS permissive.
+### B1 · qcow2-forensic — `tests/data/cirros-0.6.3-x86_64-disk.img` (21 MB) · REAL-ext ✓
+CirrOS 0.6.3 (repo-root `tests/data/`). Redistribution: CirrOS permissive.
 **Download:** <https://download.cirros-cloud.net/0.6.3/cirros-0.6.3-x86_64-disk.img>.
+**CI coverage is driven from committed bytes only** — every reader feature branch
+(compressed clusters, unallocated/zero clusters, seek variants, refcount widths
+1/2/4/8/16/32/64-bit, snapshot edge cases, header rejection arms) is exercised by
+**in-code synthetic QCOW2 byte buffers** (no committed `.qcow2` files, no `qemu-img`);
+builders: `testutil::test_qcow2`, `lib.rs::compressed_qcow2`/`qcow2_header_bytes`,
+`refcount.rs::build_order`/`build`, `snapshots.rs::header`/`entry`, `header.rs::build`/`ext`
+(see `tests/data/README.md`). The `qemu-img` differential + snapshot/backing/encryption
+variants (`core/tests/real_images.rs`, `docs/validation.md`) remain the env-gated **Tier-1
+correctness** path and do NOT drive the coverage gate.
 
 ### B2 · ewf-forensic — `tests/data/` · SYNTHETIC + VENDORED ✓
 Synthetic E01/Ex01 built with `ewfacquire`, exact recipes in `tests/data/README.md`:

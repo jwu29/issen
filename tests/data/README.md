@@ -182,6 +182,65 @@ test; CI skips when absent — these files are gitignored and downloaded manuall
 - **Redistribution:** Josh Hickman's public research images — free for research/testing, attribution.
   Belongs to **issen** (large, gitignored); `sqlite-forensic` reads it in place via the env var.
 
+### josh-hickman-android10/
+
+Real Android 10 device data — Josh Hickman's public **Pixel 3** research image (the Android
+counterpart to his iOS series), hosted on **Digital Corpora** under the **AWS Open Data
+Sponsorship** program (freely redistributable). It carries a genuine **WhatsApp `msgstore.db`**
+with a live WAL, used by **`timeglyph`** as a **redistributable tier-1 timestamp oracle**: WhatsApp
+stores message times as Unix-milliseconds, and the decoded dates fall in the image's Feb 2020
+capture window. This replaces the previously-used unlicensed `msgstore.db` fixture.
+
+- **Source:** Josh Hickman (The Binary Hick), Android 10 Pixel 3 public research image, published on
+  **Digital Corpora**. Blog: <https://thebinaryhick.blog/> (Android image series). The Digital Corpora
+  S3 bucket is public under the **AWS Open Data Sponsorship** program.
+- **Original download:** <https://digitalcorpora.s3.amazonaws.com/corpora/mobile/android_10/Non-Cellebrite%20Extraction/Pixel%203.zip>
+  (verified: served the exact 5,247,820,897-byte object; a full file-system pull, not a Cellebrite container).
+- **File:** `android10-pixel3-fs.zip` (4.89 GB / 5,247,820,897 bytes; valid zip, 76,408 entries).
+  - **SHA-256:** `ca6918ef8b20486b6a5ded15609ac51318f377829480f93be3ba15364a8aa00a`
+  - **MD5:** `9cc37ebbbc4e918ee5427de1fe1deecc`
+- **Key artifact:** `Pixel 3/data/data/com.whatsapp/databases/msgstore.db` (804 KB) + live `-wal`/`-shm`
+  sidecars — a real WhatsApp message store (legacy `messages` table, 19 rows, Unix-ms `timestamp`).
+  - `msgstore.db` **SHA-256:** `9e133d7262f526b1dab7313f636a1a3f32984d8008310a1a699c83496dd13105`
+  - `msgstore.db` **MD5:** `9313bcb2d92c3249aff3c20ad8a2ab7a`
+- **Use case (`timeglyph`):** real-world WhatsApp `msgstore.db` timestamps as a tier-1 decoding oracle —
+  e.g. `1581271502890` → timeglyph ranks `unix_ms` = `2020-02-09T18:05:02.89Z`, consistent with the
+  image's capture window. Extract the DB (+ WAL/SHM) to `/tmp` (never under `~/src`) and point the
+  env-gated test there.
+- **Redistribution:** Digital Corpora / AWS Open Data — free for research/testing with attribution.
+  Belongs to **issen** (large, gitignored); `timeglyph` reads it in place via an env var.
+
+### josh-hickman-ios13/
+
+Real iOS 13.3.1 device data — Josh Hickman's public research image, hosted on **Digital Corpora**
+under the **AWS Open Data Sponsorship** program (freely redistributable). It carries a genuine
+**WhatsApp `ChatStorage.sqlite`**, the iOS counterpart to the Android `msgstore.db` in
+`josh-hickman-android10/`. WhatsApp on iOS stores `ZWAMESSAGE.ZMESSAGEDATE` as **Cocoa /
+CFAbsoluteTime** (seconds since 2001) — a different epoch/format family from Android's Unix-ms — so
+this is the real-data oracle for **`timeglyph`**'s `cocoa`/`iostime` decoders.
+
+- **Source:** Josh Hickman (The Binary Hick), iOS 13.3.1 public research image, published on
+  **Digital Corpora**. Blog: <https://thebinaryhick.blog/> (iOS image series). The Digital Corpora
+  S3 bucket is public under the **AWS Open Data Sponsorship** program.
+- **Original download:** <https://digitalcorpora.s3.amazonaws.com/corpora/mobile/ios_13_3_1/ios_13_3_1.zip>
+  (verified: served the exact 8,927,183,592-byte object).
+- **File:** `ios_13_3_1.zip` (8.31 GB / 8,927,183,592 bytes; valid zip). Unpacks to a **16.3 GB
+  `iOS 13.3.1 Extraction/Extraction/13-3-1.tar`** full file-system image, plus an iTunes backup and
+  sysdiagnose logs.
+  - **SHA-256:** `f194e8bbfb950a5a31d5308e8131a14ec602f12d6a3d9f2841d15f47d34b2643`
+  - **MD5:** `6641ce1395d392661921cb0ca321e4b7`
+- **Key artifact:** inside the tar at
+  `…/private/var/mobile/Containers/Shared/AppGroup/BAF442BF-69A8-4336-86BC-37604B5C9A7C/ChatStorage.sqlite`
+  (336 KB) — a real WhatsApp message store (`ZWAMESSAGE` table, Cocoa `ZMESSAGEDATE`).
+  - `ChatStorage.sqlite` **SHA-256:** `e5f6559b278cc219eff09ae9b8303a69aab3a751c8ee35b8d154496ae830f4a9`
+  - `ChatStorage.sqlite` **MD5:** `8a597e2c9aa5e024661bd56ce5eef4a6`
+- **Use case (`timeglyph`):** real-world WhatsApp `ChatStorage.sqlite` timestamps as a tier-1 decoding
+  oracle for the Cocoa family — e.g. `608322295` → timeglyph ranks `cocoa` = `2020-04-11T18:24:55Z`,
+  consistent with the image's April 2020 creation. Stream just `ChatStorage.sqlite` out of the tar to
+  `/tmp` (never under `~/src`): `unzip -p ios_13_3_1.zip "*/13-3-1.tar" | tar xf - -C /tmp/ios13-whatsapp '*ChatStorage.sqlite*'`.
+- **Redistribution:** Digital Corpora / AWS Open Data — free for research/testing with attribution.
+  Belongs to **issen** (large, gitignored); `timeglyph` reads it in place via an env var.
+
 ### Root (self-collected, no challenge affiliation)
 
 #### Collection-A380_localdomain-2025-08-10T03_41_20Z.zip (2.2 GB)

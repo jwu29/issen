@@ -27,3 +27,6 @@ holds the standing conclusion.
 | [0008](0008-fail-loud-on-unsupported-filesystem.md) | Fail loud on an unsupported filesystem; never a silent empty result | Accepted |
 | [0009](0009-batteries-included-single-static-binary.md) | Batteries-included single static binary | Accepted |
 | [0010](0010-disk-forensic-as-disk-image-access-abstraction.md) | disk-forensic as the disk-image access abstraction (collapse per-format wrappers) | Proposed |
+| [0011](0011-consolidate-hash-lookup-on-forensic-hashdb.md) | Consolidate disk/scan hash lookup on forensic-hashdb | Accepted |
+| [0012](0012-default-pipeline-unifies-disk-and-memory-legs.md) | The default `issen <evidence>` pipeline unifies disk and memory legs into one timeline | Accepted |
+| [0013](0013-secure-by-default-decryption-credential-supply.md) | Secure-by-default credential supply for encrypted volumes (BitLocker/FileVault/LUKS) | Proposed |
