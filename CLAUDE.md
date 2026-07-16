@@ -670,9 +670,12 @@ all published via one release PR.
   `public-api` tripwire turns the release PR red:
   `cargo public-api -p <crate> --all-features --omit blanket-impls,auto-trait-impls,auto-derived-impls > public-api/<crate>.txt`
   (pin the tool to the version in `public-api.yml`).
-- **release-plz's per-crate tags (`<crate>-v X.Y.Z`) must NOT match `release.yml`'s bare `v*` trigger** —
-  otherwise a library publish rebuilds binaries. Keep the binary pipeline on `v*` only; the two are
-  decoupled by design.
+- **`release.yml`'s tag trigger MUST be `v[0-9]*`, never `v*`** — release-plz cuts per-crate library
+  tags `<crate>-vX.Y.Z`, and a crate whose name starts with `v` (fleet has `vhd`/`vhdx`/`vmdk`/`vsc`/
+  `veracrypt`/`volume-core`…) produces `v…-vX.Y.Z`, which the `v*` glob **wrongly matches** → a library
+  publish fires a binary build. `v[0-9]*` requires a digit right after `v`, which a `<name>-v…` tag never
+  has (a crate name's first char is a letter), so bare `vX.Y.Z` tags match and per-crate tags don't. Fix
+  any existing `release.yml` still on `v*` (the `blazehash`/`disk-forensic` reference workflows too).
 - **Verify the publish landed** on crates.io (independent oracle — the crates.io JSON API needs a
   `User-Agent`), never from a green run alone.
 
