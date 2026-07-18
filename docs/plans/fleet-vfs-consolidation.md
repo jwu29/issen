@@ -8,15 +8,15 @@
 
 `forensic-vfs` is the fleet's **single VFS contract layer** — four traits every evidence reader implements behind an optional `vfs` feature:
 
-- `ImageSource` (positioned-read byte source), `VolumeSystem` (partitions), `CryptoLayer` (FDE), `FileSystem` (node-addressed tree).
+- `ImageSource` (positioned-read byte source), `VolumeSystem` (partitions), `EncryptionLayer` (FDE), `FileSystem` (node-addressed tree).
 
 All four contracts now have **production, Tier-1-validated leaf implementations**, and the contract crate is **published at 0.2.0**. What remains is not contract work — it's (a) finishing the reader vfs re-add now that 0.2.0 is live, (b) reconciling the engine, (c) the **consumer-integration migration**: move `4n6mount` and `disk-forensic` onto forensic-vfs and **retire the two duplicate stacks** (the standalone `~/src/forensic-vfs-engine` and disk-forensic's parallel `Read+Seek` decode).
 
 ## Shipped & live (verified on crates.io / in tree)
 
 - **`forensic-vfs 0.2.0`** — published. Additive over 0.1.0: `CryptoScheme::VeraCrypt`, `SeekPoolSource`, `SourceView` tail-magic helpers.
-- **`veracrypt-core 0.2.1`** — published; the `VeraCryptLayer` CryptoLayer adapter (vfs feature, dep `forensic-vfs 0.2`), merged to `main`.
-- **All 4 contracts covered:** ImageSource (7 containers: ewf/qcow2/vmdk/vhdx/dmg/vhd/aff4), VolumeSystem (GPT/MBR/APM), CryptoLayer (BitLocker/FileVault/VeraCrypt/LUKS — all decrypt-validated against real dfVFS/cryptsetup images via audited RustCrypto, no hand-rolled crypto), FileSystem (13: ntfs, fat+exFAT, ext4, apfs, hfsplus, xfs, iso9660, udf, zip, ad1, dar, btrfs).
+- **`veracrypt-core 0.2.1`** — published; the `VeraCryptLayer` EncryptionLayer adapter (vfs feature, dep `forensic-vfs 0.2`), merged to `main`.
+- **All 4 contracts covered:** ImageSource (7 containers: ewf/qcow2/vmdk/vhdx/dmg/vhd/aff4), VolumeSystem (GPT/MBR/APM), EncryptionLayer (BitLocker/FileVault/VeraCrypt/LUKS — all decrypt-validated against real dfVFS/cryptsetup images via audited RustCrypto, no hand-rolled crypto), FileSystem (13: ntfs, fat+exFAT, ext4, apfs, hfsplus, xfs, iso9660, udf, zip, ad1, dar, btrfs).
 - **5 readers published v0.1.0 WITHOUT vfs** (deferred): `xfs-core`, `btrfs-core`, `zfs-forensic-core`, `ufs-core`, `refs-core` — cores live, repos tagged `v0.1.0`.
 - **`safe-read`** (panic-free-by-construction bounded readers) and **`forensic-vfs-mount`** (`MountFs`, the FileSystem→u64-inode adapter) — built.
 - **Docs:** the universal-reader paper (in forensic-vfs 0.2.0), PRD + 7 ADRs, README.
@@ -32,7 +32,7 @@ Each is RED/GREEN, Tier-1 validated, ready to merge → re-sign → publish (lik
 | ImageSource | aff4 (test-only→prod) | `feat/aff4-imagesource-production` |
 | VolumeSystem | gpt / mbr / apm-partition-core | `feat/{gpt,mbr,apm}-volumesystem` |
 | FileSystem | btrfs-core | `feat/btrfs-filesystem` |
-| CryptoLayer | bitlocker / filevault / luks-core | `feat/{bitlocker,filevault,luks}-cryptolayer` |
+| EncryptionLayer | bitlocker / filevault / luks-core | `feat/{bitlocker,filevault,luks}-cryptolayer` |
 
 ## Target architecture (unchanged, still the north star)
 
@@ -43,7 +43,7 @@ flowchart TD
     C --> B
     B --> D["VolumeSystem: MBR/GPT/APM"]
     D --> B
-    B --> K["CryptoLayer: BitLocker/LUKS/FileVault/VeraCrypt"]
+    B --> K["EncryptionLayer: BitLocker/LUKS/FileVault/VeraCrypt"]
     K --> B
     B --> E["FileSystem: ntfs/ext4/apfs/hfs/iso/fat/xfs/udf/zip/ad1/dar/btrfs/…"]
     F["forensic-vfs engine (crates/engine)<br/>Vfs::open(path) → Evidence"] --> C
@@ -86,7 +86,7 @@ The readers published v0.1.0 without vfs; their trees carry **no `vfs.rs`** exce
 
 - **Publishing forensic-vfs while the engine is red:** `crates/core` has zero engine/reader deps, so it was published by temporarily setting `members = ["crates/core"]` in the workspace root (reverted after). Once Phase A lands, publish cleanly without that.
 - **Version discipline:** `forensic-vfs 0.2.0` and `veracrypt-core 0.2.1` are taken; any republish needs a bump. `veracrypt-forensic` is `0.2.1` locally but `0.2.0` on crates.io (no functional change — vfs is core-only); republish for lockstep or leave.
-- **No hand-rolled crypto:** every CryptoLayer adapter wires the reader crate's audited RustCrypto; validated against real images (dfVFS `bdetogo.raw`/`fvdetest`, cryptsetup-minted LUKS, staged VeraCrypt cascades). Keep that bar.
+- **No hand-rolled crypto:** every EncryptionLayer adapter wires the reader crate's audited RustCrypto; validated against real images (dfVFS `bdetogo.raw`/`fvdetest`, cryptsetup-minted LUKS, staged VeraCrypt cascades). Keep that bar.
 - **`MountFs`** (`forensic-vfs-mount`) is the ready FileSystem→FUSE/inode building block for the 4n6mount rewire.
 - **Unsigned session commits to re-sign** (`git rebase --exec 'git commit --amend --no-edit -S' <base>`): the `feat/*` adapter branches (gpt/mbr/apm/vhd/aff4/btrfs/bitlocker/filevault/luks), `veracrypt-forensic main`, and `forensic-vfs feat/engine` (⚠️ shared — coordinate before rewriting its history).
 
