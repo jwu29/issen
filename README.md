@@ -69,7 +69,7 @@ No Python env. No dependency hell. One static binary.
 
 ---
 
-## The fleet
+## Components
 
 Issen is the thin orchestration layer wiring a family of standalone forensic libraries — each a deep, self-contained expert in one artifact family, independently usable in your own tooling. The whole fleet, grouped by the five navigation primitives, the shared knowledge leaves, and the `[H]` state-history functor:
 
@@ -268,7 +268,7 @@ Engineered to stay bounded at real-world scale — measured, not asserted:
 
 ## Ecosystem
 
-Issen is the thin correlation layer on top of a family of deep forensic libraries. Each library is independently usable in your own tooling.
+The full fleet is mapped in [Components](#components) above. These are the headline libraries a third party is most likely to `cargo add` directly:
 
 | Crate | Source | Layer | Description |
 |---|---|---|---|
@@ -276,75 +276,10 @@ Issen is the thin correlation layer on top of a family of deep forensic librarie
 | [state-history-forensic](https://github.com/SecurityRonin/state-history-forensic) | `[H]` | Knowledge | Zero-dep `[H]` functor traits: `HistoricalSource`, `TemporalCohort<H>`, `ClockProvenance`, multi-facet `ArtifactRef` |
 | [ewf](https://github.com/SecurityRonin/ewf) | [P] | Container | E01/EWF → raw sector stream with hash verification |
 | [ext4fs-forensic](https://github.com/SecurityRonin/ext4fs-forensic) | [P] | Filesystem | ext4 sector stream → files by path (name → inode → block) |
-| [4n6mount](https://github.com/SecurityRonin/4n6mount) | [P] | Filesystem | FUSE bridge — makes any container+filesystem pair look like a normal path |
 | [memory-forensic](https://github.com/SecurityRonin/memory-forensic) | [M] | Container + Paging + OS Structure | WinPMEM/LiME/hiberfil → page stream → VA→PA → EPROCESS/VAD/DPAPI |
 | [winevt-forensic](https://github.com/SecurityRonin/winevt-forensic) | [L] | Log Format + Parser | EVTX binary seek + BinXML decode → typed Windows EventRecord |
 | [browser-forensic](https://github.com/SecurityRonin/browser-forensic) | [P][M] | Parser | Chrome/Firefox/Safari history, cookies, downloads, bookmarks, session data |
 | [srum-forensic](https://github.com/SecurityRonin/srum-forensic) | [P][L] | Parser | ESE/JET Blue page walk → SRUM network/process/energy usage records |
-| issen-remote-access | [Q] | Query Engine | Live query dispatcher — Velociraptor VQL, LOLRMM 400+ tool definitions |
-| cas-forensic [planned] | [C] | CAS + Graph | git/OCI/IPFS hash-addressed object store → Merkle DAG navigation |
-| git-forensic [planned] | [C] | Graph + Parser | git commit/blob/tree forensics → supply chain provenance |
-| sigstore-forensic [planned] | [C] | Graph + Parser | Sigstore transparency log entries → artifact signing chain |
-
-<details>
-<summary>Full layer hierarchy</summary>
-
-```
-KNOWLEDGE
-  forensicnomicon        zero-dep, compile-time artifact specs, format constants
-  state-history-forensic zero-dep, [H] functor traits: HistoricalSource,
-                         TemporalCohort<H>, ClockProvenance, ArtifactRef, …
-
-CONTAINER              decode a raw source format → addressable data stream
-  ewf                  E01/EWF → raw sector stream
-  memf-format          memory dumps (WinPMEM, LiME, hiberfil.sys) → raw page stream
-  (log containers are integrated within each log-format crate)
-
-Five parallel paths from CONTAINER — each with its own address space
-and navigation primitive:
-
-[P] Persistent Storage        [M] Memory              [L] Log
-  navigate by: path             navigate by: PID        navigate by: timestamp
-  name → inode → block          PID → EPROCESS          timestamp → record → field
-                                → VA → PA
-
-  FILESYSTEM                    PAGING                  LOG FORMAT
-    ext4fs-forensic               memf-hw                 winevt-forensic (EVTX)
-    ntfs-forensic [planned]       PML4/PAE/AArch64        journal-forensic [planned]
-    apfs-forensic [planned]       OS STRUCTURE            tracev3-forensic [planned]
-    4n6mount (FUSE bridge)          memf-windows            zeek-forensic [planned]
-                                    EPROCESS, VAD           cloudtrail-src [planned]
-                                    DPAPI, DKOM
-                                    memf-linux [planned]
-
-[Q] Live Query                [C] Content-Addressed
-  navigate by: query            navigate by: hash
-  (endpoint, query, cursor)     hash → blob → content graph
-  → result rows
-
-  QUERY ENGINE                  GRAPH NAVIGATION
-    issen-remote-access           cas-forensic
-    velociraptor-parser           git-forensic [planned]
-    WQL / OSQuery [planned]       sigstore-forensic [planned]
-
-[H] State-History (cross-cutting functor — shared traits in state-history-forensic)
-  [P^H] vss-history [planned]            VSS shadow copies, Time Machine, btrfs
-  [P^H] apfs-snapshot-history [planned]  APFS snapshots
-  [M^H] mem-history [planned]            hiberfil chain, VMware memory snapshots
-  [L^H] log-history [planned]            journald sealed epochs, rotated logs
-  [Q^H] query-history [planned]          point-in-time osquery exports
-  [C^H] ≅ [C]                            git already encodes its own history (identity functor)
-
-PARSER                   interpret artifact records → forensic meaning
-  browser-forensic       browser artifact files / SQLite pages → BrowserEvent
-  winevt-forensic        EVTX records → EventRecord
-  srum-forensic          ESE page bytes → SrumRecord
-
-ORCHESTRATION
-  Issen            wires all five paths, cross-artifact correlation, CLI
-```
-
-</details>
 
 ---
 
