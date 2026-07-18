@@ -127,7 +127,7 @@ sweep now. Everything 0.4-worthy ships in this single cut, so the fleet sweep is
    (no-code Cargo.toml bump — traits unchanged) + republish.
 3. Leaf gains the **`ArchiveOpen` trait + `ArchiveContents` type** + a **resolver archive descent**;
    rename **all five layer traits to the `*Open` form** (container/archive/volume-system/encryption/
-   filesystem — the ~17 readers impl `FileSystemOpen`), unifying every layer on `probe() + open()`.
+   filesystem — the ~17 readers impl `FileSystemOpen`), unifying every layer on `probe() + open()`. Also `Registry`->`Openers` + `default_registry`->`default_openers`.
 4. **archive-core vfs adapter** — one `ArchiveOpen` (gz/bz2 → `Stream`, tar/zip/7z → `Members`) published + registered via `.archive(...)`.
 5. **forensic-vfs-engine** repoint: `use forensic_vfs_resolver::SourceOpen;` + deps on 0.4 leaf + resolver
    (path→registry), then `disk-forensic`/`4n6mount` drop their pre-resolver `peel_archive` on-ramp.
