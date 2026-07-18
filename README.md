@@ -89,7 +89,7 @@ Issen is the thin orchestration layer wiring a family of standalone forensic lib
 - [xpress-huffman](https://github.com/SecurityRonin/xpress-huffman) — Microsoft Xpress-Huffman ([MS-XCA]) decompressor · [lzo](https://github.com/SecurityRonin/lzo) — LZO1X · [lzvn](https://github.com/SecurityRonin/lzvn) — Apple LZVN · [elephant-diffuser](https://github.com/SecurityRonin/elephant-diffuser) — BitLocker Elephant Diffuser primitive
 
 **[P] Persistent storage — disk → files** (`name → inode → block`)
-- [forensic-vfs](https://github.com/SecurityRonin/forensic-vfs) — the read-only VFS contract every fleet reader implements (ImageSource → VolumeSystem → CryptoLayer → FileSystem)
+- [forensic-vfs](https://github.com/SecurityRonin/forensic-vfs) — the read-only VFS contract every fleet reader implements (ImageSource → VolumeSystem → EncryptionLayer → FileSystem)
 - [forensic-vfs-engine](https://github.com/SecurityRonin/forensic-vfs-engine) — one `Vfs::open(path)` that detects the whole stack; every reader compiled in
 - [disk-forensic](https://github.com/SecurityRonin/disk-forensic) — disk-image orchestrator (E01/VMDK/VHDX/VHD/QCOW2/DMG + MBR/GPT/APM)
 - [ewf-forensic](https://github.com/SecurityRonin/ewf-forensic) — EWF/E01 container reader + integrity/repair
@@ -115,7 +115,7 @@ Issen is the thin orchestration layer wiring a family of standalone forensic lib
 - *planned:* cas-forensic (git/OCI/IPFS), sigstore-forensic (transparency log)
 
 **Parsers — artifact records → forensic meaning** (medium-agnostic; accept `Path` or `&[u8]`)
-- *Windows execution & registry:* [winreg-forensic](https://github.com/SecurityRonin/winreg-forensic) — registry hives · [amcache-forensic](https://github.com/SecurityRonin/amcache-forensic) — Amcache.hve · [shimcache-forensic](https://github.com/SecurityRonin/shimcache-forensic) — AppCompatCache · [userassist-forensic](https://github.com/SecurityRonin/userassist-forensic) — UserAssist · [bam-forensic](https://github.com/SecurityRonin/bam-forensic) — BAM/DAM · [prefetch-forensic](https://github.com/SecurityRonin/prefetch-forensic) — Prefetch SCCA · [lnk-forensic](https://github.com/SecurityRonin/lnk-forensic) — .lnk shell links · [usnjrnl-forensic](https://github.com/SecurityRonin/usnjrnl-forensic) — USN Journal · [srum-forensic](https://github.com/SecurityRonin/srum-forensic) — SRUM · [ese-forensic](https://github.com/SecurityRonin/ese-forensic) — ESE/JET Blue DBs · [exec-pe-forensic](https://github.com/SecurityRonin/exec-pe-forensic) — PE executables · [dpapi-forensic](https://github.com/SecurityRonin/dpapi-forensic) — DPAPI decrypt
+- *Windows execution & registry:* [winreg-forensic](https://github.com/SecurityRonin/winreg-forensic) — registry hives · [amcache-forensic](https://github.com/SecurityRonin/amcache-forensic) — Amcache.hve · [shimcache-forensic](https://github.com/SecurityRonin/shimcache-forensic) — AppCompatCache · [userassist-forensic](https://github.com/SecurityRonin/userassist-forensic) — UserAssist · [bam-forensic](https://github.com/SecurityRonin/bam-forensic) — BAM/DAM · [prefetch-forensic](https://github.com/SecurityRonin/prefetch-forensic) — Prefetch SCCA · [lnk-forensic](https://github.com/SecurityRonin/lnk-forensic) — .lnk shell links · [srum-forensic](https://github.com/SecurityRonin/srum-forensic) — SRUM · [ese-forensic](https://github.com/SecurityRonin/ese-forensic) — ESE/JET Blue DBs · [exec-pe-forensic](https://github.com/SecurityRonin/exec-pe-forensic) — PE executables · [dpapi-forensic](https://github.com/SecurityRonin/dpapi-forensic) — DPAPI decrypt
 - *Databases & app storage:* [sqlite-forensic](https://github.com/SecurityRonin/sqlite-forensic) — SQLite carving · [leveldb-forensic](https://github.com/SecurityRonin/leveldb-forensic) — LevelDB / Chrome storage · [browser-forensic](https://github.com/SecurityRonin/browser-forensic) — Chrome/Firefox/Safari · [snss-forensic](https://github.com/SecurityRonin/snss-forensic) — Chromium session files · [cfb-forensic](https://github.com/SecurityRonin/cfb-forensic) — OLE/CFB compound files · [segb-forensic](https://github.com/SecurityRonin/segb-forensic) — Apple SEGB (Biome)
 - *Cross-platform artifacts:* [trash-forensic](https://github.com/SecurityRonin/trash-forensic) — trash / Recycle Bin ($I/$R) · [shellhist-forensic](https://github.com/SecurityRonin/shellhist-forensic) — shell command history · [usb-forensic](https://github.com/SecurityRonin/usb-forensic) — USB device history · [peripheral-forensic](https://github.com/SecurityRonin/peripheral-forensic) — external-device (setupapi) timeline · [atx-forensic](https://github.com/SecurityRonin/atx-forensic) — Apple ATX iOS image caches
 
@@ -128,6 +128,10 @@ Issen is the thin orchestration layer wiring a family of standalone forensic lib
 **Orchestration**
 - [issen](https://github.com/SecurityRonin/issen) — this repo: wires all five paths into one correlated timeline
 - [useract-forensic](https://github.com/SecurityRonin/useract-forensic) — user-activity meta-analyzer (merges shell history, peripheral, Biome, LNK/SRUM/UserAssist into one per-user timeline)
+
+**Deprecated** (retired to `ronin-issen/components/_deprecated`, source archived read-only)
+- [usnjrnl-forensic](https://github.com/SecurityRonin/usnjrnl-forensic) — USN Journal; parsing is consolidating into [ntfs-forensic](https://github.com/SecurityRonin/ntfs-forensic)
+- the standalone `ewf` repo — superseded; the `ewf` crate now ships from [ewf-forensic](https://github.com/SecurityRonin/ewf-forensic)
 - [livedisk-forensic](https://github.com/SecurityRonin/livedisk-forensic) — live block-device enumeration + acquisition-integrity forensics
 
 Acquisition & specialty tooling: [rapidcollect](https://github.com/SecurityRonin/rapidcollect) — evidence acquisition (web/social/Android, WARC + timestamping) · [chat4n6](https://github.com/SecurityRonin/chat4n6) — WhatsApp/Signal/Telegram extraction · [nameback](https://github.com/SecurityRonin/nameback) — rename recovered files from embedded metadata/OCR.
@@ -274,7 +278,7 @@ The full fleet is mapped in [Components](#components) above. These are the headl
 |---|---|---|---|
 | [forensicnomicon](https://github.com/SecurityRonin/forensicnomicon) | all | Knowledge | Zero-dep compile-time artifact specs, magic bytes, format constants |
 | [state-history-forensic](https://github.com/SecurityRonin/state-history-forensic) | `[H]` | Knowledge | Zero-dep `[H]` functor traits: `HistoricalSource`, `TemporalCohort<H>`, `ClockProvenance`, multi-facet `ArtifactRef` |
-| [ewf](https://github.com/SecurityRonin/ewf) | [P] | Container | E01/EWF → raw sector stream with hash verification |
+| [ewf](https://github.com/SecurityRonin/ewf-forensic) | [P] | Container | E01/EWF → raw sector stream with hash verification |
 | [ext4fs-forensic](https://github.com/SecurityRonin/ext4fs-forensic) | [P] | Filesystem | ext4 sector stream → files by path (name → inode → block) |
 | [memory-forensic](https://github.com/SecurityRonin/memory-forensic) | [M] | Container + Paging + OS Structure | WinPMEM/LiME/hiberfil → page stream → VA→PA → EPROCESS/VAD/DPAPI |
 | [winevt-forensic](https://github.com/SecurityRonin/winevt-forensic) | [L] | Log Format + Parser | EVTX binary seek + BinXML decode → typed Windows EventRecord |
