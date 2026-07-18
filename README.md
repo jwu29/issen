@@ -69,6 +69,71 @@ No Python env. No dependency hell. One static binary.
 
 ---
 
+## The fleet
+
+Issen is the thin orchestration layer wiring a family of standalone forensic libraries — each a deep, self-contained expert in one artifact family, independently usable in your own tooling. The whole fleet, grouped by the five navigation primitives, the shared knowledge leaves, and the `[H]` state-history functor:
+
+**Knowledge — zero-dep specs & shared vocabulary**
+- [forensicnomicon](https://github.com/SecurityRonin/forensicnomicon) — DFIR artifact catalog (6,500+ artifacts, LOLbins) plus the normalized report vocabulary the fleet shares
+- [state-history-forensic](https://github.com/SecurityRonin/state-history-forensic) — zero-dep `[H]` time-indexed traits (`HistoricalSource`, `TemporalCohort<H>`, `ClockProvenance`)
+- [jsonguard](https://github.com/SecurityRonin/jsonguard) — output sanitization: formula-injection / bidi / control-character guards for JSON/CSV/TSV
+- [safe-read](https://github.com/SecurityRonin/safe-read) — panic-free bounded integer readers over untrusted bytes (`no_std`, no deps)
+
+**Shared codecs & utility leaves**
+- [blazehash](https://github.com/SecurityRonin/blazehash) — forensic file hasher (BLAKE3, 25 algorithms, Ed25519 + post-quantum signing)
+- [forensic-hashdb](https://github.com/SecurityRonin/forensic-hashdb) — NSRL known-good, malware known-bad, loldrivers hash databases
+- [blob-decoder](https://github.com/SecurityRonin/blob-decoder) — scored identify + recursive decode of unknown BLOBs (bplist/gzip/zlib/snappy/base64)
+- [timeglyph](https://github.com/SecurityRonin/timeglyph) — timestamp decode / identify / encode, every reading ranked and cited
+- [shellitem](https://github.com/SecurityRonin/shellitem) — Windows Shell Item / ITEMIDLIST (PIDL) parser primitive
+- [protobuf-forensic](https://github.com/SecurityRonin/protobuf-forensic) — schemaless protobuf wire-format decoder (no `.proto`)
+- [xpress-huffman](https://github.com/SecurityRonin/xpress-huffman) — Microsoft Xpress-Huffman ([MS-XCA]) decompressor · [lzo](https://github.com/SecurityRonin/lzo) — LZO1X · [lzvn](https://github.com/SecurityRonin/lzvn) — Apple LZVN · [elephant-diffuser](https://github.com/SecurityRonin/elephant-diffuser) — BitLocker Elephant Diffuser primitive
+
+**[P] Persistent storage — disk → files** (`name → inode → block`)
+- [forensic-vfs](https://github.com/SecurityRonin/forensic-vfs) — the read-only VFS contract every fleet reader implements (ImageSource → VolumeSystem → CryptoLayer → FileSystem)
+- [forensic-vfs-engine](https://github.com/SecurityRonin/forensic-vfs-engine) — one `Vfs::open(path)` that detects the whole stack; every reader compiled in
+- [disk-forensic](https://github.com/SecurityRonin/disk-forensic) — disk-image orchestrator (E01/VMDK/VHDX/VHD/QCOW2/DMG + MBR/GPT/APM)
+- [ewf-forensic](https://github.com/SecurityRonin/ewf-forensic) — EWF/E01 container reader + integrity/repair
+- [ntfs-forensic](https://github.com/SecurityRonin/ntfs-forensic) — from-scratch NTFS reader + tamper auditor · [ext4fs-forensic](https://github.com/SecurityRonin/ext4fs-forensic) — ext4 + recovery · [apfs-forensic](https://github.com/SecurityRonin/apfs-forensic) — APFS reader + analyzer
+- [4n6mount](https://github.com/SecurityRonin/4n6mount) — FUSE/Dokan mount for images, archives & memory dumps
+- **plus ~30 more container / partition / encryption / filesystem / archive readers** — catalogued in the [forensic-vfs reader fleet](https://github.com/SecurityRonin/forensic-vfs#the-reader-fleet)
+
+**[M] Memory — RAM → process state** (`PID → EPROCESS → VA → PA`)
+- [memory-forensic](https://github.com/SecurityRonin/memory-forensic) — walk any memory dump; Linux + Windows kernel forensics (page tables, EPROCESS/VAD, DPAPI, netstat, injection) from one static binary
+
+**[L] Log — stream → records** (`timestamp → record → field`)
+- [winevt-forensic](https://github.com/SecurityRonin/winevt-forensic) — EVTX carve / tamper / ETW analysis
+- [journald-forensic](https://github.com/SecurityRonin/journald-forensic) — from-scratch systemd journal reader + carving + tamper flags
+- *planned:* tracev3-forensic (Apple Unified Log), zeek-forensic, cloudtrail-src
+
+**[Q] Live query — endpoint → rows** (`(endpoint, query, cursor) → rows`)
+- issen-remote-access *(issen workspace crate)* — VQL/WQL/SQL dispatcher, LOLRMM 400+ RMM/RAT definitions
+- *planned:* velociraptor-parser
+
+**[C] Content-addressed — hash → blob → graph** (`hash → blob → content graph`)
+- [git-forensic](https://github.com/SecurityRonin/git-forensic) — git object forensics: backdated commits, rewritten history, unsigned/unreachable objects
+- [web3-forensic](https://github.com/SecurityRonin/web3-forensic) — Ethereum-family wallet & on-chain forensics → TSK bodyfile / supertimeline
+- *planned:* cas-forensic (git/OCI/IPFS), sigstore-forensic (transparency log)
+
+**Parsers — artifact records → forensic meaning** (medium-agnostic; accept `Path` or `&[u8]`)
+- *Windows execution & registry:* [winreg-forensic](https://github.com/SecurityRonin/winreg-forensic) — registry hives · [amcache-forensic](https://github.com/SecurityRonin/amcache-forensic) — Amcache.hve · [shimcache-forensic](https://github.com/SecurityRonin/shimcache-forensic) — AppCompatCache · [userassist-forensic](https://github.com/SecurityRonin/userassist-forensic) — UserAssist · [bam-forensic](https://github.com/SecurityRonin/bam-forensic) — BAM/DAM · [prefetch-forensic](https://github.com/SecurityRonin/prefetch-forensic) — Prefetch SCCA · [lnk-forensic](https://github.com/SecurityRonin/lnk-forensic) — .lnk shell links · [usnjrnl-forensic](https://github.com/SecurityRonin/usnjrnl-forensic) — USN Journal · [srum-forensic](https://github.com/SecurityRonin/srum-forensic) — SRUM · [ese-forensic](https://github.com/SecurityRonin/ese-forensic) — ESE/JET Blue DBs · [exec-pe-forensic](https://github.com/SecurityRonin/exec-pe-forensic) — PE executables · [dpapi-forensic](https://github.com/SecurityRonin/dpapi-forensic) — DPAPI decrypt
+- *Databases & app storage:* [sqlite-forensic](https://github.com/SecurityRonin/sqlite-forensic) — SQLite carving · [leveldb-forensic](https://github.com/SecurityRonin/leveldb-forensic) — LevelDB / Chrome storage · [browser-forensic](https://github.com/SecurityRonin/browser-forensic) — Chrome/Firefox/Safari · [snss-forensic](https://github.com/SecurityRonin/snss-forensic) — Chromium session files · [cfb-forensic](https://github.com/SecurityRonin/cfb-forensic) — OLE/CFB compound files · [segb-forensic](https://github.com/SecurityRonin/segb-forensic) — Apple SEGB (Biome)
+- *Cross-platform artifacts:* [trash-forensic](https://github.com/SecurityRonin/trash-forensic) — trash / Recycle Bin ($I/$R) · [shellhist-forensic](https://github.com/SecurityRonin/shellhist-forensic) — shell command history · [usb-forensic](https://github.com/SecurityRonin/usb-forensic) — USB device history · [peripheral-forensic](https://github.com/SecurityRonin/peripheral-forensic) — external-device (setupapi) timeline · [atx-forensic](https://github.com/SecurityRonin/atx-forensic) — Apple ATX iOS image caches
+
+**`[H]` State-history — time-indexed cohorts** (cross-cutting functor over every primitive)
+- [state-history-forensic](https://github.com/SecurityRonin/state-history-forensic) — the shared `[H]` traits
+- [vsc-forensic](https://github.com/SecurityRonin/vsc-forensic) — Windows Volume Shadow Copy (VSS) point-in-time volume views
+- [snapshot-forensic](https://github.com/SecurityRonin/snapshot-forensic) — snapshot/backup temporal reconstruction (scaffold)
+- *planned:* apfs-snapshot-history, wal-history, git-history, mem-history, log-history
+
+**Orchestration**
+- [issen](https://github.com/SecurityRonin/issen) — this repo: wires all five paths into one correlated timeline
+- [useract-forensic](https://github.com/SecurityRonin/useract-forensic) — user-activity meta-analyzer (merges shell history, peripheral, Biome, LNK/SRUM/UserAssist into one per-user timeline)
+- [livedisk-forensic](https://github.com/SecurityRonin/livedisk-forensic) — live block-device enumeration + acquisition-integrity forensics
+
+Acquisition & specialty tooling: [rapidcollect](https://github.com/SecurityRonin/rapidcollect) — evidence acquisition (web/social/Android, WARC + timestamping) · [chat4n6](https://github.com/SecurityRonin/chat4n6) — WhatsApp/Signal/Telegram extraction · [nameback](https://github.com/SecurityRonin/nameback) — rename recovered files from embedded metadata/OCR.
+
+---
+
 ## Install
 
 ```bash
