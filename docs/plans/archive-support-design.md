@@ -6,23 +6,23 @@ minor bump + `forensic-vfs-engine` 0.2.0 wiring. `disk-forensic` transitional on
 
 ## Thesis (accepted)
 
-An archive is a transparent **outer packing "detour"** first, a mountable tree second:
+An archive is a transparent **outer packing "archive layer"** first, a mountable tree second:
 `foo.E01.gz` must resolve **identically** to `foo.E01`. Decoders are always compiled
 (batteries-included); the layer **activates only at runtime** when the input is actually packed.
 
-## Q1 — Trait: a NEW leaf probe, not `CryptoLayer`
+## Q1 — Trait: a NEW leaf probe, not `EncryptionLayer`
 
-A single evidence stack can contain **both** a decompressor and a crypto layer at different
+A single evidence stack can contain **both** a decompressor and an encryption layer at different
 depths — `case.zip → disk.E01 → GPT → BitLocker → NTFS`. Decompress and decrypt are orthogonal
 1→1 transforms that co-occur, so they **must be independent probe kinds** or the recursive resolver
-cannot express both in one chain. Reusing `CryptoLayer` is therefore structurally wrong (not merely
+cannot express both in one chain. Reusing `EncryptionLayer` is therefore structurally wrong (not merely
 a provenance-naming lie); renaming it is breaking and conflates key/unlock/decrypted semantics a
 decompressor lacks.
 
 **Decision:** Add `ArchiveProbe` to the `forensic-vfs` leaf. Resolution is **not** a terminal
 `Tree`; it is `ArchiveOpen { members, provenance, cost, source_for(member) -> Arc<dyn ImageSource> }`
 where every member **re-enters normal `resolve()`**. `#[non_exhaustive]`, additive → minor bump.
-`CryptoLayer` untouched.
+`EncryptionLayer` untouched.
 
 ## Q2 — Peel-vs-tree discriminator
 
@@ -168,7 +168,7 @@ the own-reader build was reversed and removed 2026-07-18.
 
 ## Two-phase access: Detect → `AccessPlan` → Peel (2026-07-18)
 
-The detour is split into two phases so classification never inflates a payload and so
+The archive layer is split into two phases so classification never inflates a payload and so
 each evidence shape gets its *best* access path (not a one-size in-memory extract). This
 is the VFS probe/open split (ADR 0008) with a richer phase-1 output.
 
@@ -246,9 +246,9 @@ surface is the `AccessPlan` type + the phase-1 classifier.
 
 **Build order:** (1) phase-1 `detect` returning `AccessPlan` (bounded, content-authoritative,
 name-lie resolution + segment-set naming detection) over the existing readers; (2) phase-2
-`InPlace` + `SpillToTemp` executors (subsumes today's `peel_detour`); (3) `Zran` access for
+`InPlace` + `SpillToTemp` executors (subsumes today's `peel_archive`); (3) `Zran` access for
 Deflate/Deflate64 members; (4) `SegmentSet` reassembly via ewf `SegmentBacking`. Each phase
-is independently TDD-able; today's `peel_detour` keeps working until phase 2 replaces it.
+is independently TDD-able; today's `peel_archive` keeps working until phase 2 replaces it.
 
 ## VFS integration contract — settled (2026-07-18) → **forensic-vfs ADR 0008**
 
@@ -270,7 +270,7 @@ traits already in the leaf (`crates/core/src/registry.rs`, post engine-retiremen
 
 **Status:** contract settled; the archive-core `vfs` adapter + the two `ContainerFormat`
 variants are a follow-on. No functional gap — disk-forensic + 4n6mount already peel via
-`archive_core::peel_detour`. The earlier "hold until the engine retirement settles" note is
+`archive_core::peel_archive`. The earlier "hold until the engine retirement settles" note is
 obsolete: the retirement has landed (`crates/engine` removed, resolver/registry in core), so
 the seam is buildable whenever scheduled, against a registry that has stopped moving.
 

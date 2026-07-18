@@ -1,7 +1,7 @@
-# Implementation Plan — Universal VFS topology + Archive-detour
+# Implementation Plan — Universal VFS topology + Archive Layer
 
 Master tracking doc for the work identified during the 2026-07-18 design sessions
-(VFS crate topology + the archive-detour two-phase model + the Fable/Gemini/Codex
+(VFS crate topology + the archive layer two-phase model + the Fable/Gemini/Codex
 resolver-placement panel). Captures completed work, identified bugs, and the
 remaining build items so nothing is forgotten. **All commits below are signed and
 LOCAL/UNPUSHED unless noted.**
@@ -9,7 +9,7 @@ LOCAL/UNPUSHED unless noted.**
 Status: ✅ done+verified · 🔄 in progress · ⬜ todo · 📅 scheduled/gated
 
 Governing records: `forensic-vfs/docs/decisions/0007-*` (VFS topology),
-`forensic-vfs/docs/decisions/0008-archives-as-probes.md` (archive detour + two-phase),
+`forensic-vfs/docs/decisions/0008-archives-as-probes.md` (archive layer + two-phase),
 `issen/docs/plans/archive-support-design.md` (design detail).
 
 ---
@@ -37,8 +37,8 @@ Governing records: `forensic-vfs/docs/decisions/0007-*` (VFS topology),
   adapter (this is the one-time fleet-sweep cost — pay it once, timed with the archive work).
   Rationale for the whole extraction: firewall high-churn resolver behavior from the frozen contract.
 - ⬜ **#3 Crypto descent (BUG — verified gap).** `Registry::resolve` descends filesystems /
-  volume_systems / containers but **NOT `CryptoProbe`** → the headline `E01 → GPT → BitLocker →
-  NTFS` does not auto-resolve the crypto layer. Add a crypto-descent path. Feature-sized: needs a
+  volume_systems / containers but **NOT `EncryptionProbe`** → the headline `E01 → GPT → BitLocker →
+  NTFS` does not auto-resolve the encryption layer. Add an encryption-descent path. Feature-sized: needs a
   **`CredentialSource`** injected into the resolver (crypto can't descend without a key; keep keys
   out of `PathSpec`). Do this in `forensic-vfs-resolver` (post-extraction), not the leaf.
 - ⬜ **Resolver behavioral-semver discipline.** `#[non_exhaustive]` doesn't cover behavior changes
@@ -52,7 +52,7 @@ Governing records: `forensic-vfs/docs/decisions/0007-*` (VFS topology),
 - 📅 **Publish** `forensic-vfs 0.4` + `forensic-vfs-resolver 0.1` (gated: pre-publish checklist,
   human auth). THEN revert `forensic-vfs-engine` path deps → registry versions.
 
-## B. Archive-detour (ADR 0008 — two-phase Detect → AccessPlan → Peel)
+## B. Archive Layer (ADR 0008 — two-phase Detect → AccessPlan → Peel)
 
 - ✅ **ADR 0008** archives-as-probes (gz/bz2 = `ContainerDecoder`, tar/zip/7z = `FileSystemProbe`,
   no new leaf trait) + O(n) streaming requirement + two-phase model + per-segment `Zran` +
@@ -62,7 +62,7 @@ Governing records: `forensic-vfs/docs/decisions/0007-*` (VFS topology),
   segment-set naming (EWF/.00N/split-VMDK). `archive-forensic 15be9c6` (RED) + `3d188a2` (GREEN).
   Verified: 33 lib + integration tests, clippy/fmt clean.
 - ⬜ **Phase 2 — peel executors.** `InPlace` (zero-copy sub-range) + `SpillToTemp` (one streaming
-  pass to a temp file). Subsumes today's in-memory `peel_detour`; API change `Vec<u8>` → a
+  pass to a temp file). Subsumes today's in-memory `peel_archive`; API change `Vec<u8>` → a
   temp-backed seekable handle. Both consumers already stage to temp, so it's a shape change.
 - ⬜ **Phase 3 — `Zran`** random access for Deflate/Deflate64 members (reuse `zip-forensic-core`'s
   `DeflateSeekReader` / `deflate64_seek`). Later: bzip2 block-index (currently bzip2 → SpillToTemp).
@@ -72,7 +72,7 @@ Governing records: `forensic-vfs/docs/decisions/0007-*` (VFS topology),
 - ⬜ **archive-core `vfs` adapter** — implement the leaf's `ContainerDecoder` (gz/bz2) +
   `FileSystemProbe` (tar/zip/7z), registered in the consumer's `default_registry()`, so archives
   resolve *inside* `resolve()` (ADR 0008). Needs additive leaf variants `ContainerFormat::{Gzip,Bzip2}`.
-  THEN `disk-forensic` + `4n6mount` drop their pre-resolver `peel_detour` on-ramp.
+  THEN `disk-forensic` + `4n6mount` drop their pre-resolver `peel_archive` on-ramp.
 - ⬜ **`ustar@257` content-verification robustness** — before committing to a tar walk, verify the
   decompressed head; a bare gz/bz2 misnamed `.tbz`/`.tgz` falls back gracefully instead of erroring
   (the direction-2 misnaming fix). Generalizes to running the *full probe set* on the decompressed
@@ -87,7 +87,7 @@ Governing records: `forensic-vfs/docs/decisions/0007-*` (VFS topology),
   refuses loud, cert/3DES/non-AES refused. `zip-forensic 7e1834c`+`0ec7933`. (Algorithm gotcha:
   file-data CBC chains from the validation-blob last cipher block, NOT the header IV.)
 - ✅ **Deflate64 checkpoint seek** in `zip-forensic-core`. `zip-forensic e213d75`+`cd146ee`.
-- ✅ **Architecture diagram refresh** — universal-VFS + archive-detour (archive-detour correctly
+- ✅ **Architecture diagram refresh** — universal-VFS + archive layer (archive layer correctly
   inside the forensic-vfs bracket). `issen 5d4cf53`.
 - ✅ **VFS doc consolidation** — removed the duplicated 649-line design doc from disk-forensic,
   slimmed `architecture.md` to the consumer view, preserved prior-art + adversarial review log in
@@ -126,8 +126,8 @@ sweep now. Everything 0.4-worthy ships in this single cut, so the fleet sweep is
 3. Additive leaf variants **`ContainerFormat::{Gzip,Bzip2}`** (for the archive adapter).
 4. **archive-core vfs adapter** (`ContainerDecoder` gz/bz2 + `FileSystemProbe` tar/zip/7z) published + registered.
 5. **forensic-vfs-engine** repoint: `use forensic_vfs_resolver::Resolve;` + deps on 0.4 leaf + resolver
-   (path→registry), then `disk-forensic`/`4n6mount` drop their pre-resolver `peel_detour` on-ramp.
-6. Ideally fold in the crypto-descent (#3) so the cut also delivers the BitLocker/LUKS/FileVault path.
+   (path→registry), then `disk-forensic`/`4n6mount` drop their pre-resolver `peel_archive` on-ramp.
+6. Ideally fold in the encryption-descent (#3) so the cut also delivers the BitLocker/LUKS/FileVault path.
 
 All gated on the pre-publish checklist + explicit human auth. Until then the extraction sits
 committed-unpushed and the engine stays on published 0.3 (green).
@@ -135,12 +135,12 @@ committed-unpushed and the engine stays on published 0.3 (green).
 ## Critical path / sequencing
 
 1. `resolver-extract` lands (🔄) → verify → **single canonical resolver in its own crate.**
-2. Then #3 crypto-descent + `CredentialSource` go into `forensic-vfs-resolver` (not the leaf).
+2. Then #3 encryption-descent + `CredentialSource` go into `forensic-vfs-resolver` (not the leaf).
 3. Archive phases 2→3→4 proceed on the stable `AccessPlan` types (Phase 1 done); the archive-core
    `vfs` adapter (B) is what makes archives resolve *through* `resolve()` — and its multi-result
    selection policy is the churn that justified extracting the resolver crate.
 4. Behavioral-semver + threading contracts (A) harden the resolver as its policy grows.
 5. Publish gate (forensic-vfs 0.4 + resolver 0.1) → revert path deps.
 
-The extraction (A) and the archive adapter (B) are the two structural moves; crypto-descent and
+The extraction (A) and the archive adapter (B) are the two structural moves; encryption-descent and
 the semver/threading contracts are the correctness hardening; C is banked; D is hygiene.
