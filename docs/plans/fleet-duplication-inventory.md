@@ -23,7 +23,7 @@ Beneath those, the same **helpers are copy-pasted across the reader crates**: ne
 | 3 | **Two parallel fs-tree traits + double reader adapters** (`FileSystem` vs `ForensicFs`; reader `vfs.rs` vs engine `fs_*.rs`) | 2 traits; ~8 readers adapted twice | `forensic_vfs::FileSystem` — retire `ForensicFs` + the `fs_*.rs` layer; 4n6mount consumes `FileSystem` |
 | 4 | **Filesystem/container magic detection** | 3 fs sniffers + 2 container sniffers + per-reader checks | `forensic-vfs` registry `SniffWindow`/probes, seeded from `forensicnomicon::boot_signatures`/`partition_schemes` |
 | 5 | **Date/epoch converters** (`civil_to_unix` ×4, FILETIME ×5, HFS, DOS) | ~11 sites | `forensicnomicon::temporal` (exists; add `days_from_civil`) |
-| 6 | **Container-decode facades** (ewf/vmdk/qcow2 wrapped ×3) | 3 stacks | One facade — `forensic_vfs::ContainerDecoder` registry; drop `disk-forensic::container::open` + `issen-ewf/vmdk/qcow2` |
+| 6 | **Container-decode facades** (ewf/vmdk/qcow2 wrapped ×3) | 3 stacks | One facade — `forensic_vfs::ContainerOpen` registry; drop `disk-forensic::container::open` + `issen-ewf/vmdk/qcow2` |
 | 7 | **Flat-path→synthetic-tree builders** (`ArchiveTree` + ad1 + dar + zip) | 4 | `forensic-vfs` `ArchiveFs` (folds into #2) |
 | 8 | **Two `forensic-vfs-engine` crates** (name collision, same job) | 2 | Merge into `forensic-vfs/crates/engine` |
 | 9 | **hex / GUID formatters** (hex ×6, GUID ×4) | 10 sites | Shared util in `forensicnomicon` (or `forensic-bytes`) |
@@ -44,7 +44,7 @@ Beneath those, the same **helpers are copy-pasted across the reader crates**: ne
 
 **Partition parse ×2 (§ hotspot 10).** `disk-forensic::analyse_disk` + `layout` (`lib.rs:111`, `layout.rs:58`) wraps the `*-partition-forensic` crates; `forensic-vfs`'s engine **hand-rolls** `Mbr/Gpt/Apm::parse` (`engine/src/lib.rs:656,741,822`) instead of using them. issen reuses `disk_forensic::analyse_disk` (no third parser).
 
-**Detection ×5 (§ hotspot 4).** 3 fs sniffers (`forensic-vfs` `FileSystemProbe` ×8, `forensic-vfs-engine/src/detect.rs:66`, per-reader magic like `ext4fs .../superblock.rs:161`) + 2 container sniffers (`forensic-vfs` `ContainerDecoder::probe`, `disk-forensic/src/container.rs:293`). `forensicnomicon` already owns the boot/partition signature tables (`boot_signatures.rs:36`, `partition_schemes`) but the engines don't consult it for fs/container magic.
+**Detection ×5 (§ hotspot 4).** 3 fs sniffers (`forensic-vfs` `FileSystemOpen` ×8, `forensic-vfs-engine/src/detect.rs:66`, per-reader magic like `ext4fs .../superblock.rs:161`) + 2 container sniffers (`forensic-vfs` `ContainerOpen::probe`, `disk-forensic/src/container.rs:293`). `forensicnomicon` already owns the boot/partition signature tables (`boot_signatures.rs:36`, `partition_schemes`) but the engines don't consult it for fs/container magic.
 
 **Logical-archive double handling (§ hotspot 11).** AD1/DAR are each readable two ways: the reader's own `FileSystem` (`ad1-core/src/vfs.rs:239` `Ad1Vfs`, `dar-core/src/vfs.rs:275` `DarVfs`, `zip .../vfs.rs:383` `ZipVfs`) **and** `disk-forensic::logical::open` (`logical.rs:172`) → `forensic-vfs-engine::LogicalFs` (`logical.rs:22`).
 

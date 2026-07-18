@@ -23,7 +23,7 @@ Governing records: `forensic-vfs/docs/decisions/0007-*` (VFS topology),
   line-for-line duplicate; `open_base()` host-bootstrap kept). Golden equivalence test.
   `forensic-vfs-engine 2f17f5d` (test) + `7c0988e` (refactor). Verified: tests/clippy/fmt clean.
 - ✅ **Extract `forensic-vfs-resolver` — LEAF SIDE DONE** (`forensic-vfs 33f83a6`, verified). New
-  `crates/resolver` → `forensic-vfs-resolver 0.1.0`; `resolve`→`Resolve` extension trait (orphan
+  `crates/resolver` → `forensic-vfs-resolver 0.1.0`; `resolve`→`SourceOpen` extension trait (orphan
   rule); `walk`/`snapshot_view`/types moved out; leaf → **0.4.0 breaking**; leaf builds standalone;
   66 tests pass, clippy/fmt clean. Committed, UNPUSHED.
 - ⛔ **Engine repoint + fleet adoption — GATED on a coordinated 0.4 FLEET CUT.** Key finding: the
@@ -37,7 +37,7 @@ Governing records: `forensic-vfs/docs/decisions/0007-*` (VFS topology),
   adapter (this is the one-time fleet-sweep cost — pay it once, timed with the archive work).
   Rationale for the whole extraction: firewall high-churn resolver behavior from the frozen contract.
 - ⬜ **#3 Crypto descent (BUG — verified gap).** `Registry::resolve` descends filesystems /
-  volume_systems / containers but **NOT `EncryptionProbe`** → the headline `E01 → GPT → BitLocker →
+  volume_systems / containers but **NOT `EncryptionOpen`** → the headline `E01 → GPT → BitLocker →
   NTFS` does not auto-resolve the encryption layer. Add an encryption-descent path. Feature-sized: needs a
   **`CredentialSource`** injected into the resolver (crypto can't descend without a key; keep keys
   out of `PathSpec`). Do this in `forensic-vfs-resolver` (post-extraction), not the leaf.
@@ -54,8 +54,9 @@ Governing records: `forensic-vfs/docs/decisions/0007-*` (VFS topology),
 
 ## B. Archive Layer (ADR 0008 — two-phase Detect → AccessPlan → Peel)
 
-- ✅ **ADR 0008** archives-as-probes (gz/bz2 = `ContainerDecoder`, tar/zip/7z = `FileSystemProbe`,
-  no new leaf trait) + O(n) streaming requirement + two-phase model + per-segment `Zran` +
+- ✅ **ADR 0008** archives as a first-class `ArchiveOpen` layer (gz/bz2 → `ArchiveContents::Stream`,
+  tar/zip/7z → `ArchiveContents::Members`; revises the earlier "no new trait / `ContainerOpen`+
+  `FileSystemOpen` split") + O(n) streaming requirement + two-phase model + per-segment `Zran` +
   the 5 content-authoritative `detect` rules. `forensic-vfs` (ADR) + `issen archive-support-design.md`.
 - ✅ **Phase 1 `detect()` → `AccessPlan`** classifier — content-authoritative, name-free; variants
   Direct/Wrapper/Member/SegmentSet/Collection; per-member `Access` (InPlace/Zran/SpillToTemp);
@@ -69,9 +70,10 @@ Governing records: `forensic-vfs/docs/decisions/0007-*` (VFS topology),
 - ⬜ **Phase 4 — `SegmentSet` reassembly** via ewf `SegmentBacking` (per-segment `Access`; a
   Deflate `E01/E02/E03`-in-zip is randomly accessible with only per-segment checkpoint indexes,
   zero temp spill).
-- ⬜ **archive-core `vfs` adapter** — implement the leaf's `ContainerDecoder` (gz/bz2) +
-  `FileSystemProbe` (tar/zip/7z), registered in the consumer's `default_registry()`, so archives
-  resolve *inside* `resolve()` (ADR 0008). Needs additive leaf variants `ContainerFormat::{Gzip,Bzip2}`.
+- ⬜ **archive-core `vfs` adapter** — implement ONE leaf `ArchiveOpen` (gz/bz2 → `ArchiveContents::Stream`,
+  tar/zip/7z → `ArchiveContents::Members`), registered in the consumer's `default_registry()` via the new
+  `.archive(...)` builder, so archives resolve *inside* `resolve()` (ADR 0008). Needs the leaf's new
+  `ArchiveOpen` trait + `ArchiveContents` type + a resolver archive descent (see the 0.4 Fleet Cut).
   THEN `disk-forensic` + `4n6mount` drop their pre-resolver `peel_archive` on-ramp.
 - ⬜ **`ustar@257` content-verification robustness** — before committing to a tar walk, verify the
   decompressed head; a bare gz/bz2 misnamed `.tbz`/`.tgz` falls back gracefully instead of erroring
@@ -123,9 +125,11 @@ sweep now. Everything 0.4-worthy ships in this single cut, so the fleet sweep is
 1. Publish **forensic-vfs 0.4.0** (resolver extracted) + **forensic-vfs-resolver 0.1.0**.
 2. Bump the **8 reader crates** (apfs/ewf/ext4fs/fat/hfsplus/iso9660/ntfs/xfs) `forensic-vfs ^0.3 → ^0.4`
    (no-code Cargo.toml bump — traits unchanged) + republish.
-3. Additive leaf variants **`ContainerFormat::{Gzip,Bzip2}`** (for the archive adapter).
-4. **archive-core vfs adapter** (`ContainerDecoder` gz/bz2 + `FileSystemProbe` tar/zip/7z) published + registered.
-5. **forensic-vfs-engine** repoint: `use forensic_vfs_resolver::Resolve;` + deps on 0.4 leaf + resolver
+3. Leaf gains the **`ArchiveOpen` trait + `ArchiveContents` type** + a **resolver archive descent**;
+   rename **all five layer traits to the `*Open` form** (container/archive/volume-system/encryption/
+   filesystem — the ~17 readers impl `FileSystemOpen`), unifying every layer on `probe() + open()`.
+4. **archive-core vfs adapter** — one `ArchiveOpen` (gz/bz2 → `Stream`, tar/zip/7z → `Members`) published + registered via `.archive(...)`.
+5. **forensic-vfs-engine** repoint: `use forensic_vfs_resolver::SourceOpen;` + deps on 0.4 leaf + resolver
    (path→registry), then `disk-forensic`/`4n6mount` drop their pre-resolver `peel_archive` on-ramp.
 6. Ideally fold in the encryption-descent (#3) so the cut also delivers the BitLocker/LUKS/FileVault path.
 

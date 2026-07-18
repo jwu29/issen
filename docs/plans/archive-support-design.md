@@ -3,10 +3,10 @@
 Status: **design settled** (2026-07-18). Governing decision record: **forensic-vfs ADR 0008**
 (`forensic-vfs/docs/decisions/0008-archives-as-probes.md`, "archives as probes") — this doc is the
 design detail behind that record.
-Scope target: new `archive-forensic` repo (`archive-core` + `archive-forensic`); two additive
-`forensic-vfs` leaf variants (`ContainerFormat::{Gzip,Bzip2}`); and an `archive-core` `vfs` adapter
-that registers the decoders through the leaf's existing probe traits. `disk-forensic` and `4n6mount`
-peel through `archive_core::peel_archive`.
+Scope target: new `archive-forensic` repo (`archive-core` + `archive-forensic`); a new
+`forensic-vfs` leaf trait `ArchiveOpen` (returning `ArchiveContents::{Stream,Members}`); and an
+`archive-core` `vfs` adapter registering one `ArchiveOpen` through the leaf's new `.archive(...)`
+builder. `disk-forensic` and `4n6mount` peel through `archive_core::peel_archive`.
 
 ## Scope — formats in and out
 
@@ -24,26 +24,30 @@ An archive is a transparent **outer packing "archive layer"** first, a mountable
 `foo.E01.gz` must resolve **identically** to `foo.E01`. Decoders are always compiled
 (batteries-included); the layer **activates only at runtime** when the input is actually packed.
 
-## Q1 — No new trait: archives map onto the existing probe traits
+## Q1 — A first-class `ArchiveOpen` layer
 
 A single evidence stack can carry a decompressor and an encryption layer at different depths —
 `case.zip → disk.E01 → GPT → BitLocker → NTFS`. Decompress and decrypt are orthogonal transforms
 that co-occur, so they live at independent points in the recursive resolver; the encryption layer
 (`EncryptionLayer`) is untouched.
 
-**Decision (ADR 0008): archives need no new leaf trait.** They map onto the two probe traits already
-in the `forensic-vfs` leaf (`crates/core/src/registry.rs`):
+**Decision (ADR 0008): the archive layer gets its own leaf trait, `ArchiveOpen`** — one trait per
+layer, like every other VFS layer. (This revises the earlier "archives need no new trait; gz/bz2 →
+`ContainerOpen`, tar/zip/7z → `FileSystemOpen`" framing; git holds it. The unified trait wins on
+one-layer-one-trait consistency, dev/AI-agent UX — one archive entry point — and owning `.tgz` combo
+knowledge in one place.) `ArchiveOpen` has the peers' `probe() + open()` shape; `open` returns:
 
-- **Compression wrappers (gz/bz2) → `ContainerDecoder`** (1→1). `open` peels to the inner
-  `DynSource`; `resolve()` re-sniffs it, so `E01.gz → E01 → GPT → NTFS` collapses in one call. The
-  only leaf change is additive: `ContainerFormat::{Gzip,Bzip2}` (`#[non_exhaustive]` → minor bump).
-- **Multi-member archives (tar/zip/`.clbx`/7z) → `FileSystemProbe`** (1→N). `open` mounts a member
-  tree (`DynFs`); each evidence member **re-enters `resolve()`** through the filesystem `walk`.
-  `FsKind` is an open newtype, so no enum change (`FsKind::from("tar"|"zip"|"7z")`).
-- **Combos compose for free:** `.tgz` = `GzipDecoder ∘ TarProbe`; `.tbz2` = `Bzip2Decoder ∘ TarProbe`.
+- **`ArchiveContents::Stream(DynSource)`** for bare compression wrappers (gz/bz2, 1→1). The decoded
+  source re-enters `resolve()` like a decode, so `E01.gz → E01 → GPT → NTFS` collapses in one call.
+- **`ArchiveContents::Members(Vec<Member>)`** for multi-member archives (tar/zip/`.clbx`/7z, 1→N). Each
+  evidence member's `source_for(member)` **re-enters `resolve()`**.
+- **`.tgz`/`.tbz2` are handled inside the probe** (gz+tar / bz2+tar) as one fused streaming peel —
+  the archive crate owns the combo, not an emergent `GzipProbe ∘ TarProbe` chain.
 
-There is no bespoke archive-probe trait and no terminal open-type: a member is reached by the normal
-`FileSystemProbe`/`walk` path, a peeled wrapper by the normal `ContainerDecoder` path.
+The resolver gains a dedicated **archive descent** beside its container/volume/encryption/filesystem
+descents: `Stream` → recurse on the decoded source; `Members` → each member re-enters `resolve()`.
+The only leaf change is additive: the `ArchiveOpen` trait + `ArchiveContents` type (no decoder, no dep);
+`FsKind` is untouched (archive member trees no longer masquerade as filesystems).
 
 ## Q2 — Peel-vs-tree discriminator
 
@@ -143,13 +147,13 @@ Codecs (pure-Rust, forbid-unsafe; all **already in the disk-forensic graph** exc
 
 ## Q6 — Leaf vs adapter edit boundary
 
-- **`forensic-vfs` (leaf, minor bump):** the two additive `ContainerFormat::{Gzip,Bzip2}` variants
-  only. `FsKind` is an open newtype, so tar/zip/7z need no enum change. No decoders, no limits logic,
-  no policy in the leaf.
-- **`archive-core` `vfs` adapter:** the `ContainerDecoder` (gz/bz2) and `FileSystemProbe`
-  (tar/zip/7z) implementations; the consumer's `default_registry()` registers them through the
-  existing `.container(...)` / `.filesystem(...)` builders; threads `--archive-mode`/`--archive-limits`
-  from open options. Wires, doesn't decode.
+- **`forensic-vfs` (leaf, minor bump):** the additive `ArchiveOpen` trait + `ArchiveContents` type
+  only. `FsKind` is untouched (archives are their own layer, not filesystems). No decoders, no limits
+  logic, no policy in the leaf.
+- **`archive-core` `vfs` adapter:** one `ArchiveOpen` implementation covering gz/bz2 (→ `Stream`)
+  and tar/zip/7z (→ `Members`); the consumer's `default_registry()` registers it through the new
+  `.archive(...)` builder; threads `--archive-mode`/`--archive-limits` from open options. Wires,
+  doesn't decode.
 - **`archive-core`:** everything else — sniff, member tables, seek strategies, limits, spill, and
   `peel_archive`.
 
@@ -157,7 +161,7 @@ Codecs (pure-Rust, forbid-unsafe; all **already in the disk-forensic graph** exc
 
 `archive_core::peel_archive(source, context)` is the single peel entry point (context = source path,
 temp manager, limits, registry classifier, override mode). Consumers are thin callers:
-- the `vfs` `ContainerDecoder` / `FileSystemProbe` adapters are thin wrappers over `peel_archive`.
+- the `vfs` `ArchiveOpen` adapter is a thin wrapper over `peel_archive`.
 - `disk-forensic::container::open` calls it **before** its magic sniffer, loops while peeling —
   `evidence.E01.gz` works through the on-ramp with identical caps/logging/provenance.
 - **Same-release migration (not deferred):** the ewf-internal zip peel (`open_zip`/`SegmentBacking`)
@@ -272,26 +276,28 @@ is independently TDD-able; today's `peel_archive` keeps working until phase 2 re
 ## VFS integration contract — settled (2026-07-18) → **forensic-vfs ADR 0008**
 
 The decision record lives in `forensic-vfs/docs/decisions/0008-archives-as-probes.md`.
-Summary: **no dedicated archive-probe trait is needed** — archives map onto the two probe
-traits already in the leaf (`crates/core/src/registry.rs`, post engine-retirement):
+Summary: **the archive layer gets its own leaf trait, `ArchiveOpen`** (one trait per layer),
+registered alongside the leaf's existing probes (`crates/core/src/registry.rs`, post
+engine-retirement):
 
-- **Compression wrappers (gz/bz2) → `ContainerDecoder`** (1→1). `open` peels to the inner
-  `DynSource`; `resolve()` re-sniffs it, so `E01.gz → E01 → GPT → NTFS` collapses in one call.
-  Adds two additive, non-breaking leaf variants: `ContainerFormat::{Gzip,Bzip2}`.
-- **Multi-member archives (tar/zip/`.clbx`/7z) → `FileSystemProbe`** (1→N). `open` mounts a
-  member tree (`DynFs`); an evidence member re-enters `resolve()`. `FsKind` is an open newtype,
-  so no enum change (`FsKind::from("tar"|"zip"|"7z")`).
-- **Combos compose for free:** `.tgz` = `GzipDecoder ∘ TarProbe`; `.tbz2` = `Bzip2Decoder ∘ TarProbe`
-  — no dedicated probe.
-- **Registration:** the consumer's `default_registry()` uses the existing `.container(...)` /
-  `.filesystem(...)` builders; every decoder + dep lives in an `archive-core` `vfs` adapter,
-  never in the leaf.
+- **Bare compression wrappers (gz/bz2) → `ArchiveContents::Stream`** (1→1). `open` peels to the inner
+  `DynSource`; the resolver re-sniffs it, so `E01.gz → E01 → GPT → NTFS` collapses in one call.
+- **Multi-member archives (tar/zip/`.clbx`/7z) → `ArchiveContents::Members`** (1→N). Each evidence
+  member's `source_for(member)` re-enters `resolve()`. `FsKind` is untouched — archive member trees
+  are their own layer, not filesystems.
+- **`.tgz`/`.tbz2` handled inside the probe** (gz+tar / bz2+tar) as one fused streaming peel — no
+  emergent `GzipProbe ∘ TarProbe` chain; the archive crate owns the combo.
+- **Registration:** the consumer's `default_registry()` registers one `archive-core` `vfs`
+  `ArchiveOpen` through the new `.archive(...)` builder; every decoder + dep lives in that adapter,
+  never in the leaf. The resolver gains a dedicated archive descent.
 
-**Status:** contract settled; the archive-core `vfs` adapter + the two `ContainerFormat`
-variants are a follow-on. No functional gap — disk-forensic + 4n6mount already peel via
-`archive_core::peel_archive`. The engine retirement has landed (`crates/engine` removed,
-resolver/registry in core), so the seam is buildable whenever scheduled, against a registry
-that has stopped moving.
+**Status:** contract settled; the leaf's `ArchiveOpen` trait + `ArchiveContents` type, the resolver's
+archive descent, and the archive-core `vfs` adapter (one `ArchiveOpen`) are a follow-on landing in
+the **0.4 fleet cut** (which also renames all five layer traits to the `*Open` form —
+container/archive/volume-system/encryption/filesystem, unifying every layer on `probe() + open()`). No
+functional gap — disk-forensic + 4n6mount already peel via `archive_core::peel_archive`. The engine
+retirement has landed (`crates/engine` removed, resolver/registry in core), so the seam is buildable
+whenever scheduled, against a registry that has stopped moving.
 
 ## Verify before / during build (UNVERIFIED tier)
 
