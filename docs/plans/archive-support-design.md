@@ -120,7 +120,7 @@ Codecs (pure-Rust, forbid-unsafe; all **already in the engine/disk-forensic grap
 | deflate/gzip | `miniz_oxide` (underlies the existing `DeflateSeekReader`) | reuse |
 | bzip2 | `bzip2-rs` (in-graph via DMG; documented `forbid(unsafe)` — reconfirm) | reuse |
 | xz/LZMA2 | `lzma-rs` (in-graph via DMG; streaming-only API) | spill-only |
-| 7z | **own `sevenzip-core`** (LZMA/LZMA2 via `lzma-rs` `raw_decoder`, `bzip2-rs`, RustCrypto AES; PPMd refused-loud) | **forbid** — no `sevenz-rust2`/`libbz2-rs-sys` unsafe chain |
+| 7z | **REUSE `sevenz-rust2`** — full coverage (LZMA/LZMA2/BCJ/BCJ2/Delta/Deflate/BZip2/AES/PPMd) | pure-Rust, **no C-FFI**: `libbz2-rs-sys` is a Rust libbz2 *port* (`build=false`, no `.c`, no `links`) — the `-sys` was misread as C bindings; our wrapper stays `forbid(unsafe)` (per-crate; deps don't count); tree audited by cargo-vet/deny. **The own-`sevenzip-core` build was reversed 2026-07-18 and the repo removed** — it only reached 3 codecs and rested on the `-sys` misread. |
 
 ## Q6 — Leaf vs engine edit boundary
 
@@ -161,9 +161,34 @@ with strategy (`stored`/`zran`/`spill`) as **provenance, not identity**. A repor
 **Ship:** zip (Stored+Deflate via `zip-forensic-core`), plain tar, gzip/tar.gz (zran), bzip2/tar.bz2
 (block index → spill fallback), bare gz/bz2, xz (spill-only), **7z via our own `sevenzip-core`**
 (pure-Rust, `forbid(unsafe)` — the `sevenz-rust2` unsafe deferral is retired). Peel + tree modes,
-every member resolvable.
+every member resolvable. **7z via `sevenz-rust2` (reuse, full coverage)** — see the Q5 correction;
+the own-reader build was reversed and removed 2026-07-18.
 **Defer:** xz multi-block random-access fast path (no `lzma-rs` block API); within 7z, PPMd
 (refused-loud — no pure-Rust Ppmd7 decoder) and BCJ2 land after the `sevenzip-core` spine.
+
+## VFS integration contract — settled (2026-07-18) → **forensic-vfs ADR 0008**
+
+The decision record lives in `forensic-vfs/docs/decisions/0008-archives-as-probes.md`.
+Summary: **no dedicated `ArchiveProbe` trait is needed** — archives map onto the two probe
+traits already in the leaf (`crates/core/src/registry.rs`, post engine-retirement):
+
+- **Compression wrappers (gz/bz2) → `ContainerDecoder`** (1→1). `open` peels to the inner
+  `DynSource`; `resolve()` re-sniffs it, so `E01.gz → E01 → GPT → NTFS` collapses in one call.
+  Adds two additive, non-breaking leaf variants: `ContainerFormat::{Gzip,Bzip2}`.
+- **Multi-member archives (tar/zip/`.clbx`/7z) → `FileSystemProbe`** (1→N). `open` mounts a
+  member tree (`DynFs`); an evidence member re-enters `resolve()`. `FsKind` is an open newtype,
+  so no enum change (`FsKind::from("tar"|"zip"|"7z")`).
+- **Combos compose for free:** `.tgz` = `GzipDecoder ∘ TarProbe`; `.tbz2` = `Bzip2Decoder ∘ TarProbe`
+  — no dedicated probe.
+- **Registration:** the consumer's `default_registry()` uses the existing `.container(...)` /
+  `.filesystem(...)` builders; every decoder + dep lives in an `archive-core` `vfs` adapter,
+  never in the leaf.
+
+**Status:** contract settled; the archive-core `vfs` adapter + the two `ContainerFormat`
+variants are a follow-on. No functional gap — disk-forensic + 4n6mount already peel via
+`archive_core::peel_detour`. The earlier "hold until the engine retirement settles" note is
+obsolete: the retirement has landed (`crates/engine` removed, resolver/registry in core), so
+the seam is buildable whenever scheduled, against a registry that has stopped moving.
 
 ## Verify before / during build (UNVERIFIED tier)
 
