@@ -166,6 +166,90 @@ the own-reader build was reversed and removed 2026-07-18.
 **Defer:** xz multi-block random-access fast path (no `lzma-rs` block API); within 7z, PPMd
 (refused-loud — no pure-Rust Ppmd7 decoder) and BCJ2 land after the `sevenzip-core` spine.
 
+## Two-phase access: Detect → `AccessPlan` → Peel (2026-07-18)
+
+The detour is split into two phases so classification never inflates a payload and so
+each evidence shape gets its *best* access path (not a one-size in-memory extract). This
+is the VFS probe/open split (ADR 0008) with a richer phase-1 output.
+
+**Phase 1 — `detect(source) -> AccessPlan` (bounded, content-authoritative, name-free).**
+Peeks one decompressed block per compression layer (a bounded head sized to the resolver's
+`SNIFF_CAP` ~40 KB, reaching the deepest magic — ISO 9660 `CD001` @32769) and reads only the
+archive's member *table* (zip EOCD / 7z header / tar headers). It never inflates a payload,
+and the file name is not an input to any classification. Five rules:
+
+1. **Magic decides membership both ways** — presence confirms a format, *absence rules it
+   out*. A name claiming a magic-absent format can only fail at decode, so it adds nothing.
+2. **The peek-decode is the coincidental-magic guard** — a raw disk that merely starts with
+   `1F 8B`/`BZh` fails to decode the bounded head → `Direct` (retires the name-based ext guard).
+3. **The peek runs the *full* probe set** — the decompressed head is a `SniffWindow` fed to
+   every probe (tar `ustar`@257 beside MBR@510 / GPT@512 / NTFS@3 / ext@1080 / APFS@32 /
+   HFS+@1024 / ISO@32769), so the answer is *positive* ("inner is a GPT disk / nested zip / tar /
+   unknown"), not "not a tar." archive-core owns packing detection only; the forensic magics stay
+   in the VFS volume/filesystem probes (knowledge from forensicnomicon).
+4. **Prefer the most-seekable `Access` the codec allows — everywhere (bare wrapper, member, each
+   segment).** Ladder, best first: `Stored` → `InPlace` (zero-copy); seekable codec
+   (Deflate/Deflate64/gzip) → `Zran` (no full inflate); non-seekable (LZMA/7z, bzip2 until a
+   block-index) → `SpillToTemp`. So `Zran` covers a bare `.gz` of a disk, any Deflate zip member,
+   and a `.tar.gz` member alike — chosen per item, mixed archives use all three at once. Ladder
+   extends to bzip2/zstd/xz as their indexes land.
+5. **Name absent from detection; irreducible only for split-multipart *ordering*** — a
+   linkage-free split (`disk.001/.002/.003`) has no internal "part N of M", so the numeric suffix
+   *is* the reassembly data for `SegmentSet { kind: SplitRaw }` (and filename-referenced VMDK
+   extents). EWF is reducible (internal segment# + set-GUID). Otherwise the name survives only as
+   a display label.
+
+It classifies the most direct route to evidence:
+
+```rust
+enum AccessPlan {
+    Direct,                                    // raw dd / already a disk image
+    Wrapper    { codec: Codec, access: Access },       // bare gz/bz2 over one stream
+    Member     { format: Format, index: usize, name: String, access: Access },
+    SegmentSet { format: Format, members: Vec<SegmentRef>, kind: SegmentKind }, // E01/E02…, .001/.002, split VMDK
+    Collection { format: Format },             // several independent items -> hand back as a tree
+}
+struct SegmentRef { name: String, index: usize, access: Access } // per-segment access
+enum Access {
+    InPlace { offset: u64, len: u64 },  // Stored/uncompressed member -> seek a sub-range in place (zero-copy)
+    Zran,                               // Deflate/Deflate64/gzip -> checkpoint seek-index, random access, no full inflate
+    SpillToTemp,                        // non-seekable codec (LZMA/7z) or tiny -> decompress once to temp
+}
+```
+
+`Access` is per member **and** per segment, so `SegmentSet` composes with `Zran`: a
+segmented E01 set inside a zip with Deflate-compressed members gets **per-segment zran**
+random access. The reassembled logical image maps a read at logical offset *O* to
+`(segment k, local offset)` and satisfies it via segment *k*'s `Access` — a zran checkpoint
+seek into that deflated member (no full inflate), an `InPlace` sub-range for a `Stored`
+member, `SpillToTemp` only for a non-seekable codec. So a fully-Deflate `E01`/`E02`/`E03`-in-zip
+is randomly accessible with only per-segment checkpoint indexes in RAM — **zero temp spill,
+O(1) inflate per seek**. Reassembly (ewf `SegmentBacking`) never means "extract every segment
+to temp first."
+
+**Phase 2 — `peel(source, plan) -> DynSource` (execute the chosen strategy).**
+`InPlace` sub-ranges the archive; `Zran` builds the checkpoint index (reusing the
+`DeflateSeekReader` / `deflate64_seek` work in `zip-forensic-core`); `SpillToTemp`
+streams once to a temp file (O(1) RAM, O(evidence) temp); `SegmentSet` reassembles a
+split image via the container reader's sibling backing (ewf `SegmentBacking`), pulling
+each member on demand. The resulting `DynSource` then re-enters `container::open` /
+`resolve()` as usual.
+
+**Why the split is structural, not cosmetic:** phase 1 is *typed* to see only bounded
+heads + member tables, so it cannot accidentally inflate a payload to classify — the
+whole-stream inflate exists only inside a deliberately-chosen `SpillToTemp` execution.
+This is the general form of "don't uncompress the whole bz2 to check the tar magic."
+
+**Reuses, not reinvents:** `Zran` = the deflate64 checkpoint seek; `SegmentSet` = ewf
+`SegmentBacking`; `detect`/`peel` = the ADR-0008 `probe`/`open` traits. The only new
+surface is the `AccessPlan` type + the phase-1 classifier.
+
+**Build order:** (1) phase-1 `detect` returning `AccessPlan` (bounded, content-authoritative,
+name-lie resolution + segment-set naming detection) over the existing readers; (2) phase-2
+`InPlace` + `SpillToTemp` executors (subsumes today's `peel_detour`); (3) `Zran` access for
+Deflate/Deflate64 members; (4) `SegmentSet` reassembly via ewf `SegmentBacking`. Each phase
+is independently TDD-able; today's `peel_detour` keeps working until phase 2 replaces it.
+
 ## VFS integration contract — settled (2026-07-18) → **forensic-vfs ADR 0008**
 
 The decision record lives in `forensic-vfs/docs/decisions/0008-archives-as-probes.md`.
