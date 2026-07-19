@@ -11,13 +11,13 @@ Issen transforms forensic evidence collections into structured timelines and ass
 ```mermaid
 flowchart LR
     Evidence["Evidence Collection\n(KAPE, Velociraptor,\nraw image)"]
-    Ingest["rt-unpack + rt-fswalker\nIngestion"]
-    Timeline["rt-timeline\nDuckDB Store"]
-    Sigs["rt-signatures\nThreat Intel"]
-    RA["rt-remote-access\nRemote Access"]
-    Corr["rt-correlation\nPivot Engine"]
-    Report["rt-report\nOutput Formats"]
-    CLI["rt-cli"]
+    Ingest["issen-unpack + issen-fswalker\nIngestion"]
+    Timeline["issen-timeline\nDuckDB Store"]
+    Sigs["issen-signatures\nThreat Intel"]
+    RA["issen-remote-access\nRemote Access"]
+    Corr["issen-correlation\nPivot Engine"]
+    Report["issen-report\nOutput Formats"]
+    CLI["issen-cli"]
 
     CLI --> Ingest
     CLI --> Sigs
@@ -32,7 +32,7 @@ flowchart LR
     Timeline --> Report
 ```
 
-The CLI (`rt`) is the entry point. It dispatches to four subsystems: the ingestion pipeline, signature scanning, remote access detection, and report generation. All subsystems write to or read from a shared DuckDB timeline database.
+The CLI (`issen`) is the entry point. It dispatches to four subsystems: the ingestion pipeline, signature scanning, remote access detection, and report generation. All subsystems write to or read from a shared DuckDB timeline database.
 
 ## Workspace Structure
 
@@ -41,123 +41,123 @@ The CLI (`rt`) is the entry point. It dispatches to four subsystems: the ingesti
 ```mermaid
 graph TD
     subgraph CLI["CLI Layer"]
-        rt-cli
+        issen-cli
     end
 
     subgraph Assessment["Assessment Layer"]
-        rt-signatures
-        rt-remote-access
-        rt-correlation
+        issen-signatures
+        issen-remote-access
+        issen-correlation
     end
 
     subgraph Pipeline["Pipeline Layer"]
-        rt-unpack
-        rt-fswalker
-        rt-report
-        rt-navigator
-        rt-mft-tree
+        issen-unpack
+        issen-fswalker
+        issen-report
+        issen-navigator
+        issen-mft-tree
     end
 
     subgraph Storage["Storage Layer"]
-        rt-timeline
+        issen-timeline
     end
 
     subgraph RemoteIO["Remote I/O Layer"]
-        rt-remote-io
+        issen-remote-io
     end
 
     subgraph Memory["Memory Layer"]
-        rt-mem
+        issen-mem
     end
 
     subgraph Parsers["Parser Plugins"]
-        rt-parser-mft
-        rt-parser-evtx
-        rt-parser-uac
-        rt-parser-velociraptor
-        rt-parser-usnjrnl
-        rt-parser-registry
-        rt-parser-prefetch
-        rt-parser-lnk
+        issen-parser-mft
+        issen-parser-evtx
+        issen-parser-uac
+        issen-parser-velociraptor
+        issen-parser-usnjrnl
+        issen-parser-registry
+        issen-parser-prefetch
+        issen-parser-lnk
     end
 
     subgraph Foundation["Foundation"]
-        rt-core
-        rt-plugin-sdk
-        rt-ewf
-        rt-shrinkpath
+        issen-core
+        issen-plugin-sdk
+        issen-ewf
+        issen-shrinkpath
     end
 
-    rt-cli --> rt-unpack
-    rt-cli --> rt-fswalker
-    rt-cli --> rt-signatures
-    rt-cli --> rt-remote-access
-    rt-cli --> rt-correlation
-    rt-cli --> rt-report
-    rt-cli --> rt-mem
-    rt-cli --> rt-navigator
-    rt-cli --> rt-remote-io
-    rt-unpack --> rt-core
-    rt-fswalker --> rt-core
-    rt-fswalker --> rt-plugin-sdk
-    rt-signatures --> rt-core
-    rt-remote-access --> rt-core
-    rt-remote-access --> rt-timeline
-    rt-correlation --> rt-core
-    rt-correlation --> rt-timeline
-    rt-report --> rt-timeline
-    rt-report --> rt-core
-    rt-timeline --> rt-core
-    rt-mft-tree --> rt-core
-    rt-parser-mft --> rt-core
-    rt-parser-mft --> rt-plugin-sdk
-    rt-parser-evtx --> rt-core
-    rt-parser-evtx --> rt-plugin-sdk
-    rt-parser-uac --> rt-core
-    rt-parser-uac --> rt-plugin-sdk
-    rt-parser-velociraptor --> rt-core
-    rt-parser-velociraptor --> rt-plugin-sdk
-    rt-parser-usnjrnl --> rt-core
-    rt-parser-usnjrnl --> rt-plugin-sdk
-    rt-parser-registry --> rt-core
-    rt-parser-registry --> rt-plugin-sdk
-    rt-parser-prefetch --> rt-core
-    rt-parser-prefetch --> rt-plugin-sdk
-    rt-parser-lnk --> rt-core
-    rt-parser-lnk --> rt-plugin-sdk
-    rt-unpack --> rt-ewf
+    issen-cli --> issen-unpack
+    issen-cli --> issen-fswalker
+    issen-cli --> issen-signatures
+    issen-cli --> issen-remote-access
+    issen-cli --> issen-correlation
+    issen-cli --> issen-report
+    issen-cli --> issen-mem
+    issen-cli --> issen-navigator
+    issen-cli --> issen-remote-io
+    issen-unpack --> issen-core
+    issen-fswalker --> issen-core
+    issen-fswalker --> issen-plugin-sdk
+    issen-signatures --> issen-core
+    issen-remote-access --> issen-core
+    issen-remote-access --> issen-timeline
+    issen-correlation --> issen-core
+    issen-correlation --> issen-timeline
+    issen-report --> issen-timeline
+    issen-report --> issen-core
+    issen-timeline --> issen-core
+    issen-mft-tree --> issen-core
+    issen-parser-mft --> issen-core
+    issen-parser-mft --> issen-plugin-sdk
+    issen-parser-evtx --> issen-core
+    issen-parser-evtx --> issen-plugin-sdk
+    issen-parser-uac --> issen-core
+    issen-parser-uac --> issen-plugin-sdk
+    issen-parser-velociraptor --> issen-core
+    issen-parser-velociraptor --> issen-plugin-sdk
+    issen-parser-usnjrnl --> issen-core
+    issen-parser-usnjrnl --> issen-plugin-sdk
+    issen-parser-registry --> issen-core
+    issen-parser-registry --> issen-plugin-sdk
+    issen-parser-prefetch --> issen-core
+    issen-parser-prefetch --> issen-plugin-sdk
+    issen-parser-lnk --> issen-core
+    issen-parser-lnk --> issen-plugin-sdk
+    issen-unpack --> issen-ewf
 ```
 
-**Dependency rule:** Arrows point downward. Higher layers depend on lower layers, never the reverse. `rt-core` has no internal dependencies.
+**Dependency rule:** Arrows point downward. Higher layers depend on lower layers, never the reverse. `issen-core` has no internal dependencies.
 
 ### Crate Responsibilities
 
 | Crate | Layer | Responsibility |
 |-------|-------|---------------|
-| `rt-core` | Foundation | Shared types (`TimelineEvent`, `ArtifactType`, `EventType`), plugin traits, error types, configuration |
-| `rt-plugin-sdk` | Foundation | Parser plugin registration via `inventory` crate. Parsers register themselves at compile time |
-| `rt-ewf` | Foundation | Expert Witness Format (E01) forensic image reading |
-| `rt-shrinkpath` | Foundation | Path abbreviation utilities |
-| `rt-timeline` | Storage | DuckDB columnar timeline store. Insert events, query by time/type/source, export to SQLite, CSV, and bodyfile |
-| `rt-unpack` | Pipeline | Collection format detection and unpacking (UAC tar.gz, Velociraptor, KAPE) |
-| `rt-fswalker` | Pipeline | Parallel filesystem walk via rayon; SHA-256 integrity hashing; VSS/shadow-copy awareness; dispatches parsers via plugin SDK |
-| `rt-report` | Pipeline | HTML, PDF, STIX 2.1 Attack Flow, AFB, Mermaid, and DOT/PNG report generation from timeline data |
-| `rt-navigator` | Pipeline | Interactive TUI navigation for timeline and findings |
-| `rt-mft-tree` | Pipeline | MFT heuristic analysis |
-| `rt-remote-io` | Remote I/O | Remote storage I/O via OpenDAL 0.55: 48 URI schemes including S3, GCS, Azure Blob, WebDAV, SFTP, HDFS, Google Drive (OAuth2) |
-| `rt-mem` | Memory | Memory forensics bridge into the memf-* sibling workspace |
-| `rt-signatures` | Assessment | Six detection engines (YARA-X, Sigma/Tau-Engine, Hash IOC, Network IOC, STIX, Suricata) + feed infrastructure |
-| `rt-remote-access` | Assessment | Remote access detection: LOLRMM rule engine (400+ tools) + 7 category scanners + DuckDB findings store |
-| `rt-correlation` | Assessment | Pivot engine: YAML correlation rules, Attack Flow STIX ingestion, time-skew detection, event clustering, zeek-intel |
-| `rt-parser-mft` | Parsers | NTFS MFT + USN Journal parser. Registers via `inventory::submit!` |
-| `rt-parser-evtx` | Parsers | Windows Event Log (EVTX) parser. Registers via `inventory::submit!` |
-| `rt-parser-uac` | Parsers | UAC collection format parser; hidden-PID detection, sockstat analysis. Registers via `inventory::submit!` |
-| `rt-parser-velociraptor` | Parsers | Velociraptor collection parser. Registers via `inventory::submit!` |
-| `rt-parser-usnjrnl` | Parsers | Windows USN Change Journal parser. Registers via `inventory::submit!` |
-| `rt-parser-registry` | Parsers | Windows registry hive parser (notatin). Run keys, services, shimcache, amcache. Registers via `inventory::submit!` |
-| `rt-parser-prefetch` | Parsers | Windows Prefetch (`.pf`) file parser — execution evidence. Registers via `inventory::submit!` |
-| `rt-parser-lnk` | Parsers | LNK shortcut and Jump List parser — lateral movement evidence. Registers via `inventory::submit!` |
-| `rt-cli` | CLI | Command-line interface. Parses args, dispatches to subsystems, formats output |
+| `issen-core` | Foundation | Shared types (`TimelineEvent`, `ArtifactType`, `EventType`), plugin traits, error types, configuration |
+| `issen-plugin-sdk` | Foundation | Parser plugin registration via `inventory` crate. Parsers register themselves at compile time |
+| `issen-ewf` | Foundation | Expert Witness Format (E01) forensic image reading |
+| `issen-shrinkpath` | Foundation | Path abbreviation utilities |
+| `issen-timeline` | Storage | DuckDB columnar timeline store. Insert events, query by time/type/source, export to SQLite, CSV, and bodyfile |
+| `issen-unpack` | Pipeline | Collection format detection and unpacking (UAC tar.gz, Velociraptor, KAPE) |
+| `issen-fswalker` | Pipeline | Parallel filesystem walk via rayon; SHA-256 integrity hashing; VSS/shadow-copy awareness; dispatches parsers via plugin SDK |
+| `issen-report` | Pipeline | HTML, PDF, STIX 2.1 Attack Flow, AFB, Mermaid, and DOT/PNG report generation from timeline data |
+| `issen-navigator` | Pipeline | Interactive TUI navigation for timeline and findings |
+| `issen-mft-tree` | Pipeline | MFT heuristic analysis |
+| `issen-remote-io` | Remote I/O | Remote storage I/O via OpenDAL 0.55: 48 URI schemes including S3, GCS, Azure Blob, WebDAV, SFTP, HDFS, Google Drive (OAuth2) |
+| `issen-mem` | Memory | Memory forensics bridge into the memf-* sibling workspace |
+| `issen-signatures` | Assessment | Six detection engines (YARA-X, Sigma/Tau-Engine, Hash IOC, Network IOC, STIX, Suricata) + feed infrastructure |
+| `issen-remote-access` | Assessment | Remote access detection: LOLRMM rule engine (400+ tools) + 7 category scanners + DuckDB findings store |
+| `issen-correlation` | Assessment | Pivot engine: YAML correlation rules, Attack Flow STIX ingestion, time-skew detection, event clustering, zeek-intel |
+| `issen-parser-mft` | Parsers | NTFS MFT + USN Journal parser. Registers via `inventory::submit!` |
+| `issen-parser-evtx` | Parsers | Windows Event Log (EVTX) parser. Registers via `inventory::submit!` |
+| `issen-parser-uac` | Parsers | UAC collection format parser; hidden-PID detection, sockstat analysis. Registers via `inventory::submit!` |
+| `issen-parser-velociraptor` | Parsers | Velociraptor collection parser. Registers via `inventory::submit!` |
+| `issen-parser-usnjrnl` | Parsers | Windows USN Change Journal parser. Registers via `inventory::submit!` |
+| `issen-parser-registry` | Parsers | Windows registry hive parser (notatin). Run keys, services, shimcache, amcache. Registers via `inventory::submit!` |
+| `issen-parser-prefetch` | Parsers | Windows Prefetch (`.pf`) file parser — execution evidence. Registers via `inventory::submit!` |
+| `issen-parser-lnk` | Parsers | LNK shortcut and Jump List parser — lateral movement evidence. Registers via `inventory::submit!` |
+| `issen-cli` | CLI | Command-line interface. Parses args, dispatches to subsystems, formats output |
 | `xtask` | Build | Build automation tasks |
 
 ---
@@ -169,17 +169,17 @@ The pipeline ingests an evidence collection and produces a DuckDB timeline. It u
 ```mermaid
 flowchart TD
     Input["Evidence Path\n/path/to/collection/"]
-    Unpack["rt-unpack\nFormat Detection + Unpack"]
-    Walk["rt-fswalker\nParallel Walk (rayon)"]
-    MFT["rt-parser-mft\nMFT + USN Journal"]
-    EVTX["rt-parser-evtx\nEvent Log"]
-    UAC["rt-parser-uac\nUAC Format"]
-    Veloci["rt-parser-velociraptor\nVelociraptor"]
-    USN["rt-parser-usnjrnl\nUSN Journal"]
-    Reg["rt-parser-registry\nRegistry Hives"]
-    PF["rt-parser-prefetch\nPrefetch"]
-    LNK["rt-parser-lnk\nLNK / Jump Lists"]
-    TL["rt-timeline\nDuckDB Insert"]
+    Unpack["issen-unpack\nFormat Detection + Unpack"]
+    Walk["issen-fswalker\nParallel Walk (rayon)"]
+    MFT["issen-parser-mft\nMFT + USN Journal"]
+    EVTX["issen-parser-evtx\nEvent Log"]
+    UAC["issen-parser-uac\nUAC Format"]
+    Veloci["issen-parser-velociraptor\nVelociraptor"]
+    USN["issen-parser-usnjrnl\nUSN Journal"]
+    Reg["issen-parser-registry\nRegistry Hives"]
+    PF["issen-parser-prefetch\nPrefetch"]
+    LNK["issen-parser-lnk\nLNK / Jump Lists"]
+    TL["issen-timeline\nDuckDB Insert"]
 
     Input --> Unpack
     Unpack --> Walk
@@ -203,19 +203,19 @@ flowchart TD
 
 ### VSS / Shadow Copy Awareness
 
-`rt-fswalker` enumerates VSS snapshots in the evidence root using `list_vss_volumes`. Each discovered snapshot directory (Windows-style `HarddiskVolumeShadowCopy*`, Unix-style `vss/*/` or `shadow/*/`, and test-friendly `snapshot_*` / `shadow_*` / `vsc_*` prefixes) is walked independently. The `is_vss_path` guard prevents the same file from being double-counted if evidence already includes a mounted VSS path.
+`issen-fswalker` enumerates VSS snapshots in the evidence root using `list_vss_volumes`. Each discovered snapshot directory (Windows-style `HarddiskVolumeShadowCopy*`, Unix-style `vss/*/` or `shadow/*/`, and test-friendly `snapshot_*` / `shadow_*` / `vsc_*` prefixes) is walked independently. The `is_vss_path` guard prevents the same file from being double-counted if evidence already includes a mounted VSS path.
 
 ### Plugin System
 
 Parsers register themselves at compile time using the `inventory` crate. The filesystem walker discovers registered parsers at runtime without hardcoded dispatch:
 
 ```rust
-// In rt-parser-mft:
+// In issen-parser-mft:
 inventory::submit! {
     ParserPlugin::new("mft", &["$MFT"], parse_mft)
 }
 
-// In rt-fswalker:
+// In issen-fswalker:
 for plugin in inventory::iter::<ParserPlugin> {
     if plugin.can_parse(file_path) {
         plugin.parse(file_path, &timeline)?;
@@ -239,13 +239,13 @@ All parsed events become `TimelineEvent` records in DuckDB:
 | `evidence_source` | `VARCHAR` | Case/host identifier |
 | `metadata` | `VARCHAR` (JSON) | Artifact-specific structured data |
 
-DuckDB's columnar storage makes time-range and type-filtered queries fast, even with millions of events. The `rt timeline` command supports `--format text`, `--format json`, `--format csv`, and `--format bodyfile` export.
+DuckDB's columnar storage makes time-range and type-filtered queries fast, even with millions of events. The `issen timeline` command supports `--format text`, `--format json`, `--format csv`, and `--format bodyfile` export.
 
 ---
 
 ## Signature Scanning
 
-`rt-signatures` provides six detection engines behind a unified `ScanEngine` interface.
+`issen-signatures` provides six detection engines behind a unified `ScanEngine` interface.
 
 ```mermaid
 flowchart TD
@@ -318,7 +318,7 @@ Conditional HTTP requests (ETag / If-None-Match) avoid re-downloading unchanged 
 
 ## Correlation Engine
 
-`rt-correlation` contains the Pivot engine, Attack Flow ingestion, time-skew detection, and event clustering.
+`issen-correlation` contains the Pivot engine, Attack Flow ingestion, time-skew detection, and event clustering.
 
 ### YAML Correlation Rules
 
@@ -347,7 +347,7 @@ Custom rules in `~/.config/issen/rules/` merge with bundled rules by ID (duplica
 
 ### Attack Flow STIX Ingestion
 
-`rt-correlation::attack_flow` parses CTID Attack Flow v3.0.0 STIX 2.1 bundles into `AttackFlowBundle` structs and converts them to `CorrelationRule` objects.
+`issen-correlation::attack_flow` parses CTID Attack Flow v3.0.0 STIX 2.1 bundles into `AttackFlowBundle` structs and converts them to `CorrelationRule` objects.
 
 **Public API:**
 
@@ -363,11 +363,11 @@ Custom rules in `~/.config/issen/rules/` merge with bundled rules by ID (duplica
 
 ### Time-Skew Detection
 
-`rt-correlation::skew::detect_time_skew` groups `Evidence` items by their `path` attribute (falling back to `id`), then compares all pairs from different sources. When `|Δt| > threshold_secs` (default 300s), a `SkewFinding` is emitted. This is an anti-forensics signal: legitimate timestamps for the same artifact should agree across MFT, USN Journal, and Event Log.
+`issen-correlation::skew::detect_time_skew` groups `Evidence` items by their `path` attribute (falling back to `id`), then compares all pairs from different sources. When `|Δt| > threshold_secs` (default 300s), a `SkewFinding` is emitted. This is an anti-forensics signal: legitimate timestamps for the same artifact should agree across MFT, USN Journal, and Event Log.
 
 ### Event Clustering
 
-`rt-correlation::cluster::cluster_events` groups `Evidence` items by:
+`issen-correlation::cluster::cluster_events` groups `Evidence` items by:
 - `ClusterKey::ByPid` — groups by `SubjectRef::Process(pid)`
 - `ClusterKey::ByUser` — groups by `attrs["user"]`
 - `ClusterKey::ByPath` — groups by `attrs["path"]`
@@ -378,7 +378,7 @@ Events without the requested attribute fall into the sentinel bucket `"__unknown
 
 ## Remote Access Detection
 
-`rt-remote-access` uses a hybrid detection engine to find every category of remote access capability in forensic evidence.
+`issen-remote-access` uses a hybrid detection engine to find every category of remote access capability in forensic evidence.
 
 ```mermaid
 flowchart TD
@@ -441,7 +441,7 @@ pub trait ArtifactProvider: Send + Sync {
 
 ## Report Generation
 
-`rt-report` generates multiple output formats from correlation findings and timeline data.
+`issen-report` generates multiple output formats from correlation findings and timeline data.
 
 ### Output Formats
 
@@ -469,16 +469,16 @@ End-to-end flow for a typical incident response engagement:
 ```mermaid
 sequenceDiagram
     participant User as Practitioner
-    participant CLI as rt (CLI)
-    participant Unpack as rt-unpack
-    participant Walker as rt-fswalker
-    participant Timeline as rt-timeline (DuckDB)
-    participant Sigs as rt-signatures
-    participant RA as rt-remote-access
-    participant Corr as rt-correlation
-    participant Report as rt-report
+    participant CLI as issen (CLI)
+    participant Unpack as issen-unpack
+    participant Walker as issen-fswalker
+    participant Timeline as issen-timeline (DuckDB)
+    participant Sigs as issen-signatures
+    participant RA as issen-remote-access
+    participant Corr as issen-correlation
+    participant Report as issen-report
 
-    User->>CLI: rt ingest /evidence -o case.duckdb --scan
+    User->>CLI: issen ingest /evidence -o case.duckdb --scan
     CLI->>Unpack: detect + unpack collection format
     Unpack->>Walker: walk unpacked evidence tree (VSS-aware)
     Walker->>Walker: Discover parseable files (parallel via rayon)
@@ -487,7 +487,7 @@ sequenceDiagram
     Sigs->>Timeline: Insert ScanFindings
     CLI-->>User: Ingestion complete (N events, M findings)
 
-    User->>CLI: rt remote-access /evidence --db case.duckdb
+    User->>CLI: issen remote-access /evidence --db case.duckdb
     CLI->>RA: scan(provider, config)
     RA->>RA: Rule engine (LOLRMM + custom YAML)
     RA->>RA: Category scanners (7 modules)
@@ -495,11 +495,11 @@ sequenceDiagram
     RA->>Timeline: Insert findings + cross-ref events
     CLI-->>User: Remote access findings (table/JSON)
 
-    User->>CLI: rt timeline case.duckdb --flagged
+    User->>CLI: issen timeline case.duckdb --flagged
     CLI->>Timeline: Query flagged events
     CLI-->>User: Findings with severity and context
 
-    User->>CLI: rt report case.duckdb -o report.html
+    User->>CLI: issen report case.duckdb -o report.html
     CLI->>Report: generate(db, config)
     Report->>Timeline: Read events + findings
     Report-->>User: Self-contained HTML report
@@ -517,7 +517,7 @@ sequenceDiagram
 
 **Plugin extensibility.** New artifact parsers are added by creating a crate, implementing the plugin trait, and linking it. No changes to the pipeline, timeline, or CLI are required.
 
-**Progressive analysis.** Each command produces useful output independently. `rt ingest` creates a timeline. `rt scan` adds threat intel. `rt remote-access` adds infrastructure assessment. `rt report` generates deliverables. Run them all or run them individually.
+**Progressive analysis.** Each command produces useful output independently. `issen ingest` creates a timeline. `issen scan` adds threat intel. `issen remote-access` adds infrastructure assessment. `issen report` generates deliverables. Run them all or run them individually.
 
 ---
 
@@ -537,7 +537,7 @@ sequenceDiagram
 | `inventory` | 0.3 | Compile-time parser plugin registration |
 | `clap` | 4.x | CLI argument parsing |
 | `rayon` | 1.x | Parallel parser dispatch |
-| `ratatui` | 0.29 | TUI framework for rt-navigator |
+| `ratatui` | 0.29 | TUI framework for issen-navigator |
 | `reqwest` | 0.12 | HTTP feed downloads (rustls-tls) |
 | `serde` / `serde_yaml` | 1.x / 0.9 | LOLRMM YAML deserialization, rule loading |
 | `serde_json` | 1.x | STIX/AFB/MISP JSON serialization |
@@ -557,10 +557,10 @@ cargo build --workspace --release
 cargo test --workspace
 
 # Single crate
-cargo test -p rt-remote-access
-cargo test -p rt-signatures
-cargo test -p rt-correlation
-cargo test -p rt-report
+cargo test -p issen-remote-access
+cargo test -p issen-signatures
+cargo test -p issen-correlation
+cargo test -p issen-report
 
 # Lints
 cargo clippy --workspace --lib --bins

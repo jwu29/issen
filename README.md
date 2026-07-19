@@ -111,7 +111,6 @@ Issen is the thin orchestration layer wiring a family of standalone forensic lib
 
 **[C] Content-addressed — hash → blob → graph** (`hash → blob → content graph`)
 - [git-forensic](https://github.com/SecurityRonin/git-forensic) — git object forensics: backdated commits, rewritten history, unsigned/unreachable objects
-- [web3-forensic](https://github.com/SecurityRonin/web3-forensic) — Ethereum-family wallet & on-chain forensics → TSK bodyfile / supertimeline
 - *planned:* cas-forensic (git/OCI/IPFS), sigstore-forensic (transparency log)
 
 **Parsers — artifact records → forensic meaning** (medium-agnostic; accept `Path` or `&[u8]`)
@@ -132,9 +131,10 @@ Issen is the thin orchestration layer wiring a family of standalone forensic lib
 **Deprecated** (retired to `ronin-issen/components/_deprecated`, source archived read-only)
 - [usnjrnl-forensic](https://github.com/SecurityRonin/usnjrnl-forensic) — USN Journal; parsing is consolidating into [ntfs-forensic](https://github.com/SecurityRonin/ntfs-forensic)
 - the standalone `ewf` repo — superseded; the `ewf` crate now ships from [ewf-forensic](https://github.com/SecurityRonin/ewf-forensic)
-- [livedisk-forensic](https://github.com/SecurityRonin/livedisk-forensic) — live block-device enumeration + acquisition-integrity forensics
 
-Acquisition & specialty tooling: [rapidcollect](https://github.com/SecurityRonin/rapidcollect) — evidence acquisition (web/social/Android, WARC + timestamping) · [chat4n6](https://github.com/SecurityRonin/chat4n6) — WhatsApp/Signal/Telegram extraction · [nameback](https://github.com/SecurityRonin/nameback) — rename recovered files from embedded metadata/OCR.
+**Acquisition & specialty tooling**
+- [livedisk-forensic](https://github.com/SecurityRonin/livedisk-forensic) — live block-device enumeration + acquisition-integrity grading (write-blocker / mounted-during-acquisition / removable / 512e-4Kn checks)
+- [rapidcollect](https://github.com/SecurityRonin/rapidcollect) — evidence acquisition (web/social/Android, WARC + timestamping) · [chat4n6](https://github.com/SecurityRonin/chat4n6) — WhatsApp/Signal/Telegram extraction · [nameback](https://github.com/SecurityRonin/nameback) — rename recovered files from embedded metadata/OCR.
 
 ---
 
