@@ -59,22 +59,38 @@ the PCAP, autoruns, and protected-files bundles.
 - **Created by:** James Smith (DFIR Madness)
 - **Site:** <https://dfirmadness.com/the-stolen-szechuan-sauce/> (may be down)
 - **Mirror:** <https://mimircyber.com/the-case-of-the-stolen-szechuan-sauce/>
-- **DESKTOP-E01.zip MD5:** `71C5C3509331F472ABCDF81EB6EFFF07` (DC01 hashes not published on the
-  case page — DC01 files verified by byte-length vs server `content-length`)
+- **MD5 manifest** — `DESKTOP-E01.zip` is the only hash DFIR Madness published, and our local copy
+  **matches** it (upstream-verified). The case page publishes no hash for the other ten, so those are
+  **local integrity hashes** of the downloaded copies (they detect later corruption/truncation but are
+  not upstream-verified; originally cross-checked by byte-length vs server `content-length`):
+
+  | File | MD5 | Provenance |
+  |------|-----|-----------|
+  | `DESKTOP-E01.zip` | `71c5c3509331f472abcdf81eb6efff07` | **published** (DFIR Madness) — local copy matches |
+  | `DC01-E01.zip` | `e57fc636e833c5f1ab58dface873bbde` | local integrity only |
+  | `DESKTOP-SDN1RPT-memory.zip` | `cf31e2635c77811aaa1bb04a92a721e2` | local integrity only |
+  | `DC01-memory.zip` | `64a4e2cb47138084a5c2878066b2d7b1` | local integrity only |
+  | `Desktop-SDN1RPT-pagefile.zip` | `45c096f2688a0b5de0346fb72391b245` | local integrity only |
+  | `DC01-pagefile.zip` | `964eeaf0009d08cc101de4a83a4e5d23` | local integrity only |
+  | `case001-pcap.zip` | `422046b753cf8a4df49d2c4ce892db16` | local integrity only |
+  | `DESKTOP-SDN1RPT-Protected Files.zip` | `3e1a358d50003a9351ac2160ae6f0495` | local integrity only |
+  | `DC01-ProtectedFiles.zip` | `ad29830a583efe49c8c1c35faffd264f` | local integrity only |
+  | `DESKTOP-SDN1RPT-autorunsc.zip` | `3627dcafa54e1365489a4ec0cc3d6a1c` | local integrity only |
+  | `DC01-autorunsc.zip` | `964f2d710687d170c77c94947da29e66` | local integrity only |
 - **Used by:** BSidesHK 3hr workshop (`docs/workshop-3hr/`, disk + RAM only — pcap/autoruns/
   protected-files downloaded for completeness but excluded from the lab) and `usnjrnl-forensic`
   integration tests (desktop E01).
 
 ### hal-linux-dfir-challenge/
 
-Used by automated tests in `rt-parser-uac` and `rt-navigator`. The small archive runs in CI; the large one is `#[ignore]`d unless explicitly requested.
+Used by automated tests in `issen-parser-uac` and `issen-navigator`. The small archive runs in CI; the large one is `#[ignore]`d unless explicitly requested.
 
 #### uac-vbox-linux-20260324193807.tar.gz (143 MB)
 
 - **Source:** Self-collected using UAC on a Linux VirtualBox VM, March 24, 2026
 - **Tool:** [UAC — Unix-like Artifacts Collector](https://github.com/tclahr/uac)
 - **Contents:** Filesystem artifacts only (no memory dump) — bodyfile, network, processes, system info, etc.
-- **Use case:** UAC parser integration tests (`rt-parser-uac`, `rt-navigator`)
+- **Use case:** UAC parser integration tests (`issen-parser-uac`, `issen-navigator`)
 
 #### uac-vbox-linux-20260324234043.tar.gz (5.9 GB)
 
@@ -248,7 +264,7 @@ this is the real-data oracle for **`timeglyph`**'s `cocoa`/`iostime` decoders.
 - **Source:** Self-collected from host `A380` (Windows 11 Pro 24H2, standalone workstation), August 10, 2025
 - **Tool:** Velociraptor offline collector v0.74.5 — artifact `Windows.KapeFiles.Targets` (`_SANS_Triage` target set). **Not UAC** — the earlier "UAC" label was incorrect (verified by inspecting the archive: `client_info.json` / `collection_context.json`, 2026-06-09).
 - **Contents:** Disk-artifact triage only — registry hives, EVTX, prefetch, `$MFT`, browser artifacts (2,952 files). **No memory dump.** Benign baseline (real daily-driver host), not an intrusion scenario.
-- **Use case:** Velociraptor parser integration tests (`rt-parser-velociraptor`, `rt-navigator`)
+- **Use case:** Velociraptor parser integration tests (`issen-parser-velociraptor`, `issen-navigator`)
 - **Note:** Contains real personal artifacts — sanitize before any external sharing.
 
 ## Examining E01 Images
@@ -333,6 +349,6 @@ If you add a new file or subfolder, update the corresponding integration test an
 
 | Test file | Archive referenced |
 |-----------|-------------------|
-| `crates/parsers/rt-parser-uac/tests/integration_test.rs` | `hal-linux-dfir-challenge/uac-vbox-linux-20260324193807.tar.gz` |
-| `crates/parsers/rt-parser-velociraptor/tests/integration_test.rs` | `Collection-A380_localdomain-2025-08-10T03_41_20Z.zip` |
-| `crates/rt-navigator/tests/collection_loading.rs` | Both of the above |
+| `crates/parsers/issen-parser-uac/tests/integration_test.rs` | `hal-linux-dfir-challenge/uac-vbox-linux-20260324193807.tar.gz` |
+| `crates/parsers/issen-parser-velociraptor/tests/integration_test.rs` | `Collection-A380_localdomain-2025-08-10T03_41_20Z.zip` |
+| `crates/issen-navigator/tests/collection_loading.rs` | Both of the above |
